@@ -1,0 +1,38 @@
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# ---- Xcode: 用户个人 / 状态文件 ----
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xcscmblueprint
+*.xccheckout
+
+# ---- Xcode: 构建产物 ----
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Swift Package Manager ----
+.build/
+**/.build/
+.swiftpm/
+.venv/
+**/.venv/
+# Package.resolved 一般建议提交（App 里锁版本）；
+# 纯 library 才考虑忽略，按需取舍：
+# Package.resolved
+
+# ---- 你项目里已有的自定义项 ----
+.codegraph/
+.github/features/
+.github/archived_features/
+tmp/

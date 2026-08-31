@@ -24,6 +24,62 @@ public enum SQLiteBackup {
             .appendingPathComponent("Library/Application Support/AppleBooksCLI/backups", isDirectory: true)
     }
 
+    static func list(
+        source: URL,
+        backupRoot: URL = defaultRoot()
+    ) throws -> [LibraryBackup] {
+        var rootStat = stat()
+        guard lstat(backupRoot.path, &rootStat) == 0 else {
+            if errno == ENOENT { return [] }
+            throw SQLiteBackupError.filesystemFailure
+        }
+        guard rootStat.st_mode & S_IFMT == S_IFDIR else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(
+                at: backupRoot,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            throw SQLiteBackupError.filesystemFailure
+        }
+
+        let sourceStem = source.deletingPathExtension().lastPathComponent
+        var backups: [(LibraryBackup, BackupMetadata)] = []
+        for entry in entries {
+            guard let metadata = BackupMetadata.parse(
+                filename: entry.lastPathComponent,
+                sourceStem: sourceStem
+            ) else {
+                continue
+            }
+            var entryStat = stat()
+            guard lstat(entry.path, &entryStat) == 0,
+                  entryStat.st_mode & S_IFMT == S_IFREG,
+                  entryStat.st_size >= 0 else {
+                continue
+            }
+            backups.append((
+                LibraryBackup(
+                    handle: entry.lastPathComponent,
+                    createdAt: metadata.timestamp,
+                    sizeBytes: Int64(entryStat.st_size)
+                ),
+                metadata
+            ))
+        }
+
+        backups.sort {
+            if $0.1.timestamp != $1.1.timestamp { return $0.1.timestamp > $1.1.timestamp }
+            return $0.1.uuid.uuidString > $1.1.uuid.uuidString
+        }
+        return backups.map(\.0)
+    }
+
     @discardableResult
     public static func create(
         source: URL,

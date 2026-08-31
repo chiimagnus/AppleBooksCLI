@@ -13,6 +13,8 @@ public final class AppleBooks {
     private let readingQueries: ReadingQueries
     private let collectionWriter: CollectionWriter
     private let annotationWriter: AnnotationWriter
+    private let libraryDatabase: URL
+    private let libraryBackupRoot: URL
 
     public convenience init(
         libraryDB: URL,
@@ -33,7 +35,8 @@ public final class AppleBooks {
         annotationsDB: URL,
         historicalConfig: URL?,
         collectionWriter: CollectionWriter,
-        annotationWriter: AnnotationWriter? = nil
+        annotationWriter: AnnotationWriter? = nil,
+        libraryBackupRoot: URL = SQLiteBackup.defaultRoot()
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
@@ -58,6 +61,12 @@ public final class AppleBooks {
         )
         self.collectionWriter = collectionWriter
         self.annotationWriter = annotationWriter ?? AnnotationWriter(database: annotationsDB)
+        libraryDatabase = libraryDB
+        self.libraryBackupRoot = libraryBackupRoot
+    }
+
+    public func listLibraryBackups() throws -> [LibraryBackup] {
+        try SQLiteBackup.list(source: libraryDatabase, backupRoot: libraryBackupRoot)
     }
 
     // Stable deterministic order + validated pagination.

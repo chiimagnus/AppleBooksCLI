@@ -1,5 +1,17 @@
 import Foundation
 
+public struct LibraryBackup: Equatable, Sendable {
+    public let handle: String
+    public let createdAt: Date
+    public let sizeBytes: Int64
+
+    init(handle: String, createdAt: Date, sizeBytes: Int64) {
+        self.handle = handle
+        self.createdAt = createdAt
+        self.sizeBytes = sizeBytes
+    }
+}
+
 struct BackupMetadata: Equatable {
     static let timestampFormat = "yyyyMMdd-HHmmss-SSSSSS"
 

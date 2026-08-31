@@ -32,7 +32,7 @@ struct MutationCoordinator {
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
-        booksIsRunning: @escaping () -> Bool = isBooksAppRunning
+        booksIsRunning: @escaping () -> Bool = BooksAppController.live.isRunning
     ) {
         self.database = database
         self.backupRoot = backupRoot

@@ -1,9 +1,4 @@
-import AppKit
 import SQLite3
-
-func isBooksAppRunning() -> Bool {
-    NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.iBooksX").isEmpty == false
-}
 
 struct RestoreEnvironment {
     let booksIsRunning: () -> Bool
@@ -11,8 +6,9 @@ struct RestoreEnvironment {
     let failAfterSteps: Int?
 
     static var live: RestoreEnvironment {
-        RestoreEnvironment(
-            booksIsRunning: isBooksAppRunning,
+        let controller = BooksAppController.live
+        return RestoreEnvironment(
+            booksIsRunning: controller.isRunning,
             pageCount: -1,
             failAfterSteps: nil
         )

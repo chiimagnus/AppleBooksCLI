@@ -34,7 +34,7 @@ struct CollectionWriter {
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
-        booksIsRunning: @escaping () -> Bool = isBooksAppRunning
+        booksIsRunning: @escaping () -> Bool = { BooksAppController.live.isRunning() }
     ) {
         coordinator = MutationCoordinator(
             database: database,

@@ -22,6 +22,26 @@ public struct AnnotationContext: Equatable, Sendable {
     public var text: String {
         (leadingTruncated ? "…" : "") + before + matched + after + (trailingTruncated ? "…" : "")
     }
+
+    public var markedPresentation: AnnotationContextPresentation {
+        guard matched.isEmpty == false else {
+            return AnnotationContextPresentation(text: text, matched: false)
+        }
+        let presented = (leadingTruncated ? "…" : "")
+            + before + "«" + matched + "»" + after
+            + (trailingTruncated ? "…" : "")
+        return AnnotationContextPresentation(text: presented, matched: true)
+    }
+}
+
+public struct AnnotationContextPresentation: Equatable, Sendable {
+    public let text: String
+    public let matched: Bool
+
+    public init(text: String, matched: Bool) {
+        self.text = text
+        self.matched = matched
+    }
 }
 
 enum AnnotationContextMatcher {

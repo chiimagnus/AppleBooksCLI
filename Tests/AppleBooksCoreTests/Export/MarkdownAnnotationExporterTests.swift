@@ -169,7 +169,7 @@ struct MarkdownAnnotationExporterTests {
             books = try AppleBooks(
                 libraryDB: library,
                 annotationsDB: annotations,
-                historicalConfig: config
+                configurationFile: config
             )
         }
 

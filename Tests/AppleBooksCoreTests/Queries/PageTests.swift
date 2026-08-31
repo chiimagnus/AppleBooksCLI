@@ -108,7 +108,7 @@ struct PageTests {
 
             let config = root.appendingPathComponent("config.json")
             try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-            core = try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+            core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
         }
 
         func remove() {

@@ -22,7 +22,7 @@ final class ReadParityRegressionTests: XCTestCase {
         let config = temporaryDirectory.appendingPathComponent("config.json")
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
 
-        let books = try AppleBooks(libraryDB: libraryDB, annotationsDB: annotationsDB, historicalConfig: config)
+        let books = try AppleBooks(libraryDB: libraryDB, annotationsDB: annotationsDB, configurationFile: config)
 
         let listedBooks = try books.listBooks()
         XCTAssertEqual(listedBooks.map(\.localPK).sorted(), Array(1...12).map(Int64.init))

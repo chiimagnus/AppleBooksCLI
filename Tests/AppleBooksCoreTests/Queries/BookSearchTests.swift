@@ -29,7 +29,7 @@ struct BookSearchTests {
         try createDatabase(annotations, sql: "CREATE TABLE placeholder(value INTEGER);")
         let config = root.appendingPathComponent("config.json")
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-        let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+        let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
         #expect(try core.books(matching: "Alpha").map(\.localPK) == [1, 2, 3])
         #expect(try core.books(matching: "%_").map(\.localPK) == [4])

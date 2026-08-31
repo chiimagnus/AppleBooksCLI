@@ -60,7 +60,7 @@ struct AnnotationScopeTests {
             queries = AnnotationQueries(
                 annotationConnection: try SQLiteConnection.readOnly(path: annotations.path),
                 bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
-                historicalAssets: try HistoricalAssetMapping(fileURL: config)
+                historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
             )
         }
 

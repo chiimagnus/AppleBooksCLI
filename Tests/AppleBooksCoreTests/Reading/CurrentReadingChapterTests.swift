@@ -81,7 +81,7 @@ struct CurrentReadingChapterTests {
     private func makeAppleBooks(library: URL, annotations: URL, root: URL) throws -> AppleBooks {
         let config = root.appendingPathComponent("config.json")
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-        return try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+        return try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
     }
 
     private func makeEPUB(in parent: URL, name: String, duplicateSpine: Bool) throws -> URL {

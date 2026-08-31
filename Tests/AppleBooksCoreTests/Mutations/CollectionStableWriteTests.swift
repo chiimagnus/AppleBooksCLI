@@ -123,7 +123,7 @@ struct CollectionStableWriteTests {
         let books = try AppleBooks(
             libraryDB: fixture.database,
             annotationsDB: annotations,
-            historicalConfig: config,
+            configurationFile: config,
             collectionWriter: fixture.writer
         )
         let collectionID = "550E8400-E29B-41D4-A716-446655440000"

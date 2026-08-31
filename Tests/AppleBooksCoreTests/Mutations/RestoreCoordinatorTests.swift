@@ -178,7 +178,7 @@ struct RestoreCoordinatorTests {
         let books = try AppleBooks(
             libraryDB: fixture.database,
             annotationsDB: fixture.database,
-            historicalConfig: nil,
+            configurationFile: nil,
             collectionWriter: CollectionWriter(database: fixture.database),
             libraryBackupRoot: fixture.backupRoot,
             restoreCoordinator: fixture.coordinator

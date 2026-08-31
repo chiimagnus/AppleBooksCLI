@@ -118,7 +118,7 @@ struct ReadingPositionTests {
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
         return Fixture(
             root: root,
-            books: try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+            books: try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
         )
     }
 

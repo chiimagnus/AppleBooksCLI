@@ -321,7 +321,7 @@ struct FeatureParityRegressionTests {
             books = try AppleBooks(
                 libraryDB: library,
                 annotationsDB: annotations,
-                historicalConfig: config,
+                configurationFile: config,
                 collectionWriter: collectionWriter,
                 annotationWriter: annotationWriter,
                 libraryBackupRoot: backupRoot,

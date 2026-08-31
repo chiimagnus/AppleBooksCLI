@@ -80,7 +80,7 @@ struct AnnotationQueriesTests {
         let queries = try AnnotationQueries(
             annotationConnection: SQLiteConnection.readOnly(path: annotations.path),
             bookQueries: BookQueries(connection: SQLiteConnection.readOnly(path: library.path)),
-            historicalAssets: HistoricalAssetMapping(fileURL: config)
+            historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
         #expect(try queries.list().map { $0.annotation.localPK } == [3, 1])
@@ -149,7 +149,7 @@ struct AnnotationQueriesTests {
         AnnotationQueries(
             annotationConnection: try SQLiteConnection.readOnly(path: fixture.annotations.path),
             bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path)),
-            historicalAssets: try HistoricalAssetMapping(fileURL: fixture.config)
+            historicalAssets: try AppleBooksConfiguration(fileURL: fixture.config).historicalAssets
         )
     }
 

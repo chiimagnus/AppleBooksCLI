@@ -55,7 +55,7 @@ final class AppleBooksLiveReadTests: XCTestCase {
         let annotationQueries = AnnotationQueries(
             annotationConnection: annotations,
             bookQueries: bookQueries,
-            historicalAssets: try HistoricalAssetMapping.loadDefault()
+            historicalAssets: try AppleBooksConfiguration.loadDefault().historicalAssets
         )
         let enriched = try annotationQueries.list()
         XCTAssertEqual(enriched.count, canonicalCount)

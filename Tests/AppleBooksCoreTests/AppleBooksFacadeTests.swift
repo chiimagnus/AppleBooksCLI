@@ -12,7 +12,7 @@ struct AppleBooksFacadeTests {
         let books = try AppleBooks(
             libraryDB: fixture.library,
             annotationsDB: fixture.annotations,
-            historicalConfig: fixture.config
+            configurationFile: fixture.config
         )
 
         #expect(try books.listCollections().map(\.localPK) == [1])
@@ -59,7 +59,7 @@ struct AppleBooksFacadeTests {
         """)
         let config = root.appendingPathComponent("config.json")
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-        let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+        let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .books,

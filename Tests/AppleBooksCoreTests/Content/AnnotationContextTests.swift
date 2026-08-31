@@ -103,7 +103,7 @@ struct AnnotationContextTests {
         try Data("{\"historical_assets\":{\"asset-missing\":{\"title\":\"Synthetic\",\"author\":\"Synthetic\"}}}".utf8).write(to: config)
         return Fixture(
             root: root,
-            books: try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+            books: try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
         )
     }
 

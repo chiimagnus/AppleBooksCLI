@@ -43,7 +43,7 @@ struct RecentlyModifiedAnnotationTests {
         try createDatabase(library, sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);")
         let config = root.appendingPathComponent("config.json")
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-        let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+        let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .annotations,
@@ -86,7 +86,7 @@ struct RecentlyModifiedAnnotationTests {
             try RecentlyModifiedAnnotationTests().createDatabase(library, sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);")
             let config = root.appendingPathComponent("config.json")
             try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-            core = try AppleBooks(libraryDB: library, annotationsDB: annotations, historicalConfig: config)
+            core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
         }
 
         func remove() {

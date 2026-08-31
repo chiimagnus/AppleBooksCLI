@@ -39,7 +39,7 @@ struct AnnotationFullTextSearchTests {
         let queries = try AnnotationQueries(
             annotationConnection: SQLiteConnection.readOnly(path: annotations.path),
             bookQueries: BookQueries(connection: SQLiteConnection.readOnly(path: library.path)),
-            historicalAssets: HistoricalAssetMapping(fileURL: config)
+            historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
         #expect(try queries.searchText("needle", limit: 2).map { $0.annotation.localPK } == [1, 2])
@@ -67,7 +67,7 @@ struct AnnotationFullTextSearchTests {
         let queries = try AnnotationQueries(
             annotationConnection: SQLiteConnection.readOnly(path: annotations.path),
             bookQueries: BookQueries(connection: SQLiteConnection.readOnly(path: library.path)),
-            historicalAssets: HistoricalAssetMapping(fileURL: config)
+            historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(

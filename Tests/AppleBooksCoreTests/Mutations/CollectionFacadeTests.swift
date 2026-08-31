@@ -71,7 +71,7 @@ struct CollectionFacadeTests {
         try AppleBooks(
             libraryDB: fixture.library,
             annotationsDB: fixture.annotations,
-            historicalConfig: fixture.config,
+            configurationFile: fixture.config,
             collectionWriter: CollectionWriter(
                 database: fixture.library,
                 backupRoot: fixture.backupRoot,

@@ -98,7 +98,7 @@ struct LibraryBackupCatalogTests {
         let books = try AppleBooks(
             libraryDB: library,
             annotationsDB: annotations,
-            historicalConfig: config,
+            configurationFile: config,
             collectionWriter: CollectionWriter(database: library, backupRoot: backupRoot, booksApp: closed),
             annotationWriter: AnnotationWriter(database: annotations, backupRoot: backupRoot, booksApp: closed),
             libraryBackupRoot: backupRoot

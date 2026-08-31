@@ -100,7 +100,7 @@ struct AnnotationDeleteTests {
         let books = try AppleBooks(
             libraryDB: library,
             annotationsDB: fixture.database,
-            historicalConfig: config,
+            configurationFile: config,
             collectionWriter: CollectionWriter(database: library, backupRoot: fixture.root.appendingPathComponent("library-backups"), booksApp: closed),
             annotationWriter: fixture.writer
         )

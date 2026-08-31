@@ -21,7 +21,7 @@ struct AnnotationQueries {
 
     let annotationConnection: SQLiteConnection
     let bookQueries: BookQueries
-    let historicalAssets: HistoricalAssetMapping
+    let historicalAssets: HistoricalAssets
 
     func list(scope: AnnotationScope = .user, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try query(.none, capability: .annotationUserBase, scope: scope, limit: limit, offset: offset)

@@ -16,16 +16,17 @@ public final class AppleBooks {
     private let restoreCoordinator: MutationCoordinator
     private let libraryDatabase: URL
     private let libraryBackupRoot: URL
+    let configuration: AppleBooksConfiguration
 
     public convenience init(
         libraryDB: URL,
         annotationsDB: URL,
-        historicalConfig: URL? = nil
+        configurationFile: URL? = nil
     ) throws {
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
-            historicalConfig: historicalConfig,
+            configurationFile: configurationFile,
             collectionWriter: CollectionWriter(database: libraryDB),
             annotationWriter: AnnotationWriter(database: annotationsDB)
         )
@@ -34,7 +35,7 @@ public final class AppleBooks {
     init(
         libraryDB: URL,
         annotationsDB: URL,
-        historicalConfig: URL?,
+        configurationFile: URL?,
         collectionWriter: CollectionWriter,
         annotationWriter: AnnotationWriter? = nil,
         libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
@@ -42,12 +43,8 @@ public final class AppleBooks {
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
-        let historicalAssets: HistoricalAssetMapping
-        if let historicalConfig {
-            historicalAssets = try HistoricalAssetMapping(fileURL: historicalConfig)
-        } else {
-            historicalAssets = try HistoricalAssetMapping.loadDefault()
-        }
+        let configuration = try configurationFile.map(AppleBooksConfiguration.init(fileURL:))
+            ?? AppleBooksConfiguration.loadDefault()
 
         let books = BookQueries(connection: libraryConnection)
         bookQueries = books
@@ -55,7 +52,7 @@ public final class AppleBooks {
         annotationQueries = AnnotationQueries(
             annotationConnection: annotationConnection,
             bookQueries: books,
-            historicalAssets: historicalAssets
+            historicalAssets: configuration.historicalAssets
         )
         readingQueries = ReadingQueries(
             connection: libraryConnection,
@@ -69,6 +66,7 @@ public final class AppleBooks {
         )
         libraryDatabase = libraryDB
         self.libraryBackupRoot = libraryBackupRoot
+        self.configuration = configuration
     }
 
     public func listLibraryBackups() throws -> [LibraryBackup] {

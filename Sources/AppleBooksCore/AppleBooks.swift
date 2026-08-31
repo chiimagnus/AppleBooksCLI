@@ -81,6 +81,56 @@ public final class AppleBooks {
         try annotationQueries.getByLocalPK(localPK)
     }
 
+    public func annotationContext(
+        localPK: Int64,
+        charsBefore: Int = 300,
+        charsAfter: Int = 300
+    ) throws -> AnnotationContext {
+        guard charsBefore >= 0, charsAfter >= 0 else {
+            throw AnnotationContextError.invalidWindow
+        }
+        guard let enriched = try annotationQueries.getByLocalPK(localPK) else {
+            throw AnnotationContextError.annotationUnavailable
+        }
+        let annotation = enriched.annotation
+        guard let assetID = annotation.rawAssetID else {
+            throw AnnotationContextError.assetIdentityUnavailable
+        }
+        let books = try bookQueries.getByAssetID(assetID)
+        guard books.isEmpty == false else {
+            throw AnnotationContextError.currentBookUnavailable
+        }
+        guard books.count == 1, let book = books.first else {
+            throw AnnotationContextError.currentBookAmbiguous
+        }
+        guard let path = book.path else {
+            throw AnnotationContextError.contentPathUnavailable
+        }
+        guard let chapterID = annotation.location?.chapterID else {
+            throw AnnotationContextError.chapterUnavailable
+        }
+
+        let content = try BookContent(root: URL(fileURLWithPath: path))
+        let chapterText: String
+        do {
+            chapterText = try content.getChapter(chapterID)
+        } catch BookContentError.chapterNotFound {
+            throw AnnotationContextError.chapterUnavailable
+        }
+        let selected = annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let representative = annotation.representativeText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let anchor = selected.isEmpty ? representative : selected
+        guard anchor.isEmpty == false else {
+            throw AnnotationContextError.anchorUnavailable
+        }
+        return try AnnotationContextMatcher.match(
+            chapterText: chapterText,
+            anchor: anchor,
+            charsBefore: charsBefore,
+            charsAfter: charsAfter
+        )
+    }
+
     public func annotations(colorName: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try annotationQueries.byColorName(colorName, limit: limit, offset: offset)
     }

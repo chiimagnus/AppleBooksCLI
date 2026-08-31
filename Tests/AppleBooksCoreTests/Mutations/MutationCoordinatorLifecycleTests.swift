@@ -228,7 +228,7 @@ struct MutationCoordinatorLifecycleTests {
             database: database,
             backupRoot: root.appendingPathComponent("backups"),
             booksApp: state.controller(),
-            backupAction: {
+            backupAction: { _ in
                 state.events.append("backup")
                 #expect(state.running == false)
                 if backupFails { throw TestFailure.backup }

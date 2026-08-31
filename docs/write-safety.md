@@ -89,21 +89,25 @@ Restore 把已验证 backup 作为 SQLite source，通过 SQLite backup API 反�
 顺序：
 
 ```text
-1. 校验 restore handle 只能指向自己的 backup store
-2. backup 文件存在
-3. restore source integrity_check = ok
+1. 校验 opaque restore handle 只能解析到自己的 Library backup store
+2. restore source 必须是自有 regular file，integrity_check = ok
+3. 以 strict read-only SQLite connection 打开并持有 restore source
 4. 记录 Books.app 是否原先运行（wasRunning）
-5. 对当前 live DB 创建 pre-restore SQLite online safety backup
-6. pre-restore backup integrity_check = ok
-7. 若 wasRunning=true，clean quit Books.app，并确认进程退出
-8. SQLite-level restore
-9. live DB integrity/read-back
-10. 若 wasRunning=true，恢复 Books.app
+5. 若 wasRunning=true，clean quit Books.app，并确认进程退出
+6. quiet state 下对当前 live DB 创建 fresh SQLite online safety backup
+7. safety backup integrity_check = ok
+8. 用步骤 3 已打开的 source connection 执行 SQLite-level reverse restore
+9. sqlite3_backup_finish 成功后进入 restoreApplied=true 边界
+10. 关闭 restore source，执行 WAL checkpoint + live integrity/read-back
+11. verification 成功后恢复正常 retention
+12. 若 wasRunning=true，恢复 Books.app
 ```
 
-pre-restore safety backup 是只读 snapshot，应在关闭 Books 前完成；这样 backup/handle/integrity 任何一步失败都不会无故退出应用。真正改变 live DB 的 restore 必须发生在 Books 已确认退出之后。
+restore source 必须在 safety backup rotation **之前**打开，而且 safety-backup retention 在 restore apply 前必须临时保护所选 handle。不能假设“文件被 unlink 后，已经打开的 SQLite connection 一定还能可靠完成 backup”；macOS/SQLite synthetic regression 已证明该假设不成立。restore apply 成功并关闭 source 后才恢复正常 retention；restore 或 verification 失败时优先保留所选 restore point 与 fresh safety backup，而不是为了数量上限删除恢复证据。
 
-需要额外 fixture 测试：restore 时存在只读连接 / WAL reader，恢复后的旧状态不能被重新 replay。
+**`sqlite3_backup_finish` 成功就是 restore 的不可逆 public boundary。** 在此之前失败返回 `restoreApplied=false`；若已经 apply，后续 WAL checkpoint / live integrity-read-back 失败必须返回 `restoreApplied=true, verified=false` 与 `verification_failed` warning，不得伪装成“没有恢复”或诱导用户重试。已 apply 后 retention cleanup 失败是 `retention_failed` warning；relaunch 失败是 `relaunch_failed` warning。`wasRunning=false` 的成功 restore 不得为了 parity 无条件启动 Books。
+
+需要额外 fixture 测试：restore 时存在只读连接 / WAL reader，恢复后的旧状态不能被重新 replay；selected backup 即使会被 retention 淘汰，也必须在当前 restore apply 完成前受到保护。
 
 ## Books.app 生命周期
 

@@ -12,7 +12,6 @@ public enum SQLiteBackupError: Error, Equatable, Sendable {
     case retentionFailed
     case invalidRestoreSource
     case invalidRestoreDestination
-    case booksRunning
     case restoreFailed(Int32)
 }
 
@@ -86,6 +85,16 @@ public enum SQLiteBackup {
         backupRoot: URL = defaultRoot(),
         keep: Int = retentionCount
     ) throws -> URL {
+        try create(source: source, backupRoot: backupRoot, keep: keep, preserving: [])
+    }
+
+    @discardableResult
+    static func create(
+        source: URL,
+        backupRoot: URL,
+        keep: Int,
+        preserving: Set<String>
+    ) throws -> URL {
         guard keep >= 1 else { throw SQLiteBackupError.invalidRetention }
 
         let sourceConnection = try SQLiteConnection.readOnly(path: source.path)
@@ -117,58 +126,101 @@ public enum SQLiteBackup {
         try publish(part: part, final: final)
         published = true
         do {
-            try applyRetention(in: backupRoot, sourceStem: sourceStem, keep: keep)
+            try applyRetention(
+                in: backupRoot,
+                sourceStem: sourceStem,
+                keep: keep,
+                preserving: preserving
+            )
         } catch {
             throw SQLiteBackupError.retentionFailed
         }
         return final
     }
 
-    static func restore(
-        backup: URL,
+    static func openRestoreSource(
+        handle: String,
         destination: URL,
-        backupRoot: URL = defaultRoot(),
-        keep: Int = retentionCount,
-        environment: RestoreEnvironment = .live
-    ) throws {
+        backupRoot: URL = defaultRoot()
+    ) throws -> SQLiteConnection {
         let canonicalRoot = backupRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let canonicalBackup = backup.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = backupRoot.appendingPathComponent(handle, isDirectory: false)
+        let canonicalBackup = candidate.standardizedFileURL.resolvingSymlinksInPath()
         let canonicalDestination = destination.standardizedFileURL.resolvingSymlinksInPath()
         let destinationStem = destination.deletingPathExtension().lastPathComponent
 
         var backupStat = stat()
-        guard lstat(backup.path, &backupStat) == 0,
+        guard BackupMetadata.parse(filename: handle, sourceStem: destinationStem) != nil,
+              lstat(candidate.path, &backupStat) == 0,
               backupStat.st_mode & S_IFMT == S_IFREG,
               canonicalBackup.deletingLastPathComponent() == canonicalRoot,
-              canonicalBackup != canonicalDestination,
-              BackupMetadata.parse(filename: backup.lastPathComponent, sourceStem: destinationStem) != nil else {
+              canonicalBackup != canonicalDestination else {
             throw SQLiteBackupError.invalidRestoreSource
         }
-        var destinationStat = stat()
-        guard lstat(destination.path, &destinationStat) == 0,
-              destinationStat.st_mode & S_IFMT == S_IFREG else {
-            throw SQLiteBackupError.invalidRestoreDestination
-        }
+        try validateRestoreDestination(canonicalDestination)
 
-        try verifyIntegrity(of: canonicalBackup)
-        let restoreSource = try SQLiteConnection.readOnly(path: canonicalBackup.path)
-        guard let sourceHandle = restoreSource.handle,
+        let connection = try SQLiteConnection.readOnly(path: canonicalBackup.path)
+        do {
+            guard let handle = connection.handle,
+                  sqlite3_db_readonly(handle, "main") == 1 else {
+                throw SQLiteBackupError.sourceNotReadOnly
+            }
+            try verifyIntegrity(on: connection)
+            return connection
+        } catch {
+            try? connection.close()
+            throw error
+        }
+    }
+
+    static func applyRestore(
+        source: SQLiteConnection,
+        destination: URL,
+        pageCount: Int32 = -1,
+        failAfterSteps: Int? = nil
+    ) throws {
+        let canonicalDestination = destination.standardizedFileURL.resolvingSymlinksInPath()
+        try validateRestoreDestination(canonicalDestination)
+        guard let sourceHandle = source.handle,
               sqlite3_db_readonly(sourceHandle, "main") == 1 else {
             throw SQLiteBackupError.sourceNotReadOnly
         }
-
-        guard environment.booksIsRunning() == false else {
-            throw SQLiteBackupError.booksRunning
-        }
-        _ = try SQLiteBackup.create(source: canonicalDestination, backupRoot: canonicalRoot, keep: keep)
         try restoreOnline(
             sourceHandle: sourceHandle,
             destination: canonicalDestination,
-            pageCount: environment.pageCount,
-            failAfterSteps: environment.failAfterSteps
+            pageCount: pageCount,
+            failAfterSteps: failAfterSteps
         )
-        try restoreSource.close()
-        try verifyIntegrity(of: canonicalDestination)
+    }
+
+    static func enforceRetention(
+        source: URL,
+        backupRoot: URL = defaultRoot(),
+        keep: Int = retentionCount
+    ) throws {
+        guard keep >= 1 else { throw SQLiteBackupError.invalidRetention }
+        try applyRetention(
+            in: backupRoot,
+            sourceStem: source.deletingPathExtension().lastPathComponent,
+            keep: keep,
+            preserving: []
+        )
+    }
+
+    static func checkpointRestoredDestination(_ destination: URL) throws {
+        let canonicalDestination = destination.standardizedFileURL.resolvingSymlinksInPath()
+        try validateRestoreDestination(canonicalDestination)
+        var handle: OpaquePointer?
+        let open = sqlite3_open_v2(canonicalDestination.path, &handle, SQLITE_OPEN_READWRITE, nil)
+        guard open == SQLITE_OK, let handle else {
+            if let handle { sqlite3_close_v2(handle) }
+            throw SQLiteBackupError.destinationOpenFailed
+        }
+        defer { sqlite3_close_v2(handle) }
+        let checkpoint = sqlite3_wal_checkpoint_v2(handle, "main", SQLITE_CHECKPOINT_FULL, nil, nil)
+        guard checkpoint == SQLITE_OK else {
+            throw SQLiteBackupError.restoreFailed(checkpoint)
+        }
     }
 
     static func publish(part: URL, final: URL) throws {
@@ -188,18 +240,20 @@ public enum SQLiteBackup {
     static func verifyIntegrity(of database: URL) throws {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         do {
-            do {
-                let statement = try connection.prepare("PRAGMA integrity_check")
-                guard try statement.step() else { throw SQLiteBackupError.integrityCheckFailed }
-                let row = try SQLiteRow(statement: statement)
-                guard try row.text("integrity_check") == "ok", try statement.step() == false else {
-                    throw SQLiteBackupError.integrityCheckFailed
-                }
-            }
+            try verifyIntegrity(on: connection)
             try connection.close()
         } catch {
             try? connection.close()
             throw error
+        }
+    }
+
+    static func verifyIntegrity(on connection: SQLiteConnection) throws {
+        let statement = try connection.prepare("PRAGMA integrity_check")
+        guard try statement.step() else { throw SQLiteBackupError.integrityCheckFailed }
+        let row = try SQLiteRow(statement: statement)
+        guard try row.text("integrity_check") == "ok", try statement.step() == false else {
+            throw SQLiteBackupError.integrityCheckFailed
         }
     }
 
@@ -278,14 +332,6 @@ public enum SQLiteBackup {
                 let finish = sqlite3_backup_finish(backup)
                 finishNeeded = false
                 guard finish == SQLITE_OK else { throw SQLiteBackupError.restoreFailed(finish) }
-                let checkpoint = sqlite3_wal_checkpoint_v2(
-                    destinationHandle,
-                    "main",
-                    SQLITE_CHECKPOINT_FULL,
-                    nil,
-                    nil
-                )
-                guard checkpoint == SQLITE_OK else { throw SQLiteBackupError.restoreFailed(checkpoint) }
                 return
             case SQLITE_OK:
                 successfulSteps += 1
@@ -299,6 +345,14 @@ public enum SQLiteBackup {
             default:
                 throw SQLiteBackupError.restoreFailed(result)
             }
+        }
+    }
+
+    private static func validateRestoreDestination(_ destination: URL) throws {
+        var destinationStat = stat()
+        guard lstat(destination.path, &destinationStat) == 0,
+              destinationStat.st_mode & S_IFMT == S_IFREG else {
+            throw SQLiteBackupError.invalidRestoreDestination
         }
     }
 
@@ -319,7 +373,12 @@ public enum SQLiteBackup {
         }
     }
 
-    private static func applyRetention(in root: URL, sourceStem: String, keep: Int) throws {
+    private static func applyRetention(
+        in root: URL,
+        sourceStem: String,
+        keep: Int,
+        preserving: Set<String>
+    ) throws {
         let entries = try FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -349,6 +408,7 @@ public enum SQLiteBackup {
             return $0.1.uuid.uuidString > $1.1.uuid.uuidString
         }
         for (entry, _) in completed.dropFirst(keep) {
+            guard preserving.contains(entry.lastPathComponent) == false else { continue }
             try FileManager.default.removeItem(at: entry)
         }
     }

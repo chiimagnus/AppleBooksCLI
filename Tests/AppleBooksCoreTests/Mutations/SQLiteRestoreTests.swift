@@ -11,88 +11,59 @@ struct SQLiteRestoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let destination = try database(at: root.appendingPathComponent("BKLibrary.sqlite"), value: "snapshot", large: false)
         let backupRoot = root.appendingPathComponent("backups")
-        let restoreSource = try SQLiteBackup.create(source: destination, backupRoot: backupRoot, keep: 10)
+        let restoreSourceURL = try SQLiteBackup.create(source: destination, backupRoot: backupRoot, keep: 10)
         try enableWALAndSetValue(destination, value: "current")
 
         let openReader = try SQLiteConnection.readOnly(path: destination.path)
         #expect(try readValue(using: openReader) == "current")
-
-        try SQLiteBackup.restore(
-            backup: restoreSource,
+        let restoreSource = try SQLiteBackup.openRestoreSource(
+            handle: restoreSourceURL.lastPathComponent,
             destination: destination,
-            backupRoot: backupRoot,
-            keep: 10,
-            environment: .test(booksRunning: false)
+            backupRoot: backupRoot
         )
+        defer { try? restoreSource.close() }
+
+        try SQLiteBackup.applyRestore(source: restoreSource, destination: destination)
+        try SQLiteBackup.checkpointRestoredDestination(destination)
 
         try openReader.close()
         try SQLiteBackup.verifyIntegrity(of: destination)
         #expect(try readValue(at: destination) == "snapshot")
-        let backups = try completedBackups(in: backupRoot, stem: "BKLibrary")
-        #expect(backups.count == 2)
-        #expect(try backups.contains { try readValue(at: $0) == "current" })
+        #expect(try completedBackups(in: backupRoot, stem: "BKLibrary").count == 1)
     }
 
     @Test
-    func booksRunningRejectsBeforeSafetyBackupOrDestinationWrite() throws {
-        let fixture = try restoreFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let countBefore = try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count
-
-        #expect(throws: SQLiteBackupError.booksRunning) {
-            try SQLiteBackup.restore(
-                backup: fixture.backup,
-                destination: fixture.destination,
-                backupRoot: fixture.backupRoot,
-                environment: .test(booksRunning: true)
-            )
-        }
-        #expect(try readValue(at: fixture.destination) == "current")
-        #expect(try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count == countBefore)
-    }
-
-    @Test
-    func corruptOrUnownedRestoreSourceFailsBeforeDestinationMutation() throws {
+    func corruptUnownedSymlinkAndTraversalRestoreSourcesFailClosed() throws {
         let fixture = try restoreFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let corrupt = fixture.backupRoot.appendingPathComponent(
             BackupMetadata.fresh(sourceStem: "BKLibrary").filename
         )
         try Data("not sqlite".utf8).write(to: corrupt)
-        let external = fixture.root.appendingPathComponent(fixture.backup.lastPathComponent)
-        try FileManager.default.copyItem(at: fixture.backup, to: external)
+        let symlink = fixture.backupRoot.appendingPathComponent(
+            BackupMetadata.fresh(sourceStem: "BKLibrary").filename
+        )
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: fixture.backup)
 
         #expect(throws: (any Error).self) {
-            try SQLiteBackup.restore(
-                backup: corrupt,
+            _ = try SQLiteBackup.openRestoreSource(
+                handle: corrupt.lastPathComponent,
                 destination: fixture.destination,
-                backupRoot: fixture.backupRoot,
-                environment: .test(booksRunning: false)
+                backupRoot: fixture.backupRoot
             )
         }
         #expect(throws: SQLiteBackupError.invalidRestoreSource) {
-            try SQLiteBackup.restore(
-                backup: external,
+            _ = try SQLiteBackup.openRestoreSource(
+                handle: symlink.lastPathComponent,
                 destination: fixture.destination,
-                backupRoot: fixture.backupRoot,
-                environment: .test(booksRunning: false)
+                backupRoot: fixture.backupRoot
             )
         }
-        #expect(try readValue(at: fixture.destination) == "current")
-    }
-
-    @Test
-    func preBackupFailureLeavesDestinationUntouched() throws {
-        let fixture = try restoreFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        #expect(throws: SQLiteBackupError.invalidRetention) {
-            try SQLiteBackup.restore(
-                backup: fixture.backup,
+        #expect(throws: SQLiteBackupError.invalidRestoreSource) {
+            _ = try SQLiteBackup.openRestoreSource(
+                handle: "../\(fixture.backup.lastPathComponent)",
                 destination: fixture.destination,
-                backupRoot: fixture.backupRoot,
-                keep: 0,
-                environment: .test(booksRunning: false)
+                backupRoot: fixture.backupRoot
             )
         }
         #expect(try readValue(at: fixture.destination) == "current")
@@ -104,15 +75,21 @@ struct SQLiteRestoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let destination = try database(at: root.appendingPathComponent("BKLibrary.sqlite"), value: "snapshot", large: true)
         let backupRoot = root.appendingPathComponent("backups")
-        let restoreSource = try SQLiteBackup.create(source: destination, backupRoot: backupRoot)
+        let restoreSourceURL = try SQLiteBackup.create(source: destination, backupRoot: backupRoot)
         try setValue(destination, value: "current")
+        let restoreSource = try SQLiteBackup.openRestoreSource(
+            handle: restoreSourceURL.lastPathComponent,
+            destination: destination,
+            backupRoot: backupRoot
+        )
+        defer { try? restoreSource.close() }
 
         #expect(throws: SQLiteBackupError.restoreFailed(SQLITE_INTERRUPT)) {
-            try SQLiteBackup.restore(
-                backup: restoreSource,
+            try SQLiteBackup.applyRestore(
+                source: restoreSource,
                 destination: destination,
-                backupRoot: backupRoot,
-                environment: .test(booksRunning: false, pageCount: 1, failAfterSteps: 1)
+                pageCount: 1,
+                failAfterSteps: 1
             )
         }
         #expect(try readValue(at: destination) == "current")
@@ -181,7 +158,9 @@ struct SQLiteRestoreTests {
     }
 
     private func readValue(at url: URL) throws -> String? {
-        try readValue(using: SQLiteConnection.readOnly(path: url.path))
+        let connection = try SQLiteConnection.readOnly(path: url.path)
+        defer { try? connection.close() }
+        return try readValue(using: connection)
     }
 
     private func readValue(using connection: SQLiteConnection) throws -> String? {
@@ -206,19 +185,5 @@ struct SQLiteRestoreTests {
         let destination: URL
         let backupRoot: URL
         let backup: URL
-    }
-}
-
-private extension RestoreEnvironment {
-    static func test(
-        booksRunning: Bool,
-        pageCount: Int32 = -1,
-        failAfterSteps: Int? = nil
-    ) -> RestoreEnvironment {
-        RestoreEnvironment(
-            booksIsRunning: { booksRunning },
-            pageCount: pageCount,
-            failAfterSteps: failAfterSteps
-        )
     }
 }

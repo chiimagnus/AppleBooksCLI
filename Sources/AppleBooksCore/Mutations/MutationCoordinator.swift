@@ -6,22 +6,30 @@ struct MutationCoordinator {
     let backupRoot: URL
     let keep: Int
     let booksApp: BooksAppController
-    private let backupAction: () throws -> URL
+    private let backupAction: (Set<String>) throws -> URL
+    private let restoreVerificationAction: (() throws -> Void)?
 
     init(
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
         booksApp: BooksAppController = .live,
-        backupAction: (() throws -> URL)? = nil
+        backupAction: ((Set<String>) throws -> URL)? = nil,
+        restoreVerificationAction: (() throws -> Void)? = nil
     ) {
         self.database = database
         self.backupRoot = backupRoot
         self.keep = keep
         self.booksApp = booksApp
-        self.backupAction = backupAction ?? {
-            try SQLiteBackup.create(source: database, backupRoot: backupRoot, keep: keep)
+        self.backupAction = backupAction ?? { preserving in
+            try SQLiteBackup.create(
+                source: database,
+                backupRoot: backupRoot,
+                keep: keep,
+                preserving: preserving
+            )
         }
+        self.restoreVerificationAction = restoreVerificationAction
     }
 
     func perform<T>(
@@ -57,7 +65,7 @@ struct MutationCoordinator {
 
         let backup: URL
         do {
-            backup = try backupAction()
+            backup = try backupAction([])
         } catch {
             throw failure(
                 error,
@@ -195,6 +203,111 @@ struct MutationCoordinator {
         )
     }
 
+    func restoreLibrary(
+        handle: String,
+        pageCount: Int32 = -1,
+        failAfterSteps: Int? = nil
+    ) throws -> RestoreResult {
+        let restoreSource: SQLiteConnection
+        do {
+            restoreSource = try SQLiteBackup.openRestoreSource(
+                handle: handle,
+                destination: database,
+                backupRoot: backupRoot
+            )
+        } catch {
+            throw RestoreFailure(
+                safetyBackupHandle: nil,
+                code: .sourceRejected,
+                warnings: [],
+                underlying: error
+            )
+        }
+        defer { try? restoreSource.close() }
+
+        let wasRunning = booksApp.isRunning()
+        if wasRunning {
+            do {
+                try booksApp.terminateAndWait()
+            } catch {
+                throw RestoreFailure(
+                    safetyBackupHandle: nil,
+                    code: .quitFailed,
+                    warnings: [],
+                    underlying: error
+                )
+            }
+        }
+
+        let safetyBackup: URL
+        do {
+            safetyBackup = try backupAction([handle])
+        } catch {
+            throw restoreFailure(
+                error,
+                code: .safetyBackupFailed,
+                safetyBackupHandle: nil,
+                restoreBooks: wasRunning
+            )
+        }
+        let safetyBackupHandle = safetyBackup.lastPathComponent
+
+        do {
+            try SQLiteBackup.applyRestore(
+                source: restoreSource,
+                destination: database,
+                pageCount: pageCount,
+                failAfterSteps: failAfterSteps
+            )
+        } catch {
+            throw restoreFailure(
+                error,
+                code: .restoreFailed,
+                safetyBackupHandle: safetyBackupHandle,
+                restoreBooks: wasRunning
+            )
+        }
+
+        try? restoreSource.close()
+
+        var warnings: [RestoreWarning] = []
+        var verified = true
+        do {
+            if let restoreVerificationAction {
+                try restoreVerificationAction()
+            } else {
+                try SQLiteBackup.checkpointRestoredDestination(database)
+                try SQLiteBackup.verifyIntegrity(of: database)
+            }
+        } catch {
+            verified = false
+            warnings.append(.verificationFailed)
+        }
+
+        if verified {
+            do {
+                try SQLiteBackup.enforceRetention(source: database, backupRoot: backupRoot, keep: keep)
+            } catch {
+                warnings.append(.retentionFailed)
+            }
+        }
+
+        if wasRunning {
+            do {
+                try booksApp.launch()
+            } catch {
+                warnings.append(.relaunchFailed)
+            }
+        }
+
+        return RestoreResult(
+            restoredFromHandle: handle,
+            safetyBackupHandle: safetyBackupHandle,
+            verified: verified,
+            warnings: warnings
+        )
+    }
+
     private func failure(
         _ underlying: any Error,
         code: MutationFailureCode,
@@ -211,6 +324,28 @@ struct MutationCoordinator {
         }
         return MutationFailure(
             backupHandle: backupHandle,
+            code: code,
+            warnings: warnings,
+            underlying: underlying
+        )
+    }
+
+    private func restoreFailure(
+        _ underlying: any Error,
+        code: RestoreFailureCode,
+        safetyBackupHandle: String?,
+        restoreBooks: Bool
+    ) -> RestoreFailure {
+        var warnings: [RestoreWarning] = []
+        if restoreBooks {
+            do {
+                try booksApp.launch()
+            } catch {
+                warnings.append(.relaunchFailed)
+            }
+        }
+        return RestoreFailure(
+            safetyBackupHandle: safetyBackupHandle,
             code: code,
             warnings: warnings,
             underlying: underlying

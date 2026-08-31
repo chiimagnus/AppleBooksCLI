@@ -13,6 +13,7 @@ public final class AppleBooks {
     private let readingQueries: ReadingQueries
     private let collectionWriter: CollectionWriter
     private let annotationWriter: AnnotationWriter
+    private let restoreCoordinator: MutationCoordinator
     private let libraryDatabase: URL
     private let libraryBackupRoot: URL
 
@@ -36,7 +37,8 @@ public final class AppleBooks {
         historicalConfig: URL?,
         collectionWriter: CollectionWriter,
         annotationWriter: AnnotationWriter? = nil,
-        libraryBackupRoot: URL = SQLiteBackup.defaultRoot()
+        libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
+        restoreCoordinator: MutationCoordinator? = nil
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
@@ -61,12 +63,20 @@ public final class AppleBooks {
         )
         self.collectionWriter = collectionWriter
         self.annotationWriter = annotationWriter ?? AnnotationWriter(database: annotationsDB)
+        self.restoreCoordinator = restoreCoordinator ?? MutationCoordinator(
+            database: libraryDB,
+            backupRoot: libraryBackupRoot
+        )
         libraryDatabase = libraryDB
         self.libraryBackupRoot = libraryBackupRoot
     }
 
     public func listLibraryBackups() throws -> [LibraryBackup] {
         try SQLiteBackup.list(source: libraryDatabase, backupRoot: libraryBackupRoot)
+    }
+
+    public func restoreLibraryBackup(handle: String) throws -> RestoreResult {
+        try restoreCoordinator.restoreLibrary(handle: handle)
     }
 
     // Stable deterministic order + validated pagination.

@@ -16,6 +16,61 @@ public enum MutationFailureCode: String, Equatable, Sendable {
     case commitFailed = "commit_failed"
 }
 
+public enum RestoreWarning: String, Equatable, Sendable {
+    case verificationFailed = "verification_failed"
+    case retentionFailed = "retention_failed"
+    case relaunchFailed = "relaunch_failed"
+}
+
+public enum RestoreFailureCode: String, Equatable, Sendable {
+    case sourceRejected = "source_rejected"
+    case quitFailed = "quit_failed"
+    case safetyBackupFailed = "safety_backup_failed"
+    case restoreFailed = "restore_failed"
+}
+
+public struct RestoreResult: Equatable, Sendable {
+    public let restoreApplied: Bool
+    public let verified: Bool
+    public let restoredFromHandle: String
+    public let safetyBackupHandle: String
+    public let warnings: [RestoreWarning]
+
+    init(
+        restoredFromHandle: String,
+        safetyBackupHandle: String,
+        verified: Bool,
+        warnings: [RestoreWarning]
+    ) {
+        restoreApplied = true
+        self.verified = verified
+        self.restoredFromHandle = restoredFromHandle
+        self.safetyBackupHandle = safetyBackupHandle
+        self.warnings = warnings
+    }
+}
+
+public struct RestoreFailure: Error {
+    public let restoreApplied: Bool
+    public let safetyBackupHandle: String?
+    public let code: RestoreFailureCode
+    public let warnings: [RestoreWarning]
+    let underlying: any Error
+
+    init(
+        safetyBackupHandle: String?,
+        code: RestoreFailureCode,
+        warnings: [RestoreWarning],
+        underlying: any Error
+    ) {
+        restoreApplied = false
+        self.safetyBackupHandle = safetyBackupHandle
+        self.code = code
+        self.warnings = warnings
+        self.underlying = underlying
+    }
+}
+
 public struct MutationResult: Equatable, Sendable {
     public let committed: Bool
     public let backupHandle: String

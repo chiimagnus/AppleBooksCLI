@@ -167,6 +167,14 @@ public final class AppleBooks {
         try annotationWriter.updateNote(uuid: uuid, note: note)
     }
 
+    public func deleteAnnotation(localPK: Int64) throws -> MutationResult {
+        try annotationWriter.delete(localPK: localPK)
+    }
+
+    public func deleteAnnotation(uuid: String) throws -> MutationResult {
+        try annotationWriter.delete(uuid: uuid)
+    }
+
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
         try annotationQueries.getUniqueByUUID(uuid, scope: scope)
     }

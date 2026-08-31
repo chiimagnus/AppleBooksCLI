@@ -18,6 +18,13 @@ struct AnnotationWriter {
         "ZANNOTATIONNOTE",
         "ZANNOTATIONMODIFICATIONDATE",
     ]
+    private static let deleteColumns: Set<String> = [
+        "Z_PK",
+        "Z_ENT",
+        "Z_OPT",
+        "ZANNOTATIONDELETED",
+        "ZANNOTATIONMODIFICATIONDATE",
+    ]
 
     private enum Selector {
         case localPK(Int64)
@@ -54,6 +61,14 @@ struct AnnotationWriter {
         try updateNote(.uuid(uuid), note: note)
     }
 
+    func delete(localPK: Int64) throws -> MutationResult {
+        try delete(.localPK(localPK))
+    }
+
+    func delete(uuid: String) throws -> MutationResult {
+        try delete(.uuid(uuid))
+    }
+
     private func updateNote(_ selector: Selector, note: String) throws -> MutationResult {
         guard note.isEmpty == false, note.count <= 10_000 else {
             throw AnnotationWriteError.invalidNoteLength
@@ -87,8 +102,45 @@ struct AnnotationWriter {
         )
     }
 
+    private func delete(_ selector: Selector) throws -> MutationResult {
+        try coordinator.perform(
+            preflight: { connection in
+                guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
+                try Self.validateSchema(for: selector, required: Self.deleteColumns, on: handle)
+                _ = try Self.resolve(selector, on: handle)
+            },
+            revalidate: { handle in
+                try Self.validateSchema(for: selector, required: Self.deleteColumns, on: handle)
+                _ = try Self.resolve(selector, on: handle)
+            },
+            mutation: { handle in
+                let target = try Self.resolve(selector, on: handle)
+                try Self.applyDelete(to: target.localPK, on: handle)
+                return target
+            },
+            invariant: { handle, target in
+                try Self.verifyDeleted(target: target, on: handle)
+            },
+            domainData: { target in
+                MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: true)
+            },
+            readBack: { connection, target in
+                guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
+                try Self.verifyDeleted(target: target, on: handle)
+            }
+        )
+    }
+
     private static func validateSchema(for selector: Selector, on handle: OpaquePointer) throws {
-        var required = updateColumns
+        try validateSchema(for: selector, required: updateColumns, on: handle)
+    }
+
+    private static func validateSchema(
+        for selector: Selector,
+        required baseRequired: Set<String>,
+        on handle: OpaquePointer
+    ) throws {
+        var required = baseRequired
         if case .uuid = selector {
             required.insert("ZANNOTATIONUUID")
         }
@@ -178,6 +230,22 @@ struct AnnotationWriter {
         }
     }
 
+    private static func applyDelete(to localPK: Int64, on handle: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        let sql = "UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=1,ZANNOTATIONMODIFICATIONDATE=?,Z_OPT=Z_OPT+1 WHERE Z_PK=?"
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard let now = CoreDataTime.seconds(from: Date()),
+              sqlite3_bind_double(statement, 1, now) == SQLITE_OK,
+              sqlite3_bind_int64(statement, 2, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE,
+              sqlite3_changes(handle) == 1 else {
+            throw AnnotationWriteError.writeFailed
+        }
+    }
+
     private static func verifyNote(_ note: String, target: Target, on handle: OpaquePointer) throws {
         var statement: OpaquePointer?
         let sql = "SELECT Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=?"
@@ -196,6 +264,26 @@ struct AnnotationWriter {
               let rawNote = sqlite3_column_text(statement, 3),
               String(cString: rawNote) == note,
               sqlite3_column_type(statement, 4) == SQLITE_FLOAT,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw AnnotationWriteError.writeFailed
+        }
+    }
+
+    private static func verifyDeleted(target: Target, on handle: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        let sql = "SELECT Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=?"
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, target.localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 0) == target.entityID,
+              sqlite3_column_type(statement, 1) == SQLITE_INTEGER,
+              sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 2) == 1,
+              sqlite3_column_type(statement, 3) == SQLITE_FLOAT,
               sqlite3_step(statement) == SQLITE_DONE else {
             throw AnnotationWriteError.writeFailed
         }

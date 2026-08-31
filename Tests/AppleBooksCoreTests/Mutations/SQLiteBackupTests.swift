@@ -77,6 +77,22 @@ struct SQLiteBackupTests {
     }
 
     @Test
+    func exclusivePublishNeverOverwritesCompletedBackup() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let part = root.appendingPathComponent("candidate.sqlite.part")
+        let final = root.appendingPathComponent("completed.sqlite")
+        try Data("new".utf8).write(to: part)
+        try Data("old".utf8).write(to: final)
+
+        #expect(throws: SQLiteBackupError.filesystemFailure) {
+            try SQLiteBackup.publish(part: part, final: final)
+        }
+        #expect(try String(contentsOf: final, encoding: .utf8) == "old")
+        #expect(FileManager.default.fileExists(atPath: part.path) == false)
+    }
+
+    @Test
     func invalidRetentionRejectsBeforeFilesystemWrite() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

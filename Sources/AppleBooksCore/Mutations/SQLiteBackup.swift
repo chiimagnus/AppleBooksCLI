@@ -58,9 +58,7 @@ public enum SQLiteBackup {
         try copyOnline(sourceHandle: sourceHandle, to: part)
         try sourceConnection.close()
         try verifyIntegrity(of: part)
-        guard rename(part.path, final.path) == 0 else {
-            throw SQLiteBackupError.filesystemFailure
-        }
+        try publish(part: part, final: final)
         published = true
         do {
             try applyRetention(in: backupRoot, sourceStem: sourceStem, keep: keep)
@@ -115,6 +113,20 @@ public enum SQLiteBackup {
         )
         try restoreSource.close()
         try verifyIntegrity(of: canonicalDestination)
+    }
+
+    static func publish(part: URL, final: URL) throws {
+        let result = renameatx_np(
+            AT_FDCWD,
+            part.path,
+            AT_FDCWD,
+            final.path,
+            UInt32(RENAME_EXCL)
+        )
+        guard result == 0 else {
+            try? FileManager.default.removeItem(at: part)
+            throw SQLiteBackupError.filesystemFailure
+        }
     }
 
     static func verifyIntegrity(of database: URL) throws {

@@ -30,8 +30,8 @@ final class AppleBooksLiveReadTests: XCTestCase {
         try assertQueryPragmaReadable(on: annotations)
         assertWriteRejected("UPDATE \(AppleBooksTable.books.rawValue) SET Z_PK = Z_PK WHERE 0", on: library, label: "library DML")
         assertWriteRejected("UPDATE \(AppleBooksTable.annotations.rawValue) SET Z_PK = Z_PK WHERE 0", on: annotations, label: "annotation DML")
-        assertWriteRejected("CREATE TABLE __applebookscli_readonly_probe(value INTEGER)", on: library, label: "library DDL")
-        assertWriteRejected("CREATE TABLE __applebookscli_readonly_probe(value INTEGER)", on: annotations, label: "annotation DDL")
+        try assertDDLRejected("CREATE TABLE __applebookscli_readonly_probe(value INTEGER)", on: library, label: "library DDL")
+        try assertDDLRejected("CREATE TABLE __applebookscli_readonly_probe(value INTEGER)", on: annotations, label: "annotation DDL")
         try assertJournalModeChangeRejected(on: library, label: "library journal mode")
         try assertJournalModeChangeRejected(on: annotations, label: "annotation journal mode")
 
@@ -99,6 +99,21 @@ final class AppleBooksLiveReadTests: XCTestCase {
         } catch {
             // Expected: the live handle was opened with SQLITE_OPEN_READONLY.
         }
+    }
+
+    private func assertDDLRejected(
+        _ sql: String,
+        on connection: SQLiteConnection,
+        label: String
+    ) throws {
+        try execute("BEGIN", on: connection)
+        defer { try? execute("ROLLBACK", on: connection) }
+        assertWriteRejected(sql, on: connection, label: label)
+    }
+
+    private func execute(_ sql: String, on connection: SQLiteConnection) throws {
+        let statement = try connection.prepare(sql)
+        while try statement.step() {}
     }
 
     private func assertJournalModeChangeRejected(

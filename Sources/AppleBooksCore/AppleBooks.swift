@@ -99,6 +99,10 @@ public final class AppleBooks {
         try bookQueries.list(limit: limit, offset: offset)
     }
 
+    public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
+        try bookQueries.page(limit: limit, offset: offset)
+    }
+
     public func book(localPK: Int64) throws -> Book? {
         try bookQueries.getByLocalPK(localPK)
     }
@@ -128,6 +132,23 @@ public final class AppleBooks {
 
     public func listAnnotations(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try annotationQueries.list(limit: limit, offset: offset)
+    }
+
+    public func annotationPage(
+        scope: AnnotationScope = .activeRaw,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> Page<EnrichedAnnotation> {
+        try annotationQueries.page(scope: scope, limit: limit, offset: offset)
+    }
+
+    public func annotationPage(
+        colorName: String,
+        scope: AnnotationScope = .activeRaw,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> Page<EnrichedAnnotation> {
+        try annotationQueries.page(colorName: colorName, scope: scope, limit: limit, offset: offset)
     }
 
     public func annotation(localPK: Int64) throws -> EnrichedAnnotation? {

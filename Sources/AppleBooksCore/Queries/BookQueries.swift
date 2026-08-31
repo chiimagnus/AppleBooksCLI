@@ -30,13 +30,23 @@ struct BookQueries {
         case title(String)
         case genre(String)
         case combinedText(String)
+        case contentPage
         case assetID(String)
     }
+
+    private static let contentPagePredicate = "\(AppleBooksSchema.Book.contentType) IS NOT NULL"
 
     let connection: SQLiteConnection
 
     func list(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
         try query(.none, capability: .bookBase, limit: limit, offset: offset)
+    }
+
+    func page(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
+        let effectiveLimit = try resolvedPageLimit(limit, default: 20, offset: offset)
+        let total = try contentPageTotal()
+        let items = try query(.contentPage, capability: .bookPage, limit: effectiveLimit, offset: offset)
+        return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
     }
 
     func getByLocalPK(_ localPK: Int64) throws -> Book? {
@@ -105,6 +115,8 @@ struct BookQueries {
         case .combinedText:
             let clauses = combinedSearchColumns.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
             sql += " WHERE (\(clauses.joined(separator: " OR ")))"
+        case .contentPage:
+            sql += " WHERE \(Self.contentPagePredicate)"
         case .assetID:
             sql += " WHERE \(AppleBooksSchema.Book.assetID) = ?"
         }
@@ -148,6 +160,8 @@ struct BookQueries {
                 try statement.bind(pattern, at: index)
                 index += 1
             }
+        case .contentPage:
+            break
         case let .assetID(value):
             try statement.bind(value, at: index)
             index += 1
@@ -164,6 +178,19 @@ struct BookQueries {
             books.append(try decode(SQLiteRow(statement: statement), schema: schema))
         }
         return books
+    }
+
+    private func contentPageTotal() throws -> Int {
+        _ = try AppleBooksSchema.inspect(.bookPage, on: connection)
+        let statement = try connection.prepare(
+            "SELECT COUNT(*) AS count FROM \(AppleBooksTable.books.rawValue) WHERE \(Self.contentPagePredicate)"
+        )
+        guard try statement.step(),
+              let count = try SQLiteRow(statement: statement).int64("count"),
+              count >= 0 else {
+            throw QueryDecodingError.nullRequiredColumn("count")
+        }
+        return Int(count)
     }
 
     func decode(_ row: SQLiteRow, schema: SchemaAvailability) throws -> Book {

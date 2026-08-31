@@ -21,6 +21,26 @@ struct AnnotationQueries {
         try query(.none, capability: .annotationUserBase, scope: scope, limit: limit, offset: offset)
     }
 
+    func page(scope: AnnotationScope = .activeRaw, limit: Int? = nil, offset: Int = 0) throws -> Page<EnrichedAnnotation> {
+        let effectiveLimit = try resolvedPageLimit(limit, default: 50, offset: offset)
+        let total = try count(scope: scope, style: nil, capability: .annotationUserBase)
+        let items = try list(scope: scope, limit: effectiveLimit, offset: offset)
+        return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
+    }
+
+    func page(
+        colorName: String,
+        scope: AnnotationScope = .activeRaw,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> Page<EnrichedAnnotation> {
+        let effectiveLimit = try resolvedPageLimit(limit, default: 50, offset: offset)
+        let color = try AnnotationColor(name: colorName)
+        let total = try count(scope: scope, style: color.rawValue, capability: .annotationByStyle)
+        let items = try byStyle(color.rawValue, scope: scope, limit: effectiveLimit, offset: offset)
+        return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
+    }
+
     func getByLocalPK(_ localPK: Int64, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
         try query(.localPK(localPK), capability: .annotationUserBase, scope: scope, limit: 1, offset: 0).first
     }
@@ -112,6 +132,14 @@ struct AnnotationQueries {
         )
     }
 
+    private static func scopePredicate(_ scope: AnnotationScope) -> String {
+        var predicate = "\(AppleBooksSchema.Annotation.isDeleted) = 0"
+        if scope == .user {
+            predicate += " AND \(AppleBooksSchema.Annotation.type) != 3"
+        }
+        return predicate
+    }
+
     private func query(
         _ filter: Filter,
         capability: SchemaCapability,
@@ -124,10 +152,7 @@ struct AnnotationQueries {
         let projection = [AppleBooksSchema.Annotation.localPK]
             + AppleBooksSchema.Annotation.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.annotations.rawValue)"
-        sql += " WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0"
-        if scope == .user {
-            sql += " AND \(AppleBooksSchema.Annotation.type) != 3"
-        }
+        sql += " WHERE \(Self.scopePredicate(scope))"
 
         switch filter {
         case .none:
@@ -223,6 +248,28 @@ struct AnnotationQueries {
             results.append(try enrich(annotation))
         }
         return results
+    }
+
+    private func count(
+        scope: AnnotationScope,
+        style: Int64?,
+        capability: SchemaCapability
+    ) throws -> Int {
+        _ = try AppleBooksSchema.inspect(capability, on: annotationConnection)
+        var sql = "SELECT COUNT(*) AS count FROM \(AppleBooksTable.annotations.rawValue) WHERE \(Self.scopePredicate(scope))"
+        if style != nil {
+            sql += " AND \(AppleBooksSchema.Annotation.style) = ?"
+        }
+        let statement = try annotationConnection.prepare(sql)
+        if let style {
+            try statement.bind(style, at: 1)
+        }
+        guard try statement.step(),
+              let value = try SQLiteRow(statement: statement).int64("count"),
+              value >= 0 else {
+            throw QueryDecodingError.nullRequiredColumn("count")
+        }
+        return Int(value)
     }
 
     static func decode(_ row: SQLiteRow, schema: SchemaAvailability) throws -> Annotation {

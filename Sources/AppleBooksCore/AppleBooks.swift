@@ -159,6 +159,58 @@ public final class AppleBooks {
         return BookOverview(book: book, userAnnotationCount: counts[assetID] ?? 0)
     }
 
+    public func libraryStats() throws -> LibraryStats {
+        let books = try bookQueries.list()
+        let finished = try readingQueries.finished()
+        let inProgress = try readingQueries.inProgress()
+        let unstarted = try readingQueries.unstarted()
+        let annotations = try annotationQueries.list(scope: .user)
+
+        var booksByAssetID: [String: [Book]] = [:]
+        var bookByLocalPK: [Int64: Book] = [:]
+        var orderByLocalPK: [Int64: Int] = [:]
+        for (index, book) in books.enumerated() {
+            bookByLocalPK[book.localPK] = book
+            orderByLocalPK[book.localPK] = index
+            if let assetID = book.assetID {
+                booksByAssetID[assetID, default: []].append(book)
+            }
+        }
+
+        var countsByLocalPK: [Int64: Int] = [:]
+        var orphanCount = 0
+        for enriched in annotations {
+            guard let assetID = enriched.annotation.rawAssetID,
+                  let matches = booksByAssetID[assetID],
+                  matches.count == 1,
+                  let book = matches.first else {
+                orphanCount += 1
+                continue
+            }
+            countsByLocalPK[book.localPK, default: 0] += 1
+        }
+
+        let topAnnotated = countsByLocalPK.compactMap { localPK, count -> BookOverview? in
+            guard let book = bookByLocalPK[localPK] else { return nil }
+            return BookOverview(book: book, userAnnotationCount: count)
+        }.sorted { lhs, rhs in
+            if lhs.userAnnotationCount != rhs.userAnnotationCount {
+                return lhs.userAnnotationCount > rhs.userAnnotationCount
+            }
+            return (orderByLocalPK[lhs.book.localPK] ?? .max) < (orderByLocalPK[rhs.book.localPK] ?? .max)
+        }.prefix(5)
+
+        return LibraryStats(
+            totalBooks: books.count,
+            finishedBooks: finished.count,
+            inProgressBooks: inProgress.count,
+            unstartedBooks: unstarted.count,
+            totalUserAnnotations: annotations.count,
+            orphanUserAnnotations: orphanCount,
+            topAnnotatedBooks: Array(topAnnotated)
+        )
+    }
+
     public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
         try bookQueries.page(limit: limit, offset: offset)
     }

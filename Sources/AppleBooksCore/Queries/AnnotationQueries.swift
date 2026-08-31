@@ -17,46 +17,77 @@ struct AnnotationQueries {
     let bookQueries: BookQueries
     let historicalAssets: HistoricalAssetMapping
 
-    func list(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.none, capability: .annotationUserBase, limit: limit, offset: offset)
+    func list(scope: AnnotationScope = .user, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
+        try query(.none, capability: .annotationUserBase, scope: scope, limit: limit, offset: offset)
     }
 
-    func getByLocalPK(_ localPK: Int64) throws -> EnrichedAnnotation? {
-        try query(.localPK(localPK), capability: .annotationUserBase, limit: 1, offset: 0).first
+    func getByLocalPK(_ localPK: Int64, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
+        try query(.localPK(localPK), capability: .annotationUserBase, scope: scope, limit: 1, offset: 0).first
     }
 
-    func getByUUID(_ uuid: String) throws -> [EnrichedAnnotation] {
-        try query(.uuid(uuid), capability: .annotationByUUID, limit: nil, offset: 0)
+    func getByUUID(_ uuid: String, scope: AnnotationScope = .user) throws -> [EnrichedAnnotation] {
+        try query(.uuid(uuid), capability: .annotationByUUID, scope: scope, limit: nil, offset: 0)
     }
 
-    func byAssetID(_ assetID: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.assetID(assetID), capability: .annotationByAssetID, limit: limit, offset: offset)
+    func byAssetID(
+        _ assetID: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try query(.assetID(assetID), capability: .annotationByAssetID, scope: scope, limit: limit, offset: offset)
     }
 
-    func byStyle(_ style: Int64, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.style(style), capability: .annotationByStyle, limit: limit, offset: offset)
+    func byStyle(
+        _ style: Int64,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try query(.style(style), capability: .annotationByStyle, scope: scope, limit: limit, offset: offset)
     }
 
-    func byColorName(_ name: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
+    func byColorName(
+        _ name: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
         let color = try AnnotationColor(name: name)
-        return try byStyle(color.rawValue, limit: limit, offset: offset)
+        return try byStyle(color.rawValue, scope: scope, limit: limit, offset: offset)
     }
 
-    func searchHighlightedText(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.highlightedText(text), capability: .annotationHighlightedText, limit: limit, offset: offset)
+    func searchHighlightedText(
+        _ text: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try query(.highlightedText(text), capability: .annotationHighlightedText, scope: scope, limit: limit, offset: offset)
     }
 
-    func searchNote(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.note(text), capability: .annotationNote, limit: limit, offset: offset)
+    func searchNote(
+        _ text: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try query(.note(text), capability: .annotationNote, scope: scope, limit: limit, offset: offset)
     }
 
-    func searchText(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try query(.fullText(text), capability: .annotationFullText, limit: limit, offset: offset)
+    func searchText(
+        _ text: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try query(.fullText(text), capability: .annotationFullText, scope: scope, limit: limit, offset: offset)
     }
 
     func created(
         lowerInclusive: Date? = nil,
         upperExclusive: Date? = nil,
+        scope: AnnotationScope = .user,
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
@@ -69,6 +100,7 @@ struct AnnotationQueries {
                 upper: CoreDataTime.seconds(from: upperExclusive)
             ),
             capability: .annotationByCreationDate,
+            scope: scope,
             limit: limit,
             offset: offset
         )
@@ -77,6 +109,7 @@ struct AnnotationQueries {
     private func query(
         _ filter: Filter,
         capability: SchemaCapability,
+        scope: AnnotationScope,
         limit: Int?,
         offset: Int
     ) throws -> [EnrichedAnnotation] {
@@ -86,7 +119,9 @@ struct AnnotationQueries {
             + AppleBooksSchema.Annotation.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.annotations.rawValue)"
         sql += " WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0"
-        sql += " AND \(AppleBooksSchema.Annotation.type) != 3"
+        if scope == .user {
+            sql += " AND \(AppleBooksSchema.Annotation.type) != 3"
+        }
 
         switch filter {
         case .none:

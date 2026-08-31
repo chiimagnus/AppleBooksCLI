@@ -1,5 +1,10 @@
 import Foundation
 
+public enum AnnotationScope: Equatable, Sendable {
+    case user
+    case activeRaw
+}
+
 public struct Annotation: Equatable, Sendable {
     public let localPK: Int64
     public let uuid: String?

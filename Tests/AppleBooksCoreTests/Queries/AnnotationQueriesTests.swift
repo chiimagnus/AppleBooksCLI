@@ -38,7 +38,7 @@ struct AnnotationQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let queries = try makeQueries(fixture)
 
-        #expect(try queries.getByUUID("u-current")?.annotation.localPK == 1)
+        #expect(try queries.getByUUID("u-current").map { $0.annotation.localPK } == [7, 1])
         #expect(try queries.getByLocalPK(2) == nil)
         #expect(try queries.getByLocalPK(3) == nil)
         #expect(try queries.getByLocalPK(4) == nil)
@@ -122,7 +122,7 @@ struct AnnotationQueriesTests {
           (4,'u-null-del','asset-current',NULL,0,1,1,190,280,'unknown deleted','','',NULL,NULL,NULL,NULL,NULL),
           (5,'u-null-type','asset-current',0,0,1,NULL,185,270,'unknown type','','',NULL,NULL,NULL,NULL,NULL),
           (6,'u-historical','asset-history',0,1,5,2,150,250,'','representative only','historical note',NULL,NULL,NULL,NULL,NULL),
-          (7,'u-unmapped','asset-missing',0,0,99,2,160,240,'','', 'O''Reilly %_\\',NULL,NULL,NULL,NULL,NULL),
+          (7,'u-current','asset-missing',0,0,99,2,160,240,'','', 'O''Reilly %_\\',NULL,NULL,NULL,NULL,NULL),
           (8,'u-ambiguous','asset-dup',0,0,1,1,170,230,'ambiguous','','',NULL,NULL,NULL,NULL,NULL),
           (9,'u-noasset',NULL,0,0,2,1,180,220,'','keep me','',NULL,NULL,NULL,NULL,NULL);
         """)

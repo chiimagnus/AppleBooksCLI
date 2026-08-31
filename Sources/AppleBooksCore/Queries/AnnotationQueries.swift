@@ -25,8 +25,8 @@ struct AnnotationQueries {
         try query(.localPK(localPK), capability: .annotationUserBase, limit: 1, offset: 0).first
     }
 
-    func getByUUID(_ uuid: String) throws -> EnrichedAnnotation? {
-        try query(.uuid(uuid), capability: .annotationByUUID, limit: 1, offset: 0).first
+    func getByUUID(_ uuid: String) throws -> [EnrichedAnnotation] {
+        try query(.uuid(uuid), capability: .annotationByUUID, limit: nil, offset: 0)
     }
 
     func byAssetID(_ assetID: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {

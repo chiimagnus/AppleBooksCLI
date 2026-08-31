@@ -53,6 +53,10 @@ struct BookQueries {
         try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup, limit: 1, offset: 0).first
     }
 
+    func getForContent(_ localPK: Int64) throws -> Book? {
+        try query(.localPK(localPK), capability: .bookContentPathLookup, limit: 1, offset: 0).first
+    }
+
     private func query(
         _ filter: Filter,
         capability: SchemaCapability,

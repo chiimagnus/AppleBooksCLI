@@ -65,6 +65,13 @@ public final class AppleBooks {
         try bookQueries.searchGenre(text, limit: limit, offset: offset)
     }
 
+    public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
+        guard let book = try bookQueries.getForContent(localPK), let path = book.path else {
+            throw ContentError.bookPathUnavailable
+        }
+        return try BookContent(root: URL(fileURLWithPath: path))
+    }
+
     // Upstream list_annotations, strengthened to deleted=0 AND type!=3.
     public func listAnnotations(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try annotationQueries.list(limit: limit, offset: offset)

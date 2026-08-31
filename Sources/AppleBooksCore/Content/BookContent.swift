@@ -3,6 +3,8 @@ import Foundation
 
 public enum BookContentError: Error, Equatable, Sendable {
     case chapterNotFound
+    case invalidMaximumCharacters
+    case chapterOffsetOutOfRange(offset: Int, total: Int)
 }
 
 public final class BookContent {
@@ -80,6 +82,48 @@ public final class BookContent {
             data,
             fragment: chapter.fragment.isEmpty ? nil : chapter.fragment,
             stopFragments: stopFragments
+        )
+    }
+
+    public func chapterPage(
+        id: String,
+        offset: Int = 0,
+        maxCharacters: Int? = 10_000
+    ) throws -> ChapterPage {
+        let text = try getChapter(id)
+        if let maxCharacters, maxCharacters <= 0 {
+            throw BookContentError.invalidMaximumCharacters
+        }
+
+        let total = text.count
+        guard total > 0 else {
+            return ChapterPage(
+                content: "",
+                offset: 0,
+                endOffset: 0,
+                totalCharacters: 0,
+                hasMore: false,
+                nextOffset: nil
+            )
+        }
+
+        let effectiveOffset = max(offset, 0)
+        guard effectiveOffset < total else {
+            throw BookContentError.chapterOffsetOutOfRange(offset: effectiveOffset, total: total)
+        }
+        let remaining = total - effectiveOffset
+        let returnedCharacters = maxCharacters.map { min($0, remaining) } ?? remaining
+        let endOffset = effectiveOffset + returnedCharacters
+        let startIndex = text.index(text.startIndex, offsetBy: effectiveOffset)
+        let endIndex = text.index(text.startIndex, offsetBy: endOffset)
+        let hasMore = endOffset < total
+        return ChapterPage(
+            content: String(text[startIndex..<endIndex]),
+            offset: effectiveOffset,
+            endOffset: endOffset,
+            totalCharacters: total,
+            hasMore: hasMore,
+            nextOffset: hasMore ? endOffset : nil
         )
     }
 

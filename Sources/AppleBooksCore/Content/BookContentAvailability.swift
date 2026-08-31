@@ -97,9 +97,8 @@ struct BookContentAvailabilityProbe {
                     .isUbiquitousItemKey,
                     .ubiquitousItemDownloadingStatusKey,
                 ])
-                guard let isUbiquitous = values.isUbiquitousItem else {
-                    throw MetadataError.incomplete
-                }
+                let isUbiquitous = values.isUbiquitousItem
+                    ?? FileManager.default.isUbiquitousItem(at: url)
                 guard isUbiquitous else {
                     return ResourceMetadata(isUbiquitous: false, downloadingStatus: nil)
                 }
@@ -121,7 +120,4 @@ struct BookContentAvailabilityProbe {
         )
     }
 
-    private enum MetadataError: Error {
-        case incomplete
-    }
 }

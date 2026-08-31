@@ -58,6 +58,18 @@ struct BookContentAvailabilityTests {
     }
 
     @Test
+    func liveMetadataRecognizesNormalLocalFileAndDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("local.xhtml")
+        try Data("synthetic".utf8).write(to: file)
+
+        #expect(BookContentAvailability.inspect(root) == .available)
+        #expect(BookContentAvailability.inspect(file) == .available)
+    }
+
+    @Test
     func availabilityUsesOnlyTheTwoMetadataSeams() {
         var fileMetadataCalls = 0
         var resourceMetadataCalls = 0

@@ -74,6 +74,103 @@ struct MutationCoordinatorTests {
     }
 
     @Test
+    func sqlitePreflightFailureIsStructuredBeforeBackup() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let secret = "SECRET-PATH-AND-USER-TEXT"
+
+        do {
+            _ = try fixture.coordinator.perform(
+                preflight: { _ in
+                    throw SQLiteError(operation: .prepare, code: SQLITE_ERROR, message: secret)
+                },
+                revalidate: { _ in },
+                mutation: { _ in () },
+                domainData: { _ in MutationDomainData(changed: false) },
+                readBack: { _, _ in }
+            )
+            Issue.record("expected structured preflight failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .preflightFailed)
+            #expect(failure.backupHandle == nil)
+            #expect(failure.underlying as? SQLiteError == SQLiteError(operation: .prepare, code: SQLITE_ERROR, message: secret))
+            #expect(String(describing: failure).contains(secret) == false)
+            #expect(String(reflecting: failure).contains(secret) == false)
+            #expect(failure.localizedDescription.contains(secret) == false)
+        }
+
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+    }
+
+    @Test
+    func readOnlyOpenFailureIsStructuredBeforeLifecycleOrBackup() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("missing.sqlite")
+        let backupRoot = root.appendingPathComponent("backups")
+        var lifecycleCalls = 0
+        let coordinator = MutationCoordinator(
+            database: database,
+            backupRoot: backupRoot,
+            booksApp: BooksAppController(
+                isRunning: { lifecycleCalls += 1; return false },
+                terminate: { lifecycleCalls += 1; return true },
+                launch: { lifecycleCalls += 1 }
+            )
+        )
+
+        do {
+            _ = try coordinator.perform(
+                preflight: { _ in },
+                revalidate: { _ in },
+                mutation: { _ in () },
+                domainData: { _ in MutationDomainData(changed: false) },
+                readBack: { _, _ in }
+            )
+            Issue.record("expected structured open failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .preflightFailed)
+            #expect(failure.backupHandle == nil)
+            #expect(String(describing: failure).contains(database.path) == false)
+        }
+
+        #expect(lifecycleCalls == 0)
+        #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
+    }
+
+    @Test
+    func publicFailureDescriptionsNeverReflectUnderlyingDetails() {
+        let secret = "SECRET-SQLITE-PATH-AND-NOTE"
+        let underlying = SQLiteError(operation: .step, code: SQLITE_ERROR, message: secret)
+        let mutation = MutationFailure(
+            backupHandle: "library__opaque.sqlite",
+            code: .mutationFailed,
+            warnings: [.relaunchFailed],
+            underlying: underlying
+        )
+        let restore = RestoreFailure(
+            safetyBackupHandle: "library__safety.sqlite",
+            code: .restoreFailed,
+            warnings: [.verificationFailed],
+            underlying: underlying
+        )
+
+        for rendered in [
+            String(describing: mutation),
+            String(reflecting: mutation),
+            mutation.localizedDescription,
+            String(describing: restore),
+            String(reflecting: restore),
+            restore.localizedDescription,
+        ] {
+            #expect(rendered.contains(secret) == false)
+        }
+        #expect(String(describing: mutation).contains("mutation_failed"))
+        #expect(String(describing: restore).contains("restore_failed"))
+    }
+
+    @Test
     func mutationFailureRollsBackAndKeepsBackupHandle() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

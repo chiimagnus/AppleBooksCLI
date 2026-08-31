@@ -40,12 +40,30 @@ struct MutationCoordinator {
         domainData: (T) -> MutationDomainData,
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> MutationResult {
-        let preflightConnection = try SQLiteConnection.readOnly(path: database.path)
+        let preflightConnection: SQLiteConnection
+        do {
+            preflightConnection = try SQLiteConnection.readOnly(path: database.path)
+        } catch {
+            throw MutationFailure(
+                backupHandle: nil,
+                code: .preflightFailed,
+                warnings: [],
+                underlying: error
+            )
+        }
         do {
             try preflight(preflightConnection)
             try preflightConnection.close()
         } catch {
             try? preflightConnection.close()
+            if error is SQLiteError {
+                throw MutationFailure(
+                    backupHandle: nil,
+                    code: .preflightFailed,
+                    warnings: [],
+                    underlying: error
+                )
+            }
             throw error
         }
 

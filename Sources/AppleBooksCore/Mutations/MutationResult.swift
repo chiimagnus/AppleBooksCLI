@@ -1,3 +1,5 @@
+import Foundation
+
 public enum MutationWarning: String, Equatable, Sendable {
     case writableCloseFailed = "writable_close_failed"
     case readBackFailed = "read_back_failed"
@@ -5,6 +7,7 @@ public enum MutationWarning: String, Equatable, Sendable {
 }
 
 public enum MutationFailureCode: String, Equatable, Sendable {
+    case preflightFailed = "preflight_failed"
     case quitFailed = "quit_failed"
     case backupFailed = "backup_failed"
     case databaseOpenFailed = "database_open_failed"
@@ -50,7 +53,7 @@ public struct RestoreResult: Equatable, Sendable {
     }
 }
 
-public struct RestoreFailure: Error {
+public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {
     public let restoreApplied: Bool
     public let safetyBackupHandle: String?
     public let code: RestoreFailureCode
@@ -69,6 +72,13 @@ public struct RestoreFailure: Error {
         self.warnings = warnings
         self.underlying = underlying
     }
+
+    public var description: String {
+        "RestoreFailure(restoreApplied=false, code=\(code.rawValue), safetyBackupHandle=\(safetyBackupHandle ?? "none"), warnings=\(warnings.map(\.rawValue)))"
+    }
+
+    public var debugDescription: String { description }
+    public var errorDescription: String? { description }
 }
 
 public struct MutationResult: Equatable, Sendable {
@@ -95,7 +105,7 @@ public struct MutationResult: Equatable, Sendable {
     }
 }
 
-public struct MutationFailure: Error {
+public struct MutationFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {
     public let committed: Bool
     public let backupHandle: String?
     public let code: MutationFailureCode
@@ -114,6 +124,13 @@ public struct MutationFailure: Error {
         self.warnings = warnings
         self.underlying = underlying
     }
+
+    public var description: String {
+        "MutationFailure(committed=false, code=\(code.rawValue), backupHandle=\(backupHandle ?? "none"), warnings=\(warnings.map(\.rawValue)))"
+    }
+
+    public var debugDescription: String { description }
+    public var errorDescription: String? { description }
 }
 
 struct MutationDomainData: Equatable, Sendable {

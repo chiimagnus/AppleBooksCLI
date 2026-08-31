@@ -1,0 +1,9 @@
+{
+  "epub_root": "/path/to/your/epubs",
+  "historical_assets": {
+    "EXAMPLE-ASSET-ID": {
+      "title": "Example Book",
+      "author": "Example Author"
+    }
+  }
+}

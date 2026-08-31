@@ -1,0 +1,4 @@
+AppleBooksCLI test fixture provenance
+
+Fixtures in this repository may contain only synthetic data or repository-owned test shapes.
+Real user book titles, annotation text, asset identifiers, UUIDs, CFI values, and local absolute paths are prohibited.

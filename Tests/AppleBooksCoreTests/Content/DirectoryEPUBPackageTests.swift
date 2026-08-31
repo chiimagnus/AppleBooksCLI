@@ -90,6 +90,30 @@ struct DirectoryEPUBPackageTests {
             _ = try DirectoryEPUBPackage(root: malformed.root)
         }
 
+        let invalidContainerStructure = try Fixture()
+        defer { invalidContainerStructure.remove() }
+        try invalidContainerStructure.write("""
+        <wrapper xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles><rootfile full-path="package.opf"/></rootfiles>
+        </wrapper>
+        """, at: "META-INF/container.xml")
+        #expect(throws: DirectoryEPUBPackageError.invalidContainer) {
+            _ = try DirectoryEPUBPackage(root: invalidContainerStructure.root)
+        }
+
+        let invalidPackageStructure = try Fixture()
+        defer { invalidPackageStructure.remove() }
+        try invalidPackageStructure.writeContainer(rootfiles: ["package.opf"])
+        try invalidPackageStructure.writeOPF("""
+        <package xmlns="http://www.idpf.org/2007/opf">
+          <manifest><item id="chapter" href="a.xhtml" media-type="application/xhtml+xml"/></manifest>
+          <itemref idref="chapter"/>
+        </package>
+        """, at: "package.opf")
+        #expect(throws: DirectoryEPUBPackageError.invalidPackageDocument) {
+            _ = try DirectoryEPUBPackage(root: invalidPackageStructure.root)
+        }
+
         let duplicate = try Fixture()
         defer { duplicate.remove() }
         try duplicate.writeContainer(rootfiles: ["package.opf"])

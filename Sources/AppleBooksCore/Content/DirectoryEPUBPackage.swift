@@ -82,12 +82,19 @@ struct DirectoryEPUBPackage: Equatable, Sendable {
 private final class ContainerDocument: NSObject, XMLParserDelegate {
     private static let namespace = "urn:oasis:names:tc:opendocument:xmlns:container"
     private var firstRootfile: String?
+    private var depth = 0
+    private var rootfilesDepth: Int?
+    private var sawContainer = false
+    private var sawRootfiles = false
+    private var structuralError: DirectoryEPUBPackageError?
 
     static func parse(_ data: Data) throws -> String {
         let delegate = ContainerDocument()
         let parser = XMLParser(data: data)
         configure(parser, delegate: delegate)
-        guard parser.parse() else { throw DirectoryEPUBPackageError.invalidContainer }
+        guard parser.parse(), delegate.structuralError == nil, delegate.sawContainer else {
+            throw delegate.structuralError ?? DirectoryEPUBPackageError.invalidContainer
+        }
         guard let rootfile = delegate.firstRootfile else {
             throw DirectoryEPUBPackageError.missingRootfile
         }
@@ -101,14 +108,58 @@ private final class ContainerDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        guard firstRootfile == nil,
-              namespaceURI == Self.namespace,
-              elementName == "rootfile",
-              let fullPath = attributeDict["full-path"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              fullPath.isEmpty == false else {
+        guard structuralError == nil else { return }
+        if depth == 0 {
+            guard namespaceURI == Self.namespace, elementName == "container" else {
+                fail(parser)
+                return
+            }
+            sawContainer = true
+            depth += 1
             return
         }
-        firstRootfile = fullPath
+
+        if namespaceURI == Self.namespace {
+            switch elementName {
+            case "rootfiles":
+                guard depth == 1, sawRootfiles == false else {
+                    fail(parser)
+                    return
+                }
+                sawRootfiles = true
+                rootfilesDepth = depth + 1
+            case "rootfile":
+                guard rootfilesDepth == depth,
+                      let fullPath = attributeDict["full-path"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      fullPath.isEmpty == false else {
+                    fail(parser)
+                    return
+                }
+                if firstRootfile == nil { firstRootfile = fullPath }
+            default:
+                break
+            }
+        }
+        depth += 1
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if namespaceURI == Self.namespace,
+           elementName == "rootfiles",
+           rootfilesDepth == depth {
+            rootfilesDepth = nil
+        }
+        depth = max(0, depth - 1)
+    }
+
+    private func fail(_ parser: XMLParser) {
+        structuralError = .invalidContainer
+        parser.abortParsing()
     }
 }
 
@@ -125,13 +176,23 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
     private(set) var manifest: [ManifestEntry] = []
     private(set) var spine: [String] = []
     private var manifestIDs = Set<String>()
+    private var depth = 0
+    private var manifestDepth: Int?
+    private var spineDepth: Int?
+    private var sawPackage = false
+    private var sawManifest = false
+    private var sawSpine = false
     private var structuralError: DirectoryEPUBPackageError?
 
     static func parse(_ data: Data) throws -> PackageDocument {
         let delegate = PackageDocument()
         let parser = XMLParser(data: data)
         configure(parser, delegate: delegate)
-        guard parser.parse(), delegate.structuralError == nil else {
+        guard parser.parse(),
+              delegate.structuralError == nil,
+              delegate.sawPackage,
+              delegate.sawManifest,
+              delegate.sawSpine else {
             throw delegate.structuralError ?? DirectoryEPUBPackageError.invalidPackageDocument
         }
         return delegate
@@ -144,33 +205,79 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        guard structuralError == nil, namespaceURI == Self.namespace else { return }
-        switch elementName {
-        case "item":
-            guard let id = required(attributeDict["id"]),
-                  let href = required(attributeDict["href"]),
-                  let mediaType = required(attributeDict["media-type"]) else {
-                structuralError = .invalidPackageDocument
-                parser.abortParsing()
+        guard structuralError == nil else { return }
+        if depth == 0 {
+            guard namespaceURI == Self.namespace, elementName == "package" else {
+                fail(.invalidPackageDocument, parser: parser)
                 return
             }
-            guard manifestIDs.insert(id).inserted else {
-                structuralError = .duplicateManifestID
-                parser.abortParsing()
-                return
-            }
-            let properties = Set((attributeDict["properties"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init))
-            manifest.append(.init(id: id, href: href, mediaType: mediaType, properties: properties))
-        case "itemref":
-            guard let idref = required(attributeDict["idref"]) else {
-                structuralError = .invalidPackageDocument
-                parser.abortParsing()
-                return
-            }
-            spine.append(idref)
-        default:
-            break
+            sawPackage = true
+            depth += 1
+            return
         }
+
+        if namespaceURI == Self.namespace {
+            switch elementName {
+            case "manifest":
+                guard depth == 1, sawManifest == false else {
+                    fail(.invalidPackageDocument, parser: parser)
+                    return
+                }
+                sawManifest = true
+                manifestDepth = depth + 1
+            case "spine":
+                guard depth == 1, sawSpine == false else {
+                    fail(.invalidPackageDocument, parser: parser)
+                    return
+                }
+                sawSpine = true
+                spineDepth = depth + 1
+            case "item":
+                guard manifestDepth == depth,
+                      let id = required(attributeDict["id"]),
+                      let href = required(attributeDict["href"]),
+                      let mediaType = required(attributeDict["media-type"]) else {
+                    fail(.invalidPackageDocument, parser: parser)
+                    return
+                }
+                guard manifestIDs.insert(id).inserted else {
+                    fail(.duplicateManifestID, parser: parser)
+                    return
+                }
+                let properties = Set((attributeDict["properties"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init))
+                manifest.append(.init(id: id, href: href, mediaType: mediaType, properties: properties))
+            case "itemref":
+                guard spineDepth == depth,
+                      let idref = required(attributeDict["idref"]) else {
+                    fail(.invalidPackageDocument, parser: parser)
+                    return
+                }
+                spine.append(idref)
+            default:
+                break
+            }
+        }
+        depth += 1
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if namespaceURI == Self.namespace, elementName == "manifest", manifestDepth == depth {
+            manifestDepth = nil
+        }
+        if namespaceURI == Self.namespace, elementName == "spine", spineDepth == depth {
+            spineDepth = nil
+        }
+        depth = max(0, depth - 1)
+    }
+
+    private func fail(_ error: DirectoryEPUBPackageError, parser: XMLParser) {
+        structuralError = error
+        parser.abortParsing()
     }
 
     private func required(_ value: String?) -> String? {

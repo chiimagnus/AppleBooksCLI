@@ -29,6 +29,12 @@ struct AnnotationQueries {
         try query(.uuid(uuid), capability: .annotationByUUID, scope: scope, limit: nil, offset: 0)
     }
 
+    func getUniqueByUUID(_ uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
+        let matches = try getByUUID(uuid, scope: scope)
+        guard matches.count <= 1 else { throw StableIdentityError.ambiguousAnnotationUUID }
+        return matches.first
+    }
+
     func byAssetID(
         _ assetID: String,
         scope: AnnotationScope = .user,

@@ -4,6 +4,7 @@ struct CollectionQueries {
     private enum Filter {
         case none
         case localPK(Int64)
+        case collectionID(String)
         case title(String)
     }
 
@@ -19,6 +20,12 @@ struct CollectionQueries {
 
     func searchTitle(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
         try query(.title(text), capability: .collectionTitleSearch, limit: limit, offset: offset)
+    }
+
+    func getUniqueByCollectionID(_ collectionID: String) throws -> Collection? {
+        let matches = try query(.collectionID(collectionID), capability: .collectionIDLookup, limit: nil, offset: 0)
+        guard matches.count <= 1 else { throw StableIdentityError.ambiguousCollectionID }
+        return matches.first
     }
 
     func books(in collection: Collection) throws -> [Book] {
@@ -79,6 +86,8 @@ struct CollectionQueries {
             break
         case .localPK:
             sql += " AND \(AppleBooksSchema.Collection.localPK) = ?"
+        case .collectionID:
+            sql += " AND \(AppleBooksSchema.Collection.collectionID) = ?"
         case .title:
             sql += " AND \(AppleBooksSchema.Collection.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
         }
@@ -105,6 +114,9 @@ struct CollectionQueries {
         case .none:
             break
         case let .localPK(value):
+            try statement.bind(value, at: index)
+            index += 1
+        case let .collectionID(value):
             try statement.bind(value, at: index)
             index += 1
         case let .title(value):

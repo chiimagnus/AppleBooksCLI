@@ -1,5 +1,11 @@
 import Foundation
 
+public enum StableIdentityError: Error, Equatable, Sendable {
+    case ambiguousBookAssetID
+    case ambiguousCollectionID
+    case ambiguousAnnotationUUID
+}
+
 public final class AppleBooks {
     private let bookQueries: BookQueries
     private let collectionQueries: CollectionQueries
@@ -60,6 +66,10 @@ public final class AppleBooks {
         try collectionQueries.getByLocalPK(localPK)
     }
 
+    public func collection(collectionID: String) throws -> Collection? {
+        try collectionQueries.getUniqueByCollectionID(collectionID)
+    }
+
     // Title is a search field, never collection identity.
     public func collections(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
         try collectionQueries.searchTitle(text, limit: limit, offset: offset)
@@ -93,6 +103,10 @@ public final class AppleBooks {
         try bookQueries.getByLocalPK(localPK)
     }
 
+    public func book(assetID: String) throws -> Book? {
+        try bookQueries.getUniqueByAssetID(assetID)
+    }
+
     public func books(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
         try bookQueries.searchTitle(text, limit: limit, offset: offset)
     }
@@ -114,6 +128,19 @@ public final class AppleBooks {
 
     public func annotation(localPK: Int64) throws -> EnrichedAnnotation? {
         try annotationQueries.getByLocalPK(localPK)
+    }
+
+    public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
+        try annotationQueries.getUniqueByUUID(uuid, scope: scope)
+    }
+
+    public func annotations(bookAssetID: String, scope: AnnotationScope = .user) throws -> [EnrichedAnnotation] {
+        try annotationQueries.byAssetID(bookAssetID, scope: scope)
+    }
+
+    public func annotations(bookLocalPK: Int64, scope: AnnotationScope = .user) throws -> [EnrichedAnnotation] {
+        guard let book = try bookQueries.getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
+        return try annotationQueries.byAssetID(assetID, scope: scope)
     }
 
     public func annotationContext(

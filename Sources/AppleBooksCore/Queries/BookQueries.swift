@@ -49,6 +49,12 @@ struct BookQueries {
         try query(.assetID(assetID), capability: .bookAssetLookup, limit: nil, offset: 0)
     }
 
+    func getUniqueByAssetID(_ assetID: String) throws -> Book? {
+        let matches = try getByAssetID(assetID)
+        guard matches.count <= 1 else { throw StableIdentityError.ambiguousBookAssetID }
+        return matches.first
+    }
+
     func getForCurrentReadingLocation(_ localPK: Int64) throws -> Book? {
         try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup, limit: 1, offset: 0).first
     }

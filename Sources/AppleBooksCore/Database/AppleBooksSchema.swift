@@ -133,6 +133,7 @@ enum SchemaCapability: CaseIterable {
     case readingRecentlyRead
     case collectionBase
     case collectionTitleSearch
+    case collectionIDLookup
     case collectionMembers
     case collectionMemberBooks
     case annotationUserBase
@@ -151,7 +152,7 @@ enum SchemaCapability: CaseIterable {
              .bookCurrentReadingAssetLookup, .bookContentPathLookup, .readingFinished, .readingInProgress,
              .readingUnstarted, .readingRecentlyRead, .collectionMemberBooks:
             .books
-        case .collectionBase, .collectionTitleSearch:
+        case .collectionBase, .collectionTitleSearch, .collectionIDLookup:
             .collections
         case .collectionMembers:
             .collectionMembers
@@ -184,6 +185,8 @@ enum SchemaCapability: CaseIterable {
             [AppleBooksSchema.Collection.localPK, AppleBooksSchema.Collection.isDeleted]
         case .collectionTitleSearch:
             [AppleBooksSchema.Collection.localPK, AppleBooksSchema.Collection.isDeleted, AppleBooksSchema.Collection.title]
+        case .collectionIDLookup:
+            [AppleBooksSchema.Collection.localPK, AppleBooksSchema.Collection.isDeleted, AppleBooksSchema.Collection.collectionID]
         case .collectionMembers:
             [AppleBooksSchema.Member.localPK, AppleBooksSchema.Member.collection, AppleBooksSchema.Member.assetID]
         case .collectionMemberBooks:

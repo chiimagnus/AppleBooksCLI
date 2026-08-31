@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 struct CoreDataEntityMetadata: Equatable {
     let entityID: Int64
@@ -51,56 +52,102 @@ enum WriteSchemaGuard {
         inserting: Bool,
         on connection: SQLiteConnection
     ) throws {
-        let statement = try connection.prepare(
-            "SELECT name, [notnull] AS is_not_null FROM pragma_table_info(?) ORDER BY cid"
+        guard let handle = connection.handle else { throw WriteSchemaGuardError.missingTable(table.rawValue) }
+        try validateTable(table, required: required, inserting: inserting, on: handle)
+    }
+
+    static func validateTable(
+        _ table: WriteSchemaTable,
+        required: Set<String>,
+        inserting: Bool,
+        on handle: OpaquePointer
+    ) throws {
+        var statement: OpaquePointer?
+        let prepare = sqlite3_prepare_v2(
+            handle,
+            "SELECT name, [notnull] AS is_not_null FROM pragma_table_info(?) ORDER BY cid",
+            -1,
+            &statement,
+            nil
         )
-        try statement.bind(table.rawValue, at: 1)
+        guard prepare == SQLITE_OK, let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            throw WriteSchemaGuardError.missingTable(table.rawValue)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard bind(table.rawValue, to: statement, index: 1) == SQLITE_OK else {
+            throw WriteSchemaGuardError.missingTable(table.rawValue)
+        }
 
         var columns = Set<String>()
         var unknownRequired: [String] = []
-        while try statement.step() {
-            let row = try SQLiteRow(statement: statement)
-            guard let name = try row.text("name") else { continue }
-            columns.insert(name)
-            if inserting,
-               let known = table.writerKnownColumns,
-               known.contains(name) == false,
-               try row.int64("is_not_null") == 1 {
-                unknownRequired.append(name)
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                guard let rawName = sqlite3_column_text(statement, 0) else { continue }
+                let name = String(cString: rawName)
+                columns.insert(name)
+                if inserting,
+                   let known = table.writerKnownColumns,
+                   known.contains(name) == false,
+                   sqlite3_column_int64(statement, 1) == 1 {
+                    unknownRequired.append(name)
+                }
+            case SQLITE_DONE:
+                break
+            default:
+                throw WriteSchemaGuardError.missingTable(table.rawValue)
             }
+            if sqlite3_data_count(statement) == 0 { break }
         }
-        guard columns.isEmpty == false else {
-            throw WriteSchemaGuardError.missingTable(table.rawValue)
-        }
+        guard columns.isEmpty == false else { throw WriteSchemaGuardError.missingTable(table.rawValue) }
 
         let missing = required.subtracting(columns).sorted()
         guard missing.isEmpty else {
             throw WriteSchemaGuardError.missingRequiredColumns(table: table.rawValue, columns: missing)
         }
         guard unknownRequired.isEmpty else {
-            throw WriteSchemaGuardError.unknownRequiredColumns(
-                table: table.rawValue,
-                columns: unknownRequired.sorted()
-            )
+            throw WriteSchemaGuardError.unknownRequiredColumns(table: table.rawValue, columns: unknownRequired.sorted())
         }
     }
 
     static func entity(named name: String, on connection: SQLiteConnection) throws -> CoreDataEntityMetadata {
-        try validateTable(
-            .primaryKey,
-            required: ["Z_NAME", "Z_ENT", "Z_MAX"],
-            inserting: false,
-            on: connection
+        guard let handle = connection.handle else { throw WriteSchemaGuardError.missingEntity(name) }
+        return try entity(named: name, on: handle)
+    }
+
+    static func entity(named name: String, on handle: OpaquePointer) throws -> CoreDataEntityMetadata {
+        try validateTable(.primaryKey, required: ["Z_NAME", "Z_ENT", "Z_MAX"], inserting: false, on: handle)
+        var statement: OpaquePointer?
+        let prepare = sqlite3_prepare_v2(
+            handle,
+            "SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = ? ORDER BY rowid",
+            -1,
+            &statement,
+            nil
         )
-        let statement = try connection.prepare(
-            "SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = ? ORDER BY rowid"
-        )
-        try statement.bind(name, at: 1)
+        guard prepare == SQLITE_OK, let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            throw WriteSchemaGuardError.missingEntity(name)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard bind(name, to: statement, index: 1) == SQLITE_OK else {
+            throw WriteSchemaGuardError.missingEntity(name)
+        }
 
         var rows: [(Int64?, Int64?)] = []
-        while try statement.step() {
-            let row = try SQLiteRow(statement: statement)
-            rows.append((try row.int64("Z_ENT"), try row.int64("Z_MAX")))
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                let entityID = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
+                let maxPK = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
+                rows.append((entityID, maxPK))
+            case SQLITE_DONE:
+                break
+            default:
+                throw WriteSchemaGuardError.invalidEntity(name)
+            }
+            if sqlite3_data_count(statement) == 0 { break }
         }
         guard rows.isEmpty == false else { throw WriteSchemaGuardError.missingEntity(name) }
         guard rows.count == 1 else { throw WriteSchemaGuardError.duplicateEntity(name) }
@@ -117,19 +164,45 @@ enum WriteSchemaGuard {
         expectedEntityID: Int64,
         on connection: SQLiteConnection
     ) throws {
+        guard let handle = connection.handle else { throw WriteSchemaGuardError.targetMissing(table.rawValue) }
+        try validateExistingEntity(table: table, localPK: localPK, expectedEntityID: expectedEntityID, on: handle)
+    }
+
+    static func validateExistingEntity(
+        table: WriteSchemaTable,
+        localPK: Int64,
+        expectedEntityID: Int64,
+        on handle: OpaquePointer
+    ) throws {
         precondition(table == .collections || table == .members)
-        try validateTable(table, required: ["Z_PK", "Z_ENT"], inserting: false, on: connection)
-        let statement = try connection.prepare(
-            "SELECT Z_ENT FROM \(table.rawValue) WHERE Z_PK = ?"
+        try validateTable(table, required: ["Z_PK", "Z_ENT"], inserting: false, on: handle)
+        var statement: OpaquePointer?
+        let prepare = sqlite3_prepare_v2(
+            handle,
+            "SELECT Z_ENT FROM \(table.rawValue) WHERE Z_PK = ?",
+            -1,
+            &statement,
+            nil
         )
-        try statement.bind(localPK, at: 1)
-        guard try statement.step() else { throw WriteSchemaGuardError.targetMissing(table.rawValue) }
-        let row = try SQLiteRow(statement: statement)
-        guard let entityID = try row.int64("Z_ENT"), entityID == expectedEntityID else {
+        guard prepare == SQLITE_OK, let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            throw WriteSchemaGuardError.targetMissing(table.rawValue)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw WriteSchemaGuardError.targetMissing(table.rawValue)
+        }
+        guard sqlite3_column_type(statement, 0) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 0) == expectedEntityID,
+              sqlite3_step(statement) == SQLITE_DONE else {
             throw WriteSchemaGuardError.entityMismatch(table.rawValue)
         }
-        guard try statement.step() == false else {
-            throw WriteSchemaGuardError.entityMismatch(table.rawValue)
+    }
+
+    private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
+        value.withCString {
+            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         }
     }
 }

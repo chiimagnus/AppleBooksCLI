@@ -118,7 +118,7 @@ struct BookQueries {
         case .contentPage:
             sql += " WHERE \(Self.contentPagePredicate)"
         case .assetID:
-            sql += " WHERE \(AppleBooksSchema.Book.assetID) = ?"
+            sql += " WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY"
         }
 
         var order: [String] = []

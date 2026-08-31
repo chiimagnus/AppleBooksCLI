@@ -87,7 +87,7 @@ struct CollectionQueries {
         case .localPK:
             sql += " AND \(AppleBooksSchema.Collection.localPK) = ?"
         case .collectionID:
-            sql += " AND \(AppleBooksSchema.Collection.collectionID) = ?"
+            sql += " AND \(AppleBooksSchema.Collection.collectionID) = ? COLLATE BINARY"
         case .title:
             sql += " AND \(AppleBooksSchema.Collection.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
         }

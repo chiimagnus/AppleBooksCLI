@@ -11,8 +11,11 @@ struct StableSelectorTests {
         defer { fixture.remove() }
 
         #expect(try fixture.core.book(assetID: "book-12")?.localPK == 12)
+        #expect(try fixture.core.book(assetID: "BOOK-12")?.localPK == 13)
         #expect(try fixture.core.collection(collectionID: "collection-12")?.localPK == 12)
+        #expect(try fixture.core.collection(collectionID: "COLLECTION-12")?.localPK == 13)
         #expect(try fixture.core.annotation(uuid: "annotation-12")?.annotation.localPK == 12)
+        #expect(try fixture.core.annotation(uuid: "ANNOTATION-12")?.annotation.localPK == 15)
 
         #expect(try fixture.core.book(assetID: "12abc") == nil)
         #expect(try fixture.core.collection(collectionID: "12abc") == nil)
@@ -46,6 +49,7 @@ struct StableSelectorTests {
 
         let user = try fixture.core.annotations(bookAssetID: "book-12")
         #expect(Set(user.map { $0.annotation.localPK }) == [12, 20, 21])
+        #expect(try fixture.core.annotations(bookAssetID: "BOOK-12").map { $0.annotation.localPK } == [15])
 
         let raw = try fixture.core.annotations(bookLocalPK: 12, scope: .activeRaw)
         #expect(Set(raw.map { $0.annotation.localPK }) == [12, 13, 14, 20, 21])
@@ -64,21 +68,23 @@ struct StableSelectorTests {
 
             let library = root.appendingPathComponent("library.sqlite")
             try Self.createDatabase(library, sql: """
-            CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT);
+            CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT COLLATE NOCASE,ZTITLE TEXT);
             INSERT INTO ZBKLIBRARYASSET VALUES
                 (12,'book-12','Twelve'),
+                (13,'BOOK-12','Uppercase Twelve'),
                 (20,'book-dup','Duplicate A'),
                 (21,'book-dup','Duplicate B'),
                 (30,NULL,'No Asset');
 
             CREATE TABLE ZBKCOLLECTION(
                 Z_PK INTEGER PRIMARY KEY,
-                ZCOLLECTIONID TEXT,
+                ZCOLLECTIONID TEXT COLLATE NOCASE,
                 ZDELETEDFLAG INTEGER,
                 ZTITLE TEXT
             );
             INSERT INTO ZBKCOLLECTION VALUES
                 (12,'collection-12',0,'Shelf'),
+                (13,'COLLECTION-12',0,'Uppercase Shelf'),
                 (20,'collection-dup',0,'Duplicate A'),
                 (21,'collection-dup',0,'Duplicate B'),
                 (30,'collection-deleted',1,'Deleted');
@@ -88,8 +94,8 @@ struct StableSelectorTests {
             try Self.createDatabase(annotations, sql: """
             CREATE TABLE ZAEANNOTATION(
                 Z_PK INTEGER PRIMARY KEY,
-                ZANNOTATIONUUID TEXT,
-                ZANNOTATIONASSETID TEXT,
+                ZANNOTATIONUUID TEXT COLLATE NOCASE,
+                ZANNOTATIONASSETID TEXT COLLATE NOCASE,
                 ZANNOTATIONDELETED INTEGER,
                 ZANNOTATIONTYPE INTEGER
             );
@@ -97,6 +103,7 @@ struct StableSelectorTests {
                 (12,'annotation-12','book-12',0,1),
                 (13,'annotation-bookmark','book-12',0,3),
                 (14,'annotation-null-type','book-12',0,NULL),
+                (15,'ANNOTATION-12','BOOK-12',0,1),
                 (20,'annotation-dup','book-12',0,1),
                 (21,'annotation-dup','book-12',0,1),
                 (30,'annotation-deleted','book-12',1,1);

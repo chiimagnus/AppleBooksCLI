@@ -177,9 +177,9 @@ struct AnnotationQueries {
         case .localPK:
             sql += " AND \(AppleBooksSchema.Annotation.localPK) = ?"
         case .uuid:
-            sql += " AND \(AppleBooksSchema.Annotation.uuid) = ?"
+            sql += " AND \(AppleBooksSchema.Annotation.uuid) = ? COLLATE BINARY"
         case .assetID:
-            sql += " AND \(AppleBooksSchema.Annotation.assetID) = ?"
+            sql += " AND \(AppleBooksSchema.Annotation.assetID) = ? COLLATE BINARY"
         case .style:
             sql += " AND \(AppleBooksSchema.Annotation.style) = ?"
         case .highlightedText:

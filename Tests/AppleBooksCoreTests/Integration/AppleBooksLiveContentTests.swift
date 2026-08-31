@@ -52,8 +52,14 @@ final class AppleBooksLiveContentTests: XCTestCase {
             inspectedCandidates += 1
             guard inspectedCandidates <= 32 else { break }
 
+            let content: BookContent
             do {
-                let content = try BookContent(root: root)
+                content = try BookContent(root: root)
+            } catch {
+                continue
+            }
+
+            do {
                 let chapters = try content.listChapters()
                 guard let chapter = chapters.sorted(by: {
                     $0.order == $1.order ? $0.id < $1.id : $0.order < $1.order
@@ -64,7 +70,11 @@ final class AppleBooksLiveContentTests: XCTestCase {
                 XCTAssertGreaterThan(chapter.order, 0)
                 XCTAssertFalse(chapter.href.isEmpty)
                 return true
-            } catch {
+            } catch is EPUBPathError {
+                continue
+            } catch ContentError.unavailable(_) {
+                continue
+            } catch DirectoryEPUBPackageError.readFailed {
                 continue
             }
         }

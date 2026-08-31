@@ -296,6 +296,65 @@ public final class AppleBooks {
         return try annotationQueries.byAssetID(assetID, scope: scope)
     }
 
+    public func annotationsInReadingOrder(
+        bookLocalPK: Int64,
+        limit: Int? = nil
+    ) throws -> [EnrichedAnnotation] {
+        try validatePagination(limit: limit, offset: 0)
+        guard let book = try bookQueries.getByLocalPK(bookLocalPK) else { return [] }
+        return try annotationsInReadingOrder(book: book, limit: limit)
+    }
+
+    public func annotationsInReadingOrder(
+        bookAssetID assetID: String,
+        limit: Int? = nil
+    ) throws -> [EnrichedAnnotation] {
+        try validatePagination(limit: limit, offset: 0)
+        guard let book = try bookQueries.getUniqueByAssetID(assetID) else { return [] }
+        return try annotationsInReadingOrder(book: book, limit: limit)
+    }
+
+    private func annotationsInReadingOrder(
+        book: Book,
+        limit: Int?
+    ) throws -> [EnrichedAnnotation] {
+        guard let assetID = book.assetID else { return [] }
+        let annotations = try annotationQueries.byAssetID(assetID, scope: .user)
+        guard annotations.isEmpty == false else { return [] }
+
+        var chapterOrder: [String: Int] = [:]
+        if let path = book.path {
+            do {
+                for chapter in try BookContent(root: URL(fileURLWithPath: path)).listChapters() {
+                    chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
+                }
+            } catch {
+                chapterOrder.removeAll(keepingCapacity: false)
+            }
+        }
+
+        let sorted = annotations.sorted { lhs, rhs in
+            let lhsOrder = lhs.annotation.location?.chapterID.flatMap { chapterOrder[$0] } ?? .max
+            let rhsOrder = rhs.annotation.location?.chapterID.flatMap { chapterOrder[$0] } ?? .max
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+
+            switch (lhs.annotation.createdAt, rhs.annotation.createdAt) {
+            case (nil, nil):
+                return lhs.annotation.localPK < rhs.annotation.localPK
+            case (nil, _):
+                return true
+            case (_, nil):
+                return false
+            case let (left?, right?) where left != right:
+                return left < right
+            default:
+                return lhs.annotation.localPK < rhs.annotation.localPK
+            }
+        }
+        guard let limit else { return sorted }
+        return Array(sorted.prefix(limit))
+    }
+
     public func annotationContext(
         localPK: Int64,
         charsBefore: Int = 300,

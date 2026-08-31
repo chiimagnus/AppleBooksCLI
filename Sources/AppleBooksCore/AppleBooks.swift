@@ -499,4 +499,67 @@ public final class AppleBooks {
         let content = try bookContent(forBookLocalPK: localPK)
         return try CurrentReadingChapter.resolve(chapterID: chapterID, in: content)
     }
+
+    public func currentReadingPosition(forBookLocalPK localPK: Int64) throws -> ReadingPosition? {
+        if let chapter = try currentReadingChapter(forBookLocalPK: localPK) {
+            let totalChapters: Int?
+            do {
+                totalChapters = try bookContent(forBookLocalPK: localPK).listChapters().count
+            } catch {
+                totalChapters = nil
+            }
+            return ReadingPosition(
+                chapterID: chapter.id,
+                title: chapter.title,
+                order: chapter.order,
+                totalChapters: totalChapters,
+                source: .bookmarkToc
+            )
+        }
+
+        let bookmark = try currentReadingLocation(forBookLocalPK: localPK)
+        if let chapterID = bookmark?.location?.chapterID {
+            return ReadingPosition(
+                chapterID: chapterID,
+                title: nil,
+                order: nil,
+                totalChapters: nil,
+                source: .bookmarkHint
+            )
+        }
+
+        guard let book = try bookQueries.getForCurrentReadingLocation(localPK),
+              let assetID = book.assetID else {
+            return nil
+        }
+        let candidate = try annotationQueries.byAssetID(assetID, scope: .user)
+            .filter { $0.annotation.location?.chapterID != nil }
+            .sorted { lhs, rhs in
+                switch (lhs.annotation.createdAt, rhs.annotation.createdAt) {
+                case let (left?, right?) where left != right:
+                    return left > right
+                case (.some, nil):
+                    return true
+                case (nil, .some):
+                    return false
+                default:
+                    return lhs.annotation.localPK > rhs.annotation.localPK
+                }
+            }
+            .first
+        guard let candidate,
+              let chapterID = candidate.annotation.location?.chapterID else {
+            return nil
+        }
+
+        let chapters = try bookContent(forBookLocalPK: localPK).listChapters()
+        let title = chapters.first(where: { $0.id == chapterID })?.title
+        return ReadingPosition(
+            chapterID: chapterID,
+            title: title,
+            order: nil,
+            totalChapters: nil,
+            source: .recentAnnotationInference
+        )
+    }
 }

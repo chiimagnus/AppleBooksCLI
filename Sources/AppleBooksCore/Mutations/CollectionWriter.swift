@@ -135,6 +135,47 @@ struct CollectionWriter {
         )
     }
 
+    func deleteCollection(localPK: Int64) throws {
+        _ = try coordinator.perform(
+            preflight: { connection in
+                try Self.validateDeleteSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
+            },
+            revalidate: { handle in
+                try Self.validateDeleteSchema(on: handle)
+                let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
+                try WriteSchemaGuard.validateExistingEntity(
+                    table: .collections,
+                    localPK: localPK,
+                    expectedEntityID: entity.entityID,
+                    on: handle
+                )
+                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
+            },
+            mutation: { handle in
+                let timestamp = CoreDataTime.seconds(from: Date())!
+                try Self.tombstoneCollection(localPK: localPK, timestamp: timestamp, on: handle)
+                try Self.deleteMembershipRows(collectionLocalPK: localPK, on: handle)
+                return localPK
+            },
+            invariant: { handle, _ in
+                guard try Self.isDeleted(localPK: localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+                    throw CollectionWriteError.writeFailed
+                }
+            },
+            committedLocalPK: { $0 },
+            readBack: { connection, _ in
+                guard let handle = connection.handle,
+                      try Self.isDeleted(localPK: localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+                    throw CollectionWriteError.writeFailed
+                }
+            }
+        )
+    }
+
     static func editableTarget(
         localPK: Int64,
         scope: CollectionWriteScope,
@@ -202,6 +243,11 @@ struct CollectionWriter {
         "ZLASTMODIFICATION", "ZLOCALMODDATE",
     ]
 
+    private static let deleteColumns: Set<String> = [
+        "Z_PK", "Z_ENT", "Z_OPT", "ZDELETEDFLAG", "ZCOLLECTIONID",
+        "ZLASTMODIFICATION", "ZLOCALMODDATE",
+    ]
+
     private static func validateRenameSchema(on connection: SQLiteConnection) throws {
         try WriteSchemaGuard.validateTable(.collections, required: renameColumns, inserting: false, on: connection)
         _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: connection)
@@ -209,6 +255,18 @@ struct CollectionWriter {
 
     private static func validateRenameSchema(on handle: OpaquePointer) throws {
         try WriteSchemaGuard.validateTable(.collections, required: renameColumns, inserting: false, on: handle)
+        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
+    }
+
+    private static func validateDeleteSchema(on connection: SQLiteConnection) throws {
+        try WriteSchemaGuard.validateTable(.collections, required: deleteColumns, inserting: false, on: connection)
+        try WriteSchemaGuard.validateTable(.members, required: ["ZCOLLECTION"], inserting: false, on: connection)
+        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: connection)
+    }
+
+    private static func validateDeleteSchema(on handle: OpaquePointer) throws {
+        try WriteSchemaGuard.validateTable(.collections, required: deleteColumns, inserting: false, on: handle)
+        try WriteSchemaGuard.validateTable(.members, required: ["ZCOLLECTION"], inserting: false, on: handle)
         _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
     }
 
@@ -264,6 +322,68 @@ struct CollectionWriter {
               sqlite3_step(statement) == SQLITE_DONE else {
             throw CollectionWriteError.writeFailed
         }
+    }
+
+    private static func tombstoneCollection(localPK: Int64, timestamp: Double, on handle: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        let sql = """
+        UPDATE ZBKCOLLECTION
+        SET ZDELETEDFLAG=1, Z_OPT=Z_OPT+1, ZLASTMODIFICATION=?, ZLOCALMODDATE=?
+        WHERE Z_PK=?
+        """
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_double(statement, 1, timestamp) == SQLITE_OK,
+              sqlite3_bind_double(statement, 2, timestamp) == SQLITE_OK,
+              sqlite3_bind_int64(statement, 3, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE,
+              sqlite3_changes(handle) == 1 else {
+            throw CollectionWriteError.writeFailed
+        }
+    }
+
+    private static func deleteMembershipRows(collectionLocalPK: Int64, on handle: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "DELETE FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=?", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, collectionLocalPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw CollectionWriteError.writeFailed
+        }
+    }
+
+    private static func membershipCount(collectionLocalPK: Int64, on handle: OpaquePointer) throws -> Int64 {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=?", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, collectionLocalPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw CollectionWriteError.writeFailed
+        }
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    private static func isDeleted(localPK: Int64, on handle: OpaquePointer) throws -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=?", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) == SQLITE_INTEGER else {
+            throw CollectionWriteError.writeFailed
+        }
+        return sqlite3_column_int64(statement, 0) == 1
     }
 
     private static func updateTitle(localPK: Int64, title: String, timestamp: Double, on handle: OpaquePointer) throws {

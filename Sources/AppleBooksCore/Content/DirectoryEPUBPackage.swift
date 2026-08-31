@@ -66,7 +66,7 @@ struct DirectoryEPUBPackage: Equatable, Sendable {
         spine = parsed.spine.enumerated().map { EPUBSpineItem(idref: $0.element, order: $0.offset + 1) }
     }
 
-    private static func readAvailableFile(_ path: EPUBPath) throws -> Data {
+    static func readAvailableFile(_ path: EPUBPath) throws -> Data {
         let availability = BookContentAvailability.inspect(path.url)
         guard availability == .available else {
             throw ContentError.unavailable(availability)

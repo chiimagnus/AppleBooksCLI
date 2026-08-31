@@ -23,6 +23,35 @@ struct SQLiteBackupTests {
     }
 
     @Test
+    func walSourceProducesStandaloneReadOnlyBackup() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try database(at: root.appendingPathComponent("BKLibrary.sqlite"), value: "before")
+        let backupRoot = root.appendingPathComponent("backups")
+
+        var writer: OpaquePointer?
+        guard sqlite3_open(source.path, &writer) == SQLITE_OK, let writer else {
+            throw SQLiteBackupError.destinationOpenFailed
+        }
+        guard sqlite3_exec(writer, "PRAGMA journal_mode=WAL", nil, nil, nil) == SQLITE_OK,
+              sqlite3_exec(writer, "UPDATE sample SET value='after'", nil, nil, nil) == SQLITE_OK else {
+            let error = SQLiteError.current(operation: .step, code: sqlite3_errcode(writer), handle: writer)
+            sqlite3_close_v2(writer)
+            throw error
+        }
+        sqlite3_close_v2(writer)
+
+        let openReader = try SQLiteConnection.readOnly(path: source.path)
+        #expect(try storedValue(using: openReader) == "after")
+        let backup = try SQLiteBackup.create(source: source, backupRoot: backupRoot, keep: 10)
+        try openReader.close()
+
+        #expect(try storedValue(in: backup) == "after")
+        #expect(FileManager.default.fileExists(atPath: backup.path + "-wal") == false)
+        #expect(FileManager.default.fileExists(atPath: backup.path + "-shm") == false)
+    }
+
+    @Test
     func retentionKeepsNewestCompletedBackupsAndOnlyOwnsSameStemParts() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -96,7 +125,10 @@ struct SQLiteBackupTests {
     }
 
     private func storedValue(in url: URL) throws -> String? {
-        let connection = try SQLiteConnection.readOnly(path: url.path)
+        try storedValue(using: SQLiteConnection.readOnly(path: url.path))
+    }
+
+    private func storedValue(using connection: SQLiteConnection) throws -> String? {
         let statement = try connection.prepare("SELECT value FROM sample")
         guard try statement.step() else { return nil }
         return try SQLiteRow(statement: statement).text("value")

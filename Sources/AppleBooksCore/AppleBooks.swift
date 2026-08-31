@@ -134,6 +134,31 @@ public final class AppleBooks {
         try bookQueries.list(limit: limit, offset: offset)
     }
 
+    public func annotatedBooks() throws -> [BookOverview] {
+        let counts = try userAnnotationCountsByAssetID()
+        return try bookQueries.list().compactMap { book in
+            guard let assetID = book.assetID,
+                  let count = counts[assetID],
+                  count > 0 else {
+                return nil
+            }
+            return BookOverview(book: book, userAnnotationCount: count)
+        }
+    }
+
+    public func bookOverview(localPK: Int64) throws -> BookOverview? {
+        guard let book = try bookQueries.getByLocalPK(localPK) else { return nil }
+        let counts = try userAnnotationCountsByAssetID()
+        let count = book.assetID.flatMap { counts[$0] } ?? 0
+        return BookOverview(book: book, userAnnotationCount: count)
+    }
+
+    public func bookOverview(assetID: String) throws -> BookOverview? {
+        guard let book = try bookQueries.getUniqueByAssetID(assetID) else { return nil }
+        let counts = try userAnnotationCountsByAssetID()
+        return BookOverview(book: book, userAnnotationCount: counts[assetID] ?? 0)
+    }
+
     public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
         try bookQueries.page(limit: limit, offset: offset)
     }
@@ -339,6 +364,16 @@ public final class AppleBooks {
             return nil
         }
         return try readingQueries.currentPosition(rawAssetID: assetID)
+    }
+
+    private func userAnnotationCountsByAssetID() throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for enriched in try annotationQueries.list(scope: .user) {
+            if let assetID = enriched.annotation.rawAssetID {
+                counts[assetID, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     public func currentReadingChapter(forBookLocalPK localPK: Int64) throws -> Chapter? {

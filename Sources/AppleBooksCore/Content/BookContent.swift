@@ -58,6 +58,27 @@ public final class BookContent {
         }
     }
 
+    public func getChapter(_ selector: String) throws -> String {
+        let chapter = try resolveChapter(selector)
+        let data = try readChapterBytes(chapter)
+        let stopFragments: Set<String>
+        if chapter.fragment.isEmpty {
+            stopFragments = []
+        } else {
+            stopFragments = Set(try listChapters().compactMap { candidate -> String? in
+                guard candidate.href == chapter.href,
+                      candidate.fragment.isEmpty == false,
+                      candidate.fragment != chapter.fragment else { return nil }
+                return candidate.fragment
+            })
+        }
+        return try XHTMLText.extract(
+            data,
+            fragment: chapter.fragment.isEmpty ? nil : chapter.fragment,
+            stopFragments: stopFragments
+        )
+    }
+
     func resolveChapter(_ selector: String) throws -> Chapter {
         let chapters = try listChapters()
         if let chapter = chapters.first(where: { $0.id == selector }) {

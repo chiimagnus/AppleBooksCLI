@@ -19,6 +19,22 @@ enum CollectionWriteScope {
 
 struct CollectionWriteTarget: Equatable {
     let localPK: Int64
+    let stableID: String?
+}
+
+private enum CollectionWriteSelector {
+    case localPK(Int64)
+    case collectionID(String)
+}
+
+private enum BookWriteSelector {
+    case localPK(Int64)
+    case assetID(String)
+}
+
+private struct BookWriteTarget: Equatable {
+    let localPK: Int64
+    let assetID: String?
 }
 
 struct CollectionWriter {
@@ -144,80 +160,106 @@ struct CollectionWriter {
     }
 
     func deleteCollection(localPK: Int64) throws -> MutationResult {
+        try deleteCollection(.localPK(localPK))
+    }
+
+    func deleteCollection(collectionID: String) throws -> MutationResult {
+        try deleteCollection(.collectionID(collectionID))
+    }
+
+    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try addBook(.localPK(bookLocalPK), to: .localPK(collectionLocalPK))
+    }
+
+    func addBook(assetID: String, toCollectionID collectionID: String) throws -> MutationResult {
+        try addBook(.assetID(assetID), to: .collectionID(collectionID))
+    }
+
+    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try removeBook(.localPK(bookLocalPK), from: .localPK(collectionLocalPK))
+    }
+
+    func removeBook(assetID: String, fromCollectionID collectionID: String) throws -> MutationResult {
+        try removeBook(.assetID(assetID), from: .collectionID(collectionID))
+    }
+
+    private func deleteCollection(_ selector: CollectionWriteSelector) throws -> MutationResult {
         try coordinator.perform(
             preflight: { connection in
                 try Self.validateDeleteSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
+                _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
             },
             revalidate: { handle in
                 try Self.validateDeleteSchema(on: handle)
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
                 let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
                 try WriteSchemaGuard.validateExistingEntity(
                     table: .collections,
-                    localPK: localPK,
+                    localPK: target.localPK,
                     expectedEntityID: entity.entityID,
                     on: handle
                 )
-                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
             },
             mutation: { handle in
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
                 let timestamp = CoreDataTime.seconds(from: Date())!
-                try Self.tombstoneCollection(localPK: localPK, timestamp: timestamp, on: handle)
-                try Self.deleteMembershipRows(collectionLocalPK: localPK, on: handle)
-                return localPK
+                try Self.tombstoneCollection(localPK: target.localPK, timestamp: timestamp, on: handle)
+                try Self.deleteMembershipRows(collectionLocalPK: target.localPK, on: handle)
+                return target
             },
-            invariant: { handle, _ in
-                guard try Self.isDeleted(localPK: localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+            invariant: { handle, target in
+                guard try Self.isDeleted(localPK: target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             },
-            domainData: { MutationDomainData(localPK: $0, changed: true) },
-            readBack: { connection, _ in
+            domainData: {
+                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            },
+            readBack: { connection, target in
                 guard let handle = connection.handle,
-                      try Self.isDeleted(localPK: localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+                      try Self.isDeleted(localPK: target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             }
         )
     }
 
-    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+    private func addBook(_ bookSelector: BookWriteSelector, to collectionSelector: CollectionWriteSelector) throws -> MutationResult {
         try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: true, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.editableTarget(localPK: collectionLocalPK, scope: .membership, on: handle)
-                guard try Self.bookAssetID(localPK: bookLocalPK, on: handle) != nil else {
-                    throw CollectionWriteError.bookAssetIDUnavailable
-                }
+                _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                _ = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
             },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: true, on: handle)
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                _ = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
                 let collectionEntity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
                 try WriteSchemaGuard.validateExistingEntity(
                     table: .collections,
-                    localPK: collectionLocalPK,
+                    localPK: collection.localPK,
                     expectedEntityID: collectionEntity.entityID,
                     on: handle
                 )
-                _ = try Self.editableTarget(localPK: collectionLocalPK, scope: .membership, on: handle)
             },
             mutation: { handle in
-                guard let assetID = try Self.bookAssetID(localPK: bookLocalPK, on: handle) else {
-                    throw CollectionWriteError.bookAssetIDUnavailable
-                }
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
+                guard let assetID = book.assetID else { throw CollectionWriteError.bookAssetIDUnavailable }
                 let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
                 try Self.validateMatchingMemberEntities(
-                    collectionLocalPK: collectionLocalPK,
+                    collectionLocalPK: collection.localPK,
                     assetID: assetID,
                     expectedEntityID: memberEntity.entityID,
                     on: handle
                 )
-                if try Self.membershipCount(collectionLocalPK: collectionLocalPK, assetID: assetID, on: handle) > 0 {
-                    return MembershipMutationResult(changed: false, assetID: assetID)
+                if try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) > 0 {
+                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
                 }
 
                 let allocation = try CoreDataPrimaryKey.allocate(
@@ -225,98 +267,231 @@ struct CollectionWriter {
                     table: .members,
                     on: handle
                 )
-                let maxSort = try Self.maximumMemberSortKey(collectionLocalPK: collectionLocalPK, on: handle)
+                let maxSort = try Self.maximumMemberSortKey(collectionLocalPK: collection.localPK, on: handle)
                 guard maxSort <= Int64.max - Self.sortKeyStep else { throw CollectionWriteError.writeFailed }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.insertMember(
                     localPK: allocation.localPK,
                     entityID: allocation.entityID,
                     sortKey: maxSort + Self.sortKeyStep,
-                    bookLocalPK: bookLocalPK,
-                    collectionLocalPK: collectionLocalPK,
+                    bookLocalPK: book.localPK,
+                    collectionLocalPK: collection.localPK,
                     timestamp: timestamp,
                     assetID: assetID,
                     on: handle
                 )
-                try Self.touchCollection(localPK: collectionLocalPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID)
+                try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
+                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 guard let assetID = result.assetID,
-                      try Self.membershipCount(collectionLocalPK: collectionLocalPK, assetID: assetID, on: handle) > 0 else {
+                      try Self.membershipCount(
+                        collectionLocalPK: result.collection.localPK,
+                        assetID: assetID,
+                        on: handle
+                      ) > 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             },
-            domainData: { MutationDomainData(localPK: collectionLocalPK, changed: $0.changed) },
+            domainData: {
+                MutationDomainData(
+                    localPK: $0.collection.localPK,
+                    stableID: $0.collection.stableID,
+                    changed: $0.changed
+                )
+            },
             readBack: { connection, result in
                 guard let handle = connection.handle,
                       let assetID = result.assetID,
-                      try Self.membershipCount(collectionLocalPK: collectionLocalPK, assetID: assetID, on: handle) > 0 else {
+                      try Self.membershipCount(
+                        collectionLocalPK: result.collection.localPK,
+                        assetID: assetID,
+                        on: handle
+                      ) > 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             }
         )
     }
 
-    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+    private func removeBook(_ bookSelector: BookWriteSelector, from collectionSelector: CollectionWriteSelector) throws -> MutationResult {
         try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: false, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.editableTarget(localPK: collectionLocalPK, scope: .membership, on: handle)
-                _ = try Self.bookAssetID(localPK: bookLocalPK, on: handle)
+                _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                _ = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
             },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: false, on: handle)
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                _ = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
                 let collectionEntity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
                 try WriteSchemaGuard.validateExistingEntity(
                     table: .collections,
-                    localPK: collectionLocalPK,
+                    localPK: collection.localPK,
                     expectedEntityID: collectionEntity.entityID,
                     on: handle
                 )
-                _ = try Self.editableTarget(localPK: collectionLocalPK, scope: .membership, on: handle)
             },
             mutation: { handle in
-                guard let assetID = try Self.bookAssetID(localPK: bookLocalPK, on: handle) else {
-                    return MembershipMutationResult(changed: false, assetID: nil)
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
+                guard let assetID = book.assetID else {
+                    return MembershipMutationResult(changed: false, assetID: nil, collection: collection)
                 }
                 let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
                 try Self.validateMatchingMemberEntities(
-                    collectionLocalPK: collectionLocalPK,
+                    collectionLocalPK: collection.localPK,
                     assetID: assetID,
                     expectedEntityID: memberEntity.entityID,
                     on: handle
                 )
                 let removed = try Self.removeMembershipRows(
-                    collectionLocalPK: collectionLocalPK,
+                    collectionLocalPK: collection.localPK,
                     assetID: assetID,
                     on: handle
                 )
                 guard removed > 0 else {
-                    return MembershipMutationResult(changed: false, assetID: assetID)
+                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
                 }
                 let timestamp = CoreDataTime.seconds(from: Date())!
-                try Self.touchCollection(localPK: collectionLocalPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID)
+                try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
+                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 if let assetID = result.assetID {
-                    guard try Self.membershipCount(collectionLocalPK: collectionLocalPK, assetID: assetID, on: handle) == 0 else {
+                    guard try Self.membershipCount(
+                        collectionLocalPK: result.collection.localPK,
+                        assetID: assetID,
+                        on: handle
+                    ) == 0 else {
                         throw CollectionWriteError.writeFailed
                     }
                 }
             },
-            domainData: { MutationDomainData(localPK: collectionLocalPK, changed: $0.changed) },
+            domainData: {
+                MutationDomainData(
+                    localPK: $0.collection.localPK,
+                    stableID: $0.collection.stableID,
+                    changed: $0.changed
+                )
+            },
             readBack: { connection, result in
                 if let assetID = result.assetID {
                     guard let handle = connection.handle,
-                          try Self.membershipCount(collectionLocalPK: collectionLocalPK, assetID: assetID, on: handle) == 0 else {
+                          try Self.membershipCount(
+                            collectionLocalPK: result.collection.localPK,
+                            assetID: assetID,
+                            on: handle
+                          ) == 0 else {
                         throw CollectionWriteError.writeFailed
                     }
                 }
             }
         )
+    }
+
+    private static func resolveCollection(
+        _ selector: CollectionWriteSelector,
+        scope: CollectionWriteScope,
+        on handle: OpaquePointer
+    ) throws -> CollectionWriteTarget {
+        switch selector {
+        case let .localPK(localPK):
+            let target = try editableTarget(localPK: localPK, scope: scope, on: handle)
+            return CollectionWriteTarget(localPK: target.localPK, stableID: nil)
+        case let .collectionID(collectionID):
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                handle,
+                "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK,
+            let statement else {
+                throw CollectionWriteError.collectionMissing
+            }
+            defer { sqlite3_finalize(statement) }
+            guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
+                throw CollectionWriteError.writeFailed
+            }
+            var matches: [Int64] = []
+            while true {
+                switch sqlite3_step(statement) {
+                case SQLITE_ROW:
+                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
+                          let rawID = sqlite3_column_text(statement, 1),
+                          String(cString: rawID) == collectionID else {
+                        throw CollectionWriteError.collectionIdentityUnavailable
+                    }
+                    matches.append(sqlite3_column_int64(statement, 0))
+                case SQLITE_DONE:
+                    break
+                default:
+                    throw CollectionWriteError.writeFailed
+                }
+                if sqlite3_data_count(statement) == 0 { break }
+            }
+            guard matches.isEmpty == false else { throw CollectionWriteError.collectionMissing }
+            guard matches.count == 1, let localPK = matches.first else {
+                throw StableIdentityError.ambiguousCollectionID
+            }
+            _ = try editableTarget(localPK: localPK, scope: scope, on: handle)
+            return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
+        }
+    }
+
+    private static func resolveBook(
+        _ selector: BookWriteSelector,
+        requireAssetID: Bool,
+        on handle: OpaquePointer
+    ) throws -> BookWriteTarget {
+        switch selector {
+        case let .localPK(localPK):
+            let assetID = try bookAssetID(localPK: localPK, on: handle)
+            if requireAssetID, assetID == nil { throw CollectionWriteError.bookAssetIDUnavailable }
+            return BookWriteTarget(localPK: localPK, assetID: assetID)
+        case let .assetID(assetID):
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                handle,
+                "SELECT Z_PK,ZASSETID FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK,
+            let statement else {
+                throw CollectionWriteError.bookMissing
+            }
+            defer { sqlite3_finalize(statement) }
+            guard bind(assetID, to: statement, index: 1) == SQLITE_OK else {
+                throw CollectionWriteError.writeFailed
+            }
+            var matches: [Int64] = []
+            while true {
+                switch sqlite3_step(statement) {
+                case SQLITE_ROW:
+                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
+                          let rawID = sqlite3_column_text(statement, 1),
+                          String(cString: rawID) == assetID else {
+                        throw CollectionWriteError.bookAssetIDUnavailable
+                    }
+                    matches.append(sqlite3_column_int64(statement, 0))
+                case SQLITE_DONE:
+                    break
+                default:
+                    throw CollectionWriteError.writeFailed
+                }
+                if sqlite3_data_count(statement) == 0 { break }
+            }
+            guard matches.isEmpty == false else { throw CollectionWriteError.bookMissing }
+            guard matches.count == 1, let localPK = matches.first else {
+                throw StableIdentityError.ambiguousBookAssetID
+            }
+            return BookWriteTarget(localPK: localPK, assetID: assetID)
+        }
     }
 
     static func editableTarget(
@@ -353,12 +528,12 @@ struct CollectionWriter {
         let collectionID = String(cString: rawID)
 
         if scope == .membership, collectionID == membershipEditableSystemID {
-            return CollectionWriteTarget(localPK: localPK)
+            return CollectionWriteTarget(localPK: localPK, stableID: nil)
         }
         guard UUID(uuidString: collectionID) != nil else {
             throw CollectionWriteError.collectionNotEditable
         }
-        return CollectionWriteTarget(localPK: localPK)
+        return CollectionWriteTarget(localPK: localPK, stableID: nil)
     }
 
     private static func validateCreateSchema(on connection: SQLiteConnection) throws {
@@ -796,5 +971,6 @@ struct CollectionWriter {
     private struct MembershipMutationResult {
         let changed: Bool
         let assetID: String?
+        let collection: CollectionWriteTarget
     }
 }

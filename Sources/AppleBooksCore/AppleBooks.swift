@@ -91,12 +91,24 @@ public final class AppleBooks {
         try collectionWriter.deleteCollection(localPK: localPK)
     }
 
+    public func deleteCollection(collectionID: String) throws -> MutationResult {
+        try collectionWriter.deleteCollection(collectionID: collectionID)
+    }
+
     public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK)
     }
 
+    public func addBook(assetID: String, toCollectionID collectionID: String) throws -> MutationResult {
+        try collectionWriter.addBook(assetID: assetID, toCollectionID: collectionID)
+    }
+
     public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK)
+    }
+
+    public func removeBook(assetID: String, fromCollectionID collectionID: String) throws -> MutationResult {
+        try collectionWriter.removeBook(assetID: assetID, fromCollectionID: collectionID)
     }
 
     public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {

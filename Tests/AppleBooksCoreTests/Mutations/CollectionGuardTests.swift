@@ -11,8 +11,8 @@ struct CollectionGuardTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         try insert(fixture.handle, pk: 1, id: "550E8400-E29B-41D4-A716-446655440000", deleted: 0)
 
-        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .collection, on: fixture.handle) == .init(localPK: 1))
-        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .membership, on: fixture.handle) == .init(localPK: 1))
+        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .collection, on: fixture.handle) == .init(localPK: 1, stableID: nil))
+        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .membership, on: fixture.handle) == .init(localPK: 1, stableID: nil))
     }
 
     @Test
@@ -23,7 +23,7 @@ struct CollectionGuardTests {
         try insert(fixture.handle, pk: 2, id: "Books_Collection_ID", deleted: 0)
         try insert(fixture.handle, pk: 3, id: "Future_System_Collection_ID", deleted: 0)
 
-        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .membership, on: fixture.handle) == .init(localPK: 1))
+        #expect(try CollectionWriter.editableTarget(localPK: 1, scope: .membership, on: fixture.handle) == .init(localPK: 1, stableID: nil))
         #expect(throws: CollectionWriteError.collectionNotEditable) {
             _ = try CollectionWriter.editableTarget(localPK: 1, scope: .collection, on: fixture.handle)
         }

@@ -12,6 +12,7 @@ public final class AppleBooks {
     private let annotationQueries: AnnotationQueries
     private let readingQueries: ReadingQueries
     private let collectionWriter: CollectionWriter
+    private let annotationWriter: AnnotationWriter
 
     public convenience init(
         libraryDB: URL,
@@ -22,7 +23,8 @@ public final class AppleBooks {
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             historicalConfig: historicalConfig,
-            collectionWriter: CollectionWriter(database: libraryDB)
+            collectionWriter: CollectionWriter(database: libraryDB),
+            annotationWriter: AnnotationWriter(database: annotationsDB)
         )
     }
 
@@ -30,7 +32,8 @@ public final class AppleBooks {
         libraryDB: URL,
         annotationsDB: URL,
         historicalConfig: URL?,
-        collectionWriter: CollectionWriter
+        collectionWriter: CollectionWriter,
+        annotationWriter: AnnotationWriter? = nil
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
@@ -54,6 +57,7 @@ public final class AppleBooks {
             annotationConnection: annotationConnection
         )
         self.collectionWriter = collectionWriter
+        self.annotationWriter = annotationWriter ?? AnnotationWriter(database: annotationsDB)
     }
 
     // Stable deterministic order + validated pagination.
@@ -153,6 +157,14 @@ public final class AppleBooks {
 
     public func annotation(localPK: Int64) throws -> EnrichedAnnotation? {
         try annotationQueries.getByLocalPK(localPK)
+    }
+
+    public func updateAnnotationNote(localPK: Int64, note: String) throws -> MutationResult {
+        try annotationWriter.updateNote(localPK: localPK, note: note)
+    }
+
+    public func updateAnnotationNote(uuid: String, note: String) throws -> MutationResult {
+        try annotationWriter.updateNote(uuid: uuid, note: note)
     }
 
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {

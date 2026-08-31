@@ -21,6 +21,7 @@ enum WriteSchemaTable: String {
     case collections = "ZBKCOLLECTION"
     case members = "ZBKCOLLECTIONMEMBER"
     case books = "ZBKLIBRARYASSET"
+    case annotations = "ZAEANNOTATION"
     case primaryKey = "Z_PRIMARYKEY"
 
     var writerKnownColumns: Set<String>? {
@@ -36,7 +37,7 @@ enum WriteSchemaTable: String {
                 "Z_PK", "Z_ENT", "Z_OPT", "ZSORTKEY", "ZASSET", "ZCOLLECTION",
                 "ZLOCALMODDATE", "ZASSETID", "ZTEMPORARYASSETID",
             ]
-        case .books, .primaryKey:
+        case .books, .annotations, .primaryKey:
             nil
         }
     }
@@ -174,7 +175,7 @@ enum WriteSchemaGuard {
         expectedEntityID: Int64,
         on handle: OpaquePointer
     ) throws {
-        precondition(table == .collections || table == .members)
+        precondition(table == .collections || table == .members || table == .annotations)
         try validateTable(table, required: ["Z_PK", "Z_ENT"], inserting: false, on: handle)
         var statement: OpaquePointer?
         let prepare = sqlite3_prepare_v2(

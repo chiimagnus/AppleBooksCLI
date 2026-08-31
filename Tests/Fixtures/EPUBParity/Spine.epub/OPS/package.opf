@@ -1,0 +1,7 @@
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="alpha" href="Text/alpha.xhtml" media-type="application/xhtml+xml"/>
+    <item id="beta" href="Text/beta.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="alpha"/><itemref idref="beta"/></spine>
+</package>

@@ -1,0 +1,7 @@
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/">
+  <navMap>
+    <navPoint id="n1"><navLabel><text>NCX One</text></navLabel><content src="Text/one.xhtml#part"/>
+      <navPoint id="n2"><navLabel><text>NCX Two</text></navLabel><content src="Text/two.xhtml"/></navPoint>
+    </navPoint>
+  </navMap>
+</ncx>

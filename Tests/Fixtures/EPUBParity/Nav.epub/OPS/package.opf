@@ -1,0 +1,14 @@
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="shared" href="Text/shared.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter-two" href="Text/chapter-two.xhtml" media-type="application/xhtml+xml"/>
+    <item id="raw" href="Text/raw.xhtml" media-type="application/xhtml+xml"/>
+    <item id="font" href="Fonts/font.ttf" media-type="font/ttf"/>
+  </manifest>
+  <spine>
+    <itemref idref="shared"/>
+    <itemref idref="chapter-two"/>
+    <itemref idref="raw"/>
+  </spine>
+</package>

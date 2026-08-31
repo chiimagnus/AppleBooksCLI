@@ -75,23 +75,23 @@ public final class AppleBooks {
         try collectionQueries.searchTitle(text, limit: limit, offset: offset)
     }
 
-    public func createCollection(title: String, details: String? = nil) throws -> Collection {
+    public func createCollection(title: String, details: String? = nil) throws -> MutationResult {
         try collectionWriter.createCollection(title: title, details: details)
     }
 
-    public func renameCollection(localPK: Int64, newTitle: String) throws -> Collection {
+    public func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {
         try collectionWriter.renameCollection(localPK: localPK, newTitle: newTitle)
     }
 
-    public func deleteCollection(localPK: Int64) throws {
+    public func deleteCollection(localPK: Int64) throws -> MutationResult {
         try collectionWriter.deleteCollection(localPK: localPK)
     }
 
-    public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
+    public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK)
     }
 
-    public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
+    public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK)
     }
 

@@ -30,11 +30,12 @@ struct MutationCoordinatorTests {
                 try self.setValue(handle, "after")
                 return Int64(42)
             },
-            invariant: { handle, _ in
+            invariant: { handle, localPK in
                 stages.append("invariant")
+                #expect(localPK == 42)
                 #expect(self.rawValue(handle) == "after")
             },
-            committedLocalPK: { $0 },
+            domainData: { MutationDomainData(localPK: $0, stableID: "sample", changed: true) },
             readBack: { connection, localPK in
                 stages.append("readBack")
                 #expect(localPK == 42)
@@ -44,112 +45,120 @@ struct MutationCoordinatorTests {
             }
         )
 
-        #expect(result == 42)
+        #expect(result.committed)
+        #expect(result.localPK == 42)
+        #expect(result.stableID == "sample")
+        #expect(result.changed)
+        #expect(result.warnings.isEmpty)
+        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
         #expect(stages == ["preflight", "revalidate", "mutation", "invariant", "readBack"])
         #expect(try readValue(at: fixture.database) == "after")
     }
 
     @Test
-    func preflightAndBooksRunningFailBeforeBackupOrMutation() throws {
-        let preflightFixture = try fixture()
-        defer { try? FileManager.default.removeItem(at: preflightFixture.root) }
+    func preflightFailureHappensBeforeBackup() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
         #expect(throws: TestFailure.preflight) {
-            _ = try preflightFixture.coordinator.perform(
+            _ = try fixture.coordinator.perform(
                 preflight: { _ in throw TestFailure.preflight },
                 revalidate: { _ in },
                 mutation: { _ in () },
+                domainData: { _ in MutationDomainData(changed: false) },
                 readBack: { _, _ in }
             )
         }
-        #expect(FileManager.default.fileExists(atPath: preflightFixture.backupRoot.path) == false)
-        #expect(try readValue(at: preflightFixture.database) == "before")
-
-        let runningFixture = try fixture(booksRunning: true)
-        defer { try? FileManager.default.removeItem(at: runningFixture.root) }
-        #expect(throws: MutationCoordinatorError.booksRunning) {
-            _ = try runningFixture.coordinator.perform(
-                preflight: { _ in },
-                revalidate: { _ in },
-                mutation: { _ in () },
-                readBack: { _, _ in }
-            )
-        }
-        #expect(FileManager.default.fileExists(atPath: runningFixture.backupRoot.path) == false)
-        #expect(try readValue(at: runningFixture.database) == "before")
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        #expect(try readValue(at: fixture.database) == "before")
     }
 
     @Test
-    func callbackFailureRollsBackAndCommittedReadBackFailureIsTyped() throws {
-        let rollbackFixture = try fixture()
-        defer { try? FileManager.default.removeItem(at: rollbackFixture.root) }
-        #expect(throws: TestFailure.mutation) {
-            _ = try rollbackFixture.coordinator.perform(
-                preflight: { _ in },
-                revalidate: { _ in },
-                mutation: { handle in
-                    try self.setValue(handle, "partial")
-                    throw TestFailure.mutation
-                },
-                readBack: { _, _ in }
-            ) as Void
-        }
-        #expect(try readValue(at: rollbackFixture.database) == "before")
-        #expect(try completedBackups(in: rollbackFixture.backupRoot).count == 1)
-
-        let committedFixture = try fixture()
-        defer { try? FileManager.default.removeItem(at: committedFixture.root) }
-        do {
-            _ = try committedFixture.coordinator.perform(
-                preflight: { _ in },
-                revalidate: { _ in },
-                mutation: { handle in
-                    try self.setValue(handle, "committed")
-                    return Int64(77)
-                },
-                committedLocalPK: { $0 },
-                readBack: { _, _ in throw TestFailure.readBack }
-            )
-            Issue.record("expected committed verification error")
-        } catch let error as MutationCommittedVerificationError {
-            #expect(error.committed)
-            #expect(error.localPK == 77)
-            #expect(error.code == "read_back_failed")
-            #expect(BackupMetadata.parse(filename: error.backupFilename, sourceStem: "library") != nil)
-        }
-        #expect(try readValue(at: committedFixture.database) == "committed")
-    }
-
-    @Test
-    func committedCloseFailureCannotMasqueradeAsUncommittedFailure() throws {
+    func mutationFailureRollsBackAndKeepsBackupHandle() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        var leakedStatement: OpaquePointer?
 
         do {
             _ = try fixture.coordinator.perform(
                 preflight: { _ in },
                 revalidate: { _ in },
                 mutation: { handle in
-                    try self.setValue(handle, "committed")
-                    guard sqlite3_prepare_v2(handle, "SELECT value FROM sample", -1, &leakedStatement, nil) == SQLITE_OK else {
-                        throw TestFailure.mutation
-                    }
-                    return Int64(88)
+                    try self.setValue(handle, "partial")
+                    throw TestFailure.mutation
                 },
-                committedLocalPK: { $0 },
-                readBack: { _, _ in Issue.record("read-back must not run before writable close") }
+                domainData: { (_: Void) in MutationDomainData(changed: true) },
+                readBack: { _, _ in }
             )
-            Issue.record("expected committed close error")
-        } catch let error as MutationCommittedVerificationError {
-            #expect(error.committed)
-            #expect(error.localPK == 88)
-            #expect(error.code == "close_failed")
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.committed == false)
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
+            #expect(failure.warnings.isEmpty)
+            #expect(failure.underlying as? TestFailure == .mutation)
         }
+
+        #expect(try readValue(at: fixture.database) == "before")
+        #expect(try completedBackups(in: fixture.backupRoot).count == 1)
+    }
+
+    @Test
+    func committedReadBackFailureReturnsSuccessWithWarning() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(77)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            readBack: { _, _ in throw TestFailure.readBack }
+        )
+
+        #expect(result.committed)
+        #expect(result.localPK == 77)
+        #expect(result.warnings == [.readBackFailed])
+        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
+        #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
+    func committedCloseFailureIsWarningAndReadBackStillRuns() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var leakedStatement: OpaquePointer?
+        var readBackRan = false
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                guard sqlite3_prepare_v2(handle, "SELECT value FROM sample", -1, &leakedStatement, nil) == SQLITE_OK else {
+                    throw TestFailure.mutation
+                }
+                return Int64(88)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            readBack: { connection, _ in
+                readBackRan = true
+                let actual = try self.value(connection)
+                #expect(actual == "committed")
+            }
+        )
+
+        #expect(result.committed)
+        #expect(result.localPK == 88)
+        #expect(result.warnings == [.writableCloseFailed])
+        #expect(readBackRan)
         if let leakedStatement { sqlite3_finalize(leakedStatement) }
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
-    private func fixture(booksRunning: Bool = false) throws -> Fixture {
+    private func fixture() throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let database = root.appendingPathComponent("library.sqlite")
@@ -169,7 +178,7 @@ struct MutationCoordinatorTests {
             coordinator: MutationCoordinator(
                 database: database,
                 backupRoot: backupRoot,
-                booksIsRunning: { booksRunning }
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
             )
         )
     }
@@ -181,7 +190,9 @@ struct MutationCoordinatorTests {
     }
 
     private func readValue(at url: URL) throws -> String? {
-        try value(SQLiteConnection.readOnly(path: url.path))
+        let connection = try SQLiteConnection.readOnly(path: url.path)
+        defer { try? connection.close() }
+        return try value(connection)
     }
 
     private func setValue(_ handle: OpaquePointer, _ value: String) throws {

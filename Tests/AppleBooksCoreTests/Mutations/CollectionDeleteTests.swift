@@ -10,7 +10,11 @@ struct CollectionDeleteTests {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        try fixture.writer.deleteCollection(localPK: 10)
+        let result = try fixture.writer.deleteCollection(localPK: 10)
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.localPK == 10)
+        #expect(result.warnings.isEmpty)
 
         #expect(try integer(fixture.database, "SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=10") == 1)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 4)
@@ -27,8 +31,12 @@ struct CollectionDeleteTests {
         let fixture = try fixture(blockMemberDelete: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(throws: CollectionWriteError.writeFailed) {
-            try fixture.writer.deleteCollection(localPK: 10)
+        do {
+            _ = try fixture.writer.deleteCollection(localPK: 10)
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
         }
         #expect(try integer(fixture.database, "SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=10") == 0)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 3)
@@ -41,7 +49,7 @@ struct CollectionDeleteTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         #expect(throws: CollectionWriteError.collectionNotEditable) {
-            try fixture.writer.deleteCollection(localPK: 10)
+            _ = try fixture.writer.deleteCollection(localPK: 10)
         }
         #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
     }
@@ -74,7 +82,11 @@ struct CollectionDeleteTests {
             root: root,
             database: database,
             backupRoot: backupRoot,
-            writer: CollectionWriter(database: database, backupRoot: backupRoot, booksIsRunning: { false })
+            writer: CollectionWriter(
+                database: database,
+                backupRoot: backupRoot,
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
+            )
         )
     }
 

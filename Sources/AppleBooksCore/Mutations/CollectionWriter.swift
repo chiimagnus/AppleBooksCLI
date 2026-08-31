@@ -34,21 +34,21 @@ struct CollectionWriter {
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
-        booksIsRunning: @escaping () -> Bool = { BooksAppController.live.isRunning() }
+        booksApp: BooksAppController = .live
     ) {
         coordinator = MutationCoordinator(
             database: database,
             backupRoot: backupRoot,
             keep: keep,
-            booksIsRunning: booksIsRunning
+            booksApp: booksApp
         )
     }
 
-    func createCollection(title: String, details: String? = nil) throws -> Collection {
+    func createCollection(title: String, details: String? = nil) throws -> MutationResult {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        return try coordinator.performAndReadBack(
+        return try coordinator.perform(
             preflight: { connection in
                 try Self.validateCreateSchema(on: connection)
             },
@@ -79,6 +79,7 @@ struct CollectionWriter {
                 return CreatedCollection(
                     localPK: allocation.localPK,
                     entityID: allocation.entityID,
+                    collectionID: collectionID,
                     title: normalizedTitle
                 )
             },
@@ -90,22 +91,24 @@ struct CollectionWriter {
                     on: handle
                 )
             },
-            committedLocalPK: { $0.localPK },
+            domainData: {
+                MutationDomainData(localPK: $0.localPK, stableID: $0.collectionID, changed: true)
+            },
             readBack: { connection, created in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
+                      collection.collectionID == created.collectionID,
                       collection.title == created.title else {
                     throw CollectionWriteError.writeFailed
                 }
-                return collection
             }
         )
     }
 
-    func renameCollection(localPK: Int64, newTitle: String) throws -> Collection {
+    func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {
         let normalizedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        return try coordinator.performAndReadBack(
+        return try coordinator.perform(
             preflight: { connection in
                 try Self.validateRenameSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -130,19 +133,18 @@ struct CollectionWriter {
             invariant: { handle, _ in
                 _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
             },
-            committedLocalPK: { $0 },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
             readBack: { connection, _ in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(localPK),
                       collection.title == normalizedTitle else {
                     throw CollectionWriteError.writeFailed
                 }
-                return collection
             }
         )
     }
 
-    func deleteCollection(localPK: Int64) throws {
-        _ = try coordinator.perform(
+    func deleteCollection(localPK: Int64) throws -> MutationResult {
+        try coordinator.perform(
             preflight: { connection in
                 try Self.validateDeleteSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -171,7 +173,7 @@ struct CollectionWriter {
                     throw CollectionWriteError.writeFailed
                 }
             },
-            committedLocalPK: { $0 },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
             readBack: { connection, _ in
                 guard let handle = connection.handle,
                       try Self.isDeleted(localPK: localPK, on: handle),
@@ -182,8 +184,8 @@ struct CollectionWriter {
         )
     }
 
-    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
-        let result = try coordinator.perform(
+    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: true, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -245,6 +247,7 @@ struct CollectionWriter {
                     throw CollectionWriteError.writeFailed
                 }
             },
+            domainData: { MutationDomainData(localPK: collectionLocalPK, changed: $0.changed) },
             readBack: { connection, result in
                 guard let handle = connection.handle,
                       let assetID = result.assetID,
@@ -253,11 +256,10 @@ struct CollectionWriter {
                 }
             }
         )
-        return result.changed
     }
 
-    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
-        let result = try coordinator.perform(
+    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: false, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -305,6 +307,7 @@ struct CollectionWriter {
                     }
                 }
             },
+            domainData: { MutationDomainData(localPK: collectionLocalPK, changed: $0.changed) },
             readBack: { connection, result in
                 if let assetID = result.assetID {
                     guard let handle = connection.handle,
@@ -314,7 +317,6 @@ struct CollectionWriter {
                 }
             }
         )
-        return result.changed
     }
 
     static func editableTarget(
@@ -787,6 +789,7 @@ struct CollectionWriter {
     private struct CreatedCollection {
         let localPK: Int64
         let entityID: Int64
+        let collectionID: String
         let title: String
     }
 

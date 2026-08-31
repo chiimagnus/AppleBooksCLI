@@ -16,17 +16,17 @@ struct CollectionContractPriorityTests {
         #expect(try integer(fixture.database, "SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollection'") == 41)
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10))
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed)
         #expect(try integer(fixture.database, "SELECT Z_PK FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 7)
         #expect(try integer(fixture.database, "SELECT Z_ENT FROM ZBKCOLLECTIONMEMBER WHERE Z_PK=7") == 8)
         #expect(try integer(fixture.database, "SELECT ZSORTKEY FROM ZBKCOLLECTIONMEMBER WHERE Z_PK=7") == 30_000)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollectionMember'") == 7)
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10) == false)
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10))
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed == false)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed == false)
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 30))
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 30).changed)
         #expect(throws: CollectionWriteError.collectionNotEditable) {
             _ = try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 40)
         }
@@ -41,7 +41,7 @@ struct CollectionContractPriorityTests {
         defer { fixture.remove() }
         let bookCount = try integer(fixture.database, "SELECT COUNT(*) FROM ZBKLIBRARYASSET")
 
-        try fixture.writer.deleteCollection(localPK: 10)
+        _ = try fixture.writer.deleteCollection(localPK: 10)
 
         #expect(try integer(fixture.database, "SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=10") == 1)
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10") == 0)
@@ -60,7 +60,11 @@ struct CollectionContractPriorityTests {
         return Fixture(
             root: root,
             database: database,
-            writer: CollectionWriter(database: database, backupRoot: backupRoot, booksIsRunning: { false })
+            writer: CollectionWriter(
+                database: database,
+                backupRoot: backupRoot,
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
+            )
         )
     }
 

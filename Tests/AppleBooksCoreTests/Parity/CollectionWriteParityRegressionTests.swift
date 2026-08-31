@@ -12,7 +12,9 @@ struct CollectionWriteParityRegressionTests {
 
         let created = try fixture.writer.createCollection(title: "  New Shelf  ", details: "  details stay  ")
         #expect(created.localPK == 41)
-        #expect(created.title == "New Shelf")
+        #expect(created.committed)
+        #expect(created.changed)
+        #expect(created.warnings.isEmpty)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollection'") == 41)
         #expect(try integer(fixture.database, "SELECT Z_ENT FROM ZBKCOLLECTION WHERE Z_PK=41") == 7)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=41") == 1)
@@ -26,6 +28,7 @@ struct CollectionWriteParityRegressionTests {
         let collectionID = try #require(try text(fixture.database, "SELECT ZCOLLECTIONID FROM ZBKCOLLECTION WHERE Z_PK=41"))
         #expect(UUID(uuidString: collectionID) != nil)
         #expect(collectionID == collectionID.uppercased())
+        #expect(created.stableID == collectionID)
         let createTimes = try doubles(fixture.database, "SELECT ZLASTMODIFICATION,ZLOCALMODDATE FROM ZBKCOLLECTION WHERE Z_PK=41")
         #expect(createTimes.0 == createTimes.1)
         #expect(createTimes.0 > 1)
@@ -34,7 +37,9 @@ struct CollectionWriteParityRegressionTests {
         let originalDetails = try text(fixture.database, "SELECT ZDETAILS FROM ZBKCOLLECTION WHERE Z_PK=10")
         let originalSort = try integer(fixture.database, "SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=10")
         let renamed = try fixture.writer.renameCollection(localPK: 10, newTitle: "  Renamed  ")
-        #expect(renamed.title == "Renamed")
+        #expect(renamed.localPK == 10)
+        #expect(renamed.changed)
+        #expect(try text(fixture.database, "SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Renamed")
         #expect(try text(fixture.database, "SELECT ZCOLLECTIONID FROM ZBKCOLLECTION WHERE Z_PK=10") == originalID)
         #expect(try text(fixture.database, "SELECT ZDETAILS FROM ZBKCOLLECTION WHERE Z_PK=10") == originalDetails)
         #expect(try integer(fixture.database, "SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=10") == originalSort)
@@ -47,7 +52,7 @@ struct CollectionWriteParityRegressionTests {
         defer { fixture.remove() }
         let bookCount = try integer(fixture.database, "SELECT COUNT(*) FROM ZBKLIBRARYASSET")
 
-        try fixture.writer.deleteCollection(localPK: 10)
+        _ = try fixture.writer.deleteCollection(localPK: 10)
 
         #expect(try integer(fixture.database, "SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=10") == 1)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 4)
@@ -61,7 +66,7 @@ struct CollectionWriteParityRegressionTests {
         let fixture = try makeFixture()
         defer { fixture.remove() }
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10))
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollectionMember'") == 7)
         #expect(try integer(fixture.database, "SELECT Z_PK FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 7)
         #expect(try integer(fixture.database, "SELECT Z_ENT FROM ZBKCOLLECTIONMEMBER WHERE Z_PK=7") == 8)
@@ -71,25 +76,25 @@ struct CollectionWriteParityRegressionTests {
         #expect(try isNull(fixture.database, "SELECT ZTEMPORARYASSETID FROM ZBKCOLLECTIONMEMBER WHERE Z_PK=7"))
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 4)
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed == false)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollectionMember'") == 7)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 4)
 
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10))
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed == false)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZBKCOLLECTION WHERE Z_PK=10") == 5)
 
         #expect(throws: CollectionWriteError.bookAssetIDUnavailable) {
             _ = try fixture.writer.addBook(bookLocalPK: 2, toCollectionLocalPK: 10)
         }
-        #expect(try fixture.writer.removeBook(bookLocalPK: 2, fromCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 2, fromCollectionLocalPK: 10).changed == false)
     }
 
     @Test
     func wantToReadIsMembershipOnlyAndOtherSystemTargetsFailClosed() throws {
         let want = try makeFixture()
         defer { want.remove() }
-        #expect(try want.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 30))
+        #expect(try want.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 30).changed)
 
         let system = try makeFixture()
         defer { system.remove() }
@@ -100,7 +105,7 @@ struct CollectionWriteParityRegressionTests {
             _ = try system.writer.renameCollection(localPK: 40, newTitle: "No")
         }
         #expect(throws: CollectionWriteError.collectionNotEditable) {
-            try system.writer.deleteCollection(localPK: 40)
+            _ = try system.writer.deleteCollection(localPK: 40)
         }
         #expect(FileManager.default.fileExists(atPath: system.backupRoot.path) == false)
     }
@@ -111,8 +116,12 @@ struct CollectionWriteParityRegressionTests {
         defer { fixture.remove() }
         try execute(fixture.database, "CREATE UNIQUE INDEX unique_collection_title ON ZBKCOLLECTION(ZTITLE)")
 
-        #expect(throws: CollectionWriteError.writeFailed) {
+        do {
             _ = try fixture.writer.createCollection(title: "Shelf")
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
         }
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollection'") == 20)
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTION") == 4)
@@ -129,7 +138,11 @@ struct CollectionWriteParityRegressionTests {
             root: root,
             database: database,
             backupRoot: backupRoot,
-            writer: CollectionWriter(database: database, backupRoot: backupRoot, booksIsRunning: { false })
+            writer: CollectionWriter(
+                database: database,
+                backupRoot: backupRoot,
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
+            )
         )
     }
 

@@ -10,7 +10,7 @@ struct CollectionMembershipTests {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10))
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollectionMember'") == 6)
         let member = try memberRow(fixture.database, assetID: "asset-1")
         #expect(member.localPK == 6)
@@ -33,7 +33,7 @@ struct CollectionMembershipTests {
         let fixture = try fixture(existingTargetMemberships: 1)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed == false)
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 1)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollectionMember'") == 2)
         #expect(try parentState(fixture.database).opt == 3)
@@ -44,11 +44,11 @@ struct CollectionMembershipTests {
         let fixture = try fixture(existingTargetMemberships: 2)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10))
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed)
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 0)
         #expect(try parentState(fixture.database).opt == 4)
 
-        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 1, fromCollectionLocalPK: 10).changed == false)
         #expect(try parentState(fixture.database).opt == 4)
     }
 
@@ -62,7 +62,7 @@ struct CollectionMembershipTests {
         }
         #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
 
-        #expect(try fixture.writer.removeBook(bookLocalPK: 2, fromCollectionLocalPK: 10) == false)
+        #expect(try fixture.writer.removeBook(bookLocalPK: 2, fromCollectionLocalPK: 10).changed == false)
         #expect(try parentState(fixture.database).opt == 3)
     }
 
@@ -77,7 +77,7 @@ struct CollectionMembershipTests {
 
         let wantToRead = try fixture(collectionID: "Want_To_Read_Collection_ID")
         defer { try? FileManager.default.removeItem(at: wantToRead.root) }
-        #expect(try wantToRead.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10))
+        #expect(try wantToRead.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10).changed)
     }
 
     @Test
@@ -85,8 +85,12 @@ struct CollectionMembershipTests {
         let fixture = try fixture(existingTargetMemberships: 1, targetMemberEntityID: 999)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(throws: WriteSchemaGuardError.entityMismatch("ZBKCOLLECTIONMEMBER")) {
+        do {
             _ = try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
         }
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 1)
         #expect(try parentState(fixture.database).opt == 3)
@@ -125,7 +129,11 @@ struct CollectionMembershipTests {
             root: root,
             database: database,
             backupRoot: backupRoot,
-            writer: CollectionWriter(database: database, backupRoot: backupRoot, booksIsRunning: { false })
+            writer: CollectionWriter(
+                database: database,
+                backupRoot: backupRoot,
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
+            )
         )
     }
 

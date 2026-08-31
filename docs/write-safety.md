@@ -43,10 +43,10 @@ AppleBooksCLI 写一次 mutation 的顺序固定为：
 1. 定位目标 DB
 2. 只读读取并验证实时 schema / Core Data entity
 3. 只读解析目标 selector / mutation 前置条件
-4. 创建 SQLite online backup
-5. 验证 backup integrity
-6. 记录 Books.app 是否原先运行（wasRunning）
-7. 若 wasRunning=true，clean quit Books.app，并确认进程退出
+4. 记录 Books.app 是否原先运行（wasRunning）
+5. 若 wasRunning=true，clean quit Books.app，并确认进程退出
+6. 在 quiet state 创建 SQLite online backup
+7. 验证 backup integrity
 8. 打开短生命周期 writable connection
 9. BEGIN IMMEDIATE
 10. 在 transaction 内重新校验目标 row / 前置条件
@@ -54,17 +54,17 @@ AppleBooksCLI 写一次 mutation 的顺序固定为：
 12. 校验受影响行 / Core Data invariant
 13. COMMIT；异常则 ROLLBACK
 14. 关闭 writable connection
-15. 若 wasRunning=true，重新打开 Books.app
-16. 用新的 read-only connection 做 mutation read-back
+15. 用新的 read-only connection 做 mutation read-back verification
+16. 若 wasRunning=true，重新打开 Books.app
 ```
 
-关键约束：**所有不会改变 Apple Books 状态的前置检查都应在关闭 Books.app 之前完成**。用户不应因为 schema drift、selector 错误或 backup 失败而无故看到 Books 被退出。
+关键约束：**schema / selector 等不会改变 Apple Books 状态的前置检查都应在关闭 Books.app 之前完成**。online backup 则故意放在确认 Books 已停止之后，确保包含 app 退出时最后落盘的数据；若 quiet-state backup 失败，必须在返回主失败前尽力恢复原先运行状态。
 
 Books.app 关闭前做的 target preflight 不是最终并发保证；因为 app 在这期间仍可能改变 row，所以 writable transaction 内必须再次验证目标状态。
 
-任一 COMMIT 前 mutation/transaction 步骤失败：ROLLBACK，返回 backup path，不做部分成功。若失败发生在 Books 已被 CLI 关闭之后，应尽力恢复原先运行状态。
+任一 COMMIT 前 mutation/transaction 步骤失败：ROLLBACK；若已有 backup，返回受控 backup handle，不暴露绝对路径。若失败发生在 Books 已被 CLI 成功关闭之后，应在 writable handle 已关闭后尽力恢复原先运行状态；恢复失败只能作为 secondary warning，不能覆盖 primary failure。
 
-COMMIT 后仅 Books.app relaunch 失败：数据 mutation 已成功，不能把它谎报成 rollback 成功；应返回 success + warning。
+**COMMIT 成功就是不可逆的 public boundary。** 之后 writable close、read-back verification 或 Books.app relaunch 失败，都必须返回 committed success + warning；不能伪装成 rollback，也不能诱导用户安全地重试同一次 mutation。
 
 ## Backup：采用 SQLite online backup，不复制 live `.sqlite`
 
@@ -128,7 +128,7 @@ wasRunning = true
 
 底层 invariant：**不能在 Books.app 活跃状态下静默直接写。**
 
-COMMIT 成功但 relaunch 失败时，mutation 仍然是成功；返回 success + warning，提示用户手动打开 Books。不能把 post-commit launch failure 谎报成写入失败或已回滚。
+COMMIT 成功后，read-back 或 relaunch 失败时 mutation 仍然是成功；structured result 保留 `committed=true`、受控 backup handle、最小 local/stable identity、`changed` 与 warning code。不能把 post-commit failure 谎报成写入失败或已回滚。
 
 不要把 `BKAgentService` / `bookassetd` 等 helper daemon 当成永久禁止写的条件；它们常驻。SQLite lock / busy timeout 与 online backup 用来处理数据库层并发。
 

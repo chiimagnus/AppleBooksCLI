@@ -9,56 +9,65 @@ struct CollectionFacadeTests {
     func facadeRoutesFiveCollectionMutationsThroughSingleWriter() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let books = try core(fixture: fixture, booksRunning: false)
+        let books = try core(fixture: fixture, booksApp: closedBooksApp())
 
         let created = try books.createCollection(title: "  New Shelf  ", details: "details")
-        #expect(created.title == "New Shelf")
-        #expect(created.details == "details")
+        let createdPK = try #require(created.localPK)
+        #expect(created.committed)
+        #expect(created.changed)
+        #expect(created.warnings.isEmpty)
+        let readBackCollection = try books.collection(localPK: createdPK)
+        let createdCollection = try #require(readBackCollection)
+        #expect(createdCollection.title == "New Shelf")
+        #expect(createdCollection.details == "details")
+        #expect(created.stableID == createdCollection.collectionID)
 
-        let renamed = try books.renameCollection(localPK: created.localPK, newTitle: "Renamed")
-        #expect(renamed.localPK == created.localPK)
-        #expect(renamed.title == "Renamed")
+        let renamed = try books.renameCollection(localPK: createdPK, newTitle: "Renamed")
+        #expect(renamed.localPK == createdPK)
+        #expect(renamed.changed)
+        #expect(try books.collection(localPK: createdPK)?.title == "Renamed")
 
-        #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: created.localPK))
-        #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: created.localPK) == false)
-        #expect(try books.removeBook(bookLocalPK: 1, fromCollectionLocalPK: created.localPK))
-        #expect(try books.removeBook(bookLocalPK: 1, fromCollectionLocalPK: created.localPK) == false)
+        #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: createdPK).changed)
+        #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: createdPK).changed == false)
+        #expect(try books.removeBook(bookLocalPK: 1, fromCollectionLocalPK: createdPK).changed)
+        #expect(try books.removeBook(bookLocalPK: 1, fromCollectionLocalPK: createdPK).changed == false)
 
-        try books.deleteCollection(localPK: created.localPK)
-        #expect(try books.collection(localPK: created.localPK) == nil)
+        #expect(try books.deleteCollection(localPK: createdPK).changed)
+        #expect(try books.collection(localPK: createdPK) == nil)
     }
 
     @Test
-    func injectedScratchWriterCannotBypassBooksRunningGateThroughFacade() throws {
+    func runningBooksIsQuitForMutationAndRestoredAfterward() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let books = try core(fixture: fixture, booksRunning: true)
+        let state = BooksAppState(running: true)
+        let books = try core(fixture: fixture, booksApp: state.controller())
 
-        #expect(throws: MutationCoordinatorError.booksRunning) {
-            _ = try books.createCollection(title: "Blocked")
-        }
-        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        let result = try books.createCollection(title: "Lifecycle")
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(state.running)
+        #expect(state.events.contains("terminate"))
+        #expect(state.events.last == "launch")
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path))
     }
 
     @Test
     func committedCreateReadBackFailurePropagatesCommittedBoundary() throws {
         let fixture = try fixture(markNewCollectionsDeleted: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let books = try core(fixture: fixture, booksRunning: false)
+        let books = try core(fixture: fixture, booksApp: closedBooksApp())
 
-        do {
-            _ = try books.createCollection(title: "Committed But Hidden")
-            Issue.record("expected committed verification error")
-        } catch let error as MutationCommittedVerificationError {
-            #expect(error.committed)
-            #expect(error.localPK == 11)
-            #expect(error.code == "read_back_failed")
-            #expect(BackupMetadata.parse(filename: error.backupFilename, sourceStem: "library") != nil)
-        }
+        let result = try books.createCollection(title: "Committed But Hidden")
+        #expect(result.committed)
+        #expect(result.localPK == 11)
+        #expect(result.warnings == [.readBackFailed])
+        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
         #expect(try integer(fixture.library, "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Committed But Hidden' AND ZDELETEDFLAG=1") == 1)
     }
 
-    private func core(fixture: Fixture, booksRunning: Bool) throws -> AppleBooks {
+    private func core(fixture: Fixture, booksApp: BooksAppController) throws -> AppleBooks {
         try AppleBooks(
             libraryDB: fixture.library,
             annotationsDB: fixture.annotations,
@@ -66,9 +75,13 @@ struct CollectionFacadeTests {
             collectionWriter: CollectionWriter(
                 database: fixture.library,
                 backupRoot: fixture.backupRoot,
-                booksIsRunning: { booksRunning }
+                booksApp: booksApp
             )
         )
+    }
+
+    private func closedBooksApp() -> BooksAppController {
+        BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
     }
 
     private func fixture(markNewCollectionsDeleted: Bool = false) throws -> Fixture {
@@ -134,5 +147,32 @@ struct CollectionFacadeTests {
         let annotations: URL
         let config: URL
         let backupRoot: URL
+    }
+
+    private final class BooksAppState {
+        var running: Bool
+        var events: [String] = []
+
+        init(running: Bool) {
+            self.running = running
+        }
+
+        func controller() -> BooksAppController {
+            BooksAppController(
+                isRunning: { [self] in
+                    events.append("isRunning")
+                    return running
+                },
+                terminate: { [self] in
+                    events.append("terminate")
+                    running = false
+                    return true
+                },
+                launch: { [self] in
+                    events.append("launch")
+                    running = true
+                }
+            )
+        }
     }
 }

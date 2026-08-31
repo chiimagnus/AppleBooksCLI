@@ -293,6 +293,16 @@ public final class AppleBooks {
         try annotationQueries.recentlyModified()
     }
 
+    public func exportAnnotationsMarkdown() throws -> String {
+        let annotations = try annotationQueries.list(scope: .user).map(\.annotation)
+        return MarkdownAnnotationExporter.renderAll(annotations)
+    }
+
+    public func exportAnnotationsMarkdown(bookAssetID: String) throws -> String {
+        let annotations = try annotationQueries.byAssetID(bookAssetID, scope: .user).map(\.annotation)
+        return MarkdownAnnotationExporter.render(assetID: bookAssetID, annotations: annotations)
+    }
+
     public func annotations(
         createdAtOrAfter lowerInclusive: Date? = nil,
         beforeExclusive upperExclusive: Date? = nil,

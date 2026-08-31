@@ -74,7 +74,7 @@ final class AppleBooksLiveContentTests: XCTestCase {
                 continue
             } catch ContentError.unavailable(_) {
                 continue
-            } catch DirectoryEPUBPackageError.readFailed {
+            } catch is EPUBResourceError {
                 continue
             }
         }

@@ -234,10 +234,14 @@ public final class AppleBooks {
     }
 
     public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
-        guard let book = try bookQueries.getForContent(localPK), let path = book.path else {
+        guard let book = try bookQueries.getForContent(localPK) else {
             throw ContentError.bookPathUnavailable
         }
-        return try BookContent(root: URL(fileURLWithPath: path))
+        return try bookContent(for: book)
+    }
+
+    private func bookContent(for book: Book) throws -> BookContent {
+        try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: configuration))
     }
 
     public func listAnnotations(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
@@ -321,14 +325,12 @@ public final class AppleBooks {
         guard annotations.isEmpty == false else { return [] }
 
         var chapterOrder: [String: Int] = [:]
-        if let path = book.path {
-            do {
-                for chapter in try BookContent(root: URL(fileURLWithPath: path)).listChapters() {
-                    chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
-                }
-            } catch {
-                chapterOrder.removeAll(keepingCapacity: false)
+        do {
+            for chapter in try bookContent(for: book).listChapters() {
+                chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
             }
+        } catch {
+            chapterOrder.removeAll(keepingCapacity: false)
         }
 
         let sorted = annotations.sorted { lhs, rhs in
@@ -375,14 +377,14 @@ public final class AppleBooks {
         guard books.count == 1, let book = books.first else {
             throw AnnotationContextError.currentBookAmbiguous
         }
-        guard let path = book.path else {
+        guard book.path != nil else {
             throw AnnotationContextError.contentPathUnavailable
         }
         guard let chapterID = annotation.location?.chapterID else {
             throw AnnotationContextError.chapterUnavailable
         }
 
-        let content = try BookContent(root: URL(fileURLWithPath: path))
+        let content = try bookContent(for: book)
         let chapterText: String
         do {
             chapterText = try content.getChapter(chapterID)

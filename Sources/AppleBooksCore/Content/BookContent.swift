@@ -11,27 +11,15 @@ public final class BookContent {
     let package: DirectoryEPUBPackage
     private let navigation: EPUBNavigation
 
-    public init(root: URL) throws {
-        let canonicalRoot = root.standardizedFileURL
-        guard canonicalRoot.pathExtension.lowercased() == "epub" else {
+    public convenience init(root: URL) throws {
+        guard root.standardizedFileURL.pathExtension.lowercased() == "epub" else {
             throw ContentError.unsupportedFormat
         }
-        var metadata = stat()
-        guard lstat(canonicalRoot.path, &metadata) == 0 else {
-            if errno == ENOENT || errno == ENOTDIR {
-                throw ContentError.unavailable(.missing)
-            }
-            throw ContentError.unavailable(.unknown)
-        }
-        guard metadata.st_mode & S_IFMT == S_IFDIR else {
-            throw ContentError.unsupportedFormat
-        }
-        let availability = BookContentAvailability.inspect(canonicalRoot)
-        guard availability == .available else {
-            throw ContentError.unavailable(availability)
-        }
+        try self.init(reader: DirectoryEPUBResourceReader(root: root))
+    }
 
-        let package = try DirectoryEPUBPackage(root: canonicalRoot)
+    init(reader: any EPUBResourceReader) throws {
+        let package = try DirectoryEPUBPackage(reader: reader)
         switch try EPUBEncryption.inspect(package: package) {
         case .none, .fontObfuscationOnly:
             break
@@ -153,10 +141,10 @@ public final class BookContent {
         let matching = package.manifest.values.filter { $0.path.relativePath == chapter.href }
         let path: EPUBPath
         if matching.count == 1, let manifestPath = matching.first?.path {
-            path = EPUBPath(relativePath: manifestPath.relativePath, fragment: chapter.fragment.isEmpty ? nil : chapter.fragment, url: manifestPath.url)
+            path = EPUBPath(relativePath: manifestPath.relativePath, fragment: chapter.fragment.isEmpty ? nil : chapter.fragment)
         } else {
-            path = try EPUBPath.resolve(root: package.root, reference: chapter.href)
+            path = try EPUBPath.resolve(reference: chapter.href)
         }
-        return try DirectoryEPUBPackage.readAvailableFile(path)
+        return try package.reader.readExactResource(path, maxBytes: EPUBResourceBudget.chapter)
     }
 }

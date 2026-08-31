@@ -48,13 +48,12 @@ struct DirectoryEPUBPackageTests {
             "chapter\0.xhtml",
         ] {
             #expect(throws: EPUBPathError.invalidReference) {
-                _ = try EPUBPath.resolve(root: fixture.root, reference: reference)
+                _ = try EPUBPath.resolve(reference: reference)
             }
         }
 
         #expect(throws: EPUBPathError.rootEscape) {
             _ = try EPUBPath.resolve(
-                root: fixture.root,
                 reference: "%2E%2E/%2E%2E/outside.xhtml",
                 relativeTo: "OPS"
             )
@@ -69,14 +68,14 @@ struct DirectoryEPUBPackageTests {
         try fixture.writeOPF(validOPF, at: "real-package.opf")
         try fixture.createSymlink(at: "OPS/package.opf", pointingTo: fixture.root.appendingPathComponent("real-package.opf"))
 
-        #expect(throws: EPUBPathError.symlink) {
+        #expect(throws: EPUBResourceError.unsafeResource) {
             _ = try DirectoryEPUBPackage(root: fixture.root)
         }
 
         let rootLink = fixture.root.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
         try FileManager.default.createSymbolicLink(at: rootLink, withDestinationURL: fixture.root)
         defer { try? FileManager.default.removeItem(at: rootLink) }
-        #expect(throws: EPUBPathError.symlink) {
+        #expect(throws: EPUBResourceError.unsafeResource) {
             _ = try DirectoryEPUBPackage(root: rootLink)
         }
     }

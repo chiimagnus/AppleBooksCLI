@@ -99,8 +99,17 @@ struct AnnotationContextTests {
           (8,'asset-current',1,1,'quick brown','','epubcfi(/6/2[chapter]!/4/2,:0,:0)'),
           (9,'asset-current',0,3,'quick brown','','epubcfi(/6/2[chapter]!/4/2,:0,:0)');
         """)
+        let supplementalRoot = root.appendingPathComponent("supplemental", isDirectory: true)
+        try FileManager.default.createDirectory(at: supplementalRoot, withIntermediateDirectories: true)
+        try Data("not a packed book".utf8).write(to: supplementalRoot.appendingPathComponent("asset-missing.epub"))
         let config = root.appendingPathComponent("config.json")
-        try Data("{\"historical_assets\":{\"asset-missing\":{\"title\":\"Synthetic\",\"author\":\"Synthetic\"}}}".utf8).write(to: config)
+        let configData = try JSONSerialization.data(withJSONObject: [
+            "historical_assets": [
+                "asset-missing": ["title": "Synthetic", "author": "Synthetic"],
+            ],
+            "epub_root": supplementalRoot.path,
+        ])
+        try configData.write(to: config)
         return Fixture(
             root: root,
             books: try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)

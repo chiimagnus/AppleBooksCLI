@@ -1,18 +1,13 @@
-import Darwin
 import Foundation
 
 public enum EPUBPathError: Error, Equatable, Sendable {
     case invalidReference
     case rootEscape
-    case missingRoot
-    case symlink
-    case unsupportedNode
 }
 
 struct EPUBPath: Equatable, Sendable {
     let relativePath: String
     let fragment: String?
-    let url: URL
 
     var directory: String {
         guard let slash = relativePath.lastIndex(of: "/") else { return "" }
@@ -20,7 +15,6 @@ struct EPUBPath: Equatable, Sendable {
     }
 
     static func resolve(
-        root: URL,
         reference: String,
         relativeTo baseDirectory: String = ""
     ) throws -> EPUBPath {
@@ -69,13 +63,9 @@ struct EPUBPath: Equatable, Sendable {
             throw EPUBPathError.invalidReference
         }
 
-        let relativePath = components.joined(separator: "/")
-        let canonicalRoot = root.standardizedFileURL
-        try validateRootAndComponents(root: canonicalRoot, components: components)
         return EPUBPath(
-            relativePath: relativePath,
-            fragment: decodedFragment,
-            url: components.reduce(canonicalRoot) { $0.appendingPathComponent($1, isDirectory: false) }
+            relativePath: components.joined(separator: "/"),
+            fragment: decodedFragment
         )
     }
 
@@ -116,28 +106,4 @@ struct EPUBPath: Equatable, Sendable {
         }
     }
 
-    private static func validateRootAndComponents(root: URL, components: [String]) throws {
-        var rootStat = stat()
-        guard lstat(root.path, &rootStat) == 0 else {
-            if errno == ENOENT || errno == ENOTDIR { throw EPUBPathError.missingRoot }
-            throw EPUBPathError.unsupportedNode
-        }
-        guard rootStat.st_mode & S_IFMT != S_IFLNK else { throw EPUBPathError.symlink }
-        guard rootStat.st_mode & S_IFMT == S_IFDIR else { throw EPUBPathError.unsupportedNode }
-
-        var current = root
-        for (index, component) in components.enumerated() {
-            current.appendPathComponent(component, isDirectory: false)
-            var value = stat()
-            guard lstat(current.path, &value) == 0 else {
-                if errno == ENOENT || errno == ENOTDIR { return }
-                throw EPUBPathError.unsupportedNode
-            }
-            let type = value.st_mode & S_IFMT
-            guard type != S_IFLNK else { throw EPUBPathError.symlink }
-            if index < components.count - 1, type != S_IFDIR {
-                throw EPUBPathError.unsupportedNode
-            }
-        }
-    }
 }

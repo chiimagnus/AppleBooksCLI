@@ -20,26 +20,13 @@ public enum EPUBEncryption: Equatable, Sendable {
     static func inspect(package: DirectoryEPUBPackage) throws -> EPUBEncryption {
         let encryptionPath: EPUBPath
         do {
-            encryptionPath = try EPUBPath.resolve(
-                root: package.root,
-                reference: "META-INF/encryption.xml"
-            )
+            encryptionPath = try EPUBPath.resolve(reference: "META-INF/encryption.xml")
         } catch {
             return .malformedEncryptionMetadata
         }
 
-        switch BookContentAvailability.inspect(encryptionPath.url) {
-        case .missing:
-            return .none
-        case .notDownloaded:
-            throw ContentError.unavailable(.notDownloaded)
-        case .unknown:
-            throw ContentError.unavailable(.unknown)
-        case .available:
-            break
-        }
-
-        let data = try DirectoryEPUBPackage.readAvailableFile(encryptionPath)
+        guard try package.reader.contains(encryptionPath) else { return .none }
+        let data = try package.reader.readExactResource(encryptionPath, maxBytes: EPUBResourceBudget.encryption)
         let entries: [EncryptionEntry]
         do {
             entries = try EncryptionDocument.parse(data)
@@ -56,7 +43,7 @@ public enum EPUBEncryption: Equatable, Sendable {
             }
             let target: EPUBPath
             do {
-                target = try EPUBPath.resolve(root: package.root, reference: entry.uri)
+                target = try EPUBPath.resolve(reference: entry.uri)
             } catch {
                 return .malformedEncryptionMetadata
             }

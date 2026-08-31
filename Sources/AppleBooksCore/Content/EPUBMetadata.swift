@@ -28,9 +28,9 @@ public struct EPUBMetadata: Equatable, Sendable {
     }
 
     static func read(package: DirectoryEPUBPackage) throws -> EPUBMetadata {
-        let opfData = try DirectoryEPUBPackage.readAvailableFile(package.packageDocument)
+        let opfData = try package.reader.readExactResource(package.packageDocument, maxBytes: EPUBResourceBudget.packageDocument)
         let opf = try OPFMetadataDocument.parse(opfData)
-        let iTunes = readITunesMetadata(root: package.root)
+        let iTunes = readITunesMetadata(reader: package.reader)
         return EPUBMetadata(
             title: opf.title ?? iTunes?.title,
             creator: opf.creator ?? iTunes?.creator,
@@ -45,11 +45,11 @@ public struct EPUBMetadata: Equatable, Sendable {
         )
     }
 
-    private static func readITunesMetadata(root: URL) -> ITunesMetadata? {
+    private static func readITunesMetadata(reader: any EPUBResourceReader) -> ITunesMetadata? {
         do {
-            let path = try EPUBPath.resolve(root: root, reference: "iTunesMetadata.plist")
-            guard BookContentAvailability.inspect(path.url) == .available else { return nil }
-            let data = try DirectoryEPUBPackage.readAvailableFile(path)
+            let path = try EPUBPath.resolve(reference: "iTunesMetadata.plist")
+            guard try reader.contains(path) else { return nil }
+            let data = try reader.readExactResource(path, maxBytes: EPUBResourceBudget.plist)
             guard let dictionary = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
                 return nil
             }

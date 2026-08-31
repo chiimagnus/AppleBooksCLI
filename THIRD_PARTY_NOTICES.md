@@ -20,3 +20,11 @@
 - Revision: `6566392d35d80df71b64bcee26fc3ef2d45de11e`
 - Copyright: no explicit copyright notice in the pinned source; project metadata lists Vignesh Iyer as author
 - License: Apache-2.0 — see `ThirdPartyLicenses/vgnshiyer-apple-books-mcp-Apache-2.0.txt`
+
+## ZIPFoundation
+
+- Source: https://github.com/weichsel/ZIPFoundation
+- Version: `0.9.20`
+- Revision: `22787ffb59de99e5dc1fbfe80b19c97a904ad48d`
+- Copyright: Copyright (c) 2017-2025 Thomas Zoechling (https://www.peakstep.com)
+- License: MIT — see `ThirdPartyLicenses/ZIPFoundation-MIT.txt`

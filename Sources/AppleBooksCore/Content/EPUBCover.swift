@@ -50,7 +50,7 @@ public extension BookContent {
                     for fileExtension in extensions {
                         let components = [root, folder, "\(name).\(fileExtension)"].filter { $0.isEmpty == false }
                         let reference = components.joined(separator: "/")
-                        guard let path = try? EPUBPath.resolve(root: package.root, reference: reference),
+                        guard let path = try? EPUBPath.resolve(reference: reference),
                               let data = readCoverData(path) else {
                             continue
                         }
@@ -78,8 +78,7 @@ public extension BookContent {
     }
 
     private func readCoverData(_ path: EPUBPath) -> Data? {
-        guard BookContentAvailability.inspect(path.url) == .available else { return nil }
-        return try? DirectoryEPUBPackage.readAvailableFile(path)
+        try? package.reader.readExactResource(path, maxBytes: EPUBResourceBudget.cover)
     }
 }
 

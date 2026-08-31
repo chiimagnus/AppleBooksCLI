@@ -13,12 +13,14 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.9"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
     ],
     targets: [
         .target(
             name: "AppleBooksCore",
             dependencies: [
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),
         .executableTarget(
@@ -27,7 +29,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AppleBooksCoreTests",
-            dependencies: ["AppleBooksCore"]
+            dependencies: [
+                "AppleBooksCore",
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+            ]
         ),
     ],
     swiftLanguageModes: [.v6]

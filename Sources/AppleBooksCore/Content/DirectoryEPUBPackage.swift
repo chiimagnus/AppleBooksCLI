@@ -6,7 +6,6 @@ public enum DirectoryEPUBPackageError: Error, Equatable, Sendable {
     case invalidPackageDocument
     case duplicateManifestID
     case invalidSpineReference
-    case readFailed
 }
 
 struct EPUBManifestItem: Equatable, Sendable {
@@ -21,31 +20,28 @@ struct EPUBSpineItem: Equatable, Sendable {
     let order: Int
 }
 
-struct DirectoryEPUBPackage: Equatable, Sendable {
-    let root: URL
+struct DirectoryEPUBPackage {
+    let reader: any EPUBResourceReader
     let packageDocument: EPUBPath
     let manifest: [String: EPUBManifestItem]
     let spine: [EPUBSpineItem]
 
     init(root: URL) throws {
-        let canonicalRoot = root.standardizedFileURL
-        let containerPath: EPUBPath
-        do {
-            containerPath = try EPUBPath.resolve(root: canonicalRoot, reference: "META-INF/container.xml")
-        } catch EPUBPathError.missingRoot {
-            throw ContentError.unavailable(.missing)
-        }
-        let containerData = try Self.readAvailableFile(containerPath)
+        try self.init(reader: DirectoryEPUBResourceReader(root: root))
+    }
+
+    init(reader: any EPUBResourceReader) throws {
+        let containerPath = try EPUBPath.resolve(reference: "META-INF/container.xml")
+        let containerData = try reader.readExactResource(containerPath, maxBytes: EPUBResourceBudget.container)
         let rootfile = try ContainerDocument.parse(containerData)
-        let packageDocument = try EPUBPath.resolve(root: canonicalRoot, reference: rootfile)
-        let packageData = try Self.readAvailableFile(packageDocument)
+        let packageDocument = try EPUBPath.resolve(reference: rootfile)
+        let packageData = try reader.readExactResource(packageDocument, maxBytes: EPUBResourceBudget.packageDocument)
         let parsed = try PackageDocument.parse(packageData)
 
         var resolvedManifest: [String: EPUBManifestItem] = [:]
         resolvedManifest.reserveCapacity(parsed.manifest.count)
         for item in parsed.manifest {
             let path = try EPUBPath.resolve(
-                root: canonicalRoot,
                 reference: item.href,
                 relativeTo: packageDocument.directory
             )
@@ -60,22 +56,10 @@ struct DirectoryEPUBPackage: Equatable, Sendable {
             throw DirectoryEPUBPackageError.invalidSpineReference
         }
 
-        self.root = canonicalRoot
+        self.reader = reader
         self.packageDocument = packageDocument
         manifest = resolvedManifest
         spine = parsed.spine.enumerated().map { EPUBSpineItem(idref: $0.element, order: $0.offset + 1) }
-    }
-
-    static func readAvailableFile(_ path: EPUBPath) throws -> Data {
-        let availability = BookContentAvailability.inspect(path.url)
-        guard availability == .available else {
-            throw ContentError.unavailable(availability)
-        }
-        do {
-            return try Data(contentsOf: path.url)
-        } catch {
-            throw DirectoryEPUBPackageError.readFailed
-        }
     }
 }
 

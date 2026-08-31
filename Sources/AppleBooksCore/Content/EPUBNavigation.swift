@@ -16,7 +16,7 @@ struct EPUBNavigation {
     func navChapters() throws -> [Chapter] {
         let navItems = package.manifest.values.filter { $0.properties.contains("nav") }
         guard let navItem = navItems.sorted(by: { $0.id < $1.id }).first else { return [] }
-        let data = try DirectoryEPUBPackage.readAvailableFile(navItem.path)
+        let data = try package.reader.readExactResource(navItem.path, maxBytes: EPUBResourceBudget.navigation)
 
         let document: Document
         do {
@@ -62,7 +62,7 @@ struct EPUBNavigation {
     private func ncxChapters() throws -> [Chapter] {
         let ncxItems = package.manifest.values.filter { $0.mediaType == "application/x-dtbncx+xml" }
         guard let ncxItem = ncxItems.sorted(by: { $0.id < $1.id }).first else { return [] }
-        let data = try DirectoryEPUBPackage.readAvailableFile(ncxItem.path)
+        let data = try package.reader.readExactResource(ncxItem.path, maxBytes: EPUBResourceBudget.navigation)
         guard let entries = NCXDocument.parse(data), entries.isEmpty == false else { return [] }
 
         var idCounts: [String: Int] = [:]
@@ -72,7 +72,6 @@ struct EPUBNavigation {
 
         return try entries.map { entry in
             let path = try EPUBPath.resolve(
-                root: package.root,
                 reference: entry.src,
                 relativeTo: ncxItem.path.directory
             )
@@ -102,7 +101,7 @@ struct EPUBNavigation {
                 let title = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
                 let href = try link.attr("href").trimmingCharacters(in: .whitespacesAndNewlines)
                 if title.isEmpty == false, href.isEmpty == false {
-                    let path = try EPUBPath.resolve(root: package.root, reference: href, relativeTo: navDirectory)
+                    let path = try EPUBPath.resolve(reference: href, relativeTo: navDirectory)
                     let target = Target(href: path.relativePath, fragment: path.fragment ?? "")
                     if seen.insert(target).inserted {
                         let matchingIDs = package.manifest.values

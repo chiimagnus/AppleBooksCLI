@@ -42,7 +42,7 @@ struct ContentParityRegressionTests {
             _ = try XHTMLText.extract(shared, fragment: "missing")
         }
         #expect(throws: EPUBPathError.rootEscape) {
-            _ = try EPUBPath.resolve(root: root, reference: "../../outside.xhtml")
+            _ = try EPUBPath.resolve(reference: "../../outside.xhtml")
         }
     }
 

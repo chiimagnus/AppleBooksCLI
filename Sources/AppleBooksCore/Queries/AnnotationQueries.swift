@@ -4,6 +4,7 @@ struct AnnotationQueries {
     private enum QueryOrder {
         case standard
         case modificationRecent
+        case creationRecent
     }
 
     private enum Filter {
@@ -126,6 +127,17 @@ struct AnnotationQueries {
         )
     }
 
+    func recentlyCreated(limit: Int = 10) throws -> [EnrichedAnnotation] {
+        try query(
+            .none,
+            capability: .annotationByCreationDate,
+            scope: .user,
+            limit: limit,
+            offset: 0,
+            order: .creationRecent
+        )
+    }
+
     func created(
         lowerInclusive: Date? = nil,
         upperExclusive: Date? = nil,
@@ -222,6 +234,11 @@ struct AnnotationQueries {
             order = [
                 "\(AppleBooksSchema.Annotation.modificationDate) IS NULL",
                 "\(AppleBooksSchema.Annotation.modificationDate) DESC",
+                "\(AppleBooksSchema.Annotation.localPK) DESC",
+            ]
+        case .creationRecent:
+            order = [
+                "\(AppleBooksSchema.Annotation.creationDate) DESC",
                 "\(AppleBooksSchema.Annotation.localPK) DESC",
             ]
         }

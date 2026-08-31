@@ -1,6 +1,11 @@
 import Foundation
 
 struct AnnotationQueries {
+    private enum QueryOrder {
+        case standard
+        case modificationRecent
+    }
+
     private enum Filter {
         case none
         case localPK(Int64)
@@ -110,6 +115,17 @@ struct AnnotationQueries {
         try query(.fullText(text), capability: .annotationFullText, scope: scope, limit: limit, offset: offset)
     }
 
+    func recentlyModified() throws -> [EnrichedAnnotation] {
+        try query(
+            .none,
+            capability: .annotationByModificationDate,
+            scope: .activeRaw,
+            limit: 10,
+            offset: 0,
+            order: .modificationRecent
+        )
+    }
+
     func created(
         lowerInclusive: Date? = nil,
         upperExclusive: Date? = nil,
@@ -145,7 +161,8 @@ struct AnnotationQueries {
         capability: SchemaCapability,
         scope: AnnotationScope,
         limit: Int?,
-        offset: Int
+        offset: Int,
+        order queryOrder: QueryOrder = .standard
     ) throws -> [EnrichedAnnotation] {
         try validatePagination(limit: limit, offset: offset)
         let schema = try AppleBooksSchema.inspect(capability, on: annotationConnection)
@@ -183,20 +200,31 @@ struct AnnotationQueries {
             }
         }
 
-        var order: [String] = []
-        if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
-            order += [
+        let order: [String]
+        switch queryOrder {
+        case .standard:
+            var standard: [String] = []
+            if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
+                standard += [
+                    "\(AppleBooksSchema.Annotation.modificationDate) IS NULL",
+                    "\(AppleBooksSchema.Annotation.modificationDate) DESC",
+                ]
+            }
+            if schema.contains(AppleBooksSchema.Annotation.creationDate) {
+                standard += [
+                    "\(AppleBooksSchema.Annotation.creationDate) IS NULL",
+                    "\(AppleBooksSchema.Annotation.creationDate) DESC",
+                ]
+            }
+            standard.append("\(AppleBooksSchema.Annotation.localPK) DESC")
+            order = standard
+        case .modificationRecent:
+            order = [
                 "\(AppleBooksSchema.Annotation.modificationDate) IS NULL",
                 "\(AppleBooksSchema.Annotation.modificationDate) DESC",
+                "\(AppleBooksSchema.Annotation.localPK) DESC",
             ]
         }
-        if schema.contains(AppleBooksSchema.Annotation.creationDate) {
-            order += [
-                "\(AppleBooksSchema.Annotation.creationDate) IS NULL",
-                "\(AppleBooksSchema.Annotation.creationDate) DESC",
-            ]
-        }
-        order.append("\(AppleBooksSchema.Annotation.localPK) DESC")
         sql += " ORDER BY \(order.joined(separator: ", "))"
 
         if limit != nil {

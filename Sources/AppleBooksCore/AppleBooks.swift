@@ -238,6 +238,10 @@ public final class AppleBooks {
         try annotationQueries.searchText(text, limit: limit, offset: offset)
     }
 
+    public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {
+        try annotationQueries.recentlyModified()
+    }
+
     public func annotations(
         createdAtOrAfter lowerInclusive: Date? = nil,
         beforeExclusive upperExclusive: Date? = nil,

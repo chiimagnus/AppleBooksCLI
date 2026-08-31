@@ -142,6 +142,7 @@ enum SchemaCapability: CaseIterable {
     case annotationByAssetID
     case annotationByStyle
     case annotationByCreationDate
+    case annotationByModificationDate
     case annotationHighlightedText
     case annotationNote
     case annotationFullText
@@ -158,7 +159,7 @@ enum SchemaCapability: CaseIterable {
         case .collectionMembers:
             .collectionMembers
         case .annotationUserBase, .annotationByUUID, .annotationByAssetID, .annotationByStyle,
-             .annotationByCreationDate, .annotationHighlightedText, .annotationNote,
+             .annotationByCreationDate, .annotationByModificationDate, .annotationHighlightedText, .annotationNote,
              .annotationFullText, .currentPosition:
             .annotations
         }
@@ -204,6 +205,8 @@ enum SchemaCapability: CaseIterable {
             annotationUserRequired + [AppleBooksSchema.Annotation.style]
         case .annotationByCreationDate:
             annotationUserRequired + [AppleBooksSchema.Annotation.creationDate]
+        case .annotationByModificationDate:
+            annotationUserRequired + [AppleBooksSchema.Annotation.modificationDate]
         case .annotationHighlightedText:
             annotationUserRequired + [AppleBooksSchema.Annotation.selectedText]
         case .annotationNote:

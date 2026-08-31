@@ -5,11 +5,26 @@ public final class AppleBooks {
     private let collectionQueries: CollectionQueries
     private let annotationQueries: AnnotationQueries
     private let readingQueries: ReadingQueries
+    private let collectionWriter: CollectionWriter
 
-    public init(
+    public convenience init(
         libraryDB: URL,
         annotationsDB: URL,
         historicalConfig: URL? = nil
+    ) throws {
+        try self.init(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            historicalConfig: historicalConfig,
+            collectionWriter: CollectionWriter(database: libraryDB)
+        )
+    }
+
+    init(
+        libraryDB: URL,
+        annotationsDB: URL,
+        historicalConfig: URL?,
+        collectionWriter: CollectionWriter
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
@@ -32,6 +47,7 @@ public final class AppleBooks {
             connection: libraryConnection,
             annotationConnection: annotationConnection
         )
+        self.collectionWriter = collectionWriter
     }
 
     // Stable deterministic order + validated pagination.
@@ -47,6 +63,26 @@ public final class AppleBooks {
     // Title is a search field, never collection identity.
     public func collections(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
         try collectionQueries.searchTitle(text, limit: limit, offset: offset)
+    }
+
+    public func createCollection(title: String, details: String? = nil) throws -> Collection {
+        try collectionWriter.createCollection(title: title, details: details)
+    }
+
+    public func renameCollection(localPK: Int64, newTitle: String) throws -> Collection {
+        try collectionWriter.renameCollection(localPK: localPK, newTitle: newTitle)
+    }
+
+    public func deleteCollection(localPK: Int64) throws {
+        try collectionWriter.deleteCollection(localPK: localPK)
+    }
+
+    public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
+        try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK)
+    }
+
+    public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> Bool {
+        try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK)
     }
 
     public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
@@ -72,7 +108,6 @@ public final class AppleBooks {
         return try BookContent(root: URL(fileURLWithPath: path))
     }
 
-    // Upstream list_annotations, strengthened to deleted=0 AND type!=3.
     public func listAnnotations(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try annotationQueries.list(limit: limit, offset: offset)
     }
@@ -147,12 +182,10 @@ public final class AppleBooks {
         try annotationQueries.searchNote(text, limit: limit, offset: offset)
     }
 
-    // Upstream search_annotation_by_text; grouped OR executes inside SQL before limit/offset.
     public func annotations(matchingText text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try annotationQueries.searchText(text, limit: limit, offset: offset)
     }
 
-    // Upstream get_annotations_by_date_range, deliberately half-open [lower, upper).
     public func annotations(
         createdAtOrAfter lowerInclusive: Date? = nil,
         beforeExclusive upperExclusive: Date? = nil,
@@ -183,7 +216,6 @@ public final class AppleBooks {
         try readingQueries.recentlyRead(limit: limit, offset: offset)
     }
 
-    // Upstream get_current_reading_location: public input is Book localPK; raw assetId remains internal.
     public func currentReadingLocation(forBookLocalPK localPK: Int64) throws -> Annotation? {
         guard let book = try bookQueries.getForCurrentReadingLocation(localPK),
               let assetID = book.assetID else {

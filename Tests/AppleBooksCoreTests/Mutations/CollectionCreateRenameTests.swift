@@ -11,8 +11,10 @@ struct CollectionCreateRenameTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let writer = fixture.writer
 
-        let pk = try writer.createCollection(title: "  New Shelf  ", details: "  keep details  ")
+        let created = try writer.createCollection(title: "  New Shelf  ", details: "  keep details  ")
+        let pk = created.localPK
         #expect(pk == 11)
+        #expect(created.title == "New Shelf")
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='BKCollection'") == 11)
         let row = try collectionRow(fixture.database, pk: pk)
         #expect(row.entityID == 7)
@@ -38,7 +40,7 @@ struct CollectionCreateRenameTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let before = try collectionRow(fixture.database, pk: 10)
 
-        try fixture.writer.renameCollection(localPK: 10, newTitle: "  Renamed  ")
+        _ = try fixture.writer.renameCollection(localPK: 10, newTitle: "  Renamed  ")
 
         let after = try collectionRow(fixture.database, pk: 10)
         #expect(after.title == "Renamed")

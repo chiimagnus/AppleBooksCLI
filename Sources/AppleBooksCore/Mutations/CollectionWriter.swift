@@ -44,11 +44,11 @@ struct CollectionWriter {
         )
     }
 
-    func createCollection(title: String, details: String? = nil) throws -> Int64 {
+    func createCollection(title: String, details: String? = nil) throws -> Collection {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        let created = try coordinator.perform(
+        return try coordinator.performAndReadBack(
             preflight: { connection in
                 try Self.validateCreateSchema(on: connection)
             },
@@ -92,19 +92,20 @@ struct CollectionWriter {
             },
             committedLocalPK: { $0.localPK },
             readBack: { connection, created in
-                guard try Self.collectionTitle(localPK: created.localPK, on: connection) == created.title else {
+                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
+                      collection.title == created.title else {
                     throw CollectionWriteError.writeFailed
                 }
+                return collection
             }
         )
-        return created.localPK
     }
 
-    func renameCollection(localPK: Int64, newTitle: String) throws {
+    func renameCollection(localPK: Int64, newTitle: String) throws -> Collection {
         let normalizedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        _ = try coordinator.perform(
+        return try coordinator.performAndReadBack(
             preflight: { connection in
                 try Self.validateRenameSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -131,9 +132,11 @@ struct CollectionWriter {
             },
             committedLocalPK: { $0 },
             readBack: { connection, _ in
-                guard try Self.collectionTitle(localPK: localPK, on: connection) == normalizedTitle else {
+                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(localPK),
+                      collection.title == normalizedTitle else {
                     throw CollectionWriteError.writeFailed
                 }
+                return collection
             }
         )
     }
@@ -768,13 +771,6 @@ struct CollectionWriter {
               sqlite3_changes(handle) == 1 else {
             throw CollectionWriteError.writeFailed
         }
-    }
-
-    private static func collectionTitle(localPK: Int64, on connection: SQLiteConnection) throws -> String? {
-        let statement = try connection.prepare("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK = ?")
-        try statement.bind(localPK, at: 1)
-        guard try statement.step() else { return nil }
-        return try SQLiteRow(statement: statement).text("ZTITLE")
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {

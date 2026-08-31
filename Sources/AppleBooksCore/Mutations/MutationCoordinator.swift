@@ -48,6 +48,27 @@ struct MutationCoordinator {
         committedLocalPK: (T) -> Int64? = { _ in nil },
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> T {
+        try performAndReadBack(
+            preflight: preflight,
+            revalidate: revalidate,
+            mutation: mutation,
+            invariant: invariant,
+            committedLocalPK: committedLocalPK,
+            readBack: { connection, result in
+                try readBack(connection, result)
+                return result
+            }
+        )
+    }
+
+    func performAndReadBack<T, R>(
+        preflight: (SQLiteConnection) throws -> Void,
+        revalidate: (OpaquePointer) throws -> Void,
+        mutation: (OpaquePointer) throws -> T,
+        invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
+        committedLocalPK: (T) -> Int64? = { _ in nil },
+        readBack: (SQLiteConnection, T) throws -> R
+    ) throws -> R {
         let preflightConnection = try SQLiteConnection.readOnly(path: database.path)
         do {
             try preflight(preflightConnection)
@@ -126,8 +147,9 @@ struct MutationCoordinator {
             )
         }
         do {
-            try readBack(readBackConnection, result)
+            let finalResult = try readBack(readBackConnection, result)
             try readBackConnection.close()
+            return finalResult
         } catch {
             try? readBackConnection.close()
             throw MutationCommittedVerificationError(
@@ -136,6 +158,5 @@ struct MutationCoordinator {
                 code: "read_back_failed"
             )
         }
-        return result
     }
 }

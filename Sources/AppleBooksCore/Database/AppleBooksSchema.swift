@@ -28,18 +28,26 @@ enum AppleBooksSchema {
         static let title = "ZTITLE"
         static let author = "ZAUTHOR"
         static let description = "ZBOOKDESCRIPTION"
+        static let epubID = "ZEPUBID"
         static let genre = "ZGENRE"
+        static let genres = "ZGENRES"
+        static let comments = "ZCOMMENTS"
+        static let language = "ZLANGUAGE"
+        static let year = "ZYEAR"
         static let contentType = "ZCONTENTTYPE"
         static let pageCount = "ZPAGECOUNT"
         static let path = "ZPATH"
         static let fileSize = "ZFILESIZE"
+        static let coverURL = "ZCOVERURL"
         static let isFinished = "ZISFINISHED"
         static let readingProgress = "ZREADINGPROGRESS"
         static let duration = "ZDURATION"
         static let creationDate = "ZCREATIONDATE"
+        static let modificationDate = "ZMODIFICATIONDATE"
         static let finishedDate = "ZDATEFINISHED"
         static let lastOpenDate = "ZLASTOPENDATE"
         static let purchaseDate = "ZPURCHASEDATE"
+        static let releaseDate = "ZRELEASEDATE"
         static let isExplicit = "ZISEXPLICIT"
         static let isLocked = "ZISLOCKED"
         static let isEphemeral = "ZISEPHEMERAL"
@@ -49,10 +57,10 @@ enum AppleBooksSchema {
         static let rating = "ZRATING"
 
         static let allProjection = [
-            assetID, title, author, description, genre, contentType, pageCount, path, fileSize,
-            isFinished, readingProgress, duration, creationDate, finishedDate, lastOpenDate,
-            purchaseDate, isExplicit, isLocked, isEphemeral, isHidden, isSample,
-            isStoreAudiobook, rating,
+            assetID, title, author, description, epubID, genre, genres, comments, language, year,
+            contentType, pageCount, path, fileSize, coverURL, isFinished, readingProgress, duration,
+            creationDate, modificationDate, finishedDate, lastOpenDate, purchaseDate, releaseDate,
+            isExplicit, isLocked, isEphemeral, isHidden, isSample, isStoreAudiobook, rating,
         ]
     }
 

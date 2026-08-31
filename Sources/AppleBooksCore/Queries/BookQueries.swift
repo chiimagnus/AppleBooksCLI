@@ -207,6 +207,9 @@ struct BookQueries {
         func double(_ column: String) throws -> Double? {
             schema.contains(column) ? try row.double(column) : nil
         }
+        func blob(_ column: String) throws -> Data? {
+            schema.contains(column) ? try row.blob(column) : nil
+        }
         func bool(_ column: String) throws -> Bool? {
             try int64(column).map { $0 != 0 }
         }
@@ -220,18 +223,26 @@ struct BookQueries {
             title: try text(AppleBooksSchema.Book.title),
             author: try text(AppleBooksSchema.Book.author),
             description: try text(AppleBooksSchema.Book.description),
+            epubID: try text(AppleBooksSchema.Book.epubID),
             genre: try text(AppleBooksSchema.Book.genre),
+            genresRaw: try blob(AppleBooksSchema.Book.genres),
+            comments: try text(AppleBooksSchema.Book.comments),
+            language: try text(AppleBooksSchema.Book.language),
+            year: try int64(AppleBooksSchema.Book.year),
             contentType: try int64(AppleBooksSchema.Book.contentType),
             pageCount: try int64(AppleBooksSchema.Book.pageCount),
             path: try text(AppleBooksSchema.Book.path),
             fileSize: try int64(AppleBooksSchema.Book.fileSize),
+            coverURL: try text(AppleBooksSchema.Book.coverURL),
             isFinished: try bool(AppleBooksSchema.Book.isFinished),
             readingProgressRaw: try double(AppleBooksSchema.Book.readingProgress),
             durationRawMilliseconds: try double(AppleBooksSchema.Book.duration),
             creationDate: try date(AppleBooksSchema.Book.creationDate),
+            modificationDate: try date(AppleBooksSchema.Book.modificationDate),
             finishedDate: try date(AppleBooksSchema.Book.finishedDate),
             lastOpenDate: try date(AppleBooksSchema.Book.lastOpenDate),
             purchaseDate: try date(AppleBooksSchema.Book.purchaseDate),
+            releaseDate: try date(AppleBooksSchema.Book.releaseDate),
             isExplicit: try bool(AppleBooksSchema.Book.isExplicit),
             isLocked: try bool(AppleBooksSchema.Book.isLocked),
             isEphemeral: try bool(AppleBooksSchema.Book.isEphemeral),

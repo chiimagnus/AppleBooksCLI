@@ -1,0 +1,29 @@
+{
+  "revision": 1,
+  "capabilities": [
+    {"id":"list_collections","owner":"ReadParityRegressionTests"},
+    {"id":"list_collection_books","owner":"CollectionQueriesTests"},
+    {"id":"get_collection","owner":"FeatureParityRegressionTests"},
+    {"id":"list_books","owner":"FeatureParityRegressionTests"},
+    {"id":"list_all_books","owner":"ReadParityRegressionTests"},
+    {"id":"get_book","owner":"FeatureParityRegressionTests"},
+    {"id":"search_books","owner":"FeatureParityRegressionTests"},
+    {"id":"list_annotations","owner":"FeatureParityRegressionTests"},
+    {"id":"get_book_annotations","owner":"FeatureParityRegressionTests"},
+    {"id":"get_annotation","owner":"FeatureParityRegressionTests"},
+    {"id":"get_highlights_by_color","owner":"FeatureParityRegressionTests"},
+    {"id":"search_highlighted_text","owner":"ReadParityRegressionTests"},
+    {"id":"search_notes","owner":"ReadParityRegressionTests"},
+    {"id":"full_text_search","owner":"ReadParityRegressionTests"},
+    {"id":"recent_annotations","owner":"FeatureParityRegressionTests"},
+    {"id":"add_book_to_collection","owner":"FeatureParityRegressionTests"},
+    {"id":"remove_book_from_collection","owner":"FeatureParityRegressionTests"},
+    {"id":"create_collection","owner":"CollectionWriteParityRegressionTests"},
+    {"id":"delete_collection","owner":"CollectionWriteParityRegressionTests"},
+    {"id":"list_backups","owner":"FeatureParityRegressionTests"},
+    {"id":"restore_backup","owner":"FeatureParityRegressionTests"},
+    {"id":"update_annotation_note","owner":"FeatureParityRegressionTests"},
+    {"id":"delete_annotation","owner":"FeatureParityRegressionTests"},
+    {"id":"export_annotations_markdown","owner":"FeatureParityRegressionTests"}
+  ]
+}

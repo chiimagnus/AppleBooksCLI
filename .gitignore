@@ -35,4 +35,5 @@ DerivedData/
 .codegraph/
 .github/features/
 .github/archived_features/
+.audit/
 tmp/

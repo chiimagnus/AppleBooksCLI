@@ -115,6 +115,10 @@ public final class AppleBooks {
         try bookQueries.searchGenre(text, limit: limit, offset: offset)
     }
 
+    public func books(matching text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
+        try bookQueries.search(text, limit: limit, offset: offset)
+    }
+
     public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
         guard let book = try bookQueries.getForContent(localPK), let path = book.path else {
             throw ContentError.bookPathUnavailable

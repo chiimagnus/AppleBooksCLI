@@ -9,6 +9,11 @@ public enum QueryDecodingError: Error, Equatable, Sendable {
     case nullRequiredColumn(String)
 }
 
+public enum BookSearchError: Error, Equatable, Sendable {
+    case emptyQuery
+    case noSearchableColumns
+}
+
 func validatePagination(limit: Int?, offset: Int) throws {
     if let limit, limit <= 0 {
         throw QueryPaginationError.nonPositiveLimit
@@ -24,6 +29,7 @@ struct BookQueries {
         case localPK(Int64)
         case title(String)
         case genre(String)
+        case combinedText(String)
         case assetID(String)
     }
 
@@ -43,6 +49,11 @@ struct BookQueries {
 
     func searchGenre(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
         try query(.genre(text), capability: .bookGenreSearch, limit: limit, offset: offset)
+    }
+
+    func search(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
+        guard text.isEmpty == false else { throw BookSearchError.emptyQuery }
+        return try query(.combinedText(text), capability: .bookBase, limit: limit, offset: offset)
     }
 
     func getByAssetID(_ assetID: String) throws -> [Book] {
@@ -71,6 +82,14 @@ struct BookQueries {
     ) throws -> [Book] {
         try validatePagination(limit: limit, offset: offset)
         let schema = try AppleBooksSchema.inspect(capability, on: connection)
+        let combinedSearchColumns = [
+            AppleBooksSchema.Book.title,
+            AppleBooksSchema.Book.author,
+            AppleBooksSchema.Book.genre,
+        ].filter(schema.contains)
+        if case .combinedText = filter, combinedSearchColumns.isEmpty {
+            throw BookSearchError.noSearchableColumns
+        }
         let projection = [AppleBooksSchema.Book.localPK] + AppleBooksSchema.Book.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue)"
 
@@ -83,6 +102,9 @@ struct BookQueries {
             sql += " WHERE \(AppleBooksSchema.Book.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
         case .genre:
             sql += " WHERE \(AppleBooksSchema.Book.genre) LIKE ? ESCAPE '\\' COLLATE NOCASE"
+        case .combinedText:
+            let clauses = combinedSearchColumns.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
+            sql += " WHERE (\(clauses.joined(separator: " OR ")))"
         case .assetID:
             sql += " WHERE \(AppleBooksSchema.Book.assetID) = ?"
         }
@@ -120,6 +142,12 @@ struct BookQueries {
         case let .title(value), let .genre(value):
             try statement.bind(literalContainsPattern(value), at: index)
             index += 1
+        case let .combinedText(value):
+            let pattern = literalContainsPattern(value)
+            for _ in combinedSearchColumns {
+                try statement.bind(pattern, at: index)
+                index += 1
+            }
         case let .assetID(value):
             try statement.bind(value, at: index)
             index += 1

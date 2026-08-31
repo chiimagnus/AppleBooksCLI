@@ -45,10 +45,14 @@ public final class BookContent {
     public func listChapters() throws -> [Chapter] {
         let discovered = try navigation.chaptersFromNavigation()
         if discovered.isEmpty == false { return discovered }
+        let idCounts = Dictionary(grouping: package.spine, by: \.idref).mapValues(\.count)
         return package.spine.map { spine in
             let item = package.manifest[spine.idref]!
+            let id = spine.idref.isEmpty || idCounts[spine.idref, default: 0] > 1
+                ? String(spine.order)
+                : spine.idref
             return Chapter(
-                id: spine.idref.isEmpty ? String(spine.order) : spine.idref,
+                id: id,
                 title: "Section \(spine.order)",
                 href: item.path.relativePath,
                 fragment: "",

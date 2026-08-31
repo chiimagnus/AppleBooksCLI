@@ -141,4 +141,13 @@ public final class AppleBooks {
         }
         return try readingQueries.currentPosition(rawAssetID: assetID)
     }
+
+    public func currentReadingChapter(forBookLocalPK localPK: Int64) throws -> Chapter? {
+        guard let bookmark = try currentReadingLocation(forBookLocalPK: localPK),
+              let chapterID = bookmark.location?.chapterID else {
+            return nil
+        }
+        let content = try bookContent(forBookLocalPK: localPK)
+        return try CurrentReadingChapter.resolve(chapterID: chapterID, in: content)
+    }
 }

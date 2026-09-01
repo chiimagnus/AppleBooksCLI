@@ -1,7 +1,15 @@
 import ArgumentParser
 
-protocol GlobalOptionsProviding {
+protocol JSONOutputProviding {
+    var jsonRequested: Bool { get }
+}
+
+protocol GlobalOptionsProviding: JSONOutputProviding {
     var global: GlobalOptions { get }
+}
+
+extension GlobalOptionsProviding {
+    var jsonRequested: Bool { global.json }
 }
 
 protocol CLIOutputRunnable {
@@ -21,7 +29,7 @@ enum CLIEntrypoint {
             return presentParseError(error, arguments: arguments, output: output)
         }
 
-        let jsonRequested = (command as? any GlobalOptionsProviding)?.global.json ?? false
+        let jsonRequested = (command as? any JSONOutputProviding)?.jsonRequested ?? false
         do {
             if let outputRunnable = command as? any CLIOutputRunnable {
                 try outputRunnable.run(output: output)

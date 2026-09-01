@@ -216,6 +216,29 @@ enum CLIOperation {
         if error is ExportFileWriterError {
             return .writeSafety("Output path is unsafe or already exists.")
         }
+        if let skillError = error as? SkillInstallerError {
+            switch skillError {
+            case .targetExists:
+                return .usageInvalid("applebookscli Skill is already installed. Use --force to replace it.")
+            case .packagedSourceUnavailable,
+                 .packagedSourceUnsafe,
+                 .packagedSkillUnavailable,
+                 .packagedSkillUnsafe:
+                return .unavailable("Packaged applebookscli Skill is unavailable.")
+            case .invalidCodexHome,
+                 .invalidSkillsDirectory,
+                 .unsafeTarget:
+                return .writeSafety("Skill installation target is unsafe or unavailable.")
+            case .rollbackFailed:
+                return .writeSafety("Skill replacement failed; the previous version backup was retained.")
+            case .stagingUnsafe,
+                 .installFailed,
+                 .cleanupFailed,
+                 .backupFailed,
+                 .replacementFailed:
+                return .writeSafety("Skill installation failed safely.")
+            }
+        }
         return .internalFailure
     }
 }

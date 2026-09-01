@@ -11,6 +11,9 @@ struct ContentCommand: ParsableCommand {
             ContentMetadataCommand.self,
             ContentCoverCommand.self,
             ContentLocateCommand.self,
+            ContentChaptersCommand.self,
+            ContentChapterCommand.self,
+            ContentCurrentChapterCommand.self,
         ]
     )
 }
@@ -160,29 +163,166 @@ struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
     }
 
     func execute() throws -> ContentLocationResult {
-        let parsed = try parsedArguments()
+        let parsed = try parseBookSelectorAndValue(values: values, localPK: pk, valueName: "CFI")
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks()
             let book = try requireBook(parsed.selector, in: books)
-            guard let inspection = try books.locate(rawCFI: parsed.rawCFI, forBookLocalPK: book.localPK) else {
+            guard let inspection = try books.locate(rawCFI: parsed.value, forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
             }
             return ContentLocationResult(inspection)
         }
     }
+}
 
-    private func parsedArguments() throws -> (selector: BookSelector, rawCFI: String) {
-        if let pk {
-            guard values.count == 1 else {
-                throw ValidationError("With --pk, provide exactly one CFI argument.")
-            }
-            return (try parseBookSelector(assetID: nil, localPK: pk), values[0])
+struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "chapters",
+        abstract: "List the canonical EPUB table of contents."
+    )
+
+    @Argument(help: "Exact Apple Books asset ID.")
+    var assetID: String?
+
+    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    var pk: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json {
+            try output.writeJSON(result)
+        } else {
+            output.stdout(result.humanDescription)
         }
-        guard values.count == 2 else {
-            throw ValidationError("Provide an asset ID followed by a CFI, or use --pk with one CFI.")
-        }
-        return (try parseBookSelector(assetID: values[0], localPK: nil), values[1])
     }
+
+    func execute() throws -> ContentChaptersResult {
+        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
+        return try CLIOperation.run {
+            let books = try CLIContext(global: global).makeAppleBooks()
+            let book = try requireBook(selector, in: books)
+            let chapters = try books.bookContent(forBookLocalPK: book.localPK).listChapters()
+            return ContentChaptersResult(book: book, chapters: chapters)
+        }
+    }
+}
+
+struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "chapter",
+        abstract: "Read one EPUB chapter with grapheme-safe pagination."
+    )
+
+    @Argument(help: "With asset ID: <asset-id> <chapter-selector>. With --pk: <chapter-selector>.")
+    var values: [String] = []
+
+    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    var pk: Int64?
+
+    @Option(name: .long, parsing: .unconditional, help: "Requested grapheme offset. Negative values clamp to zero.")
+    var offset: Int = 0
+
+    @Option(name: .customLong("max-chars"), parsing: .unconditional, help: "Maximum grapheme count to return. Omit to read to the end.")
+    var maxCharacters: Int?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json {
+            try output.writeJSON(result)
+        } else {
+            output.stdout(result.humanDescription)
+        }
+    }
+
+    func execute() throws -> ContentChapterPageResult {
+        let parsed = try parseBookSelectorAndValue(
+            values: values,
+            localPK: pk,
+            valueName: "chapter selector"
+        )
+        if let maxCharacters, maxCharacters <= 0 {
+            throw ValidationError("--max-chars must be greater than zero.")
+        }
+
+        return try CLIOperation.run {
+            let books = try CLIContext(global: global).makeAppleBooks()
+            let book = try requireBook(parsed.selector, in: books)
+            let page = try books.bookContent(forBookLocalPK: book.localPK).chapterPage(
+                id: parsed.value,
+                offset: offset,
+                maxCharacters: maxCharacters
+            )
+            return ContentChapterPageResult(
+                book: book,
+                chapterSelector: parsed.value,
+                requestedOffset: offset,
+                page: page
+            )
+        }
+    }
+}
+
+struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "current-chapter",
+        abstract: "Resolve the current type-3 bookmark chapter without annotation fallback."
+    )
+
+    @Argument(help: "Exact Apple Books asset ID.")
+    var assetID: String?
+
+    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    var pk: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json {
+            try output.writeJSON(result)
+        } else {
+            output.stdout(result.humanDescription)
+        }
+    }
+
+    func execute() throws -> ContentCurrentChapterResult {
+        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
+        return try CLIOperation.run {
+            let books = try CLIContext(global: global).makeAppleBooks()
+            let book = try requireBook(selector, in: books)
+            guard let chapter = try books.currentReadingChapter(forBookLocalPK: book.localPK) else {
+                throw CLIError.unavailable("Current reading chapter is unavailable.")
+            }
+            return ContentCurrentChapterResult(book: book, chapter: chapter)
+        }
+    }
+}
+
+private func parseBookSelectorAndValue(
+    values: [String],
+    localPK: Int64?,
+    valueName: String
+) throws -> (selector: BookSelector, value: String) {
+    if let localPK {
+        guard values.count == 1 else {
+            throw ValidationError("With --pk, provide exactly one \(valueName).")
+        }
+        return (try parseBookSelector(assetID: nil, localPK: localPK), values[0])
+    }
+    guard values.count == 2 else {
+        throw ValidationError("Provide an asset ID followed by a \(valueName), or use --pk with one \(valueName).")
+    }
+    return (try parseBookSelector(assetID: values[0], localPK: nil), values[1])
 }
 
 private func requireBook(_ selector: BookSelector, in books: AppleBooks) throws -> Book {
@@ -344,19 +484,103 @@ struct ContentCoverResult: Codable, Equatable, Sendable {
     }
 }
 
+struct ContentChapterResult: Codable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let href: String
+    let fragment: String
+    let order: Int
+    let depth: Int
+
+    init(_ chapter: Chapter) {
+        id = chapter.id
+        title = chapter.title
+        href = chapter.href
+        fragment = chapter.fragment
+        order = chapter.order
+        depth = chapter.depth
+    }
+
+    var humanDescription: String {
+        "order=\(order) depth=\(depth) id=\(id) title=\(title) href=\(href) fragment=\(fragment)"
+    }
+}
+
+struct ContentChaptersResult: Codable, Equatable, Sendable {
+    let bookLocalPK: Int64
+    let bookAssetID: String?
+    let chapters: [ContentChapterResult]
+
+    init(book: Book, chapters: [Chapter]) {
+        bookLocalPK = book.localPK
+        bookAssetID = book.assetID
+        self.chapters = chapters.map(ContentChapterResult.init)
+    }
+
+    var humanDescription: String {
+        guard chapters.isEmpty == false else { return "No chapters." }
+        return chapters.map(\.humanDescription).joined(separator: "\n")
+    }
+}
+
+struct ContentChapterPageResult: Codable, Equatable, Sendable {
+    let bookLocalPK: Int64
+    let bookAssetID: String?
+    let chapterSelector: String
+    let requestedOffset: Int
+    let effectiveOffset: Int
+    let endOffset: Int
+    let totalCharacters: Int
+    let hasMore: Bool
+    let nextOffset: Int?
+    let content: String
+
+    init(book: Book, chapterSelector: String, requestedOffset: Int, page: ChapterPage) {
+        bookLocalPK = book.localPK
+        bookAssetID = book.assetID
+        self.chapterSelector = chapterSelector
+        self.requestedOffset = requestedOffset
+        effectiveOffset = page.offset
+        endOffset = page.endOffset
+        totalCharacters = page.totalCharacters
+        hasMore = page.hasMore
+        nextOffset = page.nextOffset
+        content = page.content
+    }
+
+    var humanDescription: String {
+        [
+            "chapter: \(chapterSelector)",
+            "requested offset: \(requestedOffset)",
+            "effective offset: \(effectiveOffset)",
+            "end offset: \(endOffset)",
+            "total characters: \(totalCharacters)",
+            "has more: \(hasMore)",
+            "next offset: \(nextOffset.map(String.init) ?? "-")",
+            "",
+            content,
+        ].joined(separator: "\n")
+    }
+}
+
+struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
+    let bookLocalPK: Int64
+    let bookAssetID: String?
+    let chapter: ContentChapterResult
+
+    init(book: Book, chapter: Chapter) {
+        bookLocalPK = book.localPK
+        bookAssetID = book.assetID
+        self.chapter = ContentChapterResult(chapter)
+    }
+
+    var humanDescription: String { chapter.humanDescription }
+}
+
 struct ContentLocationResult: Codable, Equatable, Sendable {
     struct CharacterRangeResult: Codable, Equatable, Sendable {
         let start: Int
         let end: Int
-    }
-
-    struct ChapterResult: Codable, Equatable, Sendable {
-        let id: String
-        let title: String
-        let href: String
-        let fragment: String
-        let order: Int
-        let depth: Int
     }
 
     let bookLocalPK: Int64
@@ -365,7 +589,7 @@ struct ContentLocationResult: Codable, Equatable, Sendable {
     let chapterID: String?
     let characterRange: CharacterRangeResult?
     let source: EPUBContentSource?
-    let resolvedChapter: ChapterResult?
+    let resolvedChapter: ContentChapterResult?
 
     init(_ inspection: EPUBLocationInspection) {
         bookLocalPK = inspection.bookLocalPK
@@ -376,16 +600,7 @@ struct ContentLocationResult: Codable, Equatable, Sendable {
             CharacterRangeResult(start: $0.start, end: $0.end)
         }
         source = inspection.source
-        resolvedChapter = inspection.chapter.map {
-            ChapterResult(
-                id: $0.id,
-                title: $0.title,
-                href: $0.href,
-                fragment: $0.fragment,
-                order: $0.order,
-                depth: $0.depth
-            )
-        }
+        resolvedChapter = inspection.chapter.map(ContentChapterResult.init)
     }
 
     var humanDescription: String {

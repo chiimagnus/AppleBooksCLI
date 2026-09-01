@@ -103,6 +103,19 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if let contentError = error as? BookContentError {
+            switch contentError {
+            case .chapterNotFound:
+                return .notFound("Chapter not found.")
+            case .invalidMaximumCharacters:
+                return .usageInvalid("Invalid chapter pagination parameters.")
+            case .chapterOffsetOutOfRange:
+                return .usageInvalid("Chapter offset is out of range.")
+            }
+        }
+        if error is XHTMLTextError {
+            return .unavailable("Book content is unavailable.")
+        }
         if error is ContentError ||
             error is EPUBResourceError ||
             error is DirectoryEPUBPackageError ||

@@ -29,21 +29,48 @@ enum MarkdownAnnotationExporter {
         return "\(header)\n\n\(sorted.map(format).joined(separator: "\n\n---\n\n"))\n"
     }
 
-    static func render(_ bundle: ExportBundle) -> String {
+    static func render(_ bundle: ExportBundle, profile: MarkdownProfile = .plain) -> String {
         guard bundle.groups.isEmpty == false else {
             return "# Apple Books export\n\n_No records._\n"
         }
-        return "# Apple Books export\n\n" + bundle.groups
-            .map { render(group: $0, headingLevel: 2) }
-            .joined(separator: "\n\n") + "\n"
+        guard profile.syntax == .obsidian else {
+            return "# Apple Books export\n\n" + bundle.groups
+                .map { renderPlain(group: $0, headingLevel: 2) }
+                .joined(separator: "\n\n") + "\n"
+        }
+
+        var blocks: [String] = []
+        if profile.options.extendedFrontmatter {
+            if bundle.groups.count == 1, let group = bundle.groups.first {
+                blocks.append(frontmatter(for: group, profile: profile))
+            } else {
+                blocks.append(
+                    MarkdownYAML.frontmatter(
+                        fields: [
+                            ("type", "apple-books-export"),
+                            ("documents", String(bundle.statistics.documentCount)),
+                        ],
+                        tags: stableTags(profile.options.customTags)
+                    )
+                )
+            }
+        }
+        blocks.append("# Apple Books export")
+        blocks.append(contentsOf: bundle.groups.map {
+            renderObsidian(group: $0, headingLevel: 2, profile: profile, includeFrontmatter: false)
+        })
+        return blocks.joined(separator: "\n\n") + "\n"
     }
 
-    static func render(_ group: ExportGroup) -> String {
-        render(group: group, headingLevel: 1) + "\n"
+    static func render(_ group: ExportGroup, profile: MarkdownProfile = .plain) -> String {
+        if profile.syntax == .obsidian {
+            return renderObsidian(group: group, headingLevel: 1, profile: profile, includeFrontmatter: true) + "\n"
+        }
+        return renderPlain(group: group, headingLevel: 1) + "\n"
     }
 
-    private static func render(group: ExportGroup, headingLevel: Int) -> String {
-        let source = groupPresentation(group.source)
+    private static func renderPlain(group: ExportGroup, headingLevel: Int) -> String {
+        let source = sourceContext(group)
         var blocks = ["\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))"]
         if let author = source.author {
             blocks.append("**Author:** \(escapeInline(author))")
@@ -59,11 +86,70 @@ enum MarkdownAnnotationExporter {
             blocks.append("_No records._")
             return blocks.joined(separator: "\n\n")
         }
-        blocks.append(contentsOf: group.records.map(formatRecord))
+        blocks.append(contentsOf: group.records.map(formatPlainRecord))
         return blocks.joined(separator: "\n\n")
     }
 
-    private static func formatRecord(_ record: ExportRecord) -> String {
+    private static func renderObsidian(
+        group: ExportGroup,
+        headingLevel: Int,
+        profile: MarkdownProfile,
+        includeFrontmatter: Bool
+    ) -> String {
+        let source = sourceContext(group)
+        let options = profile.options
+        var blocks: [String] = []
+        if includeFrontmatter, options.extendedFrontmatter {
+            blocks.append(frontmatter(for: group, profile: profile))
+        }
+        blocks.append("\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))")
+        if let author = source.author {
+            blocks.append("**Author:** \(renderAuthor(author, options: options))")
+        }
+        blocks.append("**Source:** \(source.kind)")
+        if let identity = source.identity {
+            blocks.append("**Identity:** \(escapeInline(identity))")
+        }
+        if let path = source.path {
+            blocks.append("**Path:** \(escapeInline(path))")
+        }
+        if options.bodyMetadata {
+            blocks.append(contentsOf: bodyMetadata(source))
+        }
+        if options.readingProgress, let progress = source.readingProgressPercent {
+            blocks.append("**Reading progress:** \(formatPercent(progress))")
+        }
+        let tags = tags(for: source, options: options)
+        if options.extendedFrontmatter == false, tags.isEmpty == false {
+            blocks.append("**Tags:** \(tags.map(escapeInline).joined(separator: ", "))")
+        }
+        if group.records.isEmpty {
+            blocks.append("_No records._")
+            return blocks.joined(separator: "\n\n")
+        }
+
+        let groups = AnnotationPresentationGroup.make(
+            records: group.records,
+            groupConsecutiveNullLocationFragments: options.groupConsecutiveNullLocationFragments
+        )
+        var previousChapter: String?
+        let chapterLevel = headingLevel + 1
+        let recordLevel = headingLevel + (options.chapterHeadings ? 2 : 1)
+        for presentationGroup in groups {
+            if options.chapterHeadings,
+               let chapter = chapterLabel(for: presentationGroup),
+               chapter != previousChapter {
+                blocks.append("\(String(repeating: "#", count: chapterLevel)) \(escapeHeading(chapter))")
+                previousChapter = chapter
+            }
+            blocks.append(contentsOf: presentationGroup.members.map {
+                formatObsidianRecord($0, headingLevel: recordLevel, source: source, options: options)
+            })
+        }
+        return blocks.joined(separator: "\n\n")
+    }
+
+    private static func formatPlainRecord(_ record: ExportRecord) -> String {
         var blocks = ["### \(presentationKindLabel(record.presentationKind))"]
         switch record.payload {
         case let .epub(enriched):
@@ -101,37 +187,227 @@ enum MarkdownAnnotationExporter {
         return blocks.joined(separator: "\n\n")
     }
 
-    private static func presentationKindLabel(_ kind: ExportPresentationKind) -> String {
-        switch kind {
-        case .highlight: "Highlight"
-        case .note: "Note"
-        case .bookmark: "Bookmark"
+    private static func formatObsidianRecord(
+        _ record: ExportRecord,
+        headingLevel: Int,
+        source: MarkdownSourceContext,
+        options: ObsidianMarkdownOptions
+    ) -> String {
+        var blocks = ["\(String(repeating: "#", count: headingLevel)) \(presentationKindLabel(record.presentationKind))"]
+        switch record.payload {
+        case let .epub(enriched):
+            let annotation = enriched.annotation
+            if let quote = nonEmpty(annotation.selectedText) ?? nonEmpty(annotation.representativeText) {
+                blocks.append(blockquote(label: "Quote", text: quote))
+            }
+            if let note = nonEmpty(annotation.note) {
+                blocks.append(blockquote(label: "Note", text: note))
+            }
+            if let cfi = annotation.location?.rawCFI {
+                blocks.append("**Location:** \(escapeInline(cfi))")
+            }
+            if options.annotationDates, let date = annotation.modifiedAt ?? annotation.createdAt {
+                blocks.append("**Date:** \(formatDate(date))")
+            }
+        case let .pdf(_, highlight):
+            if let quote = nonEmpty(highlight.text) {
+                blocks.append(blockquote(label: "Quote", text: quote))
+            }
+            if let note = nonEmpty(highlight.note) {
+                blocks.append(blockquote(label: "Note", text: note))
+            }
+            blocks.append("**Page:** \(highlight.page)")
+            if options.annotationDates, let date = highlight.modifiedAt {
+                blocks.append("**Date:** \(formatDate(date))")
+            }
+        }
+
+        if options.annotationStyle {
+            if let style = styleLabel(record) {
+                blocks.append("**Style:** \(style)")
+            }
+            if record.isUnderline {
+                blocks.append("**Underline:** true")
+            }
+        }
+        if options.citation, let citation = citation(for: record, source: source) {
+            blocks.append(blockquote(label: "Citation", text: citation))
+        }
+        return blocks.joined(separator: "\n\n")
+    }
+
+    private static func frontmatter(for group: ExportGroup, profile: MarkdownProfile) -> String {
+        let source = sourceContext(group)
+        return MarkdownYAML.frontmatter(
+            fields: [
+                ("type", "apple-books-document"),
+                ("title", source.title),
+                ("author", source.author),
+                ("source", source.kind),
+                ("asset_id", source.identity),
+                ("path", source.path),
+                ("publisher", source.publisher),
+                ("year", source.year.map(String.init)),
+                ("language", source.language),
+                ("isbn", source.isbn),
+            ],
+            tags: tags(for: source, options: profile.options)
+        )
+    }
+
+    private static func bodyMetadata(_ source: MarkdownSourceContext) -> [String] {
+        var blocks: [String] = []
+        if let publisher = source.publisher {
+            blocks.append("**Publisher:** \(escapeInline(publisher))")
+        }
+        if let year = source.year {
+            blocks.append("**Year:** \(year)")
+        }
+        if let language = source.language {
+            blocks.append("**Language:** \(escapeInline(language))")
+        }
+        if let isbn = source.isbn {
+            blocks.append("**ISBN:** \(escapeInline(isbn))")
+        }
+        return blocks
+    }
+
+    private static func tags(
+        for source: MarkdownSourceContext,
+        options: ObsidianMarkdownOptions
+    ) -> [String] {
+        let sourceTags = options.includeTags ? source.tags : []
+        return stableTags(sourceTags + options.customTags)
+    }
+
+    private static func stableTags(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { value in
+            value.isEmpty == false && seen.insert(value).inserted
         }
     }
 
-    private static func groupPresentation(
-        _ source: ExportGroupSource
-    ) -> (title: String, author: String?, kind: String, identity: String?, path: String?) {
-        switch source {
+    private static func chapterLabel(for group: AnnotationPresentationGroup) -> String? {
+        guard let record = group.locatedMember else { return nil }
+        switch record.payload {
+        case let .epub(enriched):
+            let annotation = enriched.annotation
+            return nonEmpty(annotation.location?.chapterID) ?? nonEmpty(annotation.chapterHint)
+        case .pdf:
+            return nil
+        }
+    }
+
+    private static func styleLabel(_ record: ExportRecord) -> String? {
+        if let color = record.presentationColor {
+            return color.rawValue
+        }
+        if case let .epub(enriched) = record.payload, let rawStyle = enriched.annotation.style {
+            return "raw-\(rawStyle)"
+        }
+        return nil
+    }
+
+    private static func citation(for record: ExportRecord, source: MarkdownSourceContext) -> String? {
+        var pieces: [String] = []
+        if let author = source.author { pieces.append(author) }
+        pieces.append(source.title)
+        if let publisher = source.publisher { pieces.append(publisher) }
+        if let year = source.year { pieces.append(String(year)) }
+
+        switch record.payload {
+        case let .epub(enriched):
+            let annotation = enriched.annotation
+            if let page = annotation.physicalLocation {
+                pieces.append("p. \(page)")
+            }
+            if let cfi = annotation.location?.rawCFI {
+                pieces.append("Location: \(cfi)")
+            }
+        case let .pdf(_, highlight):
+            pieces.append("p. \(highlight.page)")
+        }
+        return pieces.isEmpty ? nil : pieces.joined(separator: ", ")
+    }
+
+    private static func renderAuthor(_ author: String, options: ObsidianMarkdownOptions) -> String {
+        guard options.authorLinks else { return escapeInline(author) }
+        let component = obsidianSafeComponent(author)
+        return "[[Authors/\(component)|\(component)]]"
+    }
+
+    private static func obsidianSafeComponent(_ raw: String) -> String {
+        var result = ""
+        for scalar in raw.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) || scalar == " " || scalar == "-" || scalar == "_" {
+                result.unicodeScalars.append(scalar)
+            } else {
+                for byte in String(scalar).utf8 {
+                    result += String(format: "%%%02X", byte)
+                }
+            }
+        }
+        return result.isEmpty ? "Unknown" : result
+    }
+
+    private static func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {
+        switch group.source {
         case let .epubCurrent(book):
-            return (
-                nonEmpty(book.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB",
-                nonEmpty(book.author),
-                "EPUB",
-                book.assetID,
-                nil
+            let metadata = group.epubMetadata
+            return MarkdownSourceContext(
+                title: nonEmpty(book.title) ?? nonEmpty(metadata?.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB",
+                author: nonEmpty(book.author) ?? nonEmpty(metadata?.creator),
+                kind: "EPUB",
+                identity: book.assetID,
+                path: nil,
+                publisher: nonEmpty(metadata?.publisher),
+                year: book.year,
+                language: nonEmpty(book.language) ?? nonEmpty(metadata?.language),
+                isbn: nonEmpty(metadata?.isbn),
+                readingProgressPercent: book.readingProgressPercent,
+                tags: stableTags(([book.genre].compactMap { nonEmpty($0) }) + (metadata?.subjects ?? []))
             )
         case let .epubHistorical(assetID, metadata):
-            return (metadata.title, nonEmpty(metadata.author), "Historical EPUB", assetID, nil)
+            return MarkdownSourceContext(
+                title: metadata.title,
+                author: nonEmpty(metadata.author),
+                kind: "Historical EPUB",
+                identity: assetID,
+                path: nil,
+                publisher: nil,
+                year: nil,
+                language: nil,
+                isbn: nil,
+                readingProgressPercent: nil,
+                tags: []
+            )
         case let .epubUnmapped(assetID):
-            return ("Unmapped EPUB", nil, "Unmapped EPUB", assetID, nil)
+            return MarkdownSourceContext(
+                title: "Unmapped EPUB",
+                author: nil,
+                kind: "Unmapped EPUB",
+                identity: assetID,
+                path: nil,
+                publisher: nil,
+                year: nil,
+                language: nil,
+                isbn: nil,
+                readingProgressPercent: nil,
+                tags: []
+            )
         case let .pdf(source):
-            return (
-                source.displayTitle,
-                source.book.flatMap { nonEmpty($0.author) },
-                "PDF",
-                source.book?.assetID,
-                source.fileURL.path
+            return MarkdownSourceContext(
+                title: source.displayTitle,
+                author: source.book.flatMap { nonEmpty($0.author) },
+                kind: "PDF",
+                identity: source.book?.assetID,
+                path: source.fileURL.path,
+                publisher: nil,
+                year: source.book?.year,
+                language: source.book.flatMap { nonEmpty($0.language) },
+                isbn: nil,
+                readingProgressPercent: source.book?.readingProgressPercent,
+                tags: source.book.flatMap { nonEmpty($0.genre) }.map { [$0] } ?? []
             )
         }
     }
@@ -165,6 +441,18 @@ enum MarkdownAnnotationExporter {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+
+    private static func formatPercent(_ value: Double) -> String {
+        String(format: "%.1f%%", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+
+    private static func presentationKindLabel(_ kind: ExportPresentationKind) -> String {
+        switch kind {
+        case .highlight: "Highlight"
+        case .note: "Note"
+        case .bookmark: "Bookmark"
+        }
     }
 
     private static func presentationOrder(_ lhs: Annotation, _ rhs: Annotation) -> Bool {
@@ -225,4 +513,18 @@ enum MarkdownAnnotationExporter {
         }
         return escaped
     }
+}
+
+private struct MarkdownSourceContext {
+    let title: String
+    let author: String?
+    let kind: String
+    let identity: String?
+    let path: String?
+    let publisher: String?
+    let year: Int64?
+    let language: String?
+    let isbn: String?
+    let readingProgressPercent: Double?
+    let tags: [String]
 }

@@ -9,6 +9,7 @@ struct InstallationLayout: Equatable, Sendable {
     let executableURL: URL
     let prefixURL: URL
     let pdfWorkerURL: URL
+    let skillSourceURL: URL
 
     init(executableURL: URL) throws {
         let canonical = executableURL.standardizedFileURL.resolvingSymlinksInPath()
@@ -24,6 +25,11 @@ struct InstallationLayout: Equatable, Sendable {
             .appendingPathComponent("libexec", isDirectory: true)
             .appendingPathComponent("applebookscli", isDirectory: true)
             .appendingPathComponent("applebookscli-pdf-worker", isDirectory: false)
+        skillSourceURL = prefix
+            .appendingPathComponent("share", isDirectory: true)
+            .appendingPathComponent("applebookscli", isDirectory: true)
+            .appendingPathComponent("skill", isDirectory: true)
+            .appendingPathComponent("applebookscli", isDirectory: true)
     }
 
     static func current(bundle: Bundle = .main) throws -> InstallationLayout {

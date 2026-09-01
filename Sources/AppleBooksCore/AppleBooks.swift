@@ -111,6 +111,16 @@ public final class AppleBooks {
         try collectionQueries.searchTitle(text, limit: limit, offset: offset)
     }
 
+    public func books(inCollectionLocalPK localPK: Int64) throws -> [Book]? {
+        guard let collection = try collectionQueries.getByLocalPK(localPK) else { return nil }
+        return try collectionQueries.books(in: collection)
+    }
+
+    public func books(inCollectionID collectionID: String) throws -> [Book]? {
+        guard let collection = try collectionQueries.getUniqueByCollectionID(collectionID) else { return nil }
+        return try collectionQueries.books(in: collection)
+    }
+
     public func createCollection(title: String, details: String? = nil) throws -> MutationResult {
         try collectionWriter.createCollection(title: title, details: details)
     }

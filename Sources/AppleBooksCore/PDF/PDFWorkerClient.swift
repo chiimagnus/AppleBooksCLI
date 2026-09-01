@@ -57,6 +57,11 @@ struct PDFWorkerClient {
             throw PDFWorkerClientError.launchFailed
         }
 
+        // ponytail: 子进程启动后已持有自己的 fd；父进程只保留真正使用的 pipe 端，避免 EOF 依赖 Process 内部生命周期。
+        try? stdinPipe.fileHandleForReading.close()
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
+
         let stdoutCapture = BoundedPipeCapture(limit: Self.stdoutLimit)
         let stderrCapture = BoundedPipeCapture(limit: Self.stderrLimit)
         let drainGroup = DispatchGroup()
@@ -201,7 +206,7 @@ private final class PipeDrainer: @unchecked Sendable {
 
     func start(group: DispatchGroup) {
         group.enter()
-        DispatchQueue.global(qos: .utility).async { [self] in
+        let thread = Thread { [self] in
             defer { group.leave() }
             do {
                 while let chunk = try handle.read(upToCount: 64 * 1024), chunk.isEmpty == false {
@@ -211,5 +216,7 @@ private final class PipeDrainer: @unchecked Sendable {
                 capture.markReadFailed()
             }
         }
+        thread.name = "applebookscli.pdf.pipe-drainer"
+        thread.start()
     }
 }

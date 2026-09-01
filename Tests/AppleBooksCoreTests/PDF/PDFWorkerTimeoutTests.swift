@@ -99,6 +99,31 @@ struct PDFWorkerTimeoutTests {
     }
 
     @Test
+    func parallelClientsDoNotStarvePipeDrainers() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let worker = try fixture.script(
+            "IFS= read -r request || true; printf '{\"version\":1,\"status\":\"success\",\"highlights\":[]}'",
+            name: "parallel-worker"
+        )
+        let inputPDF = fixture.inputPDF
+
+        try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    try PDFWorkerClient(workerURL: worker, timeout: 2).read(fileURL: inputPDF).count
+                }
+            }
+            var completed = 0
+            for try await count in group {
+                #expect(count == 0)
+                completed += 1
+            }
+            #expect(completed == 16)
+        }
+    }
+
+    @Test
     func malformedNonzeroSignalAndWorkerFailureStayStructured() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

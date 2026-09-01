@@ -13,11 +13,13 @@ struct SkillInstallerFreshTests {
         let paths = try installer.resolvedPaths()
 
         #expect(FileManager.default.fileExists(atPath: paths.skillsDirectory.path) == false)
-        let installed = try installer.install()
+        let result = try installer.install()
 
-        #expect(installed.path == paths.target.path)
-        #expect(nodeMode(installed) == S_IFDIR)
-        let installedSkill = installed.appendingPathComponent("SKILL.md")
+        #expect(result.target.path == paths.target.path)
+        #expect(result.replaced == false)
+        #expect(result.warnings.isEmpty)
+        #expect(nodeMode(result.target) == S_IFDIR)
+        let installedSkill = result.target.appendingPathComponent("SKILL.md")
         #expect(nodeMode(installedSkill) == S_IFREG)
         #expect(try Data(contentsOf: installedSkill) == Data(contentsOf: fixture.source.appendingPathComponent("SKILL.md")))
         #expect(nodeMode(fixture.source) == S_IFDIR)

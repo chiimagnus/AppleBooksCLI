@@ -13,6 +13,7 @@ struct AppleBooksCLI: ParsableCommand {
             ContentCommand.self,
             AnnotationsCommand.self,
             CollectionsCommand.self,
+            PDFCommand.self,
         ]
     )
 }

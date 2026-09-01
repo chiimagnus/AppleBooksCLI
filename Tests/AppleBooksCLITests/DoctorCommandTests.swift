@@ -40,6 +40,25 @@ struct DoctorCommandTests {
     }
 
     @Test
+    func missingInstalledPDFWorkerIsDegradedOnlyWhenPackagingProbeIsExplicit() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let command = try DoctorCommand.parse(fixture.arguments + ["--json"])
+        let capture = Capture()
+        try command.execute(
+            output: capture.output,
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
+            installedPDFWorkerReady: false
+        )
+
+        let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
+        #expect(result.status == .degraded)
+        #expect(result.installedPDFWorkerReady == false)
+        #expect(result.issues.contains(.init(code: .pdfWorkerUnavailable, state: .degraded)))
+        #expect(capture.stdout.contains(fixture.root.path) == false)
+    }
+
+    @Test
     func invalidDatabaseOverrideReturnsFatalLogicalIssueWithoutPathLeak() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

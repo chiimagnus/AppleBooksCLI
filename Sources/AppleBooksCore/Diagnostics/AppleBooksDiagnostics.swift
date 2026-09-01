@@ -25,6 +25,7 @@ public enum AppleBooksDiagnosticIssueCode: String, Codable, Equatable, Sendable 
     case configurationInvalid = "configuration_invalid"
     case supplementalRootUnavailable = "supplemental_root_unavailable"
     case backupLocationUnavailable = "backup_location_unavailable"
+    case pdfWorkerUnavailable = "pdf_worker_unavailable"
 }
 
 public struct AppleBooksDiagnosticIssue: Codable, Equatable, Sendable {

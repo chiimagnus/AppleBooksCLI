@@ -15,16 +15,21 @@ struct DoctorCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     }
 
     func run(output: CLIOutput) throws {
-        try execute(output: output)
+        let workerReady = (try? InstallationLayout.current().pdfWorkerIsExecutable) ?? false
+        try execute(output: output, installedPDFWorkerReady: workerReady)
     }
 
     func execute(
         output: CLIOutput,
         databaseDiscovery: DatabaseDiscovery = DatabaseDiscovery(),
-        backupRoot: URL = SQLiteBackup.defaultRoot()
+        backupRoot: URL = SQLiteBackup.defaultRoot(),
+        installedPDFWorkerReady: Bool? = nil
     ) throws {
         let context = CLIContext(global: global, databaseDiscovery: databaseDiscovery)
-        let result = DoctorResult(report: context.diagnostics(backupRoot: backupRoot))
+        let result = DoctorResult(
+            report: context.diagnostics(backupRoot: backupRoot),
+            installedPDFWorkerReady: installedPDFWorkerReady
+        )
         if global.json {
             try output.writeJSON(result)
         } else {
@@ -45,10 +50,15 @@ struct DoctorResult: Codable, Equatable, Sendable {
     let supplementalRootReady: Bool
     let backupLocationReady: Bool
     let booksAppRunning: Bool
+    let installedPDFWorkerReady: Bool?
     let issues: [AppleBooksDiagnosticIssue]
 
-    init(report: AppleBooksDiagnosticReport) {
-        status = report.state
+    init(report: AppleBooksDiagnosticReport, installedPDFWorkerReady: Bool? = nil) {
+        if report.state == .ready, installedPDFWorkerReady == false {
+            status = .degraded
+        } else {
+            status = report.state
+        }
         libraryDatabaseReady = report.libraryDatabaseReady
         annotationsDatabaseReady = report.annotationsDatabaseReady
         readSchemaReady = report.readSchemaReady
@@ -59,7 +69,12 @@ struct DoctorResult: Codable, Equatable, Sendable {
         supplementalRootReady = report.supplementalRootReady
         backupLocationReady = report.backupLocationReady
         booksAppRunning = report.booksAppRunning
-        issues = report.issues
+        self.installedPDFWorkerReady = installedPDFWorkerReady
+        if installedPDFWorkerReady == false {
+            issues = report.issues + [.init(code: .pdfWorkerUnavailable, state: .degraded)]
+        } else {
+            issues = report.issues
+        }
     }
 
     var humanDescription: String {
@@ -75,6 +90,9 @@ struct DoctorResult: Codable, Equatable, Sendable {
             "backup location: \(ready(backupLocationReady))",
             "Books.app: \(booksAppRunning ? "running" : "not running")",
         ]
+        if let installedPDFWorkerReady {
+            lines.append("PDF worker: \(ready(installedPDFWorkerReady))")
+        }
         if issues.isEmpty == false {
             lines.append("issues:")
             lines.append(contentsOf: issues.map { "- \($0.code.rawValue)" })

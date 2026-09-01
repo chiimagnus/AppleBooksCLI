@@ -142,6 +142,9 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if error is PDFHighlightFacadeError {
+            return .unavailable("PDF worker is unavailable.")
+        }
         if let contextError = error as? AnnotationContextError {
             switch contextError {
             case .invalidWindow:

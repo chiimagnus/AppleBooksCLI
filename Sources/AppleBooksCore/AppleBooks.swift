@@ -11,6 +11,8 @@ public enum PDFHighlightFacadeError: Error, Equatable, Sendable {
 }
 
 public final class AppleBooks {
+    public static let defaultPDFWorkerTimeout: TimeInterval = PDFWorkerClient.defaultTimeout
+
     private let bookQueries: BookQueries
     private let collectionQueries: CollectionQueries
     private let annotationQueries: AnnotationQueries
@@ -270,13 +272,30 @@ public final class AppleBooks {
         pdfSourceResolver.resolve(pdfBooks: try bookQueries.pdfBooks())
     }
 
+    public func pdfSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
+        guard let book = try bookQueries.pdfBooks().first(where: { $0.localPK == localPK }) else { return nil }
+        return pdfSourceResolver.resolve(book: book)
+    }
+
+    public func pdfSource(fileURL: URL) throws -> PDFSource? {
+        pdfSourceResolver.resolve(fileURL: fileURL, pdfBooks: try bookQueries.pdfBooks())
+    }
+
     public func pdfHighlights() throws -> PDFHighlightServiceResult {
+        try pdfHighlightService().readHighlights()
+    }
+
+    public func pdfHighlights(source: PDFSource) throws -> PDFHighlightServiceResult {
+        try pdfHighlightService().readHighlights(sources: [source])
+    }
+
+    private func pdfHighlightService() throws -> PDFHighlightService {
         guard let pdfWorkerClient else { throw PDFHighlightFacadeError.workerUnavailable }
-        return try PDFHighlightService(
+        return PDFHighlightService(
             bookQueries: bookQueries,
             sourceResolver: pdfSourceResolver,
             workerClient: pdfWorkerClient
-        ).readHighlights()
+        )
     }
 
     public func exportBundle(options: ExportOptions) throws -> ExportBundle {

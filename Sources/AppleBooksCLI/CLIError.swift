@@ -103,6 +103,22 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if let contextError = error as? AnnotationContextError {
+            switch contextError {
+            case .invalidWindow:
+                return .usageInvalid("Invalid annotation context window.")
+            case .annotationUnavailable:
+                return .notFound("Annotation not found.")
+            case .assetIdentityUnavailable,
+                 .currentBookUnavailable,
+                 .currentBookAmbiguous,
+                 .contentPathUnavailable,
+                 .chapterUnavailable,
+                 .anchorUnavailable,
+                 .anchorNotFound:
+                return .unavailable("Annotation context is unavailable.")
+            }
+        }
         if let contentError = error as? BookContentError {
             switch contentError {
             case .chapterNotFound:

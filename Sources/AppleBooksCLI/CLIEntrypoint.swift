@@ -1,55 +1,107 @@
 import ArgumentParser
-import Foundation
+
+protocol GlobalOptionsProviding {
+    var global: GlobalOptions { get }
+}
 
 enum CLIEntrypoint {
     static func run(arguments: [String]) -> Int32 {
-        run(
-            arguments: arguments,
-            stdout: { write($0, to: .standardOutput) },
-            stderr: { write($0, to: .standardError) }
-        )
+        run(arguments: arguments, output: .standard)
     }
 
-    static func run(
-        arguments: [String],
-        stdout: (String) -> Void,
-        stderr: (String) -> Void
-    ) -> Int32 {
+    static func run(arguments: [String], output: CLIOutput) -> Int32 {
         let command: any ParsableCommand
         do {
             command = try AppleBooksCLI.parseAsRoot(arguments)
         } catch {
-            return presentArgumentParser(error, stdout: stdout, stderr: stderr)
+            return presentParseError(error, arguments: arguments, output: output)
         }
 
+        let jsonRequested = (command as? any GlobalOptionsProviding)?.global.json ?? false
         var runnable = command
         do {
             try runnable.run()
-            return ExitCode.success.rawValue
+            return CLIProcessExit.success.rawValue
         } catch {
-            return presentArgumentParser(error, stdout: stdout, stderr: stderr)
+            return presentRunError(error, jsonRequested: jsonRequested, output: output)
         }
     }
 
-    private static func presentArgumentParser(
+    static func presentRunError(
         _ error: Error,
-        stdout: (String) -> Void,
-        stderr: (String) -> Void
+        jsonRequested: Bool,
+        output: CLIOutput
     ) -> Int32 {
-        let exitCode = AppleBooksCLI.exitCode(for: error)
-        let message = AppleBooksCLI.fullMessage(for: error)
-        if message.isEmpty == false {
-            if exitCode.isSuccess {
-                stdout(message)
-            } else {
-                stderr(message)
-            }
+        if let error = error as? CLIError {
+            return present(error, jsonRequested: jsonRequested, output: output)
         }
-        return exitCode.rawValue
+        if let error = error as? ValidationError {
+            return present(
+                .usageInvalid(error.description),
+                jsonRequested: jsonRequested,
+                output: output
+            )
+        }
+
+        let argumentParserExit = AppleBooksCLI.exitCode(for: error)
+        if argumentParserExit.isSuccess {
+            let message = AppleBooksCLI.fullMessage(for: error)
+            if message.isEmpty == false { output.stdout(message) }
+            return CLIProcessExit.success.rawValue
+        }
+
+        return present(.internalFailure, jsonRequested: jsonRequested, output: output)
     }
 
-    private static func write(_ text: String, to handle: FileHandle) {
-        let suffix = text.hasSuffix("\n") ? "" : "\n"
-        handle.write(Data((text + suffix).utf8))
+    private static func presentParseError(
+        _ error: Error,
+        arguments: [String],
+        output: CLIOutput
+    ) -> Int32 {
+        let argumentParserExit = AppleBooksCLI.exitCode(for: error)
+        if argumentParserExit.isSuccess {
+            let message = AppleBooksCLI.fullMessage(for: error)
+            if message.isEmpty == false { output.stdout(message) }
+            return CLIProcessExit.success.rawValue
+        }
+
+        guard rawJSONRequested(arguments) else {
+            let message = AppleBooksCLI.fullMessage(for: error)
+            if message.isEmpty == false { output.stderr(message) }
+            return CLIProcessExit.usageInvalid.rawValue
+        }
+
+        let message = AppleBooksCLI.message(for: error)
+        return present(
+            .usageInvalid(message.isEmpty ? "Invalid command-line arguments." : message),
+            jsonRequested: true,
+            output: output
+        )
+    }
+
+    private static func present(
+        _ error: CLIError,
+        jsonRequested: Bool,
+        output: CLIOutput
+    ) -> Int32 {
+        if jsonRequested {
+            do {
+                try output.writeJSON(CLIErrorEnvelope(error))
+            } catch {
+                output.stderr("Error: Internal error.")
+                return CLIProcessExit.internal.rawValue
+            }
+        } else {
+            output.stderr("Error: \(error.message)")
+        }
+        return error.exitCode.rawValue
+    }
+
+    private static func rawJSONRequested(_ arguments: [String]) -> Bool {
+        for argument in arguments {
+            if argument == "--" { return false }
+            if argument == "--json" { return true }
+        }
+        return false
     }
 }

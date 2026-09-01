@@ -11,8 +11,7 @@ struct RootCommandTests {
 
         let code = CLIEntrypoint.run(
             arguments: ["--help"],
-            stdout: { stdout = $0 },
-            stderr: { stderr = $0 }
+            output: CLIOutput(stdout: { stdout = $0 }, stderr: { stderr = $0 })
         )
 
         #expect(code == ExitCode.success.rawValue)
@@ -28,8 +27,7 @@ struct RootCommandTests {
 
         let code = CLIEntrypoint.run(
             arguments: ["--version"],
-            stdout: { stdout = $0 },
-            stderr: { stderr = $0 }
+            output: CLIOutput(stdout: { stdout = $0 }, stderr: { stderr = $0 })
         )
 
         #expect(code == ExitCode.success.rawValue)
@@ -45,11 +43,10 @@ struct RootCommandTests {
 
         let code = CLIEntrypoint.run(
             arguments: ["unknown-command"],
-            stdout: { stdout = $0 },
-            stderr: { stderr = $0 }
+            output: CLIOutput(stdout: { stdout = $0 }, stderr: { stderr = $0 })
         )
 
-        #expect(code == ExitCode.validationFailure.rawValue)
+        #expect(code == CLIProcessExit.usageInvalid.rawValue)
         #expect(stdout.isEmpty)
         #expect(stderr.contains("Error:"))
         #expect(stderr.contains("unknown-command"))

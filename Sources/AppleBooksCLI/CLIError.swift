@@ -94,6 +94,22 @@ enum CLIOperation {
                 return .usageInvalid("Invalid annotation date range.")
             }
         }
+        if let collectionWriteError = error as? CollectionWriteError {
+            switch collectionWriteError {
+            case .invalidTitle:
+                return .usageInvalid("Collection title is invalid.")
+            case .collectionMissing:
+                return .notFound("Collection not found.")
+            case .bookMissing:
+                return .notFound("Book not found.")
+            case .collectionDeletedOrUnknown,
+                 .collectionIdentityUnavailable,
+                 .collectionNotEditable,
+                 .bookAssetIDUnavailable,
+                 .writeFailed:
+                return .writeSafety("Collection mutation failed safely.")
+            }
+        }
         if let annotationWriteError = error as? AnnotationWriteError {
             switch annotationWriteError {
             case .invalidNoteLength:

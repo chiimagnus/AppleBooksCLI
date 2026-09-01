@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-enum CollectionWriteError: Error, Equatable {
+public enum CollectionWriteError: Error, Equatable, Sendable {
     case invalidTitle
     case collectionMissing
     case collectionDeletedOrUnknown
@@ -121,42 +121,11 @@ struct CollectionWriter {
     }
 
     func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {
-        let normalizedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
+        try renameCollection(.localPK(localPK), newTitle: newTitle)
+    }
 
-        return try coordinator.perform(
-            preflight: { connection in
-                try Self.validateRenameSchema(on: connection)
-                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
-            },
-            revalidate: { handle in
-                try Self.validateRenameSchema(on: handle)
-                let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
-                try WriteSchemaGuard.validateExistingEntity(
-                    table: .collections,
-                    localPK: localPK,
-                    expectedEntityID: entity.entityID,
-                    on: handle
-                )
-                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
-            },
-            mutation: { handle in
-                let timestamp = CoreDataTime.seconds(from: Date())!
-                try Self.updateTitle(localPK: localPK, title: normalizedTitle, timestamp: timestamp, on: handle)
-                return localPK
-            },
-            invariant: { handle, _ in
-                _ = try Self.editableTarget(localPK: localPK, scope: .collection, on: handle)
-            },
-            domainData: { MutationDomainData(localPK: $0, changed: true) },
-            readBack: { connection, _ in
-                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(localPK),
-                      collection.title == normalizedTitle else {
-                    throw CollectionWriteError.writeFailed
-                }
-            }
-        )
+    func renameCollection(collectionID: String, newTitle: String) throws -> MutationResult {
+        try renameCollection(.collectionID(collectionID), newTitle: newTitle)
     }
 
     func deleteCollection(localPK: Int64) throws -> MutationResult {
@@ -175,12 +144,70 @@ struct CollectionWriter {
         try addBook(.assetID(assetID), to: .collectionID(collectionID))
     }
 
+    func addBook(bookLocalPK: Int64, toCollectionID collectionID: String) throws -> MutationResult {
+        try addBook(.localPK(bookLocalPK), to: .collectionID(collectionID))
+    }
+
+    func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try addBook(.assetID(assetID), to: .localPK(collectionLocalPK))
+    }
+
     func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try removeBook(.localPK(bookLocalPK), from: .localPK(collectionLocalPK))
     }
 
     func removeBook(assetID: String, fromCollectionID collectionID: String) throws -> MutationResult {
         try removeBook(.assetID(assetID), from: .collectionID(collectionID))
+    }
+
+    func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String) throws -> MutationResult {
+        try removeBook(.localPK(bookLocalPK), from: .collectionID(collectionID))
+    }
+
+    func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try removeBook(.assetID(assetID), from: .localPK(collectionLocalPK))
+    }
+
+    private func renameCollection(_ selector: CollectionWriteSelector, newTitle: String) throws -> MutationResult {
+        let normalizedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
+
+        return try coordinator.perform(
+            preflight: { connection in
+                try Self.validateRenameSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
+            },
+            revalidate: { handle in
+                try Self.validateRenameSchema(on: handle)
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
+                try WriteSchemaGuard.validateExistingEntity(
+                    table: .collections,
+                    localPK: target.localPK,
+                    expectedEntityID: entity.entityID,
+                    on: handle
+                )
+            },
+            mutation: { handle in
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                let timestamp = CoreDataTime.seconds(from: Date())!
+                try Self.updateTitle(localPK: target.localPK, title: normalizedTitle, timestamp: timestamp, on: handle)
+                return target
+            },
+            invariant: { handle, target in
+                _ = try Self.editableTarget(localPK: target.localPK, scope: .collection, on: handle)
+            },
+            domainData: {
+                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            },
+            readBack: { connection, target in
+                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(target.localPK),
+                      collection.title == normalizedTitle else {
+                    throw CollectionWriteError.writeFailed
+                }
+            }
+        )
     }
 
     private func deleteCollection(_ selector: CollectionWriteSelector) throws -> MutationResult {

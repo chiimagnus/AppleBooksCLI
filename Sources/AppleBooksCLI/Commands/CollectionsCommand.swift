@@ -10,6 +10,11 @@ struct CollectionsCommand: ParsableCommand {
             CollectionsGetCommand.self,
             CollectionsSearchCommand.self,
             CollectionsBooksCommand.self,
+            CollectionsCreateCommand.self,
+            CollectionsRenameCommand.self,
+            CollectionsDeleteCommand.self,
+            CollectionsAddBookCommand.self,
+            CollectionsRemoveBookCommand.self,
         ]
     )
 }
@@ -145,6 +150,180 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     }
 }
 
+struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "create",
+        abstract: "Create a collection through the guarded mutation rail."
+    )
+
+    @Argument(help: "New collection title.")
+    var title: String
+
+    @Option(name: .long, help: "Optional collection details.")
+    var details: String?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try books.createCollection(title: title, details: details))
+        }
+    }
+}
+
+struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "rename",
+        abstract: "Rename one collection by exact ID or explicit local primary key."
+    )
+
+    @Argument(help: "Exact Apple Books collection ID.")
+    var collectionID: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
+    var pk: Int64?
+
+    @Option(name: .customLong("title"), help: "Replacement collection title.")
+    var title: String
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selector.rename(to: title, in: books))
+        }
+    }
+}
+
+struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "delete",
+        abstract: "Delete one editable collection by exact ID or explicit local primary key."
+    )
+
+    @Argument(help: "Exact Apple Books collection ID.")
+    var collectionID: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
+    var pk: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selector.delete(in: books))
+        }
+    }
+}
+
+struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "add-book",
+        abstract: "Add one exact book to one exact collection through the guarded mutation rail."
+    )
+
+    @Argument(help: "Exact Apple Books collection ID.")
+    var collectionID: String?
+
+    @Argument(help: "Exact Apple Books asset ID.")
+    var assetID: String?
+
+    @Option(name: .customLong("collection-pk"), parsing: .unconditional, help: "Use an explicit local collection primary key.")
+    var collectionPK: Int64?
+
+    @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
+    var bookPK: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selectors = try parseCollectionMembershipSelectors(
+            collectionID: collectionID,
+            assetID: assetID,
+            collectionPK: collectionPK,
+            bookPK: bookPK
+        )
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books))
+        }
+    }
+}
+
+struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "remove-book",
+        abstract: "Remove one exact book from one exact collection through the guarded mutation rail."
+    )
+
+    @Argument(help: "Exact Apple Books collection ID.")
+    var collectionID: String?
+
+    @Argument(help: "Exact Apple Books asset ID.")
+    var assetID: String?
+
+    @Option(name: .customLong("collection-pk"), parsing: .unconditional, help: "Use an explicit local collection primary key.")
+    var collectionPK: Int64?
+
+    @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
+    var bookPK: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selectors = try parseCollectionMembershipSelectors(
+            collectionID: collectionID,
+            assetID: assetID,
+            collectionPK: collectionPK,
+            bookPK: bookPK
+        )
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books))
+        }
+    }
+}
+
 struct CollectionPageResult: Codable, Equatable, Sendable {
     let items: [CollectionResult]
     let limit: Int?
@@ -195,6 +374,31 @@ struct CollectionResult: Codable, Equatable, Sendable {
     var humanSummary: String {
         "\(localPK)\t\(collectionID ?? "-")\t\(title ?? "-")\t\(isHidden.map(String.init) ?? "-")"
     }
+}
+
+private func parseCollectionMembershipSelectors(
+    collectionID: String?,
+    assetID: String?,
+    collectionPK: Int64?,
+    bookPK: Int64?
+) throws -> (collection: CollectionSelector, book: BookSelector) {
+    var effectiveCollectionID = collectionID
+    var effectiveAssetID = assetID
+
+    // ArgumentParser assigns a single positional to the first optional argument.
+    // With an explicit collection PK, that positional semantically belongs to the book selector.
+    if collectionPK != nil, effectiveAssetID == nil, let positional = effectiveCollectionID {
+        effectiveCollectionID = nil
+        effectiveAssetID = positional
+    }
+
+    let collection = try parseCollectionSelector(
+        collectionID: effectiveCollectionID,
+        localPK: collectionPK,
+        localPKOptionName: "--collection-pk"
+    )
+    let book = try parseBookSelector(assetID: effectiveAssetID, localPK: bookPK)
+    return (collection, book)
 }
 
 private func validateCollectionPagination(limit: Int?, offset: Int) throws {

@@ -129,6 +129,10 @@ public final class AppleBooks {
         try collectionWriter.renameCollection(localPK: localPK, newTitle: newTitle)
     }
 
+    public func renameCollection(collectionID: String, newTitle: String) throws -> MutationResult {
+        try collectionWriter.renameCollection(collectionID: collectionID, newTitle: newTitle)
+    }
+
     public func deleteCollection(localPK: Int64) throws -> MutationResult {
         try collectionWriter.deleteCollection(localPK: localPK)
     }
@@ -145,12 +149,28 @@ public final class AppleBooks {
         try collectionWriter.addBook(assetID: assetID, toCollectionID: collectionID)
     }
 
+    public func addBook(bookLocalPK: Int64, toCollectionID collectionID: String) throws -> MutationResult {
+        try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionID: collectionID)
+    }
+
+    public func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try collectionWriter.addBook(assetID: assetID, toCollectionLocalPK: collectionLocalPK)
+    }
+
     public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
         try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK)
     }
 
     public func removeBook(assetID: String, fromCollectionID collectionID: String) throws -> MutationResult {
         try collectionWriter.removeBook(assetID: assetID, fromCollectionID: collectionID)
+    }
+
+    public func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String) throws -> MutationResult {
+        try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionID: collectionID)
+    }
+
+    public func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
+        try collectionWriter.removeBook(assetID: assetID, fromCollectionLocalPK: collectionLocalPK)
     }
 
     public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {

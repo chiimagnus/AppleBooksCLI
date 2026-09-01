@@ -10,6 +10,7 @@ let package = Package(
     products: [
         .library(name: "AppleBooksCore", targets: ["AppleBooksCore"]),
         .executable(name: "applebookscli", targets: ["AppleBooksCLI"]),
+        .executable(name: "applebookscli-pdf-worker", targets: ["AppleBooksPDFWorker"]),
     ],
     dependencies: [
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.9"),
@@ -25,6 +26,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "AppleBooksCLI",
+            dependencies: ["AppleBooksCore"]
+        ),
+        .executableTarget(
+            name: "AppleBooksPDFWorker",
             dependencies: ["AppleBooksCore"]
         ),
         .testTarget(

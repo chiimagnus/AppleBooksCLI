@@ -25,9 +25,13 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 DIST_ROOT="$REPO_ROOT/dist"
 BUILD_ROOT="$DIST_ROOT/build"
+SKILL_SOURCE="$REPO_ROOT/Skill/applebookscli"
+SKILL_SMOKE="$REPO_ROOT/Tests/PackagingTests/skill-smoke.sh"
 
 cd "$REPO_ROOT"
 [ -f Package.resolved ] || fail "Package.resolved is required for release builds."
+[ -x "$SKILL_SMOKE" ] || fail "repo-native Skill packaging smoke is missing or not executable."
+"$SKILL_SMOKE" "$SKILL_SOURCE"
 mkdir -p "$BUILD_ROOT/arm64" "$BUILD_ROOT/x86_64"
 
 validate_thin_binary() {
@@ -205,9 +209,11 @@ STAGING_NAME="applebookscli-$VERSION-macos-universal"
 STAGING_ROOT="$STAGING_PARENT/$STAGING_NAME"
 mkdir -p \
   "$STAGING_ROOT/bin" \
-  "$STAGING_ROOT/libexec/applebookscli"
+  "$STAGING_ROOT/libexec/applebookscli" \
+  "$STAGING_ROOT/share/applebookscli/skill/applebookscli"
 cp "$UNIVERSAL_CLI" "$STAGING_ROOT/bin/applebookscli"
 cp "$UNIVERSAL_WORKER" "$STAGING_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+cp "$SKILL_SOURCE/SKILL.md" "$STAGING_ROOT/share/applebookscli/skill/applebookscli/SKILL.md"
 cp "$REPO_ROOT/LICENSE" "$STAGING_ROOT/LICENSE"
 cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$STAGING_ROOT/THIRD_PARTY_NOTICES.md"
 cp -R "$REPO_ROOT/ThirdPartyLicenses" "$STAGING_ROOT/ThirdPartyLicenses"
@@ -229,8 +235,12 @@ tar -xzf "$ARCHIVE" -C "$EXTRACT_PARENT"
 EXTRACTED_ROOT="$EXTRACT_PARENT/$STAGING_NAME"
 EXTRACTED_CLI="$EXTRACTED_ROOT/bin/applebookscli"
 EXTRACTED_WORKER="$EXTRACTED_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+EXTRACTED_SKILL="$EXTRACTED_ROOT/share/applebookscli/skill/applebookscli"
 [ -x "$EXTRACTED_CLI" ] || fail "extracted CLI is missing or not executable."
 [ -x "$EXTRACTED_WORKER" ] || fail "extracted PDF worker is missing or not executable."
+"$SKILL_SMOKE" "$EXTRACTED_SKILL"
+skill_entry_count=$(find "$EXTRACTED_SKILL" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')
+[ "$skill_entry_count" -eq 1 ] || fail "extracted Skill contains unplanned resources."
 codesign --verify --strict --verbose=2 "$EXTRACTED_CLI"
 codesign --verify --strict --verbose=2 "$EXTRACTED_WORKER"
 
@@ -245,6 +255,11 @@ SMOKE_ANNOTATIONS="$SMOKE_ROOT/annotations.sqlite"
 SMOKE_PDF_STDOUT="$SMOKE_ROOT/pdf.stdout.json"
 SMOKE_PDF_STDERR="$SMOKE_ROOT/pdf.stderr.txt"
 SMOKE_WORKER_STDERR="$SMOKE_ROOT/worker.stderr.txt"
+SMOKE_CODEX_HOME="$SMOKE_ROOT/codex-home"
+SMOKE_SKILL_STDOUT="$SMOKE_ROOT/skill.stdout.json"
+SMOKE_SKILL_STDERR="$SMOKE_ROOT/skill.stderr.txt"
+SMOKE_SKILL_CONFLICT_STDOUT="$SMOKE_ROOT/skill-conflict.stdout.json"
+SMOKE_SKILL_CONFLICT_STDERR="$SMOKE_ROOT/skill-conflict.stderr.txt"
 PDF_FIXTURE="$REPO_ROOT/Tests/Fixtures/PDF/corrupt.pdf"
 mkdir -p "$SMOKE_HOME"
 command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required for the extracted release smoke."
@@ -274,6 +289,39 @@ case "$worker_smoke" in
   *) fail "extracted universal worker protocol smoke failed." ;;
 esac
 [ "$(cat "$SMOKE_WORKER_STDERR")" = "malformedRequest" ] || fail "extracted worker stderr code is unstable."
+
+(
+  cd /
+  HOME="$SMOKE_HOME" CFFIXED_USER_HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" \
+    "$EXTRACTED_CLI" skill install --json
+) > "$SMOKE_SKILL_STDOUT" 2> "$SMOKE_SKILL_STDERR"
+[ ! -s "$SMOKE_SKILL_STDERR" ] || fail "extracted CLI Skill install wrote unexpected diagnostics."
+grep -F '"installed":true' "$SMOKE_SKILL_STDOUT" >/dev/null || fail "extracted CLI Skill install did not report installed=true."
+grep -F '"replaced":false' "$SMOKE_SKILL_STDOUT" >/dev/null || fail "extracted CLI Skill install did not report replaced=false."
+INSTALLED_SKILL="$SMOKE_CODEX_HOME/skills/applebookscli"
+"$SKILL_SMOKE" "$INSTALLED_SKILL"
+
+set +e
+(
+  cd /
+  HOME="$SMOKE_HOME" CFFIXED_USER_HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" \
+    "$EXTRACTED_CLI" skill install --json
+) > "$SMOKE_SKILL_CONFLICT_STDOUT" 2> "$SMOKE_SKILL_CONFLICT_STDERR"
+skill_conflict_status=$?
+set -e
+[ "$skill_conflict_status" -eq 64 ] || fail "second extracted CLI Skill install must fail with usage exit 64."
+[ ! -s "$SMOKE_SKILL_CONFLICT_STDERR" ] || fail "Skill install conflict wrote unexpected stderr diagnostics."
+grep -F '"code":"usage_invalid"' "$SMOKE_SKILL_CONFLICT_STDOUT" >/dev/null || fail "Skill install conflict did not use the stable JSON error envelope."
+
+ARCHIVE_LIST="$SMOKE_ROOT/archive-contents.txt"
+tar -tzf "$ARCHIVE" > "$ARCHIVE_LIST"
+while IFS= read -r entry; do
+  case "$entry" in
+    *"/.github/features/"*|*"/.build/"*|*"/Tests/"*|*"/tests/"*|*"/config.json"|*"/private-"*)
+      fail "release archive contains forbidden development or private path: $entry"
+      ;;
+  esac
+done < "$ARCHIVE_LIST"
 
 git diff --exit-code -- Package.resolved >/dev/null || fail "Package.resolved changed during release packaging."
 printf 'release archive OK: %s (%s host-native smoke; Intel runtime not asserted here)\n' "$ARCHIVE" "$(uname -m)"

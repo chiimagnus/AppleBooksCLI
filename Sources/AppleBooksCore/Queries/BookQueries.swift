@@ -31,6 +31,7 @@ struct BookQueries {
         case genre(String)
         case combinedText(String)
         case contentPage
+        case pdf
         case assetID(String)
     }
 
@@ -47,6 +48,10 @@ struct BookQueries {
         let total = try contentPageTotal()
         let items = try query(.contentPage, capability: .bookPage, limit: effectiveLimit, offset: offset)
         return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
+    }
+
+    func pdfBooks() throws -> [Book] {
+        try query(.pdf, capability: .bookPDF, limit: nil, offset: 0)
     }
 
     func getByLocalPK(_ localPK: Int64) throws -> Book? {
@@ -117,6 +122,8 @@ struct BookQueries {
             sql += " WHERE (\(clauses.joined(separator: " OR ")))"
         case .contentPage:
             sql += " WHERE \(Self.contentPagePredicate)"
+        case .pdf:
+            sql += " WHERE \(AppleBooksSchema.Book.contentType) = 3"
         case .assetID:
             sql += " WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY"
         }
@@ -160,7 +167,7 @@ struct BookQueries {
                 try statement.bind(pattern, at: index)
                 index += 1
             }
-        case .contentPage:
+        case .contentPage, .pdf:
             break
         case let .assetID(value):
             try statement.bind(value, at: index)

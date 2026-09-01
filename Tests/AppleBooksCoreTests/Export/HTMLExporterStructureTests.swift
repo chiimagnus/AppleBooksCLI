@@ -57,7 +57,12 @@ struct HTMLExporterStructureTests {
         #expect(try headings[1].text() == "Unmapped EPUB")
         #expect(try headings[2].text() == fixture.pdfSource.displayTitle)
 
-        #expect(try document.select("script").array().isEmpty)
+        let scripts = try document.select("script").array()
+        #expect(scripts.count == 1)
+        let script = try #require(scripts.first?.data())
+        for raw in [fixture.hostileTitle, fixture.hostileAssetID, fixture.hostileQuote, fixture.hostileNote, fixture.hostilePath] {
+            #expect(script.contains(raw) == false)
+        }
         #expect(try document.select("img").array().isEmpty)
         #expect(try document.select("[onerror]").array().isEmpty)
         #expect(try document.select("[onclick]").array().isEmpty)
@@ -72,10 +77,14 @@ struct HTMLExporterStructureTests {
         #expect(bodyText.contains("Underline: true"))
         #expect(bodyText.contains("2020-09-13T12:26:40.500Z"))
 
-        // Raw user strings never become element IDs or navigation targets.
+        // Raw user strings never become element IDs or navigation targets. Later interaction controls use
+        // fixed renderer-owned IDs, while document identity stays ordinal-only.
         let idValues = try document.select("[id]").array().map { try $0.attr("id") }
+        let sectionIDs = try sections.map { try $0.attr("id") }
+        let bodyIDs = try document.select(".book-body[id]").array().map { try $0.attr("id") }
         let hrefValues = try document.select("a[href]").array().map { try $0.attr("href") }
-        #expect(idValues == ["book-0", "book-1", "book-2"])
+        #expect(sectionIDs == ["book-0", "book-1", "book-2"])
+        #expect(bodyIDs == ["book-body-0", "book-body-1", "book-body-2"])
         #expect(hrefValues == ["#book-0", "#book-1", "#book-2"])
         #expect(idValues.allSatisfy { $0.contains("asset") == false })
         #expect(hrefValues.allSatisfy { $0.contains("asset") == false })

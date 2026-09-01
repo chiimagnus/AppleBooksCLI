@@ -9,6 +9,10 @@ enum SkillInstallerError: Error, Equatable, Sendable {
     case invalidCodexHome
     case invalidSkillsDirectory
     case unsafeTarget
+    case targetExists
+    case stagingUnsafe
+    case installFailed
+    case cleanupFailed
 }
 
 struct SkillInstallPaths: Equatable, Sendable {
@@ -65,6 +69,88 @@ struct SkillInstaller {
             throw SkillInstallerError.unsafeTarget
         }
         return SkillInstallPaths(source: source, codexHome: codexHome, skillsDirectory: skills, target: target)
+    }
+
+    @discardableResult
+    func install() throws -> URL {
+        let paths = try resolvedPaths()
+        guard nodeKind(at: paths.target) == .missing else {
+            throw SkillInstallerError.targetExists
+        }
+        try ensureSkillsDirectory(paths.skillsDirectory)
+
+        let staging = try paths.stagingURL(id: UUID())
+        guard nodeKind(at: staging) == .missing else {
+            throw SkillInstallerError.stagingUnsafe
+        }
+
+        do {
+            try FileManager.default.copyItem(at: paths.source, to: staging)
+            try validateStaging(staging)
+            try FileManager.default.moveItem(at: staging, to: paths.target)
+            return paths.target
+        } catch {
+            do {
+                try removeOwnedStagingIfPresent(staging, under: paths.skillsDirectory)
+            } catch {
+                throw SkillInstallerError.cleanupFailed
+            }
+            if let installerError = error as? SkillInstallerError {
+                throw installerError
+            }
+            throw SkillInstallerError.installFailed
+        }
+    }
+
+    private func ensureSkillsDirectory(_ skillsDirectory: URL) throws {
+        switch nodeKind(at: skillsDirectory) {
+        case .missing:
+            do {
+                try FileManager.default.createDirectory(
+                    at: skillsDirectory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                throw SkillInstallerError.installFailed
+            }
+        case .directory:
+            break
+        default:
+            throw SkillInstallerError.invalidSkillsDirectory
+        }
+        guard nodeKind(at: skillsDirectory) == .directory,
+              skillsDirectory.resolvingSymlinksInPath().path == skillsDirectory.path else {
+            throw SkillInstallerError.invalidSkillsDirectory
+        }
+    }
+
+    private func validateStaging(_ staging: URL) throws {
+        guard nodeKind(at: staging) == .directory,
+              staging.resolvingSymlinksInPath().path == staging.path else {
+            throw SkillInstallerError.stagingUnsafe
+        }
+        let skillFile = staging.appendingPathComponent("SKILL.md", isDirectory: false)
+        var metadata = stat()
+        guard lstat(skillFile.path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_size > 0 else {
+            throw SkillInstallerError.stagingUnsafe
+        }
+    }
+
+    private func removeOwnedStagingIfPresent(_ staging: URL, under skillsDirectory: URL) throws {
+        let candidate = staging.standardizedFileURL
+        guard candidate.deletingLastPathComponent().path == skillsDirectory.path,
+              candidate.lastPathComponent.hasPrefix(".applebookscli-install-"),
+              candidate.path.hasPrefix(skillsDirectory.path + "/") else {
+            throw SkillInstallerError.unsafeTarget
+        }
+        guard nodeKind(at: candidate) != .missing else { return }
+        do {
+            try FileManager.default.removeItem(at: candidate)
+        } catch {
+            throw SkillInstallerError.cleanupFailed
+        }
     }
 
     private func validatedSource() throws -> URL {

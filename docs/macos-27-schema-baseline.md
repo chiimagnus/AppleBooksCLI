@@ -47,4 +47,4 @@ ZPLABSOLUTEPHYSICALLOCATION ZPLLOCATIONRANGESTART ZPLLOCATIONRANGEEND
 
 ## 当前 Swift runtime 基线
 
-Swift 6.4 已在本机实测可直接 `import SQLite3` 并读取系统 SQLite 版本；AppleBooksCLI 当前使用 SwiftPM、Swift 6 language mode 与 macOS 12 deployment target，P1 没有第三方 SwiftPM dependency。SQLite online backup 与 WAL/open-reader correctness 仍属于后续写安全 fixture gate，当前文档不提前宣称已完成。
+Swift 6.4 已在本机实测可直接 `import SQLite3` 并读取系统 SQLite 版本；AppleBooksCLI 使用 SwiftPM、Swift 6 language mode 与 macOS 12 deployment target。P1 当时尚未需要第三方 SwiftPM dependency；后续 parser/content source dependency 属于产品实现事实，不属于本 schema 采样基线。SQLite online backup、WAL/open-reader 与 restore correctness 已在后续 synthetic safety gate 中验证；本文仍只记录实机 schema/行为证据，不把 synthetic implementation evidence 冒充 macOS 27 schema 事实。

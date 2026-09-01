@@ -86,7 +86,7 @@ SDK SQLite3 C API
 
 当前 Swift 6.4 已实测可直接 `import SQLite3` 并调用系统 SQLite；P1 不引入第三方 SQLite 包。SQLite online backup、WAL/open-reader 行为必须在后续写安全 fixture 中用 Swift/SQLite3 验证。
 
-第三方依赖只在对应 task 已证明平台/标准库不足时首次引入，并与 license/provenance 同 commit：EPUB/HTML parser、ZIP parser 等具体选择延后到相关 phase。PDF parity 的行为参考 `eristoddle`，但目标 parser（包括是否使用 PDFKit）仍待后续实测决策，不从旧 TypeScript research 推断。
+第三方依赖只在对应 task 已证明平台/标准库不足时首次引入，并与 license/provenance 同 commit。当前 EPUB XHTML 解析与 packed EPUB 读取已经在各自真实 consumer 出现时落地，长期设计文档只约束行为与安全边界，不重复依赖来源、revision 或 provenance。PDF parser 的具体选择仍以对应 phase 的可控 fixture 与平台实测为准，不从旧实现语言或宿主包装推断。
 
 ## 不做小 ORM
 
@@ -116,51 +116,67 @@ CLI dispatch
 
 ```swift
 struct Book {
-    let id: Int64                 // current local Core Data Z_PK
-    let assetID: String           // Apple Books source identity
+    let localPK: Int64            // current local Core Data Z_PK
+    let assetID: String?          // Apple Books source identity may be absent
     let title: String?
-    let author: String?
+    let author: String?           // raw value is preserved
     let description: String?
-    let contentType: Int?
-    let path: String?
     let epubID: String?
     let genre: String?
-    let genres: String?           // raw multi-genre field where present
-    let year: String?
-    let language: String?
-    let pageCount: Int?
-    let fileSize: Int64?
-    let rating: Double?
+    let genresRaw: Data?          // raw ZGENRES BLOB; unknown encoding is never guessed
     let comments: String?
-    let readingProgress: Double?
-    let duration: Double?
+    let language: String?
+    let year: Int64?
+    let contentType: Int64?
+    let pageCount: Int64?
+    let path: String?
+    let fileSize: Int64?
+    let coverURL: String?
     let isFinished: Bool?
+    let readingProgressRaw: Double?
+    let durationRawMilliseconds: Double?
     let creationDate: Date?
     let modificationDate: Date?
     let finishedDate: Date?
     let lastOpenDate: Date?
     let purchaseDate: Date?
     let releaseDate: Date?
-    let coverURL: String?
     let isExplicit: Bool?
     let isLocked: Bool?
     let isEphemeral: Bool?
     let isHidden: Bool?
     let isSample: Bool?
     let isStoreAudiobook: Bool?
+    let rating: Double?
 
-    // EPUB enrichment where available
+    var normalizedAuthor: String?       // derived only; never mutates raw author
+    var readingProgressPercent: Double?
+    var durationSeconds: Double?
+}
+
+struct EPUBMetadata {
+    let title: String?
+    let creator: String?
+    let identifiers: [String]
     let isbn: String?
+    let language: String?
     let publisher: String?
     let publicationDate: String?
     let rights: String?
-    let subjects: [String]?
+    let subjects: [String]
+}
+
+struct BookMetadataEnrichment {
+    let isbn: String?
+    let language: String?
+    let publisher: String?
+    let publicationDate: String?
+    let rights: String?
+    let subjects: [String]
 }
 ```
 
-Cover payload 的具体 Swift 表示由 EPUB/export task 在 parser 事实明确后决定；P1 不提前把它冻结成某个第三方类型。
-
-Optional 字段由实时 schema capability 决定。不要以 title 去重；同名不同 asset 是合法情况。
+Cover payload 已收敛为原始 `Data`、declared/detected media type 与 source；它不暴露第三方 parser 类型。Optional DB 字段由实时 schema capability 决定。不要以 title 去重；同名不同 asset 是合法情况。`EPUBMetadata` 是独立 content metadata；对 `Book` 的 enrichment 只补明确缺失的 metadata，不覆盖 current-library identity/title/author 等 raw source 字段。
 
 ### Annotation
 
@@ -207,7 +223,7 @@ struct AnnotationEnrichment {
 
 - raw type/style/CFI 永远保留。
 - presentation heuristic 不能改变 annotation UUID/row identity。
-- export 可额外计算 `presentationKind` 以兼容 denya：note 非空→`note`；否则 selected text 为空→`bookmark`；否则→`highlight`。这个字段只服务展示/过滤，不能反写 raw type。
+- export 可额外计算 `presentationKind` 兼容既有展示语义：note 非空→`note`；否则 selected text 为空→`bookmark`；否则→`highlight`。这个字段只服务展示/过滤，不能反写 raw type。
 - type=3 reading-position bookmark 和用户 annotation 分轨；它与 `presentationKind='bookmark'` 不是同一个概念。
 
 ### Chapter
@@ -382,12 +398,15 @@ CLI 必须同时表达 recent-by-creation 与 recent-by-modification。后者还
 5. 同一 XHTML 多 navPoint 按 fragment scope。
 6. ToC 外细粒度 spine entry 可读。
 7. chapter plain text。
-8. chapter content `offset + max_chars` 分页等价能力。
+8. chapter content `offset + max_chars` 分页等价能力；offset 以扩展 grapheme cluster 计数，不按 byte/UTF-16 切开 emoji/CJK 组合字符。
 9. CFI raw round-trip。
 10. CFI chapter hint 与 leaf text-node char range diagnostics。
-11. annotation context：chapter + selected/representative anchor 二次定位；只有 anchor 命中时才返回 context window。
-12. context 不可用或 anchor 未命中时返回结构化 degraded reason，不返回章节开头冒充 context。
-13. current reading bookmark + chapter，以及最近 highlight fallback 的 inferred 标记。
+11. annotation context：current Book identity + chapter + selected/representative anchor 二次定位；只有 anchor 命中时才返回 context window。
+12. context 不可用或 anchor 未命中时返回结构化 degraded reason，不返回章节开头冒充 context；historical metadata 不替代 current content identity。
+13. current reading position 三层语义：ToC 可解析 bookmark → raw bookmark hint → 最近用户 annotation inference；后两者不能伪装成精确 ToC bookmark。
+14. content source：current Book 的 directory `ZPATH` 优先；primary missing/unavailable/unsupported 时才允许在显式 supplemental root 中按 `ZPATH` basename 查 exact packed `.epub`。unsafe primary 不 fallback，historical/unmapped row 不猜 content。
+15. directory 与 packed source 必须共享同一 package/encryption/nav/NCX/chapter/metadata/cover parser；archive entry name 不做第二次 percent decode。
+16. 每个 exact resource 有固定 byte budget；packed source同时检查 declared uncompressed size 与 streaming actual output，并限制 archive entry count。
 
 大书完整读取应通过 `chapters` + `chapter` 组合自然流式完成，不需要默认把整本几十万字塞进一个 JSON string。
 
@@ -395,7 +414,7 @@ CLI 必须同时表达 recent-by-creation 与 recent-by-modification。后者还
 
 PDF 是 parity 必做，不是“等 EPUB 做完再看”。
 
-从 `eristoddle` 复刻的功能语义：
+已确认的 legacy PDF adapter 功能语义：
 
 1. 找到 Apple Books PDF 文档目录与 library metadata。
 2. `/Highlight` marker 低内存 prefilter。
@@ -438,7 +457,7 @@ PDF adapter 不能生成不存在的 EPUB CFI/annotation UUID。
 
 ### HTML
 
-Parity 不是只生成静态 HTML。`denya` 当前用户可见行为包括：
+Parity 不是只生成静态 HTML。既有 HTML export 的用户可见行为包括：
 
 - search。
 - per-book collapse/expand。
@@ -471,7 +490,7 @@ Parity 不是只生成静态 HTML。`denya` 当前用户可见行为包括：
 - citation。
 - author pages，保留 Dataview 语义或提供明确等价的 Obsidian-compatible 输出。
 
-`eristoddle` 的 consecutive-null-location annotation merge 只属于 presentation compatibility 候选；canonical 数据层不得采用这种 identity-changing heuristic。
+consecutive null-location annotation merge 只属于 presentation compatibility 候选；canonical 数据层不得采用这种 identity-changing heuristic，也不得把无位置 bookmark 与相邻用户 annotation 合并成伪造的 current position。
 
 ## Safe write contract
 
@@ -527,7 +546,7 @@ AEAnnotation row
 
 `macos-27-schema-baseline.md` 已用当前实机证明 selected-text annotations 中存在不再属于 current BKLibrary 的 asset，因此不能用 inner join current BKLibrary 作为 annotation 存在条件。
 
-当前 `config.json.epub_root` 也是已有能力：BKLibrary `ZPATH` 的 basename 可在显式 supplemental EPUB root 中寻找本体，再用于 TOC / CFI enrichment。新 CLI 可以优先使用 Apple Books 自己的本地 bundle，但必须保留等价的显式 EPUB root fallback，不能在迁移时丢掉。
+当前 `config.json.epub_root` 已由 Swift content resolver保留：current BKLibrary row 必须先提供真实 `ZPATH` identity；directory source不可用时，才按该 `ZPATH` 的 basename 在显式 supplemental root 中查 exact regular packed `.epub`。这条 fallback 不递归、不 fuzzy，也不延伸到 historical title/author/asset-ID 猜测。
 
 ## 实现顺序 ≠ 发布范围
 

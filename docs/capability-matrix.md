@@ -40,10 +40,10 @@
 | title search | 必须复刻 | substring search；多结果不能静默选第一本 |
 | title/author/genre 综合搜索 | 必须复刻 | case-insensitive partial match |
 | genre 查询 | 必须复刻 | genre filter 是独立能力，不只靠通用 search 偶然覆盖 |
-| 丰富书籍 metadata | 必须复刻 | description、EPUB id/path、file size、ISBN、language、publisher、date、year、genre/genres、pageCount、rating、comments、coverUrl、reading progress/duration/dates，以及 purchase/release date、explicit/locked/ephemeral/hidden/sample/store-audiobook 等字段/flags；按实时 schema 能力返回 |
-| EPUB OPF / iTunes metadata enrichment | 必须复刻 | 本地 EPUB 可读时补 title/author/ISBN/language/publisher/date/rights/subjects 等 |
-| cover 提取 | 必须复刻 | 能从本地 EPUB 提取封面；export 决定内嵌还是保存文件 |
-| author sentinel normalization | 必须复刻语义 | Apple 私用字符 + UnknownAuthor sentinel 不应泄入文件名/作者身份 |
+| 丰富书籍 metadata | 必须复刻 | description、EPUB id/path、file size、language、date/year、genre、pageCount、rating、comments、coverUrl、reading progress/duration/dates，以及 purchase/release date、explicit/locked/ephemeral/hidden/sample/store-audiobook 等字段/flags按实时 schema 能力返回；`ZGENRES` 只保留 raw BLOB，未证明编码前不得猜成字符串/数组 |
+| EPUB OPF / iTunes metadata enrichment | 必须复刻 | 可独立读取 canonical OPF metadata；iTunes plist 只补 OPF 缺失的 title/creator/publisher。对当前 Book 的 enrichment 只补 ISBN、缺失 language/release date、publisher、rights、subjects，不覆盖 current-library identity/title/author 等原始字段 |
+| cover 提取 | 必须复刻 | manifest `cover-image` / EPUB2 metadata id 优先，有限 exact common-name fallback；返回原始 bytes + declared/detected media type + source，export 决定内嵌还是保存文件 |
+| author sentinel normalization | 必须复刻语义 | raw author 永久保留；另提供 derived normalized author，移除 Apple 私用字符并把 Unknown/UnknownAuthor sentinel 归一为 nil，展示/文件命名不得把 sentinel 当真实作者身份 |
 
 ## Reading status / stats
 
@@ -64,7 +64,7 @@
 | --- | --- | --- |
 | list annotations | 必须复刻两种 scope | soft-deleted 默认排除；CLI 必须明确表达 `user-only` 与 `include-system/raw`。user-only 排除 type=3，raw scope 可包含 active type=3，并支持 limit/order/pagination |
 | list all / group by book | 必须复刻展示语义 | 全库 user annotations 按 creation newest-first 取数后按书分组；orphan 单独保留/呈现。CLI 可用 `--all` / `--group-by book` 等价表达，机器 JSON 不必复制文本 formatter |
-| annotations by book | 必须复刻两种 scope + 阅读顺序 | book asset ID / numeric PK 可筛选；user-only 视图优先按 EPUB ToC chapter order、章内 creation 排序，内容不可读时可降级；raw scope 还必须能包含 active type=3 |
+| annotations by book | 必须复刻两种 scope + 阅读顺序 | book asset ID / numeric PK 可筛选；user-only 视图优先按 EPUB ToC chapter order、章内 creation 排序；内容不可读时降级到 creation/local-PK 稳定顺序但不得丢 annotation；raw scope 还必须能包含 active type=3 |
 | get/describe annotation | 必须复刻 | UUID 优先；numeric PK 可兼容；返回 raw 字段和关联书籍信息 |
 | highlights by color | 必须复刻 | green/blue/yellow/pink/purple；underline 作为独立原始状态保留 |
 | export/filter underline | 必须复刻 | `--colors ...underline` 的用户可见过滤能力不能丢 |
@@ -74,12 +74,12 @@
 | recent annotations by creation | 必须复刻 | newest by `creation_date`，支持 limit |
 | recent annotations by modification | 必须复刻 | newest by `ZANNOTATIONMODIFICATIONDATE`；raw scope 可包含 active type=3 system rows；不能和 created-recent/user-only 混成一种语义 |
 | annotations by date range | 必须复刻且强化 | created-after/before + limit；date-only `before` 必须覆盖完整日历日或明确要求 timestamp |
-| annotation context window | 必须复刻且强化 | CFI chapter + selected/representative text 二次定位；支持 before/after window；anchor 未命中必须明确失败/降级，不能返回章节开头冒充 context |
-| context 中精确标出 highlight | 必须复刻展示语义 | whitespace-normalized anchor match，首个命中标记；不能误标所有重复文本 |
+| annotation context window | 必须复刻且强化 | current Book identity 必须精确；CFI chapter + selected/representative text 二次定位；支持 before/after window；anchor 未命中必须明确失败，不能返回章节开头冒充 context；historical mapping 不能替代 current Book/content identity |
+| context 中精确标出 highlight | 必须复刻展示语义 | whitespace-normalized anchor match，canonical 首个命中只标一次；保留原 source whitespace，不能重新搜索后误标重复文本 |
 | annotation identity | 必须复刻/统一 | `ZANNOTATIONUUID` 首选稳定身份，numeric PK 仅本机内部/兼容 |
 | 保留 raw annotation 字段 | 必须复刻/统一 | UUID、asset_id、type/style、underline、selected/note/representative、CFI、physical/range、created/modified |
-| 57uff3r 前缀 dedupe | 不复刻缺陷 | 保留 search 能力，但不把 O(n²) prefix heuristic 当 annotation identity |
-| eristoddle 无-location 合并 | 宿主输出兼容，非 canonical | canonical 数据层不能改写 annotation identity；展示级聚合也不能丢前置 rows 的 note/time/style 等字段，只能在完整保留原 rows 后执行 |
+| 前缀 dedupe heuristic | 不复刻缺陷 | 保留 search 能力，但不把 O(n²) prefix heuristic 当 annotation identity |
+| 无-location 连续行合并 | 宿主输出兼容，非 canonical | canonical 数据层永不把 null-location row 与相邻 row 合并来制造位置或改变 identity；展示级聚合也不能丢前置 rows 的 note/time/style 等字段，只能在完整保留原 rows 后执行 |
 
 ## EPUB / CFI content
 
@@ -89,8 +89,10 @@
 | DRM gate | 必须复刻 | FairPlay/DRM 明确失败，不返回空正文冒充成功 |
 | EPUB ToC | 必须复刻 | EPUB nav/解析器 → NCX fallback → spine fallback；保留 depth/fragment |
 | chapter text | 必须复刻 | 保留段落结构；同 XHTML 多 fragment 不串 section |
-| chapter text pagination | 必须复刻 | `offset` + `max_chars` 等价能力，明确 continuation/end |
+| chapter text pagination | 必须复刻 | `offset` + `max_chars` 等价能力以扩展 grapheme cluster 计数，不按 byte/UTF-16 切分；明确 continuation/end，不能拆开 emoji/CJK 组合字符 |
 | 细粒度 spine entry | 必须复刻 | ToC 未列出的 spine item 仍可按 id 读取 |
+| current-library packed EPUB fallback | 本地保留/已固化 | current Book 的真实 directory `ZPATH` 优先；仅 primary source missing/unavailable/unsupported 时，才可在显式 `epub_root` 下按 `ZPATH` basename 查找同名 regular non-symlink packed `.epub`。不递归、不 fuzzy；unsafe primary 不得被 fallback 掩盖；historical/unmapped annotation 无 current Book/ZPATH 时永不猜 packed 文件 |
+| directory / packed parser 等价 | 必须复刻 | 两种 content source 共用同一 package/encryption/nav/NCX/chapter/metadata/cover parser；packed entry 只做 archive namespace lexical validation，URI percent decode 只发生在 canonical EPUB href/path 层一次 |
 | CFI raw round-trip | 必须复刻 | 原始 CFI 永久保留 |
 | CFI chapter hint | 必须复刻 | optimistic parse，不冒充完整 CFI validator |
 | CFI char range diagnostics | 必须复刻 | 明确 offset 属于 leaf XHTML text node，不是抽取纯文本 offset |
@@ -122,7 +124,7 @@
 | HTML 单书折叠 + 全部折叠 | 必须复刻 | collapse/expand + all toggle |
 | HTML 状态持久化 | 必须复刻 | collapse/sidebar 状态 localStorage |
 | HTML sidebar / responsive / print | 必须复刻 | 书籍导航、移动端 sidebar、print-friendly layout |
-| export 类型过滤 | 必须复刻且与 raw type 分层 | highlights-only / bookmarks-only / notes-only / include-bookmarks；这里的 kind 是 denya 的展示分类（note 非空→note；selected text 空→bookmark；否则 highlight），不能把 presentation bookmark 偷换成 raw `ZANNOTATIONTYPE=3` |
+| export 类型过滤 | 必须复刻且与 raw type 分层 | highlights-only / bookmarks-only / notes-only / include-bookmarks；presentation kind 规则为 note 非空→note、selected text 空→bookmark、否则 highlight，不能把 presentation bookmark 偷换成 raw `ZANNOTATIONTYPE=3` |
 | export 颜色过滤 | 必须复刻 | yellow/green/blue/pink/purple/underline |
 | export single/multiple file | 必须复刻 | Markdown/JSON 单文件与 per-book |
 | partial export offset | 必须复刻 | `skip_first_x_notes` 的等价 offset/skip 能力 |
@@ -182,17 +184,17 @@
 
 ## 本地已有能力：重构必须保留
 
-这些是旧 `notion-workspace/tools/apple-books/export.js` 已经具备的本地能力，Swift CLI 迁移不能回归：
+这些是迁移前本地 exporter 已经具备、且当前 parity contract 明确保留的能力，Swift CLI 迁移不能回归：
 
 | 能力 | 状态 | 当前证据 |
 | --- | --- | --- |
-| supplemental EPUB root / 外部 EPUB fallback | 本地保留 | `config.json.epub_root` + 当前 `export.js`/`EpubIndex` |
-| historical asset metadata 显式映射 | 本地保留 | `config.json.historical_assets` |
-| current / historical_inferred / historical_unmapped 区分 | 本地保留 | 当前 `export.js` |
-| orphan annotations 不因 current BKLibrary 缺 row 而消失 | 本地保留 | 当前 `export.js` + macOS 27 实机 |
-| 原始 physical/range/type/style/UUID 字段完整 export | 本地保留 | 当前 `export.js` |
-| 导出数量与 raw SQLite count 校验 | 本地保留 | 当前 `export.js` |
-| note-bearing historical asset 必须可识别 | 本地保留 | 当前 `export.js` fail-closed validation |
+| supplemental EPUB root / 外部 EPUB fallback | 本地保留 | 当前 Swift content resolver 已保留显式 `config.json.epub_root` exact-basename packed EPUB fallback，并维持 current-book identity 边界 |
+| historical asset metadata 显式映射 | 本地保留 | 当前 Swift configuration/annotation enrichment 保留 `config.json.historical_assets` exact asset-ID mapping |
+| current / historical_inferred / historical_unmapped 区分 | 本地保留 | 当前 Swift annotation enrichment 显式保留三种来源；historical metadata 不授予 current content identity |
+| orphan annotations 不因 current BKLibrary 缺 row 而消失 | 本地保留 | annotation-first 查询保留 orphan row；current library 只做 enrichment |
+| 原始 physical/range/type/style/UUID 字段完整 export | 本地保留 | canonical Annotation model/query 保留 raw identity/location/style 字段，renderer 不得反写 |
+| 导出数量与 raw SQLite count 校验 | 本地保留 | export parity 仍需保持 raw-count 可核验，不得因 grouping/filter 静默丢 row |
+| note-bearing historical asset 必须可识别 | 本地保留 | historical enrichment 使用 explicit mapping；缺 mapping 保持 unmapped，不 fuzzy 推断 |
 
 ## Parity gate 之后才能做
 

@@ -8,6 +8,7 @@ public struct PDFHighlight: Equatable, Sendable {
     public let quadrilateralPoints: [CGPoint]
     public let note: String?
     public let pdfKitRGBA: [Double]?
+    public let presentationColor: PDFColorMatch?
     public let modifiedAt: Date?
     public let text: String?
     public let textSource: PDFHighlightTextSource?
@@ -21,6 +22,7 @@ public struct PDFHighlight: Equatable, Sendable {
         quadrilateralPoints: [CGPoint],
         note: String?,
         pdfKitRGBA: [Double]?,
+        presentationColor: PDFColorMatch? = nil,
         modifiedAt: Date?,
         text: String? = nil,
         textSource: PDFHighlightTextSource? = nil,
@@ -33,6 +35,7 @@ public struct PDFHighlight: Equatable, Sendable {
         self.quadrilateralPoints = quadrilateralPoints
         self.note = note
         self.pdfKitRGBA = pdfKitRGBA
+        self.presentationColor = presentationColor
         self.modifiedAt = modifiedAt
         self.text = text
         self.textSource = textSource

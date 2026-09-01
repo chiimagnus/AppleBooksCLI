@@ -26,6 +26,7 @@ struct PDFHighlightReader {
                     annotationBounds: annotation.bounds,
                     quadrilateralPoints: quadrilateralPoints
                 )
+                let pdfKitRGBA = rgbaComponents(annotation.color)
                 highlights.append(
                     PDFHighlight(
                         page: pageIndex + 1,
@@ -33,7 +34,8 @@ struct PDFHighlightReader {
                         bounds: annotation.bounds,
                         quadrilateralPoints: quadrilateralPoints,
                         note: annotation.contents,
-                        pdfKitRGBA: rgbaComponents(annotation.color),
+                        pdfKitRGBA: pdfKitRGBA,
+                        presentationColor: PDFColorMapping.nearest(rgba: pdfKitRGBA),
                         modifiedAt: annotation.modificationDate,
                         text: text.text,
                         textSource: text.source,

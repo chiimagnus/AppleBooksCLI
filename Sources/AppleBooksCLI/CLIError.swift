@@ -86,6 +86,14 @@ enum CLIOperation {
                 return .unavailable("Apple Books search schema is unavailable.")
             }
         }
+        if let annotationInputError = error as? AnnotationQueryInputError {
+            switch annotationInputError {
+            case .unknownColor:
+                return .usageInvalid("Invalid annotation color.")
+            case .invalidDateRange:
+                return .usageInvalid("Invalid annotation date range.")
+            }
+        }
         if let discoveryError = error as? DatabaseDiscoveryError {
             switch discoveryError {
             case .invalidOverride:

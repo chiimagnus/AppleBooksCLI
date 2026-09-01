@@ -19,6 +19,12 @@ struct RecentlyCreatedAnnotationTests {
         let three = try fixture.core.recentlyCreatedAnnotations(limit: 3)
         #expect(three.map { $0.annotation.localPK } == [12, 11, 10])
 
+        let page = try fixture.core.recentlyCreatedAnnotations(limit: 2, offset: 2)
+        #expect(page.map { $0.annotation.localPK } == [10, 9])
+
+        let suffix = try fixture.core.recentlyCreatedAnnotations(limit: nil, offset: 11)
+        #expect(suffix.map { $0.annotation.localPK } == [1, 13])
+
         let all = try fixture.core.recentlyCreatedAnnotations(limit: 20)
         #expect(all.count == 13)
         #expect(all.last?.annotation.localPK == 13)
@@ -34,6 +40,9 @@ struct RecentlyCreatedAnnotationTests {
         }
         #expect(throws: QueryPaginationError.nonPositiveLimit) {
             _ = try fixture.core.recentlyCreatedAnnotations(limit: -1)
+        }
+        #expect(throws: QueryPaginationError.negativeOffset) {
+            _ = try fixture.core.recentlyCreatedAnnotations(offset: -1)
         }
     }
 

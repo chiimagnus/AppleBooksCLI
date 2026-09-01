@@ -46,6 +46,12 @@ struct AnnotationFullTextSearchTests {
         #expect(try queries.searchText("needle", limit: 2, offset: 1).map { $0.annotation.localPK } == [2, 3])
         #expect(try queries.searchText("needle").map { $0.annotation.localPK } == [1, 2, 3])
         #expect(try queries.searchText("%_\\").map { $0.annotation.localPK } == [4])
+        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
+            table: .annotations,
+            columns: ["ZANNOTATIONSTYLE"]
+        )) {
+            _ = try queries.searchText("needle", colorName: "green")
+        }
     }
 
     @Test

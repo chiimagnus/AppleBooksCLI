@@ -25,6 +25,17 @@ enum BookSelector: Equatable, Sendable {
 }
 
 func parseBookSelector(assetID: String?, localPK: Int64?) throws -> BookSelector {
+    guard let selector = try parseOptionalBookSelector(assetID: assetID, localPK: localPK) else {
+        throw ValidationError("Provide an asset ID or --pk.")
+    }
+    return selector
+}
+
+func parseOptionalBookSelector(
+    assetID: String?,
+    localPK: Int64?,
+    localPKOptionName: String = "--pk"
+) throws -> BookSelector? {
     switch (assetID, localPK) {
     case let (.some(assetID), nil):
         guard assetID.isEmpty == false else {
@@ -34,8 +45,8 @@ func parseBookSelector(assetID: String?, localPK: Int64?) throws -> BookSelector
     case let (nil, .some(localPK)):
         return .localPK(localPK)
     case (nil, nil):
-        throw ValidationError("Provide an asset ID or --pk.")
+        return nil
     case (.some, .some):
-        throw ValidationError("Asset ID and --pk are mutually exclusive.")
+        throw ValidationError("Asset ID and \(localPKOptionName) are mutually exclusive.")
     }
 }

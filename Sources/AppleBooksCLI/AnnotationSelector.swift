@@ -5,12 +5,12 @@ enum AnnotationSelector: Equatable, Sendable {
     case uuid(String)
     case localPK(Int64)
 
-    func resolve(in books: AppleBooks) throws -> EnrichedAnnotation? {
+    func resolve(in books: AppleBooks, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
         switch self {
         case let .uuid(uuid):
-            try books.annotation(uuid: uuid)
+            try books.annotation(uuid: uuid, scope: scope)
         case let .localPK(localPK):
-            try books.annotation(localPK: localPK)
+            try books.annotation(localPK: localPK, scope: scope)
         }
     }
 }

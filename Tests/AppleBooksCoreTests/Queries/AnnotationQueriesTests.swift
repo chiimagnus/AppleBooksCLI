@@ -47,7 +47,10 @@ struct AnnotationQueriesTests {
         #expect(try queries.byStyle(99).map { $0.annotation.localPK } == [7])
         #expect(try queries.byColorName("PURPLE").map { $0.annotation.localPK } == [6])
         #expect(try queries.searchHighlightedText("%_\\").map { $0.annotation.localPK } == [1])
+        #expect(try queries.searchHighlightedText("%_\\", colorName: "yellow").map { $0.annotation.localPK } == [1])
+        #expect(try queries.searchHighlightedText("%_\\", colorName: "green").isEmpty)
         #expect(try queries.searchNote("O'Reilly %_\\").map { $0.annotation.localPK } == [7])
+        #expect(try queries.searchNote("historical", colorName: "purple").map { $0.annotation.localPK } == [6])
 
         let lower = try #require(CoreDataTime.date(from: 150))
         let upper = try #require(CoreDataTime.date(from: 180))
@@ -57,6 +60,9 @@ struct AnnotationQueriesTests {
         }
         #expect(throws: AnnotationQueryInputError.unknownColor) {
             _ = try queries.byColorName("not-a-color")
+        }
+        #expect(throws: AnnotationQueryInputError.unknownColor) {
+            _ = try queries.searchText("keep", colorName: "not-a-color")
         }
     }
 

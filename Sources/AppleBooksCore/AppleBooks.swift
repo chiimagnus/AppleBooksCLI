@@ -308,8 +308,12 @@ public final class AppleBooks {
         try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: configuration))
     }
 
-    public func listAnnotations(limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try annotationQueries.list(limit: limit, offset: offset)
+    public func listAnnotations(
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try annotationQueries.list(scope: scope, limit: limit, offset: offset)
     }
 
     public func annotationPage(
@@ -329,8 +333,8 @@ public final class AppleBooks {
         try annotationQueries.page(colorName: colorName, scope: scope, limit: limit, offset: offset)
     }
 
-    public func annotation(localPK: Int64) throws -> EnrichedAnnotation? {
-        try annotationQueries.getByLocalPK(localPK)
+    public func annotation(localPK: Int64, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
+        try annotationQueries.getByLocalPK(localPK, scope: scope)
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String) throws -> MutationResult {
@@ -353,36 +357,50 @@ public final class AppleBooks {
         try annotationQueries.getUniqueByUUID(uuid, scope: scope)
     }
 
-    public func annotations(bookAssetID: String, scope: AnnotationScope = .user) throws -> [EnrichedAnnotation] {
-        try annotationQueries.byAssetID(bookAssetID, scope: scope)
+    public func annotations(
+        bookAssetID: String,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try annotationQueries.byAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
     }
 
-    public func annotations(bookLocalPK: Int64, scope: AnnotationScope = .user) throws -> [EnrichedAnnotation] {
+    public func annotations(
+        bookLocalPK: Int64,
+        scope: AnnotationScope = .user,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try validatePagination(limit: limit, offset: offset)
         guard let book = try bookQueries.getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
-        return try annotationQueries.byAssetID(assetID, scope: scope)
+        return try annotationQueries.byAssetID(assetID, scope: scope, limit: limit, offset: offset)
     }
 
     public func annotationsInReadingOrder(
         bookLocalPK: Int64,
-        limit: Int? = nil
+        limit: Int? = nil,
+        offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try validatePagination(limit: limit, offset: 0)
+        try validatePagination(limit: limit, offset: offset)
         guard let book = try bookQueries.getByLocalPK(bookLocalPK) else { return [] }
-        return try annotationsInReadingOrder(book: book, limit: limit)
+        return try annotationsInReadingOrder(book: book, limit: limit, offset: offset)
     }
 
     public func annotationsInReadingOrder(
         bookAssetID assetID: String,
-        limit: Int? = nil
+        limit: Int? = nil,
+        offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try validatePagination(limit: limit, offset: 0)
+        try validatePagination(limit: limit, offset: offset)
         guard let book = try bookQueries.getUniqueByAssetID(assetID) else { return [] }
-        return try annotationsInReadingOrder(book: book, limit: limit)
+        return try annotationsInReadingOrder(book: book, limit: limit, offset: offset)
     }
 
     private func annotationsInReadingOrder(
         book: Book,
-        limit: Int?
+        limit: Int?,
+        offset: Int
     ) throws -> [EnrichedAnnotation] {
         guard let assetID = book.assetID else { return [] }
         let annotations = try annotationQueries.byAssetID(assetID, scope: .user)
@@ -415,8 +433,9 @@ public final class AppleBooks {
                 return lhs.annotation.localPK < rhs.annotation.localPK
             }
         }
-        guard let limit else { return sorted }
-        return Array(sorted.prefix(limit))
+        let paged = sorted.dropFirst(offset)
+        guard let limit else { return Array(paged) }
+        return Array(paged.prefix(limit))
     }
 
     public func annotationContext(
@@ -475,22 +494,33 @@ public final class AppleBooks {
 
     public func annotations(
         matchingHighlightedText text: String,
+        colorName: String? = nil,
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchHighlightedText(text, limit: limit, offset: offset)
+        try annotationQueries.searchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
-    public func annotations(matchingNote text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchNote(text, limit: limit, offset: offset)
+    public func annotations(
+        matchingNote text: String,
+        colorName: String? = nil,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try annotationQueries.searchNote(text, colorName: colorName, limit: limit, offset: offset)
     }
 
-    public func annotations(matchingText text: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchText(text, limit: limit, offset: offset)
+    public func annotations(
+        matchingText text: String,
+        colorName: String? = nil,
+        limit: Int? = nil,
+        offset: Int = 0
+    ) throws -> [EnrichedAnnotation] {
+        try annotationQueries.searchText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
-    public func recentlyCreatedAnnotations(limit: Int = 10) throws -> [EnrichedAnnotation] {
-        try annotationQueries.recentlyCreated(limit: limit)
+    public func recentlyCreatedAnnotations(limit: Int? = 10, offset: Int = 0) throws -> [EnrichedAnnotation] {
+        try annotationQueries.recentlyCreated(limit: limit, offset: offset)
     }
 
     public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {

@@ -18,6 +18,12 @@ struct AnnotationReadingOrderTests {
 
         let limited = try fixture.core.annotationsInReadingOrder(bookLocalPK: 1, limit: 2)
         #expect(limited.map { $0.annotation.localPK } == [2, 3])
+
+        let page = try fixture.core.annotationsInReadingOrder(bookLocalPK: 1, limit: 2, offset: 1)
+        #expect(page.map { $0.annotation.localPK } == [3, 1])
+
+        let suffix = try fixture.core.annotationsInReadingOrder(bookAssetID: "asset-one", offset: 3)
+        #expect(suffix.map { $0.annotation.localPK } == [4, 5])
     }
 
     @Test
@@ -46,6 +52,9 @@ struct AnnotationReadingOrderTests {
         }
         #expect(throws: QueryPaginationError.nonPositiveLimit) {
             _ = try fixture.core.annotationsInReadingOrder(bookAssetID: "missing", limit: -1)
+        }
+        #expect(throws: QueryPaginationError.negativeOffset) {
+            _ = try fixture.core.annotationsInReadingOrder(bookLocalPK: 999, offset: -1)
         }
     }
 

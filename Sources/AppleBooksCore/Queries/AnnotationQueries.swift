@@ -91,29 +91,56 @@ struct AnnotationQueries {
 
     func searchHighlightedText(
         _ text: String,
+        colorName: String? = nil,
         scope: AnnotationScope = .user,
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try query(.highlightedText(text), capability: .annotationHighlightedText, scope: scope, limit: limit, offset: offset)
+        let style = try colorName.map { try AnnotationColor(name: $0).rawValue }
+        return try query(
+            .highlightedText(text),
+            capability: .annotationHighlightedText,
+            scope: scope,
+            limit: limit,
+            offset: offset,
+            styleConstraint: style
+        )
     }
 
     func searchNote(
         _ text: String,
+        colorName: String? = nil,
         scope: AnnotationScope = .user,
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try query(.note(text), capability: .annotationNote, scope: scope, limit: limit, offset: offset)
+        let style = try colorName.map { try AnnotationColor(name: $0).rawValue }
+        return try query(
+            .note(text),
+            capability: .annotationNote,
+            scope: scope,
+            limit: limit,
+            offset: offset,
+            styleConstraint: style
+        )
     }
 
     func searchText(
         _ text: String,
+        colorName: String? = nil,
         scope: AnnotationScope = .user,
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try query(.fullText(text), capability: .annotationFullText, scope: scope, limit: limit, offset: offset)
+        let style = try colorName.map { try AnnotationColor(name: $0).rawValue }
+        return try query(
+            .fullText(text),
+            capability: .annotationFullText,
+            scope: scope,
+            limit: limit,
+            offset: offset,
+            styleConstraint: style
+        )
     }
 
     func recentlyModified() throws -> [EnrichedAnnotation] {
@@ -127,13 +154,13 @@ struct AnnotationQueries {
         )
     }
 
-    func recentlyCreated(limit: Int = 10) throws -> [EnrichedAnnotation] {
+    func recentlyCreated(limit: Int? = 10, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try query(
             .none,
             capability: .annotationByCreationDate,
             scope: .user,
             limit: limit,
-            offset: 0,
+            offset: offset,
             order: .creationRecent
         )
     }
@@ -236,9 +263,13 @@ struct AnnotationQueries {
         scope: AnnotationScope,
         limit: Int?,
         offset: Int,
+        styleConstraint: Int64? = nil,
         order queryOrder: QueryOrder = .standard
     ) throws -> [EnrichedAnnotation] {
         try validatePagination(limit: limit, offset: offset)
+        if styleConstraint != nil {
+            _ = try AppleBooksSchema.inspect(.annotationByStyle, on: annotationConnection)
+        }
         let schema = try AppleBooksSchema.inspect(capability, on: annotationConnection)
         let projection = [AppleBooksSchema.Annotation.localPK]
             + AppleBooksSchema.Annotation.allProjection.filter(schema.contains)
@@ -272,6 +303,9 @@ struct AnnotationQueries {
             if upper != nil {
                 sql += " AND \(AppleBooksSchema.Annotation.creationDate) < ?"
             }
+        }
+        if styleConstraint != nil {
+            sql += " AND \(AppleBooksSchema.Annotation.style) = ?"
         }
 
         let order: [String]
@@ -341,6 +375,10 @@ struct AnnotationQueries {
                 try statement.bind(upper, at: index)
                 index += 1
             }
+        }
+        if let styleConstraint {
+            try statement.bind(styleConstraint, at: index)
+            index += 1
         }
         if let limit {
             try statement.bind(Int64(limit), at: index)

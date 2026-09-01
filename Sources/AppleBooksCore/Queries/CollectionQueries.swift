@@ -145,9 +145,15 @@ struct CollectionQueries {
         func text(_ column: String) throws -> String? {
             schema.contains(column) ? try row.text(column) : nil
         }
+        func int64(_ column: String) throws -> Int64? {
+            schema.contains(column) ? try row.int64(column) : nil
+        }
         func bool(_ column: String) throws -> Bool? {
+            try int64(column).map { $0 != 0 }
+        }
+        func date(_ column: String) throws -> Date? {
             guard schema.contains(column) else { return nil }
-            return try row.int64(column).map { $0 != 0 }
+            return CoreDataTime.date(from: try row.double(column))
         }
 
         return Collection(
@@ -156,7 +162,13 @@ struct CollectionQueries {
             title: try text(AppleBooksSchema.Collection.title),
             details: try text(AppleBooksSchema.Collection.details),
             isDeleted: try bool(AppleBooksSchema.Collection.isDeleted),
-            isHidden: try bool(AppleBooksSchema.Collection.isHidden)
+            isHidden: try bool(AppleBooksSchema.Collection.isHidden),
+            isPlaceholder: try bool(AppleBooksSchema.Collection.isPlaceholder),
+            sortKey: try int64(AppleBooksSchema.Collection.sortKey),
+            sortMode: try int64(AppleBooksSchema.Collection.sortMode),
+            viewMode: try int64(AppleBooksSchema.Collection.viewMode),
+            lastModificationDate: try date(AppleBooksSchema.Collection.lastModificationDate),
+            localModificationDate: try date(AppleBooksSchema.Collection.localModificationDate)
         )
     }
 }

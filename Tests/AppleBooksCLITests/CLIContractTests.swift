@@ -123,6 +123,10 @@ struct CLIContractTests {
 
         let collection = try fixture.runJSON(["collections", "get", ProcessFixture.shelfID])
         #expect(collection["localPK"] as? Int == 10)
+        #expect(collection["sortKey"] as? Int == 10_000)
+        #expect(collection["sortMode"] as? Int == 6)
+        #expect(collection["lastModificationDate"] as? String != nil)
+        #expect(collection["localModificationDate"] as? String != nil)
 
         let collectionSearch = try fixture.runJSON(["collections", "search", "Shelf"])
         #expect((collectionSearch["items"] as? [[String: Any]])?.count == 1)

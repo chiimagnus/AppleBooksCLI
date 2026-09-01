@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 @testable import AppleBooksCLI
+@testable import AppleBooksCore
 
 @Suite("CollectionReadCommandTests")
 struct CollectionReadCommandTests {
@@ -32,6 +33,12 @@ struct CollectionReadCommandTests {
         #expect(page.items[0].title == "Beta")
         #expect(page.items[0].details == "detail beta")
         #expect(page.items[0].isHidden == true)
+        #expect(page.items[0].isPlaceholder == false)
+        #expect(page.items[0].sortKey == 100)
+        #expect(page.items[0].sortMode == 6)
+        #expect(page.items[0].viewMode == 2)
+        #expect(page.items[0].lastModificationDate == CoreDataTime.date(from: 10))
+        #expect(page.items[0].localModificationDate == CoreDataTime.date(from: 11))
         #expect(page.items.allSatisfy { $0.isDeleted == false })
         #expect(page.items.contains(where: { $0.localPK == 3 || $0.localPK == 4 }) == false)
     }
@@ -129,7 +136,9 @@ struct CollectionReadCommandTests {
             let code = CLIEntrypoint.run(arguments: arguments + globals + ["--json"], output: capture.output)
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(capture.stderr.isEmpty)
-            return try JSONDecoder().decode(type, from: Data(capture.stdout.utf8))
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(type, from: Data(capture.stdout.utf8))
         }
 
         func remove() { try? FileManager.default.removeItem(at: root) }
@@ -148,7 +157,13 @@ struct CollectionReadCommandTests {
           ZTITLE TEXT,
           ZDETAILS TEXT,
           ZDELETEDFLAG INTEGER,
-          ZHIDDEN INTEGER
+          ZHIDDEN INTEGER,
+          ZPLACEHOLDER INTEGER,
+          ZSORTKEY INTEGER,
+          ZSORTMODE INTEGER,
+          ZVIEWMODE INTEGER,
+          ZLASTMODIFICATION REAL,
+          ZLOCALMODDATE REAL
         );
         CREATE TABLE ZBKCOLLECTIONMEMBER(
           Z_PK INTEGER PRIMARY KEY,
@@ -163,11 +178,11 @@ struct CollectionReadCommandTests {
           ZAUTHOR TEXT
         );
         INSERT INTO ZBKCOLLECTION VALUES
-          (1,'123','Beta','detail beta',0,1),
-          (2,'literal','Alpha %_\\','detail literal',0,0),
-          (3,'deleted','Deleted','private',1,0),
-          (4,'unknown','Unknown','private',NULL,0),
-          (123,'other','Gamma',NULL,0,0);
+          (1,'123','Beta','detail beta',0,1,0,100,6,2,10,11),
+          (2,'literal','Alpha %_\\','detail literal',0,0,0,200,6,2,20,21),
+          (3,'deleted','Deleted','private',1,0,0,300,6,2,30,31),
+          (4,'unknown','Unknown','private',NULL,0,0,400,6,2,40,41),
+          (123,'other','Gamma',NULL,0,0,NULL,NULL,NULL,NULL,NULL,NULL);
         INSERT INTO ZBKLIBRARYASSET VALUES
           (10,'asset-a','A','Ada'),
           (11,'asset-b','B','Bob'),

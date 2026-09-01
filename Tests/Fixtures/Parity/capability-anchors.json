@@ -6,6 +6,20 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorLifecycleTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note"
+      ],
+      [
+        "collections",
+        "create"
+      ],
+      [
+        "backups",
+        "restore"
+      ]
     ]
   },
   "CFI chapter hint": {
@@ -14,6 +28,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "locate"
+      ]
     ]
   },
   "CFI char range diagnostics": {
@@ -22,6 +42,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "locate"
+      ]
     ]
   },
   "CFI raw round-trip": {
@@ -30,6 +56,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "locate"
+      ]
     ]
   },
   "CSV export": {
@@ -38,6 +70,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "DRM gate": {
@@ -46,6 +84,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "status"
+      ]
     ]
   },
   "EPUB OPF / iTunes metadata enrichment": {
@@ -54,6 +98,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBMetadataTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "metadata"
+      ]
     ]
   },
   "EPUB ToC": {
@@ -64,6 +114,12 @@
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNavTests.swift",
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNCXTests.swift",
       "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapters"
+      ]
     ]
   },
   "EPUB/PDF source scope": {
@@ -73,6 +129,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--source"
+      ]
     ]
   },
   "HTML export": {
@@ -81,6 +143,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "HTML sidebar / responsive / print": {
@@ -89,6 +157,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "HTML 单书折叠 + 全部折叠": {
@@ -97,6 +171,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "HTML 搜索": {
@@ -105,6 +185,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "HTML 状态持久化": {
@@ -113,6 +199,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "JSON export": {
@@ -121,6 +213,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "Markdown export": {
@@ -129,6 +227,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/MarkdownParityTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ],
+      [
+        "export",
+        "--profile"
+      ]
     ]
   },
   "Markdown smart overwrite": {
@@ -138,6 +246,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--overwrite"
+      ]
     ]
   },
   "Obsidian book-selection modal": {
@@ -147,6 +261,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--book"
+      ],
+      [
+        "export",
+        "--book-pk"
+      ]
     ]
   },
   "Obsidian settings tab": {
@@ -157,6 +281,12 @@
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift",
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--profile"
+      ]
     ]
   },
   "PDF color mapping": {
@@ -165,6 +295,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFColorMappingTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "highlights"
+      ]
     ]
   },
   "PDF highlight extraction": {
@@ -174,6 +310,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFHighlightTextTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "highlights"
+      ]
     ]
   },
   "PDF highlight note": {
@@ -182,6 +324,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "highlights"
+      ]
     ]
   },
   "PDF library metadata": {
@@ -191,6 +339,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "list"
+      ]
     ]
   },
   "PDF metadata fallback": {
@@ -200,6 +354,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "list"
+      ]
     ]
   },
   "PDF page/location": {
@@ -209,6 +369,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "highlights"
+      ]
     ]
   },
   "PDF parse timeout": {
@@ -217,6 +383,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFWorkerTimeoutTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "highlights",
+        "--timeout"
+      ]
     ]
   },
   "SQLite DB 自动发现": {
@@ -225,6 +398,11 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "doctor"
+      ]
     ]
   },
   "add book": {
@@ -233,6 +411,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "add-book",
+        "--book-pk"
+      ],
+      [
+        "collections",
+        "add-book",
+        "--collection-pk"
+      ]
     ]
   },
   "annotation context window": {
@@ -241,6 +431,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/AnnotationContextTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "context",
+        "--before"
+      ],
+      [
+        "content",
+        "context",
+        "--after"
+      ]
     ]
   },
   "annotation export ordering": {
@@ -250,6 +452,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--order"
+      ]
     ]
   },
   "annotation identity": {
@@ -259,6 +467,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/StableSelectorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "get",
+        "--pk"
+      ]
     ]
   },
   "annotations by book": {
@@ -268,6 +483,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/AnnotationReadingOrderTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list",
+        "--book"
+      ],
+      [
+        "annotations",
+        "list",
+        "--order"
+      ]
     ]
   },
   "annotations by date range": {
@@ -276,6 +503,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Parity/ReadParityRegressionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "range",
+        "--after"
+      ],
+      [
+        "annotations",
+        "range",
+        "--before"
+      ]
     ]
   },
   "author pages": {
@@ -285,6 +524,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--author-pages"
+      ]
     ]
   },
   "author sentinel normalization": {
@@ -293,6 +538,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "get"
+      ]
     ]
   },
   "backup list/retention": {
@@ -301,6 +552,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/LibraryBackupCatalogTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "backups",
+        "list"
+      ]
     ]
   },
   "chapter headings / annotation date / style / progress": {
@@ -310,6 +567,24 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--chapter-headings"
+      ],
+      [
+        "export",
+        "--annotation-dates"
+      ],
+      [
+        "export",
+        "--annotation-styles"
+      ],
+      [
+        "export",
+        "--reading-progress"
+      ]
     ]
   },
   "chapter text": {
@@ -319,6 +594,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/ChapterTextTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter"
+      ]
     ]
   },
   "chapter text pagination": {
@@ -327,6 +608,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter",
+        "--offset"
+      ],
+      [
+        "content",
+        "chapter",
+        "--max-chars"
+      ]
     ]
   },
   "citation": {
@@ -336,6 +629,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--citation"
+      ]
     ]
   },
   "context 中精确标出 highlight": {
@@ -344,6 +643,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/ContextMarkerTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "context"
+      ]
     ]
   },
   "cover inline / cover file": {
@@ -353,6 +658,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--cover"
+      ]
     ]
   },
   "cover 提取": {
@@ -361,6 +672,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBCoverTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "cover",
+        "--output"
+      ]
     ]
   },
   "create collection": {
@@ -369,6 +687,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "create"
+      ]
     ]
   },
   "current / historical_inferred / historical_unmapped 区分": {
@@ -378,6 +702,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Parity/ExtendedReadParityTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list"
+      ]
     ]
   },
   "current reading chapter": {
@@ -386,6 +716,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/CurrentReadingChapterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "current-chapter"
+      ]
     ]
   },
   "current reading position": {
@@ -395,6 +731,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "position"
+      ]
     ]
   },
   "current-library packed EPUB fallback": {
@@ -403,6 +745,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter",
+        "--config"
+      ]
     ]
   },
   "current-position fallback": {
@@ -412,6 +761,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "position"
+      ]
     ]
   },
   "delete collection": {
@@ -420,6 +775,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/CollectionDeleteTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "delete"
+      ]
     ]
   },
   "directory / packed parser 等价": {
@@ -430,6 +791,12 @@
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/DirectoryEPUBPackageTests.swift",
       "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter"
+      ]
     ]
   },
   "export output destination": {
@@ -438,6 +805,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--output"
+      ]
     ]
   },
   "export single/multiple file": {
@@ -447,6 +820,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--grouping"
+      ]
     ]
   },
   "export statistics": {
@@ -456,6 +835,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "export 类型过滤": {
@@ -465,6 +850,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--kind"
+      ]
     ]
   },
   "export 颜色过滤": {
@@ -474,6 +865,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--color"
+      ]
     ]
   },
   "export/filter underline": {
@@ -483,6 +880,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--underline"
+      ]
     ]
   },
   "extended frontmatter/body metadata": {
@@ -492,6 +895,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--extended-frontmatter"
+      ],
+      [
+        "export",
+        "--body-metadata"
+      ]
     ]
   },
   "finished books": {
@@ -500,6 +913,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "finished"
+      ]
     ]
   },
   "full annotation text search": {
@@ -508,6 +927,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/AnnotationFullTextSearchTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "search",
+        "--field"
+      ]
     ]
   },
   "genre 查询": {
@@ -516,6 +942,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "genre"
+      ]
     ]
   },
   "get/describe annotation": {
@@ -525,6 +957,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/StableSelectorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "get",
+        "--pk"
+      ]
     ]
   },
   "get/describe book": {
@@ -534,6 +973,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "get",
+        "--pk"
+      ]
     ]
   },
   "get/describe collection": {
@@ -542,6 +988,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "get",
+        "--pk"
+      ]
     ]
   },
   "highlights by color": {
@@ -551,6 +1004,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/AnnotationColorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--kind",
+        "--color"
+      ]
     ]
   },
   "historical asset metadata 显式映射": {
@@ -559,6 +1019,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Configuration/AppleBooksConfigurationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list",
+        "--config"
+      ]
     ]
   },
   "in-progress books": {
@@ -567,6 +1034,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "in-progress"
+      ]
     ]
   },
   "library stats": {
@@ -575,6 +1048,11 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/LibraryStatsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "stats"
+      ]
     ]
   },
   "list annotations": {
@@ -583,6 +1061,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/AnnotationScopeTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list",
+        "--scope"
+      ]
     ]
   },
   "list books": {
@@ -591,6 +1076,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/BookQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "list"
+      ]
     ]
   },
   "list books with annotations": {
@@ -600,6 +1091,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "list",
+        "--annotated"
+      ]
     ]
   },
   "list collection books": {
@@ -608,6 +1106,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "books",
+        "--pk"
+      ]
     ]
   },
   "list collections": {
@@ -616,6 +1121,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "list"
+      ]
     ]
   },
   "note-bearing historical asset 必须可识别": {
@@ -625,6 +1136,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--complete-notes"
+      ]
     ]
   },
   "orphan annotations 不因 current BKLibrary 缺 row 而消失": {
@@ -633,6 +1150,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Parity/ExtendedReadParityTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list",
+        "--group-by"
+      ]
     ]
   },
   "partial export offset": {
@@ -642,6 +1166,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--skip-first"
+      ]
     ]
   },
   "recent annotations by creation": {
@@ -650,6 +1180,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RecentlyCreatedAnnotationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "recent",
+        "--time-field"
+      ]
     ]
   },
   "recent annotations by modification": {
@@ -658,6 +1195,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RecentlyModifiedAnnotationTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "recent",
+        "--time-field"
+      ]
     ]
   },
   "recently read books": {
@@ -666,6 +1210,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "recent"
+      ]
     ]
   },
   "remove book": {
@@ -674,6 +1224,18 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "remove-book",
+        "--book-pk"
+      ],
+      [
+        "collections",
+        "remove-book",
+        "--collection-pk"
+      ]
     ]
   },
   "rename collection": {
@@ -682,6 +1244,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "rename",
+        "--title"
+      ]
     ]
   },
   "restore": {
@@ -692,6 +1261,12 @@
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/SQLiteRestoreTests.swift",
       "Tests/AppleBooksCoreTests/Mutations/RestoreCoordinatorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "backups",
+        "restore"
+      ]
     ]
   },
   "sanitised errors": {
@@ -700,6 +1275,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note",
+        "--json"
+      ]
     ]
   },
   "search collections by title": {
@@ -708,6 +1290,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "collections",
+        "search"
+      ]
     ]
   },
   "search highlighted text": {
@@ -716,6 +1304,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/AnnotationQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "search",
+        "--field"
+      ]
     ]
   },
   "search note text": {
@@ -724,6 +1319,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/AnnotationQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "search",
+        "--field"
+      ]
     ]
   },
   "soft-delete annotation": {
@@ -732,6 +1334,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/AnnotationDeleteTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "delete"
+      ]
     ]
   },
   "supplemental EPUB root / 外部 EPUB fallback": {
@@ -741,6 +1349,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter",
+        "--config"
+      ]
     ]
   },
   "tags": {
@@ -750,6 +1365,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--tag"
+      ]
     ]
   },
   "title search": {
@@ -758,6 +1379,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "search"
+      ]
     ]
   },
   "title/author/genre 综合搜索": {
@@ -766,6 +1393,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "search"
+      ]
     ]
   },
   "unstarted books": {
@@ -774,6 +1407,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "reading",
+        "unstarted"
+      ]
     ]
   },
   "丰富书籍 metadata": {
@@ -782,6 +1421,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "get"
+      ]
     ]
   },
   "保留 raw annotation 字段": {
@@ -790,6 +1435,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "get"
+      ]
     ]
   },
   "修改已有 annotation note": {
@@ -798,6 +1449,13 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/AnnotationUpdateNoteTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note",
+        "--note"
+      ]
     ]
   },
   "写 schema fail-closed": {
@@ -806,6 +1464,11 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/WriteSchemaGuardTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "doctor"
+      ]
     ]
   },
   "写事务": {
@@ -814,6 +1477,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note"
+      ],
+      [
+        "collections",
+        "create"
+      ]
     ]
   },
   "写前 backup": {
@@ -823,6 +1496,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/SQLiteBackupTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note"
+      ],
+      [
+        "collections",
+        "create"
+      ]
     ]
   },
   "原始 physical/range/type/style/UUID 字段完整 export": {
@@ -832,6 +1515,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--format"
+      ]
     ]
   },
   "导出数量与 raw SQLite count 校验": {
@@ -841,6 +1530,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--complete-notes"
+      ]
     ]
   },
   "本地 materialization 检查": {
@@ -849,6 +1544,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/BookContentAvailabilityTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "status"
+      ]
     ]
   },
   "细粒度 spine entry": {
@@ -858,6 +1559,12 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "content",
+        "chapter"
+      ]
     ]
   },
   "自定义 annotations/library DB 路径": {
@@ -866,6 +1573,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "doctor",
+        "--library-db"
+      ],
+      [
+        "doctor",
+        "--annotations-db"
+      ]
     ]
   },
   "自选有 AEAnnotation highlights 的书": {
@@ -875,6 +1592,16 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--book"
+      ],
+      [
+        "export",
+        "--book-pk"
+      ]
     ]
   },
   "读取 schema capability detection": {
@@ -883,6 +1610,11 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Database/AppleBooksSchemaTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "doctor"
+      ]
     ]
   },
   "输入边界校验": {
@@ -893,6 +1625,75 @@
     "testPaths": [
       "Tests/AppleBooksCoreTests/Mutations/AnnotationUpdateNoteTests.swift",
       "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note",
+        "--note"
+      ],
+      [
+        "collections",
+        "create"
+      ]
+    ]
+  },
+  "Full Disk Access / DB 可访问性诊断": {
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/DoctorCommand.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/DoctorCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "doctor"
+      ]
+    ]
+  },
+  "help / version": {
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/AppleBooksCLI.swift",
+      "Sources/AppleBooksCLI/Version.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/RootCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "--version"
+      ]
+    ]
+  },
+  "人类输出与机器输出分离": {
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/CLIEntrypoint.swift",
+      "Sources/AppleBooksCLI/Output.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/OutputContractTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "books",
+        "list",
+        "--json"
+      ]
+    ]
+  },
+  "list all / group by book": {
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationReadCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "list",
+        "--group-by"
+      ]
     ]
   }
 }

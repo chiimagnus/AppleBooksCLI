@@ -71,7 +71,16 @@ enum AppleBooksSchema {
         static let details = "ZDETAILS"
         static let isDeleted = "ZDELETEDFLAG"
         static let isHidden = "ZHIDDEN"
-        static let allProjection = [collectionID, title, details, isDeleted, isHidden]
+        static let isPlaceholder = "ZPLACEHOLDER"
+        static let sortKey = "ZSORTKEY"
+        static let sortMode = "ZSORTMODE"
+        static let viewMode = "ZVIEWMODE"
+        static let lastModificationDate = "ZLASTMODIFICATION"
+        static let localModificationDate = "ZLOCALMODDATE"
+        static let allProjection = [
+            collectionID, title, details, isDeleted, isHidden, isPlaceholder,
+            sortKey, sortMode, viewMode, lastModificationDate, localModificationDate,
+        ]
     }
 
     enum Member {

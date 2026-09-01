@@ -1,5 +1,6 @@
 import AppleBooksCore
 import ArgumentParser
+import Foundation
 
 struct CollectionsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -351,6 +352,12 @@ struct CollectionResult: Codable, Equatable, Sendable {
     let details: String?
     let isDeleted: Bool?
     let isHidden: Bool?
+    let isPlaceholder: Bool?
+    let sortKey: Int64?
+    let sortMode: Int64?
+    let viewMode: Int64?
+    let lastModificationDate: Date?
+    let localModificationDate: Date?
 
     init(_ collection: Collection) {
         localPK = collection.localPK
@@ -359,6 +366,12 @@ struct CollectionResult: Codable, Equatable, Sendable {
         details = collection.details
         isDeleted = collection.isDeleted
         isHidden = collection.isHidden
+        isPlaceholder = collection.isPlaceholder
+        sortKey = collection.sortKey
+        sortMode = collection.sortMode
+        viewMode = collection.viewMode
+        lastModificationDate = collection.lastModificationDate
+        localModificationDate = collection.localModificationDate
     }
 
     var humanDescription: String {
@@ -368,6 +381,8 @@ struct CollectionResult: Codable, Equatable, Sendable {
             "title: \(title ?? "-")",
             "details: \(details ?? "-")",
             "hidden: \(isHidden.map(String.init) ?? "-")",
+            "sort key: \(sortKey.map(String.init) ?? "-")",
+            "last modification: \(lastModificationDate.map { $0.formatted(.iso8601) } ?? "-")",
         ].joined(separator: "\n")
     }
 

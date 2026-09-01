@@ -1,6 +1,6 @@
 # Apple Books CLI 文档索引
 
-> 更新时间：2026-08-31。这里记录 AppleBooksCLI 的长期产品 contract、本机只读验证与安全边界；实施来源和迁移证据属于 `.github/features/`，不进入长期 tracked 文档。
+> 更新时间：2026-09-02。这里记录 AppleBooksCLI 的长期产品 contract、本机只读验证与安全边界；实施来源和迁移证据属于 `.github/features/`，不进入长期 tracked 文档。
 
 ## 目标与 contract
 
@@ -10,7 +10,7 @@ AppleBooksCLI 把 Apple Books 作为独立数据源提供稳定 Swift CLI。Noti
 
 - books / collections / annotations / reading status / stats。
 - EPUB、ToC、CFI、chapter content 与 annotation context。
-- PDF highlight extraction 与增量 scan cache。
+- PDF highlight extraction；首版不复刻 raw-marker prefilter / persistent scan cache 这类 performance heuristic。
 - JSON / Markdown / CSV / self-contained HTML export。
 - annotation / collection 写能力、backup / restore 与 Books.app lifecycle。
 - 宿主特定交互转译成 CLI 等价 flags/profile；不复制 transport 或 UI chrome。

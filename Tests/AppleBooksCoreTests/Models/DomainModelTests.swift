@@ -83,10 +83,17 @@ struct DomainModelTests {
             title: "Synthetic Shelf",
             details: nil,
             isDeleted: false,
-            isHidden: nil
+            isHidden: nil,
+            isPlaceholder: nil,
+            sortKey: 42,
+            sortMode: nil,
+            viewMode: nil,
+            lastModificationDate: nil,
+            localModificationDate: nil
         )
         #expect(collection.localPK == 3)
         #expect(collection.collectionID == nil)
         #expect(collection.title == "Synthetic Shelf")
+        #expect(collection.sortKey == 42)
     }
 }

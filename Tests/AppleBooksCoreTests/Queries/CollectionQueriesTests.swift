@@ -14,22 +14,38 @@ struct CollectionQueriesTests {
             ZTITLE TEXT,
             ZDETAILS TEXT,
             ZDELETEDFLAG INTEGER,
-            ZHIDDEN INTEGER
+            ZHIDDEN INTEGER,
+            ZPLACEHOLDER INTEGER,
+            ZSORTKEY INTEGER,
+            ZSORTMODE INTEGER,
+            ZVIEWMODE INTEGER,
+            ZLASTMODIFICATION REAL,
+            ZLOCALMODDATE REAL
         );
         INSERT INTO ZBKCOLLECTION VALUES
-            (1, 'one', 'Beta', NULL, 0, 0),
-            (2, 'two', 'alpha', 'detail', 0, 1),
-            (3, 'three', 'Alpha', NULL, 1, 0),
-            (4, 'four', 'Alpha', NULL, NULL, 0),
-            (5, 'five', NULL, NULL, 0, NULL),
-            (6, 'six', 'alpha', NULL, 0, 0);
+            (1, 'one', 'Beta', NULL, 0, 0, 0, 100, 6, 2, 10.5, 11.5),
+            (2, 'two', 'alpha', 'detail', 0, 1, 1, 200, 7, 3, 20.5, 21.5),
+            (3, 'three', 'Alpha', NULL, 1, 0, 0, 300, 6, 2, 30.5, 31.5),
+            (4, 'four', 'Alpha', NULL, NULL, 0, 0, 400, 6, 2, 40.5, 41.5),
+            (5, 'five', NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
+            (6, 'six', 'alpha', NULL, 0, 0, 0, 600, 6, 2, 60.5, 61.5);
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
 
         #expect(try queries.list().map(\.localPK) == [2, 6, 1, 5])
         #expect(try queries.searchTitle("ALPHA").map(\.localPK) == [2, 6])
-        #expect(try queries.getByLocalPK(1)?.title == "Beta")
+        let first = try #require(try queries.getByLocalPK(1))
+        #expect(first.title == "Beta")
+        #expect(first.isPlaceholder == false)
+        #expect(first.sortKey == 100)
+        #expect(first.sortMode == 6)
+        #expect(first.viewMode == 2)
+        #expect(first.lastModificationDate == CoreDataTime.date(from: 10.5))
+        #expect(first.localModificationDate == CoreDataTime.date(from: 11.5))
+        let optional = try #require(try queries.getByLocalPK(5))
+        #expect(optional.sortKey == nil)
+        #expect(optional.lastModificationDate == nil)
         #expect(try queries.getByLocalPK(3) == nil)
         #expect(try queries.getByLocalPK(4) == nil)
     }

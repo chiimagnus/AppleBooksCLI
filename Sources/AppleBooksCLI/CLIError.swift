@@ -125,6 +125,17 @@ enum CLIOperation {
         if let mutationFailure = error as? MutationFailure {
             return .writeSafety("Apple Books mutation failed safely (\(mutationFailure.code.rawValue)).")
         }
+        if let restoreFailure = error as? RestoreFailure {
+            switch restoreFailure.code {
+            case .sourceRejected:
+                return .notFound("Backup handle is unavailable or invalid.")
+            case .quitFailed, .safetyBackupFailed, .restoreFailed:
+                return .writeSafety("Library restore failed safely (\(restoreFailure.code.rawValue)).")
+            }
+        }
+        if error is SQLiteBackupError {
+            return .unavailable("Apple Books backup store is unavailable.")
+        }
         if let discoveryError = error as? DatabaseDiscoveryError {
             switch discoveryError {
             case .invalidOverride:

@@ -13,6 +13,24 @@ enum AnnotationSelector: Equatable, Sendable {
             try books.annotation(localPK: localPK, scope: scope)
         }
     }
+
+    func updateNote(_ note: String, in books: AppleBooks) throws -> MutationResult {
+        switch self {
+        case let .uuid(uuid):
+            try books.updateAnnotationNote(uuid: uuid, note: note)
+        case let .localPK(localPK):
+            try books.updateAnnotationNote(localPK: localPK, note: note)
+        }
+    }
+
+    func delete(in books: AppleBooks) throws -> MutationResult {
+        switch self {
+        case let .uuid(uuid):
+            try books.deleteAnnotation(uuid: uuid)
+        case let .localPK(localPK):
+            try books.deleteAnnotation(localPK: localPK)
+        }
+    }
 }
 
 func parseAnnotationSelector(uuid: String?, localPK: Int64?) throws -> AnnotationSelector {

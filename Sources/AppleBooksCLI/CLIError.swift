@@ -94,6 +94,21 @@ enum CLIOperation {
                 return .usageInvalid("Invalid annotation date range.")
             }
         }
+        if let annotationWriteError = error as? AnnotationWriteError {
+            switch annotationWriteError {
+            case .invalidNoteLength:
+                return .usageInvalid("Annotation note length is invalid.")
+            case .annotationMissing:
+                return .notFound("Annotation not found.")
+            case .annotationDeletedOrUnknown:
+                return .writeSafety("Annotation is not writable.")
+            case .writeFailed:
+                return .writeSafety("Annotation mutation failed safely.")
+            }
+        }
+        if let mutationFailure = error as? MutationFailure {
+            return .writeSafety("Apple Books mutation failed safely (\(mutationFailure.code.rawValue)).")
+        }
         if let discoveryError = error as? DatabaseDiscoveryError {
             switch discoveryError {
             case .invalidOverride:

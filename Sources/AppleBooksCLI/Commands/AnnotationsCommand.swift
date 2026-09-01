@@ -12,6 +12,8 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsSearchCommand.self,
             AnnotationsRecentCommand.self,
             AnnotationsRangeCommand.self,
+            AnnotationsUpdateNoteCommand.self,
+            AnnotationsDeleteCommand.self,
         ]
     )
 }
@@ -399,6 +401,112 @@ struct AnnotationsRangeCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
             )
             return AnnotationCollectionResult(enriched: rows, limit: limit, offset: offset)
         }
+    }
+}
+
+struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "update-note",
+        abstract: "Update one annotation note through the guarded mutation rail."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
+    var pk: Int64?
+
+    @Option(name: .long, help: "Replacement note text.")
+    var note: String
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws {
+        try run(output: .standard)
+    }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json {
+            try output.writeJSON(result)
+        } else {
+            output.stdout(result.humanDescription)
+        }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selector.updateNote(note, in: books))
+        }
+    }
+}
+
+struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "delete",
+        abstract: "Soft-delete one annotation through the guarded mutation rail."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
+    var pk: Int64?
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws {
+        try run(output: .standard)
+    }
+
+    func run(output: CLIOutput) throws {
+        let result = try execute()
+        if global.json {
+            try output.writeJSON(result)
+        } else {
+            output.stdout(result.humanDescription)
+        }
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            return MutationCommandResult(try selector.delete(in: books))
+        }
+    }
+}
+
+struct MutationCommandResult: Codable, Equatable, Sendable {
+    let committed: Bool
+    let changed: Bool
+    let backupHandle: String
+    let localPK: Int64?
+    let stableID: String?
+    let warningCodes: [String]
+
+    init(_ result: MutationResult) {
+        committed = result.committed
+        changed = result.changed
+        backupHandle = result.backupHandle
+        localPK = result.localPK
+        stableID = result.stableID
+        warningCodes = result.warnings.map(\.rawValue)
+    }
+
+    var humanDescription: String {
+        var lines = [
+            "committed: \(committed)",
+            "changed: \(changed)",
+            "backup: \(backupHandle)",
+            "local PK: \(localPK.map(String.init) ?? "-")",
+        ]
+        if warningCodes.isEmpty == false {
+            lines.append("warnings: \(warningCodes.joined(separator: ","))")
+        }
+        return lines.joined(separator: "\n")
     }
 }
 

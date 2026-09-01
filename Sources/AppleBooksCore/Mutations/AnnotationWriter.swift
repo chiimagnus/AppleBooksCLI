@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-enum AnnotationWriteError: Error, Equatable {
+public enum AnnotationWriteError: Error, Equatable, Sendable {
     case invalidNoteLength
     case annotationMissing
     case annotationDeletedOrUnknown

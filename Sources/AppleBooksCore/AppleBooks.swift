@@ -6,6 +6,10 @@ public enum StableIdentityError: Error, Equatable, Sendable {
     case ambiguousAnnotationUUID
 }
 
+public enum PDFHighlightFacadeError: Error, Equatable, Sendable {
+    case workerUnavailable
+}
+
 public final class AppleBooks {
     private let bookQueries: BookQueries
     private let collectionQueries: CollectionQueries
@@ -16,19 +20,26 @@ public final class AppleBooks {
     private let restoreCoordinator: MutationCoordinator
     private let libraryDatabase: URL
     private let libraryBackupRoot: URL
+    private let pdfSourceResolver: PDFSourceResolver
+    private let pdfWorkerClient: PDFWorkerClient?
     let configuration: AppleBooksConfiguration
 
     public convenience init(
         libraryDB: URL,
         annotationsDB: URL,
-        configurationFile: URL? = nil
+        configurationFile: URL? = nil,
+        pdfWorkerURL: URL? = nil,
+        pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             configurationFile: configurationFile,
             collectionWriter: CollectionWriter(database: libraryDB),
-            annotationWriter: AnnotationWriter(database: annotationsDB)
+            annotationWriter: AnnotationWriter(database: annotationsDB),
+            pdfWorkerClient: pdfWorkerURL.map {
+                PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
+            }
         )
     }
 
@@ -39,7 +50,9 @@ public final class AppleBooks {
         collectionWriter: CollectionWriter,
         annotationWriter: AnnotationWriter? = nil,
         libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
-        restoreCoordinator: MutationCoordinator? = nil
+        restoreCoordinator: MutationCoordinator? = nil,
+        pdfSourceResolver: PDFSourceResolver = PDFSourceResolver(),
+        pdfWorkerClient: PDFWorkerClient? = nil
     ) throws {
         let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
         let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
@@ -66,6 +79,8 @@ public final class AppleBooks {
         )
         libraryDatabase = libraryDB
         self.libraryBackupRoot = libraryBackupRoot
+        self.pdfSourceResolver = pdfSourceResolver
+        self.pdfWorkerClient = pdfWorkerClient
         self.configuration = configuration
     }
 
@@ -219,6 +234,19 @@ public final class AppleBooks {
 
     public func book(assetID: String) throws -> Book? {
         try bookQueries.getUniqueByAssetID(assetID)
+    }
+
+    public func pdfSources() throws -> [PDFSource] {
+        pdfSourceResolver.resolve(pdfBooks: try bookQueries.pdfBooks())
+    }
+
+    public func pdfHighlights() throws -> PDFHighlightServiceResult {
+        guard let pdfWorkerClient else { throw PDFHighlightFacadeError.workerUnavailable }
+        return try PDFHighlightService(
+            bookQueries: bookQueries,
+            sourceResolver: pdfSourceResolver,
+            workerClient: pdfWorkerClient
+        ).readHighlights()
     }
 
     public func books(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {

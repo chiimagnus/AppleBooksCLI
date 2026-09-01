@@ -56,7 +56,7 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    fileprivate var groupKey: GroupKey {
+    var documentKey: ExportDocumentKey {
         switch payload {
         case let .epub(enriched):
             if let assetID = enriched.annotation.rawAssetID {
@@ -68,7 +68,7 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    fileprivate var isKnownCurrentPDFAnnotation: Bool {
+    var isKnownCurrentPDFAnnotation: Bool {
         guard case let .epub(enriched) = payload,
               case let .currentLibrary(book) = enriched.source else {
             return false
@@ -160,17 +160,17 @@ enum ExportSelection {
         switch options.order {
         case .source:
             guard options.skipFirstPerBook > 0 else { return filtered.map(\.record) }
-            var seen: [GroupKey: Int] = [:]
+            var seen: [ExportDocumentKey: Int] = [:]
             return filtered.compactMap { item in
-                let count = seen[item.record.groupKey, default: 0]
-                seen[item.record.groupKey] = count + 1
+                let count = seen[item.record.documentKey, default: 0]
+                seen[item.record.documentKey] = count + 1
                 return count < options.skipFirstPerBook ? nil : item.record
             }
         case .reading:
-            var groupOrder: [GroupKey] = []
-            var groups: [GroupKey: [IndexedRecord]] = [:]
+            var groupOrder: [ExportDocumentKey] = []
+            var groups: [ExportDocumentKey: [IndexedRecord]] = [:]
             for item in filtered {
-                let key = item.record.groupKey
+                let key = item.record.documentKey
                 if groups[key] == nil { groupOrder.append(key) }
                 groups[key, default: []].append(item)
             }
@@ -224,7 +224,7 @@ private struct IndexedRecord {
     let record: ExportRecord
 }
 
-private enum GroupKey: Hashable {
+enum ExportDocumentKey: Hashable, Sendable {
     case epubAsset(String)
     case epubLocalPK(Int64)
     case pdfPath(String)

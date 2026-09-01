@@ -37,7 +37,10 @@ struct PDFHighlightService {
     }
 
     func readHighlights() throws -> PDFHighlightServiceResult {
-        let sources = try inventory()
+        readHighlights(sources: try inventory())
+    }
+
+    func readHighlights(sources: [PDFSource]) -> PDFHighlightServiceResult {
         var documents: [PDFDocumentHighlights] = []
         var failures: [PDFHighlightServiceFailure] = []
 

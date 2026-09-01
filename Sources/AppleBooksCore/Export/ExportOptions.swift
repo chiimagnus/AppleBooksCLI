@@ -5,6 +5,7 @@ public enum ExportOptionsError: Error, Equatable, Sendable {
     case emptyColors
     case negativeSkip
     case invalidBookSelector
+    case conflictingOptions
 }
 
 public enum ExportSourceScope: String, Equatable, Hashable, Sendable {
@@ -88,6 +89,16 @@ public struct ExportOptions: Equatable, Sendable {
                     throw ExportOptionsError.invalidBookSelector
                 }
             }
+        }
+        if source == .epub,
+           bookSelectors.contains(where: { selector in
+               if case .pdfFile = selector { return true }
+               return false
+           }) {
+            throw ExportOptionsError.conflictingOptions
+        }
+        if source == .pdf, includeEPUBMetadata || cover != .none {
+            throw ExportOptionsError.conflictingOptions
         }
 
         self.source = source

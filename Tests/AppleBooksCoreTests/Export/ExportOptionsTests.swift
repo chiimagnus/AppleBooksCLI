@@ -37,6 +37,18 @@ struct ExportOptionsTests {
         #expect(throws: ExportOptionsError.invalidBookSelector) {
             _ = try ExportOptions(bookSelectors: [.pdfFile(URL(fileURLWithPath: "/tmp/one/../book.pdf"))])
         }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(
+                source: .epub,
+                bookSelectors: [.pdfFile(URL(fileURLWithPath: "/tmp/book.pdf"))]
+            )
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(source: .pdf, includeEPUBMetadata: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(source: .pdf, cover: .inline)
+        }
     }
 
     @Test

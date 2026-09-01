@@ -1,6 +1,6 @@
 import Foundation
 
-public enum EPUBEncryption: Equatable, Sendable {
+public enum EPUBEncryption: String, Codable, Equatable, Sendable {
     case none
     case fontObfuscationOnly
     case contentEncryptionUnsupported

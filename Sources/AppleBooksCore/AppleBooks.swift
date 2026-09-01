@@ -277,6 +277,26 @@ public final class AppleBooks {
         try bookQueries.search(text, limit: limit, offset: offset)
     }
 
+    public func contentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {
+        guard let book = try bookQueries.getForContent(localPK) else { return nil }
+        return EPUBContentInspector.status(book: book, configuration: configuration)
+    }
+
+    public func contentMetadata(forBookLocalPK localPK: Int64) throws -> EPUBMetadataInspection? {
+        guard let book = try bookQueries.getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.metadata(book: book, configuration: configuration)
+    }
+
+    public func contentCover(forBookLocalPK localPK: Int64) throws -> EPUBCoverInspection? {
+        guard let book = try bookQueries.getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.cover(book: book, configuration: configuration)
+    }
+
+    public func locate(rawCFI: String, forBookLocalPK localPK: Int64) throws -> EPUBLocationInspection? {
+        guard let book = try bookQueries.getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.locate(rawCFI: rawCFI, book: book, configuration: configuration)
+    }
+
     public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
         guard let book = try bookQueries.getForContent(localPK) else {
             throw ContentError.bookPathUnavailable

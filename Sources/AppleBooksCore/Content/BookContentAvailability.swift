@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public enum BookContentAvailability: Equatable, Sendable {
+public enum BookContentAvailability: String, Codable, Equatable, Sendable {
     case available
     case notDownloaded
     case missing

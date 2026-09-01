@@ -1,6 +1,6 @@
 import Foundation
 
-public enum EPUBCoverSource: Equatable, Sendable {
+public enum EPUBCoverSource: String, Codable, Equatable, Sendable {
     case manifestProperty
     case metadataID
     case commonNameFallback

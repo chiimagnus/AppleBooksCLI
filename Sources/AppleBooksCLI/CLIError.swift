@@ -107,8 +107,12 @@ enum CLIOperation {
             error is EPUBResourceError ||
             error is DirectoryEPUBPackageError ||
             error is EPUBNavigationError ||
-            error is EPUBPathError {
+            error is EPUBPathError ||
+            error is EPUBMetadataError {
             return .unavailable("Book content is unavailable.")
+        }
+        if error is ExportFileWriterError {
+            return .writeSafety("Output path is unsafe or already exists.")
         }
         return .internalFailure
     }

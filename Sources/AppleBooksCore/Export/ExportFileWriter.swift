@@ -16,7 +16,7 @@ public enum ExportFileWriterError: Error, Equatable, Sendable {
     case writeFailed
 }
 
-public enum ExportFileWriteDisposition: Equatable, Sendable {
+public enum ExportFileWriteDisposition: String, Codable, Equatable, Sendable {
     case created
     case updated
     case unchanged

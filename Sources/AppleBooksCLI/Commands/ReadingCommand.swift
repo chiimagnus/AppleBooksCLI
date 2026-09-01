@@ -132,14 +132,7 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         let result = try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks()
-            let book: Book?
-            switch selector {
-            case let .assetID(assetID):
-                book = try books.book(assetID: assetID)
-            case let .localPK(localPK):
-                book = try books.book(localPK: localPK)
-            }
-            guard let book else {
+            guard let book = try selector.resolve(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }
             guard let position = try books.currentReadingPosition(forBookLocalPK: book.localPK) else {

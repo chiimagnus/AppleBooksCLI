@@ -146,14 +146,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks()
-            let overview: BookOverview?
-            switch selector {
-            case let .assetID(assetID):
-                overview = try books.bookOverview(assetID: assetID)
-            case let .localPK(localPK):
-                overview = try books.bookOverview(localPK: localPK)
-            }
-            guard let overview else {
+            guard let overview = try selector.resolveOverview(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }
             return BookResult(overview: overview)

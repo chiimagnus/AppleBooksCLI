@@ -168,18 +168,12 @@ private struct JSONExportMapper {
     }
 
     private func cover(_ value: EPUBCover) -> JSONEPUBCoverDTO {
-        let source: String
-        switch value.source {
-        case .manifestProperty: source = "manifestProperty"
-        case .metadataID: source = "metadataID"
-        case .commonNameFallback: source = "commonNameFallback"
-        }
-        return JSONEPUBCoverDTO(
+        JSONEPUBCoverDTO(
             dataBase64: value.data.base64EncodedString(),
             declaredMediaType: value.declaredMediaType,
             detectedMediaType: value.detectedMediaType,
             mediaType: value.mediaType,
-            source: source
+            source: value.source.rawValue
         )
     }
 

@@ -5,6 +5,6 @@ struct AppleBooksCLI: ParsableCommand {
         commandName: "applebookscli",
         abstract: "Read and manage Apple Books data from the command line.",
         version: AppleBooksCLIVersion.current,
-        subcommands: [DoctorCommand.self]
+        subcommands: [DoctorCommand.self, BooksCommand.self]
     )
 }

@@ -33,7 +33,7 @@ DerivedData/
 
 # ---- 你项目里已有的自定义项 ----
 .codegraph/
-.github/features/
+# .github/features/
 .github/archived_features/
 .audit/
 tmp/

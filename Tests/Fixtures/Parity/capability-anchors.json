@@ -1,0 +1,898 @@
+{
+  "Books.app lifecycle": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/BooksAppController.swift",
+      "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorLifecycleTests.swift"
+    ]
+  },
+  "CFI chapter hint": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Location.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ]
+  },
+  "CFI char range diagnostics": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Location.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ]
+  },
+  "CFI raw round-trip": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Location.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+    ]
+  },
+  "CSV export": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/CSVExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift"
+    ]
+  },
+  "DRM gate": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/EPUBEncryption.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift"
+    ]
+  },
+  "EPUB OPF / iTunes metadata enrichment": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/EPUBMetadata.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/EPUBMetadataTests.swift"
+    ]
+  },
+  "EPUB ToC": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/EPUBNavigationNavTests.swift",
+      "Tests/AppleBooksCoreTests/Content/EPUBNavigationNCXTests.swift",
+      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+    ]
+  },
+  "EPUB/PDF source scope": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportService.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ]
+  },
+  "HTML export": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift"
+    ]
+  },
+  "HTML sidebar / responsive / print": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ]
+  },
+  "HTML 单书折叠 + 全部折叠": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ]
+  },
+  "HTML 搜索": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ]
+  },
+  "HTML 状态持久化": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
+    ]
+  },
+  "JSON export": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/JSONExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
+    ]
+  },
+  "Markdown export": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/MarkdownParityTests.swift"
+    ]
+  },
+  "Markdown smart overwrite": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/OverwritePolicy.swift",
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "Obsidian book-selection modal": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportService.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ]
+  },
+  "Obsidian settings tab": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift",
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "PDF color mapping": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFColorMapping.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFColorMappingTests.swift"
+    ]
+  },
+  "PDF highlight extraction": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift",
+      "Sources/AppleBooksCore/PDF/PDFHighlightTextExtractor.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFHighlightTextTests.swift"
+    ]
+  },
+  "PDF highlight note": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
+    ]
+  },
+  "PDF library metadata": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFSource.swift",
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ]
+  },
+  "PDF metadata fallback": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFSource.swift",
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ]
+  },
+  "PDF page/location": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFHighlight.swift",
+      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
+    ]
+  },
+  "PDF parse timeout": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFWorkerClient.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFWorkerTimeoutTests.swift"
+    ]
+  },
+  "SQLite DB 自动发现": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
+    ]
+  },
+  "add book": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
+    ]
+  },
+  "annotation context window": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/AnnotationContext.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/AnnotationContextTests.swift"
+    ]
+  },
+  "annotation export ordering": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportRecord.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ]
+  },
+  "annotation identity": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Annotation.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/StableSelectorTests.swift"
+    ]
+  },
+  "annotations by book": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/AnnotationReadingOrderTests.swift"
+    ]
+  },
+  "annotations by date range": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Parity/ReadParityRegressionTests.swift"
+    ]
+  },
+  "author pages": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "author sentinel normalization": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Book.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift"
+    ]
+  },
+  "backup list/retention": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/LibraryBackupCatalogTests.swift"
+    ]
+  },
+  "chapter headings / annotation date / style / progress": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ]
+  },
+  "chapter text": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/Content/XHTMLText.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/ChapterTextTests.swift"
+    ]
+  },
+  "chapter text pagination": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/BookContent.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
+    ]
+  },
+  "citation": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ]
+  },
+  "context 中精确标出 highlight": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/AnnotationContext.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/ContextMarkerTests.swift"
+    ]
+  },
+  "cover inline / cover file": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "cover 提取": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/EPUBCover.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/EPUBCoverTests.swift"
+    ]
+  },
+  "create collection": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ]
+  },
+  "current / historical_inferred / historical_unmapped 区分": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/AnnotationSource.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Parity/ExtendedReadParityTests.swift"
+    ]
+  },
+  "current reading chapter": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Reading/CurrentReadingChapter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/CurrentReadingChapterTests.swift"
+    ]
+  },
+  "current reading position": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Models/ReadingPosition.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+    ]
+  },
+  "current-library packed EPUB fallback": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/EPUBSourceResolver.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ]
+  },
+  "current-position fallback": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Models/ReadingPosition.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+    ]
+  },
+  "delete collection": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/CollectionDeleteTests.swift"
+    ]
+  },
+  "directory / packed parser 等价": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/DirectoryEPUBResourceReader.swift",
+      "Sources/AppleBooksCore/Content/ZIPEPUBResourceReader.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/DirectoryEPUBPackageTests.swift",
+      "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ]
+  },
+  "export output destination": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "export single/multiple file": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
+      "Sources/AppleBooksCore/Export/JSONExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
+    ]
+  },
+  "export statistics": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportBundle.swift",
+      "Sources/AppleBooksCore/Export/ExportService.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ]
+  },
+  "export 类型过滤": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportRecord.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ]
+  },
+  "export 颜色过滤": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportRecord.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ]
+  },
+  "export/filter underline": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportRecord.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ]
+  },
+  "extended frontmatter/body metadata": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ]
+  },
+  "finished books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ]
+  },
+  "full annotation text search": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/AnnotationFullTextSearchTests.swift"
+    ]
+  },
+  "genre 查询": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ]
+  },
+  "get/describe annotation": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/StableSelectorTests.swift"
+    ]
+  },
+  "get/describe book": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/BookQueries.swift",
+      "Sources/AppleBooksCore/Models/Book.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"
+    ]
+  },
+  "get/describe collection": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ]
+  },
+  "highlights by color": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
+      "Sources/AppleBooksCore/Models/AnnotationColor.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/AnnotationColorTests.swift"
+    ]
+  },
+  "historical asset metadata 显式映射": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Configuration/AppleBooksConfiguration.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Configuration/AppleBooksConfigurationTests.swift"
+    ]
+  },
+  "in-progress books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ]
+  },
+  "library stats": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/LibraryStatsTests.swift"
+    ]
+  },
+  "list annotations": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/AnnotationScopeTests.swift"
+    ]
+  },
+  "list books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/BookQueriesTests.swift"
+    ]
+  },
+  "list books with annotations": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Models/BookOverview.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
+    ]
+  },
+  "list collection books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ]
+  },
+  "list collections": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ]
+  },
+  "note-bearing historical asset 必须可识别": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
+    ]
+  },
+  "orphan annotations 不因 current BKLibrary 缺 row 而消失": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Parity/ExtendedReadParityTests.swift"
+    ]
+  },
+  "partial export offset": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportRecord.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
+    ]
+  },
+  "recent annotations by creation": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/RecentlyCreatedAnnotationTests.swift"
+    ]
+  },
+  "recent annotations by modification": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/RecentlyModifiedAnnotationTests.swift"
+    ]
+  },
+  "recently read books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ]
+  },
+  "remove book": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
+    ]
+  },
+  "rename collection": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ]
+  },
+  "restore": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/SQLiteRestoreTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/RestoreCoordinatorTests.swift"
+    ]
+  },
+  "sanitised errors": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/MutationResult.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorTests.swift"
+    ]
+  },
+  "search collections by title": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
+    ]
+  },
+  "search highlighted text": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueriesTests.swift"
+    ]
+  },
+  "search note text": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueriesTests.swift"
+    ]
+  },
+  "soft-delete annotation": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/AnnotationDeleteTests.swift"
+    ]
+  },
+  "supplemental EPUB root / 外部 EPUB fallback": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Configuration/AppleBooksConfiguration.swift",
+      "Sources/AppleBooksCore/Content/EPUBSourceResolver.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/SupplementalEPUBTests.swift"
+    ]
+  },
+  "tags": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
+    ]
+  },
+  "title search": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ]
+  },
+  "title/author/genre 综合搜索": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
+    ]
+  },
+  "unstarted books": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/ReadingQueriesTests.swift"
+    ]
+  },
+  "丰富书籍 metadata": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Book.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"
+    ]
+  },
+  "保留 raw annotation 字段": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Annotation.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift"
+    ]
+  },
+  "修改已有 annotation note": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/AnnotationUpdateNoteTests.swift"
+    ]
+  },
+  "写 schema fail-closed": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/WriteSchemaGuard.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/WriteSchemaGuardTests.swift"
+    ]
+  },
+  "写事务": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorTests.swift"
+    ]
+  },
+  "写前 backup": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift",
+      "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/SQLiteBackupTests.swift"
+    ]
+  },
+  "原始 physical/range/type/style/UUID 字段完整 export": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Models/Annotation.swift",
+      "Sources/AppleBooksCore/Export/JSONExporter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
+    ]
+  },
+  "导出数量与 raw SQLite count 校验": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
+    ]
+  },
+  "本地 materialization 检查": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/BookContentAvailability.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/BookContentAvailabilityTests.swift"
+    ]
+  },
+  "细粒度 spine entry": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+    ]
+  },
+  "自定义 annotations/library DB 路径": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
+    ]
+  },
+  "自选有 AEAnnotation highlights 的书": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportService.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ]
+  },
+  "读取 schema capability detection": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Database/AppleBooksSchema.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Database/AppleBooksSchemaTests.swift"
+    ]
+  },
+  "输入边界校验": {
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift",
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Mutations/AnnotationUpdateNoteTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/CollectionCreateRenameTests.swift"
+    ]
+  }
+}

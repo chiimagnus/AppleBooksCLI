@@ -13,12 +13,19 @@ class Applebookscli < Formula
   def install
     bin.install "bin/applebookscli"
     (libexec/"applebookscli").install "libexec/applebookscli/applebookscli-pdf-worker"
+    share.install "share/applebookscli"
     prefix.install "LICENSE", "THIRD_PARTY_NOTICES.md", "ThirdPartyLicenses"
   end
 
   test do
+    codex_home = testpath/"codex-home"
+    ENV["CODEX_HOME"] = codex_home.to_s
+
     assert_match version.to_s, shell_output("#{bin}/applebookscli --version")
     assert_match "USAGE:", shell_output("#{bin}/applebookscli --help")
+    system bin/"applebookscli", "skill", "install"
+    assert_path_exists codex_home/"skills/applebookscli/SKILL.md"
+    assert_predicate share/"applebookscli/skill/applebookscli/SKILL.md", :file?
     assert_predicate libexec/"applebookscli/applebookscli-pdf-worker", :executable?
     assert_predicate prefix/"LICENSE", :file?
     assert_predicate prefix/"THIRD_PARTY_NOTICES.md", :file?

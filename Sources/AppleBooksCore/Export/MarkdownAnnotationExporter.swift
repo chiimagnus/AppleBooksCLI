@@ -1,5 +1,21 @@
 import Foundation
 
+enum MarkdownCoverPresentation: Equatable, Sendable {
+    case none
+    case inlineDataURL(String)
+    case file(relativePath: String)
+}
+
+struct MarkdownFileMetadata: Equatable, Sendable {
+    let stableHash: String
+    let exportedAt: Date
+}
+
+struct MarkdownRenderContext: Equatable, Sendable {
+    var cover: MarkdownCoverPresentation = .none
+    var authorLinkTarget: String?
+}
+
 enum MarkdownAnnotationExporter {
     static func renderAll(_ annotations: [Annotation]) -> String {
         let sorted = annotations.sorted(by: presentationOrder)
@@ -29,26 +45,35 @@ enum MarkdownAnnotationExporter {
         return "\(header)\n\n\(sorted.map(format).joined(separator: "\n\n---\n\n"))\n"
     }
 
-    static func render(_ bundle: ExportBundle, profile: MarkdownProfile = .plain) -> String {
+    static func render(
+        _ bundle: ExportBundle,
+        profile: MarkdownProfile = .plain,
+        contexts: [Int: MarkdownRenderContext] = [:],
+        fileMetadata: MarkdownFileMetadata? = nil
+    ) -> String {
         guard bundle.groups.isEmpty == false else {
             return "# Apple Books export\n\n_No records._\n"
         }
         guard profile.syntax == .obsidian else {
-            return "# Apple Books export\n\n" + bundle.groups
-                .map { renderPlain(group: $0, headingLevel: 2) }
+            return "# Apple Books export\n\n" + bundle.groups.enumerated()
+                .map { index, group in
+                    renderPlain(group: group, headingLevel: 2, context: contexts[index] ?? MarkdownRenderContext())
+                }
                 .joined(separator: "\n\n") + "\n"
         }
 
         var blocks: [String] = []
         if profile.options.extendedFrontmatter {
             if bundle.groups.count == 1, let group = bundle.groups.first {
-                blocks.append(frontmatter(for: group, profile: profile))
+                blocks.append(frontmatter(for: group, profile: profile, fileMetadata: fileMetadata))
             } else {
                 blocks.append(
                     MarkdownYAML.frontmatter(
                         fields: [
                             ("type", "apple-books-export"),
                             ("documents", String(bundle.statistics.documentCount)),
+                            ("last-import-hash", fileMetadata?.stableHash),
+                            ("exported_at", fileMetadata.map { formatDate($0.exportedAt) }),
                         ],
                         tags: stableTags(profile.options.customTags)
                     )
@@ -56,20 +81,43 @@ enum MarkdownAnnotationExporter {
             }
         }
         blocks.append("# Apple Books export")
-        blocks.append(contentsOf: bundle.groups.map {
-            renderObsidian(group: $0, headingLevel: 2, profile: profile, includeFrontmatter: false)
+        blocks.append(contentsOf: bundle.groups.enumerated().map { index, group in
+            renderObsidian(
+                group: group,
+                headingLevel: 2,
+                profile: profile,
+                includeFrontmatter: false,
+                context: contexts[index] ?? MarkdownRenderContext(),
+                fileMetadata: nil
+            )
         })
         return blocks.joined(separator: "\n\n") + "\n"
     }
 
-    static func render(_ group: ExportGroup, profile: MarkdownProfile = .plain) -> String {
+    static func render(
+        _ group: ExportGroup,
+        profile: MarkdownProfile = .plain,
+        context: MarkdownRenderContext = MarkdownRenderContext(),
+        fileMetadata: MarkdownFileMetadata? = nil
+    ) -> String {
         if profile.syntax == .obsidian {
-            return renderObsidian(group: group, headingLevel: 1, profile: profile, includeFrontmatter: true) + "\n"
+            return renderObsidian(
+                group: group,
+                headingLevel: 1,
+                profile: profile,
+                includeFrontmatter: true,
+                context: context,
+                fileMetadata: fileMetadata
+            ) + "\n"
         }
-        return renderPlain(group: group, headingLevel: 1) + "\n"
+        return renderPlain(group: group, headingLevel: 1, context: context) + "\n"
     }
 
-    private static func renderPlain(group: ExportGroup, headingLevel: Int) -> String {
+    private static func renderPlain(
+        group: ExportGroup,
+        headingLevel: Int,
+        context: MarkdownRenderContext
+    ) -> String {
         let source = sourceContext(group)
         var blocks = ["\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))"]
         if let author = source.author {
@@ -81,6 +129,9 @@ enum MarkdownAnnotationExporter {
         }
         if let path = source.path {
             blocks.append("**Path:** \(escapeInline(path))")
+        }
+        if let cover = coverBlock(context.cover) {
+            blocks.append(cover)
         }
         if group.records.isEmpty {
             blocks.append("_No records._")
@@ -94,17 +145,19 @@ enum MarkdownAnnotationExporter {
         group: ExportGroup,
         headingLevel: Int,
         profile: MarkdownProfile,
-        includeFrontmatter: Bool
+        includeFrontmatter: Bool,
+        context: MarkdownRenderContext,
+        fileMetadata: MarkdownFileMetadata?
     ) -> String {
         let source = sourceContext(group)
         let options = profile.options
         var blocks: [String] = []
         if includeFrontmatter, options.extendedFrontmatter {
-            blocks.append(frontmatter(for: group, profile: profile))
+            blocks.append(frontmatter(for: group, profile: profile, fileMetadata: fileMetadata))
         }
         blocks.append("\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))")
         if let author = source.author {
-            blocks.append("**Author:** \(renderAuthor(author, options: options))")
+            blocks.append("**Author:** \(renderAuthor(author, options: options, target: context.authorLinkTarget))")
         }
         blocks.append("**Source:** \(source.kind)")
         if let identity = source.identity {
@@ -112,6 +165,9 @@ enum MarkdownAnnotationExporter {
         }
         if let path = source.path {
             blocks.append("**Path:** \(escapeInline(path))")
+        }
+        if let cover = coverBlock(context.cover) {
+            blocks.append(cover)
         }
         if options.bodyMetadata {
             blocks.append(contentsOf: bodyMetadata(source))
@@ -236,7 +292,11 @@ enum MarkdownAnnotationExporter {
         return blocks.joined(separator: "\n\n")
     }
 
-    private static func frontmatter(for group: ExportGroup, profile: MarkdownProfile) -> String {
+    private static func frontmatter(
+        for group: ExportGroup,
+        profile: MarkdownProfile,
+        fileMetadata: MarkdownFileMetadata?
+    ) -> String {
         let source = sourceContext(group)
         return MarkdownYAML.frontmatter(
             fields: [
@@ -250,6 +310,8 @@ enum MarkdownAnnotationExporter {
                 ("year", source.year.map(String.init)),
                 ("language", source.language),
                 ("isbn", source.isbn),
+                ("last-import-hash", fileMetadata?.stableHash),
+                ("exported_at", fileMetadata.map { formatDate($0.exportedAt) }),
             ],
             tags: tags(for: source, options: profile.options)
         )
@@ -330,24 +392,26 @@ enum MarkdownAnnotationExporter {
         return pieces.isEmpty ? nil : pieces.joined(separator: ", ")
     }
 
-    private static func renderAuthor(_ author: String, options: ObsidianMarkdownOptions) -> String {
+    private static func renderAuthor(
+        _ author: String,
+        options: ObsidianMarkdownOptions,
+        target: String?
+    ) -> String {
         guard options.authorLinks else { return escapeInline(author) }
-        let component = obsidianSafeComponent(author)
-        return "[[Authors/\(component)|\(component)]]"
+        let component = ExportPathComponent.safe(author, fallback: "Unknown")
+        let safeTarget = target ?? "Authors/\(component)"
+        return "[[\(safeTarget)|\(component)]]"
     }
 
-    private static func obsidianSafeComponent(_ raw: String) -> String {
-        var result = ""
-        for scalar in raw.unicodeScalars {
-            if CharacterSet.alphanumerics.contains(scalar) || scalar == " " || scalar == "-" || scalar == "_" {
-                result.unicodeScalars.append(scalar)
-            } else {
-                for byte in String(scalar).utf8 {
-                    result += String(format: "%%%02X", byte)
-                }
-            }
+    private static func coverBlock(_ presentation: MarkdownCoverPresentation) -> String? {
+        switch presentation {
+        case .none:
+            nil
+        case let .inlineDataURL(url):
+            "![Cover](\(url))"
+        case let .file(relativePath):
+            "![Cover](<\(relativePath)>)"
         }
-        return result.isEmpty ? "Unknown" : result
     }
 
     private static func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {

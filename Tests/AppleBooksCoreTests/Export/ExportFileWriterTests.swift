@@ -180,6 +180,17 @@ struct ExportFileWriterTests {
         #expect(throws: ExportFileWriterError.unsafeOutputRoot) {
             _ = try ExportFileWriter(outputRoot: parentLink.appendingPathComponent("new-output", isDirectory: true))
         }
+        let realNested = outsideDirectory.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: realNested, withIntermediateDirectories: false)
+        let ancestorLink = fixture.root.appendingPathComponent("ancestor-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: ancestorLink, withDestinationURL: outsideDirectory)
+        #expect(throws: ExportFileWriterError.unsafeOutputRoot) {
+            _ = try ExportFileWriter(
+                outputRoot: ancestorLink
+                    .appendingPathComponent("nested", isDirectory: true)
+                    .appendingPathComponent("new-output", isDirectory: true)
+            )
+        }
 
         let attachments = fixture.output.appendingPathComponent("Attachments", isDirectory: true)
         try FileManager.default.createSymbolicLink(at: attachments, withDestinationURL: outsideDirectory)
@@ -197,7 +208,7 @@ struct ExportFileWriterTests {
                 coverMode: .file
             )
         }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: outsideDirectory.path).isEmpty)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: outsideDirectory.path)) == ["nested"])
     }
 
     @Test
@@ -354,7 +365,7 @@ struct ExportFileWriterTests {
         private static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
             let count = groups.reduce(0) { $0 + $1.records.count }
             return ExportBundle(
-                options: try! ExportOptions(source: .epub),
+                options: try! ExportOptions(source: .epub, kinds: [.highlight]),
                 groups: groups,
                 warnings: [],
                 statistics: ExportStatistics(

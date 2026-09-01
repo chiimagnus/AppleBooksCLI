@@ -10,6 +10,9 @@ public enum ExportFileWriterError: Error, Equatable, Sendable {
     case unsafeDestination
     case destinationExists
     case unsupportedCoverMediaType
+    case archiveDestinationExists
+    case archivePublishFailed
+    case completeArchiveRequiresStaging
     case writeFailed
 }
 
@@ -43,17 +46,23 @@ public struct MarkdownExportWriteResult: Equatable, Sendable {
 public struct ExportFileWriter {
     public let outputRoot: URL
     private let now: () -> Date
+    private let permitsCompleteArchivePerBookWrites: Bool
 
     public init(outputRoot: URL) throws {
         try self.init(outputRoot: outputRoot, now: Date.init)
     }
 
-    init(outputRoot: URL, now: @escaping () -> Date) throws {
+    init(
+        outputRoot: URL,
+        now: @escaping () -> Date,
+        permitsCompleteArchivePerBookWrites: Bool = false
+    ) throws {
         guard outputRoot.isFileURL, outputRoot.path.hasPrefix("/") else {
             throw ExportFileWriterError.invalidOutputRoot
         }
         self.outputRoot = try Self.prepareOutputRoot(outputRoot)
         self.now = now
+        self.permitsCompleteArchivePerBookWrites = permitsCompleteArchivePerBookWrites
     }
 
     @discardableResult
@@ -70,6 +79,105 @@ public struct ExportFileWriter {
         ) { _, _ in data }
     }
 
+    public static func writeCompleteNoteArchiveMarkdown(
+        _ bundle: ExportBundle,
+        to destinationDirectory: URL,
+        profile: MarkdownProfile = .plain,
+        coverMode: ExportCoverMode = .none
+    ) throws -> MarkdownExportWriteResult {
+        try writeCompleteNoteArchiveMarkdown(
+            bundle,
+            to: destinationDirectory,
+            profile: profile,
+            coverMode: coverMode,
+            now: Date.init,
+            beforeArchiveRename: nil
+        )
+    }
+
+    static func writeCompleteNoteArchiveMarkdown(
+        _ bundle: ExportBundle,
+        to destinationDirectory: URL,
+        profile: MarkdownProfile,
+        coverMode: ExportCoverMode,
+        now: @escaping () -> Date,
+        beforeArchiveRename: (() throws -> Void)?
+    ) throws -> MarkdownExportWriteResult {
+        guard ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options) else {
+            throw ExportSafetyValidationError.incompleteArchiveDataset
+        }
+        return try publishArchiveDirectory(
+            to: destinationDirectory,
+            expectedDocuments: bundle.groups.count,
+            now: now,
+            beforeArchiveRename: beforeArchiveRename
+        ) { writer in
+            try writer.writeMarkdown(
+                bundle,
+                layout: .perBook,
+                profile: profile,
+                coverMode: coverMode,
+                overwrite: .never
+            )
+        }
+    }
+
+    static func publishArchiveDirectory(
+        to destinationDirectory: URL,
+        expectedDocuments: Int,
+        now: @escaping () -> Date,
+        beforeArchiveRename: (() throws -> Void)?,
+        materialize: (ExportFileWriter) throws -> MarkdownExportWriteResult
+    ) throws -> MarkdownExportWriteResult {
+        let destination = try validatedArchiveDestination(destinationDirectory)
+        let staging = try createArchiveStaging(parent: destination.parent)
+        var published = false
+        defer {
+            if published == false {
+                removeControlledArchiveStaging(staging, parent: destination.parent)
+            }
+        }
+
+        let stagingWriter = try ExportFileWriter(
+            outputRoot: staging,
+            now: now,
+            permitsCompleteArchivePerBookWrites: true
+        )
+        let staged = try materialize(stagingWriter)
+        try ExportSafetyValidator.validateMaterialization(
+            expectedDocuments: expectedDocuments,
+            actualDocuments: staged.documentFileCount
+        )
+        let publishedFiles = try staged.files.map { file -> URL in
+            let prefix = staging.path + "/"
+            guard file.path.hasPrefix(prefix) else { throw ExportFileWriterError.archivePublishFailed }
+            let relative = String(file.path.dropFirst(prefix.count))
+            guard relative.isEmpty == false else { throw ExportFileWriterError.archivePublishFailed }
+            let published = destination.final.appendingPathComponent(relative).standardizedFileURL
+            guard published.path.hasPrefix(destination.final.path + "/") else {
+                throw ExportFileWriterError.archivePublishFailed
+            }
+            return published
+        }
+
+        _ = try validatedArchiveParent(destination.parent)
+        guard nodeType(destination.final) == nil else {
+            throw ExportFileWriterError.archiveDestinationExists
+        }
+        try beforeArchiveRename?()
+        let result = renamex_np(staging.path, destination.final.path, UInt32(RENAME_EXCL))
+        guard result == 0 else {
+            if errno == EEXIST { throw ExportFileWriterError.archiveDestinationExists }
+            throw ExportFileWriterError.archivePublishFailed
+        }
+        published = true
+        return MarkdownExportWriteResult(
+            documentFileCount: staged.documentFileCount,
+            files: publishedFiles,
+            warnings: staged.warnings
+        )
+    }
+
     public func writeMarkdown(
         _ bundle: ExportBundle,
         layout: MarkdownExportLayout,
@@ -77,6 +185,11 @@ public struct ExportFileWriter {
         coverMode: ExportCoverMode = .none,
         overwrite: OverwritePolicy = .never
     ) throws -> MarkdownExportWriteResult {
+        if case .perBook = layout,
+           ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options),
+           permitsCompleteArchivePerBookWrites == false {
+            throw ExportFileWriterError.completeArchiveRequiresStaging
+        }
         var files: [URL] = []
         var warnings: [ExportFileWriteWarning] = []
         let authorTargets = authorTargets(for: bundle.groups, profile: profile)
@@ -394,6 +507,66 @@ public struct ExportFileWriter {
         return canonical
     }
 
+    private static func validatedArchiveDestination(_ raw: URL) throws -> (final: URL, parent: URL) {
+        guard raw.isFileURL, raw.path.hasPrefix("/") else {
+            throw ExportFileWriterError.invalidOutputRoot
+        }
+        let standardized = raw.standardizedFileURL
+        try validateFileName(standardized.lastPathComponent)
+        guard nodeType(standardized) == nil else {
+            throw ExportFileWriterError.archiveDestinationExists
+        }
+        let parent = try validatedArchiveParent(standardized.deletingLastPathComponent().standardizedFileURL)
+        let final = parent.appendingPathComponent(standardized.lastPathComponent, isDirectory: true).standardizedFileURL
+        guard final.deletingLastPathComponent().path == parent.path else {
+            throw ExportFileWriterError.unsafeOutputRoot
+        }
+        return (final, parent)
+    }
+
+    private static func validatedArchiveParent(_ raw: URL) throws -> URL {
+        let standardized = raw.standardizedFileURL
+        guard nodeType(standardized) == S_IFDIR else { throw ExportFileWriterError.unsafeOutputRoot }
+        let canonical = standardized.resolvingSymlinksInPath()
+        guard canonical.path == standardized.path else { throw ExportFileWriterError.unsafeOutputRoot }
+        return canonical
+    }
+
+    private static func createArchiveStaging(parent: URL) throws -> URL {
+        _ = try validatedArchiveParent(parent)
+        let staging = parent.appendingPathComponent(
+            ".applebookscli-archive-\(UUID().uuidString).staging",
+            isDirectory: true
+        ).standardizedFileURL
+        guard staging.deletingLastPathComponent().path == parent.path, nodeType(staging) == nil else {
+            throw ExportFileWriterError.archivePublishFailed
+        }
+        do {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
+        } catch {
+            throw ExportFileWriterError.archivePublishFailed
+        }
+        guard nodeType(staging) == S_IFDIR,
+              staging.resolvingSymlinksInPath().path == staging.path else {
+            throw ExportFileWriterError.archivePublishFailed
+        }
+        return staging
+    }
+
+    private static func removeControlledArchiveStaging(_ staging: URL, parent: URL) {
+        let name = staging.lastPathComponent
+        guard name.hasPrefix(".applebookscli-archive-"),
+              name.hasSuffix(".staging"),
+              staging.deletingLastPathComponent().standardizedFileURL.path == parent.path,
+              nodeType(parent) == S_IFDIR,
+              parent.resolvingSymlinksInPath().path == parent.path,
+              nodeType(staging) == S_IFDIR,
+              staging.resolvingSymlinksInPath().path == staging.path else {
+            return
+        }
+        try? FileManager.default.removeItem(at: staging)
+    }
+
     private static func prepareOutputRoot(_ raw: URL) throws -> URL {
         let standardized = raw.standardizedFileURL
         if let type = nodeType(standardized) {
@@ -402,6 +575,7 @@ public struct ExportFileWriter {
             let requestedParent = standardized.deletingLastPathComponent().standardizedFileURL
             guard nodeType(requestedParent) == S_IFDIR else { throw ExportFileWriterError.unsafeOutputRoot }
             let parent = requestedParent.resolvingSymlinksInPath()
+            guard parent.path == requestedParent.path else { throw ExportFileWriterError.unsafeOutputRoot }
             let target = parent.appendingPathComponent(standardized.lastPathComponent, isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
@@ -412,7 +586,10 @@ public struct ExportFileWriter {
             return target.standardizedFileURL
         }
         let canonical = standardized.resolvingSymlinksInPath()
-        guard nodeType(standardized) == S_IFDIR else { throw ExportFileWriterError.unsafeOutputRoot }
+        guard nodeType(standardized) == S_IFDIR,
+              canonical.path == standardized.path else {
+            throw ExportFileWriterError.unsafeOutputRoot
+        }
         return canonical
     }
 

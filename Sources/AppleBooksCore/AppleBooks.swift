@@ -249,6 +249,22 @@ public final class AppleBooks {
         ).readHighlights()
     }
 
+    public func exportBundle(options: ExportOptions) throws -> ExportBundle {
+        let pdfService = pdfWorkerClient.map {
+            PDFHighlightService(
+                bookQueries: bookQueries,
+                sourceResolver: pdfSourceResolver,
+                workerClient: $0
+            )
+        }
+        return try ExportService(
+            annotationQueries: annotationQueries,
+            bookQueries: bookQueries,
+            configuration: configuration,
+            pdfService: pdfService
+        ).makeBundle(options: options)
+    }
+
     public func books(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
         try bookQueries.searchTitle(text, limit: limit, offset: offset)
     }
@@ -459,16 +475,6 @@ public final class AppleBooks {
 
     public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {
         try annotationQueries.recentlyModified()
-    }
-
-    public func exportAnnotationsMarkdown() throws -> String {
-        let annotations = try annotationQueries.list(scope: .user).map(\.annotation)
-        return MarkdownAnnotationExporter.renderAll(annotations)
-    }
-
-    public func exportAnnotationsMarkdown(bookAssetID: String) throws -> String {
-        let annotations = try annotationQueries.byAssetID(bookAssetID, scope: .user).map(\.annotation)
-        return MarkdownAnnotationExporter.render(assetID: bookAssetID, annotations: annotations)
     }
 
     public func annotations(

@@ -7,7 +7,7 @@ struct AnnotationArchiveRawTotals: Equatable, Sendable {
     var noteWithoutQuoteCount = 0
 }
 
-enum ExportSafetyValidationError: Error, Equatable, Sendable {
+public enum ExportSafetyValidationError: Error, Equatable, Sendable {
     case incompleteArchiveDataset
     case unmappedNotes(count: Int)
     case notesMissingQuote(count: Int)

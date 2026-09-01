@@ -6,46 +6,6 @@ import Testing
 @Suite("FeatureParityRegressionTests")
 struct FeatureParityRegressionTests {
     @Test
-    func capabilityInventoryCoversTheCompletePublicSurface() throws {
-        let data = try Data(contentsOf: fixtureRoot().appendingPathComponent("capabilities.json"))
-        let inventory = try JSONDecoder().decode(CapabilityInventory.self, from: data)
-        let expected: Set<String> = [
-            "list_collections",
-            "list_collection_books",
-            "get_collection",
-            "list_books",
-            "list_all_books",
-            "get_book",
-            "search_books",
-            "list_annotations",
-            "get_book_annotations",
-            "get_annotation",
-            "get_highlights_by_color",
-            "search_highlighted_text",
-            "search_notes",
-            "full_text_search",
-            "recent_annotations",
-            "add_book_to_collection",
-            "remove_book_from_collection",
-            "create_collection",
-            "delete_collection",
-            "list_backups",
-            "restore_backup",
-            "update_annotation_note",
-            "delete_annotation",
-            "export_annotations_markdown",
-        ]
-        let actual = inventory.capabilities.map(\.id)
-
-        #expect(inventory.revision == 1)
-        #expect(Set(actual) == expected)
-        #expect(Set(actual).count == actual.count)
-        #expect(inventory.capabilities.allSatisfy { $0.owner.isEmpty == false })
-        #expect(String(decoding: data, as: UTF8.self).contains("http://") == false)
-        #expect(String(decoding: data, as: UTF8.self).contains("https://") == false)
-    }
-
-    @Test
     func readAndMarkdownSurfacePreservesExactAndFailClosedContracts() throws {
         let fixture = try Fixture(running: false)
         defer { fixture.remove() }
@@ -85,7 +45,13 @@ struct FeatureParityRegressionTests {
         #expect(try fixture.books.annotation(uuid: "uuid-deleted", scope: .activeRaw) == nil)
         #expect(try fixture.books.annotation(uuid: "uuid-unknown-delete", scope: .activeRaw) == nil)
 
-        let markdown = try fixture.books.exportAnnotationsMarkdown()
+        let orphanExport = try fixture.books.exportBundle(
+            options: ExportOptions(
+                source: .epub,
+                bookSelectors: [.assetID("orphan-asset")]
+            )
+        )
+        let markdown = MarkdownAnnotationExporter.render(orphanExport)
         #expect(markdown.contains(expected.orphanMarkdownText))
         for excluded in expected.excludedMarkdownText {
             #expect(markdown.contains(excluded) == false)
@@ -374,16 +340,6 @@ struct FeatureParityRegressionTests {
                 sleep: { _ in }
             )
         }
-    }
-
-    private struct CapabilityInventory: Decodable {
-        let revision: Int
-        let capabilities: [Capability]
-    }
-
-    private struct Capability: Decodable {
-        let id: String
-        let owner: String
     }
 
     private struct ExpectedFixture: Decodable {

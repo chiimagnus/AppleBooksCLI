@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-enum CSVExporter {
+public enum CSVExporter {
     static let columns = [
         "source",
         "source_kind",
@@ -60,7 +60,7 @@ enum CSVExporter {
         "pdf_kit_rgba_a",
     ]
 
-    static func render(_ bundle: ExportBundle) -> Data {
+    public static func render(_ bundle: ExportBundle) -> Data {
         let mapper = CSVRowMapper()
         var output = columns.map(csvQuote).joined(separator: ",") + "\r\n"
         for group in bundle.groups {

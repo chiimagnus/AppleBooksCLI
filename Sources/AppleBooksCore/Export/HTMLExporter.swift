@@ -1,7 +1,7 @@
 import Foundation
 
-enum HTMLExporter {
-    static func render(_ bundle: ExportBundle) -> String {
+public enum HTMLExporter {
+    public static func render(_ bundle: ExportBundle) -> String {
         let sidebar = bundle.groups.enumerated().map { index, group in
             let source = groupPresentation(group.source)
             return "<li><a class=\"sidebar-link\" data-book-token=\"book-\(index)\" href=\"#book-\(index)\">\(escapeText(source.title))</a></li>"

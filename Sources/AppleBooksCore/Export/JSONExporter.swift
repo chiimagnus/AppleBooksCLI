@@ -1,15 +1,15 @@
 import CoreGraphics
 import Foundation
 
-enum JSONExporter {
+public enum JSONExporter {
     static let schemaVersion = 1
 
-    static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
+    public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
         return try encoder().encode(mapper.root(bundle: bundle, exportedAt: exportedAt))
     }
 
-    static func renderDocument(_ group: ExportGroup, from bundle: ExportBundle, exportedAt: Date) throws -> Data {
+    public static func renderDocument(_ group: ExportGroup, from bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
         return try encoder().encode(
             JSONDocumentRootDTO(

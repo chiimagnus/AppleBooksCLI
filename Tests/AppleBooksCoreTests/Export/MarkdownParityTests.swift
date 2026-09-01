@@ -31,6 +31,13 @@ struct MarkdownParityTests {
         #expect(markdown.contains("\\<script\\>"))
         #expect(markdown.contains("\\]\\("))
         #expect(markdown.contains("\\`\\`\\`"))
+        #expect(markdown.contains(#"\*star\*"#))
+        #expect(markdown.contains(#"\_under\_"#))
+        #expect(markdown.contains(#"\{brace\}"#))
+        #expect(markdown.contains(#"\+plus"#))
+        #expect(markdown.contains(#"\!bang"#))
+        #expect(markdown.contains(#"\|pipe"#))
+        #expect(markdown.contains(#"\\slash"#))
         #expect(markdown.contains("> \\# SECOND"))
         #expect(markdown.contains("> ---"))
 
@@ -95,7 +102,7 @@ struct MarkdownParityTests {
     private struct Fixture {
         let hostileTitle = "# Hostile\n---\n``` title ]( <script>"
         let hostileAuthor = "Author ](\n<script>"
-        let hostileQuote = "# SECOND\n---\n``` quote ]( <script>"
+        let hostileQuote = "# SECOND *star* _under_ {brace} +plus !bang |pipe \\slash\n---\n``` quote ]( <script>"
         let hostileNote = "note\r---\r``` ]( <script>"
         let hostilePath = "/tmp/# PDF\n--- ]( <script>.pdf"
         let date = Date(timeIntervalSince1970: 1_600_000_000.5)

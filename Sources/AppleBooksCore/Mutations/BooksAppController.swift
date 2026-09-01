@@ -54,6 +54,14 @@ struct BooksAppController {
         )
     }
 
+    static var detached: BooksAppController {
+        BooksAppController(
+            isRunning: { false },
+            terminate: { true },
+            launch: {}
+        )
+    }
+
     func isRunning() -> Bool {
         isRunningAction()
     }

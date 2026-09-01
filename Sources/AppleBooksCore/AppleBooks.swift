@@ -30,15 +30,18 @@ public final class AppleBooks {
         libraryDB: URL,
         annotationsDB: URL,
         configurationFile: URL? = nil,
+        manageBooksApplication: Bool = true,
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
+        let booksApp = manageBooksApplication ? BooksAppController.live : BooksAppController.detached
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             configurationFile: configurationFile,
-            collectionWriter: CollectionWriter(database: libraryDB),
-            annotationWriter: AnnotationWriter(database: annotationsDB),
+            collectionWriter: CollectionWriter(database: libraryDB, booksApp: booksApp),
+            annotationWriter: AnnotationWriter(database: annotationsDB, booksApp: booksApp),
+            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
             pdfWorkerClient: pdfWorkerURL.map {
                 PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
             }

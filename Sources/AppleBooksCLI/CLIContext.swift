@@ -43,6 +43,7 @@ struct CLIContext {
             libraryDB: databases.libraryDB,
             annotationsDB: databases.annotationsDB,
             configurationFile: configurationFile,
+            manageBooksApplication: global.libraryDB == nil || global.annotationsDB == nil,
             pdfWorkerURL: pdfWorkerURL,
             pdfWorkerTimeout: pdfWorkerTimeout
         )

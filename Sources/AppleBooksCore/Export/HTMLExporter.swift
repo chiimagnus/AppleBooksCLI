@@ -2,12 +2,42 @@ import Foundation
 
 public enum HTMLExporter {
     public static func render(_ bundle: ExportBundle) -> String {
-        let sidebar = bundle.groups.enumerated().map { index, group in
+        render(groups: bundle.groups, statistics: bundle.statistics)
+    }
+
+    public static func renderDocument(_ group: ExportGroup) -> String {
+        let count = group.records.count
+        let isPDF: Bool
+        if case .pdf = group.source { isPDF = true } else { isPDF = false }
+        let statistics = ExportStatistics(
+            documentCount: 1,
+            epubDocumentCount: isPDF ? 0 : 1,
+            pdfDocumentCount: isPDF ? 1 : 0,
+            recordCount: count,
+            epubAnnotationCount: isPDF ? 0 : count,
+            pdfHighlightCount: isPDF ? count : 0,
+            highlightCount: group.records.count { $0.presentationKind == .highlight },
+            noteCount: group.records.count { $0.presentationKind == .note },
+            bookmarkCount: group.records.count { $0.presentationKind == .bookmark },
+            historicalEPUBAnnotationCount: {
+                if case .epubHistorical = group.source { return count }
+                return 0
+            }(),
+            unmappedEPUBAnnotationCount: {
+                if case .epubUnmapped = group.source { return count }
+                return 0
+            }()
+        )
+        return render(groups: [group], statistics: statistics)
+    }
+
+    private static func render(groups: [ExportGroup], statistics: ExportStatistics) -> String {
+        let sidebar = groups.enumerated().map { index, group in
             let source = groupPresentation(group.source)
             return "<li><a class=\"sidebar-link\" data-book-token=\"book-\(index)\" href=\"#book-\(index)\">\(escapeText(source.title))</a></li>"
         }.joined(separator: "\n")
 
-        let sections = bundle.groups.enumerated().map { index, group in
+        let sections = groups.enumerated().map { index, group in
             render(group: group, index: index)
         }.joined(separator: "\n")
 
@@ -70,10 +100,10 @@ public enum HTMLExporter {
         <header class="page-header">
         <h1>Apple Books export</h1>
         <dl class="stats">
-        <div><dt>Documents</dt><dd>\(bundle.statistics.documentCount)</dd></div>
-        <div><dt>Records</dt><dd>\(bundle.statistics.recordCount)</dd></div>
-        <div><dt>EPUB annotations</dt><dd>\(bundle.statistics.epubAnnotationCount)</dd></div>
-        <div><dt>PDF highlights</dt><dd>\(bundle.statistics.pdfHighlightCount)</dd></div>
+        <div><dt>Documents</dt><dd>\(statistics.documentCount)</dd></div>
+        <div><dt>Records</dt><dd>\(statistics.recordCount)</dd></div>
+        <div><dt>EPUB annotations</dt><dd>\(statistics.epubAnnotationCount)</dd></div>
+        <div><dt>PDF highlights</dt><dd>\(statistics.pdfHighlightCount)</dd></div>
         </dl>
         <div class="toolbar" aria-label="Export controls">
         <button class="sidebar-toggle" type="button" aria-controls="document-sidebar" aria-expanded="false">Documents</button>

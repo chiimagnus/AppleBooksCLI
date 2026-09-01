@@ -38,6 +38,25 @@ struct HTMLExporterStructureTests {
     }
 
     @Test
+    func perDocumentOutputContainsOnlyOneCanonicalGroupWithLocalStatistics() throws {
+        let fixture = try Fixture(groupCount: 3)
+        let group = try #require(fixture.bundle.groups.last)
+        let html = HTMLExporter.renderDocument(group)
+        let document = try SwiftSoup.parse(html)
+
+        #expect(try document.select("section.book-section").array().count == 1)
+        #expect(try document.select("aside.sidebar a").array().count == 1)
+        #expect(try document.select("section.book-section").first()?.attr("id") == "book-0")
+        let body = try #require(document.body()).text()
+        #expect(body.contains(fixture.pdfSource.displayTitle))
+        #expect(body.contains(fixture.hostileTitle) == false)
+        #expect(body.contains("Documents 1"))
+        #expect(body.contains("Records 1"))
+        #expect(body.contains("PDF highlights 1"))
+        try assertNoExternalDependencies(html: html, document: document)
+    }
+
+    @Test
     func hostileUserContentRemainsTextAndManyGroupsPreserveBundleOrder() throws {
         let fixture = try Fixture(groupCount: 3)
         let html = HTMLExporter.render(fixture.bundle)

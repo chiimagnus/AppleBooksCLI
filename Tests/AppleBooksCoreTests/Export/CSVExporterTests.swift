@@ -22,6 +22,21 @@ struct CSVExporterTests {
     }
 
     @Test
+    func perDocumentOutputKeepsTheSameSchemaAndOnlyTheSelectedGroup() throws {
+        let fixture = try Fixture()
+        let group = try #require(fixture.bundle.groups.dropFirst().first)
+        let rows = try parse(CSVExporter.renderDocument(group))
+
+        #expect(rows.count == 2)
+        #expect(rows[0] == CSVExporter.columns)
+        let row = dictionary(header: rows[0], row: rows[1])
+        #expect(row["source_kind"] == "epubHistorical")
+        #expect(row["source_asset_id"] == "history")
+        #expect(row["book_asset_id"] == "")
+        #expect(row["pdf_file_path"] == "")
+    }
+
+    @Test
     func roundTripEscapesUnicodePDFAndOrphansWhileFormulaNeutralizationIsPresentationOnly() throws {
         let fixture = try Fixture()
         let data = CSVExporter.render(fixture.bundle)

@@ -65,6 +65,8 @@ private struct JSONExportMapper {
                 switch selector {
                 case let .assetID(assetID):
                     JSONBookSelectorDTO(kind: "assetID", value: assetID)
+                case let .localPK(localPK):
+                    JSONBookSelectorDTO(kind: "localPK", value: String(localPK))
                 case let .pdfFile(url):
                     JSONBookSelectorDTO(kind: "pdfFile", value: url.path)
                 }
@@ -76,7 +78,8 @@ private struct JSONExportMapper {
             skipFirstPerBook: value.skipFirstPerBook,
             grouping: value.grouping.rawValue,
             includeEPUBMetadata: value.includeEPUBMetadata,
-            cover: value.cover.rawValue
+            cover: value.cover.rawValue,
+            completeNotes: value.completeNotes
         )
     }
 
@@ -259,6 +262,7 @@ private struct JSONOptionsDTO: Encodable {
     let grouping: String
     let includeEPUBMetadata: Bool
     let cover: String
+    let completeNotes: Bool
 }
 
 private struct JSONBookSelectorDTO: Encodable {

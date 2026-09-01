@@ -82,6 +82,11 @@ public struct ExportRecord: Equatable, Sendable {
             return enriched.annotation.rawAssetID == assetID
         case let (.pdf(source, _), .assetID(assetID)):
             return source.book?.assetID == assetID
+        case let (.epub(enriched), .localPK(localPK)):
+            guard case let .currentLibrary(book) = enriched.source else { return false }
+            return book.localPK == localPK
+        case let (.pdf(source, _), .localPK(localPK)):
+            return source.book?.localPK == localPK
         case let (.pdf(source, _), .pdfFile(url)):
             return source.fileURL == url
         case (.epub, .pdfFile):

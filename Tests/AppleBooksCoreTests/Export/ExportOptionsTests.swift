@@ -18,6 +18,7 @@ struct ExportOptionsTests {
         #expect(options.grouping == .single)
         #expect(options.includeEPUBMetadata == false)
         #expect(options.cover == .none)
+        #expect(options.completeNotes == false)
 
         #expect(throws: ExportOptionsError.emptyKinds) {
             _ = try ExportOptions(kinds: [])
@@ -48,6 +49,12 @@ struct ExportOptionsTests {
         }
         #expect(throws: ExportOptionsError.conflictingOptions) {
             _ = try ExportOptions(source: .pdf, cover: .inline)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(bookSelectors: [.localPK(1)], completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(source: .pdf, completeNotes: true)
         }
     }
 
@@ -165,6 +172,17 @@ struct ExportOptionsTests {
             to: [underlined, styleOnly, pdf]
         )
         #expect(assetSelected == [underlined, styleOnly])
+
+        let currentBook = book(localPK: 77, assetID: "asset-local", contentType: 1)
+        let localRecord = ExportRecord(payload: .epub(.init(
+            annotation: annotation(pk: 3, assetID: "asset-local", selectedText: "local"),
+            source: .currentLibrary(currentBook)
+        )))
+        let localSelected = ExportSelection.apply(
+            options: try ExportOptions(bookSelectors: [.localPK(77)], kinds: [.highlight]),
+            to: [underlined, localRecord]
+        )
+        #expect(localSelected == [localRecord])
     }
 
     @Test

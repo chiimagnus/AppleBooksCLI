@@ -4,6 +4,12 @@ public enum ExportServiceError: Error, Equatable, Sendable {
     case pdfWorkerUnavailable
 }
 
+private enum ResolvedExportBookSelector {
+    case assetID(String, currentBook: Book?)
+    case localPK(Book?)
+    case pdfFile(URL)
+}
+
 struct ExportService {
     let annotationQueries: AnnotationQueries
     let bookQueries: BookQueries
@@ -11,16 +17,13 @@ struct ExportService {
     let pdfService: PDFHighlightService?
 
     func makeBundle(options: ExportOptions) throws -> ExportBundle {
-        let assetSelectors = uniqueAssetSelectors(options.bookSelectors)
-        for assetID in assetSelectors {
-            _ = try bookQueries.getUniqueByAssetID(assetID)
-        }
+        let resolvedSelectors = try resolveBookSelectors(options.bookSelectors)
 
         var records: [ExportRecord] = []
         var warnings: [ExportWarning] = []
 
         if options.source != .pdf {
-            let annotations = try epubAnnotations(options: options, assetSelectors: assetSelectors)
+            let annotations = try epubAnnotations(options: options, resolvedSelectors: resolvedSelectors)
             records.append(contentsOf: annotations.map { ExportRecord(payload: .epub($0)) })
         }
 
@@ -29,7 +32,7 @@ struct ExportService {
             guard let pdfService else { throw ExportServiceError.pdfWorkerUnavailable }
             let sources = try selectedPDFSources(
                 service: pdfService,
-                selectors: options.bookSelectors
+                selectors: resolvedSelectors
             )
             let result = pdfService.readHighlights(sources: sources)
             pdfResult = result
@@ -70,15 +73,16 @@ struct ExportService {
 
     private func epubAnnotations(
         options: ExportOptions,
-        assetSelectors: [String]
+        resolvedSelectors: [ResolvedExportBookSelector]
     ) throws -> [EnrichedAnnotation] {
         guard options.bookSelectors.isEmpty == false else {
             return try annotationQueries.list(scope: .activeRaw)
         }
-        guard assetSelectors.isEmpty == false else { return [] }
+        let assetIDs = uniqueEPUBAssetIDs(resolvedSelectors)
+        guard assetIDs.isEmpty == false else { return [] }
 
         var annotations: [EnrichedAnnotation] = []
-        for assetID in assetSelectors {
+        for assetID in assetIDs {
             annotations.append(contentsOf: try annotationQueries.byAssetID(assetID, scope: .activeRaw))
         }
         return annotations
@@ -86,15 +90,17 @@ struct ExportService {
 
     private func selectedPDFSources(
         service: PDFHighlightService,
-        selectors: [ExportBookSelector]
+        selectors: [ResolvedExportBookSelector]
     ) throws -> [PDFSource] {
         let sources = try service.inventory()
         guard selectors.isEmpty == false else { return sources }
         return sources.filter { source in
             selectors.contains { selector in
                 switch selector {
-                case let .assetID(assetID):
+                case let .assetID(assetID, _):
                     return source.book?.assetID == assetID
+                case let .localPK(book):
+                    return book.map { source.book?.localPK == $0.localPK } ?? false
                 case let .pdfFile(url):
                     return source.fileURL == url
                 }
@@ -102,13 +108,33 @@ struct ExportService {
         }
     }
 
-    private func uniqueAssetSelectors(_ selectors: [ExportBookSelector]) -> [String] {
+    private func resolveBookSelectors(_ selectors: [ExportBookSelector]) throws -> [ResolvedExportBookSelector] {
+        try selectors.map { selector in
+            switch selector {
+            case let .assetID(assetID):
+                return .assetID(assetID, currentBook: try bookQueries.getUniqueByAssetID(assetID))
+            case let .localPK(localPK):
+                return .localPK(try bookQueries.getByLocalPK(localPK))
+            case let .pdfFile(url):
+                return .pdfFile(url)
+            }
+        }
+    }
+
+    private func uniqueEPUBAssetIDs(_ selectors: [ResolvedExportBookSelector]) -> [String] {
         var seen = Set<String>()
         return selectors.compactMap { selector in
-            guard case let .assetID(assetID) = selector,
-                  seen.insert(assetID).inserted else {
-                return nil
+            let assetID: String?
+            switch selector {
+            case let .assetID(value, currentBook):
+                assetID = currentBook?.contentType == 3 ? nil : value
+            case let .localPK(book):
+                guard let book, book.contentType != 3 else { return nil }
+                assetID = book.assetID
+            case .pdfFile:
+                assetID = nil
             }
+            guard let assetID, seen.insert(assetID).inserted else { return nil }
             return assetID
         }
     }

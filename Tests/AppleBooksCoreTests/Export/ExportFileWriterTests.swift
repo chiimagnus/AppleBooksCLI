@@ -143,6 +143,26 @@ struct ExportFileWriterTests {
     }
 
     @Test
+    func genericPerDocumentWriterOwnsSafeNamesCollisionsAndExtensionValidation() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.bundleWithDuplicateTitles(cover: FixtureFactory.pngCover)
+
+        let result = try writer.writeDocuments(bundle, fileExtension: "json") { group in
+            Data("records=\(group.records.count)".utf8)
+        }
+        #expect(result.documentFileCount == 2)
+        #expect(result.warnings.isEmpty)
+        #expect(result.files.map(\.lastPathComponent) == ["Same.json", "Same-2.json"])
+        #expect(try result.files.map { try String(contentsOf: $0, encoding: .utf8) } == ["records=1", "records=1"])
+
+        #expect(throws: ExportFileWriterError.invalidFileName) {
+            _ = try writer.writeDocuments(bundle, fileExtension: "../json") { _ in Data() }
+        }
+    }
+
+    @Test
     func traversalInvalidNamesAndSymlinkDestinationsFailClosed() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }

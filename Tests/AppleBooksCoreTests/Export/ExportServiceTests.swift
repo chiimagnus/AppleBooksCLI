@@ -227,6 +227,63 @@ struct ExportServiceTests {
     }
 
     @Test
+    func localPKSelectorUsesExactCurrentBookIdentityWithoutNumericGuessing() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([
+            .init(pk: 123, assetID: "stable-123", title: "PK Book", contentType: 1, path: nil),
+            .init(pk: 1, assetID: "123", title: "Numeric Asset", contentType: 1, path: nil),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "stable-123", selectedText: "pk quote"),
+            .init(pk: 2, assetID: "123", selectedText: "asset quote"),
+        ])
+
+        let byPK = try fixture.service().makeBundle(
+            options: ExportOptions(bookSelectors: [.localPK(123)], kinds: [.highlight])
+        )
+        let byAsset = try fixture.service().makeBundle(
+            options: ExportOptions(bookSelectors: [.assetID("123")], kinds: [.highlight])
+        )
+
+        let pkRows = byPK.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        let assetRows = byAsset.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        #expect(pkRows == [1])
+        #expect(assetRows == [2])
+    }
+
+    @Test
+    func stableAssetSelectorStillReachesHistoricalRowsWithoutCurrentBook() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "historical", selectedText: "history quote"),
+        ])
+        try fixture.createConfiguration(historical: [
+            "historical": (title: "History", author: "Archive Author"),
+        ])
+
+        let bundle = try fixture.service().makeBundle(
+            options: ExportOptions(bookSelectors: [.assetID("historical")], kinds: [.highlight])
+        )
+
+        #expect(bundle.statistics.recordCount == 1)
+        guard case let .epubHistorical(assetID, metadata) = try #require(bundle.groups.first).source else {
+            Issue.record("expected historical EPUB group")
+            return
+        }
+        #expect(assetID == "historical")
+        #expect(metadata.title == "History")
+    }
+
+    @Test
     func missingStableSelectorReturnsEmptyBundleWithoutWorker() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

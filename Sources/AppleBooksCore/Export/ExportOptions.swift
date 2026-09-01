@@ -46,6 +46,7 @@ public enum ExportCoverMode: String, Equatable, Sendable {
 
 public enum ExportBookSelector: Equatable, Hashable, Sendable {
     case assetID(String)
+    case localPK(Int64)
     case pdfFile(URL)
 }
 
@@ -60,6 +61,7 @@ public struct ExportOptions: Equatable, Sendable {
     public let grouping: ExportFileGrouping
     public let includeEPUBMetadata: Bool
     public let cover: ExportCoverMode
+    public let completeNotes: Bool
 
     public init(
         source: ExportSourceScope = .epub,
@@ -71,7 +73,8 @@ public struct ExportOptions: Equatable, Sendable {
         skipFirstPerBook: Int = 0,
         grouping: ExportFileGrouping = .single,
         includeEPUBMetadata: Bool = false,
-        cover: ExportCoverMode = .none
+        cover: ExportCoverMode = .none,
+        completeNotes: Bool = false
     ) throws {
         guard kinds.isEmpty == false else { throw ExportOptionsError.emptyKinds }
         if let colors {
@@ -82,6 +85,8 @@ public struct ExportOptions: Equatable, Sendable {
             switch selector {
             case let .assetID(value):
                 guard value.isEmpty == false else { throw ExportOptionsError.invalidBookSelector }
+            case .localPK:
+                break
             case let .pdfFile(url):
                 guard url.isFileURL,
                       url.path.hasPrefix("/"),
@@ -100,6 +105,16 @@ public struct ExportOptions: Equatable, Sendable {
         if source == .pdf, includeEPUBMetadata || cover != .none {
             throw ExportOptionsError.conflictingOptions
         }
+        if completeNotes {
+            guard source == .epub || source == .all,
+                  bookSelectors.isEmpty,
+                  kinds == [.highlight, .note],
+                  colors == nil,
+                  underline == nil,
+                  skipFirstPerBook == 0 else {
+                throw ExportOptionsError.conflictingOptions
+            }
+        }
 
         self.source = source
         self.bookSelectors = bookSelectors
@@ -111,5 +126,6 @@ public struct ExportOptions: Equatable, Sendable {
         self.grouping = grouping
         self.includeEPUBMetadata = includeEPUBMetadata
         self.cover = cover
+        self.completeNotes = completeNotes
     }
 }

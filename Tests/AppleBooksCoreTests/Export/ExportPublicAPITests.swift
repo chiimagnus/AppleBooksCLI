@@ -80,7 +80,7 @@ struct ExportPublicAPITests {
         )
 
         #expect(throws: ExportSafetyValidationError.unmappedNotes(count: 1)) {
-            _ = try core.exportBundle(options: ExportOptions())
+            _ = try core.exportBundle(options: ExportOptions(completeNotes: true))
         }
     }
 

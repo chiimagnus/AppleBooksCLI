@@ -32,12 +32,12 @@ public struct ExportFileWriteResult: Equatable, Sendable {
     public let stableHash: String
 }
 
-public enum MarkdownExportLayout: Equatable, Sendable {
+public enum ExportFileLayout: Equatable, Sendable {
     case single(fileName: String)
     case perBook
 }
 
-public struct MarkdownExportWriteResult: Equatable, Sendable {
+public struct ExportDirectoryWriteResult: Equatable, Sendable {
     public let documentFileCount: Int
     public let files: [URL]
     public let warnings: [ExportFileWriteWarning]
@@ -79,15 +79,87 @@ public struct ExportFileWriter {
         ) { _, _ in data }
     }
 
+    public func writeDocuments(
+        _ bundle: ExportBundle,
+        fileExtension: String,
+        overwrite: OverwritePolicy = .never,
+        render: (ExportGroup) throws -> Data
+    ) throws -> ExportDirectoryWriteResult {
+        if ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options),
+           permitsCompleteArchivePerBookWrites == false {
+            throw ExportFileWriterError.completeArchiveRequiresStaging
+        }
+        try Self.validateFileExtension(fileExtension)
+        var allocator = ExportFilenameAllocator()
+        var files: [URL] = []
+        for group in bundle.groups {
+            let fileName = allocator.allocate(
+                derivedFrom: Self.fileStem(for: group),
+                extension: fileExtension
+            )
+            let data = try render(group)
+            let result = try write(data, fileName: fileName, overwrite: overwrite)
+            files.append(result.destination)
+        }
+        return ExportDirectoryWriteResult(
+            documentFileCount: files.count,
+            files: files,
+            warnings: []
+        )
+    }
+
+    public static func writeCompleteNoteArchiveDocuments(
+        _ bundle: ExportBundle,
+        to destinationDirectory: URL,
+        fileExtension: String,
+        render: (ExportGroup) throws -> Data
+    ) throws -> ExportDirectoryWriteResult {
+        guard ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options) else {
+            throw ExportSafetyValidationError.incompleteArchiveDataset
+        }
+        return try publishArchiveDirectory(
+            to: destinationDirectory,
+            expectedDocuments: bundle.groups.count,
+            now: Date.init,
+            beforeArchiveRename: nil
+        ) { writer in
+            try writer.writeDocuments(
+                bundle,
+                fileExtension: fileExtension,
+                overwrite: .never,
+                render: render
+            )
+        }
+    }
+
     public static func writeCompleteNoteArchiveMarkdown(
         _ bundle: ExportBundle,
         to destinationDirectory: URL,
         profile: MarkdownProfile = .plain,
         coverMode: ExportCoverMode = .none
-    ) throws -> MarkdownExportWriteResult {
+    ) throws -> ExportDirectoryWriteResult {
         try writeCompleteNoteArchiveMarkdown(
             bundle,
             to: destinationDirectory,
+            layout: .perBook,
+            profile: profile,
+            coverMode: coverMode,
+            now: Date.init,
+            beforeArchiveRename: nil
+        )
+    }
+
+    public static func writeCompleteNoteArchiveMarkdown(
+        _ bundle: ExportBundle,
+        to destinationDirectory: URL,
+        layout: ExportFileLayout,
+        profile: MarkdownProfile = .plain,
+        coverMode: ExportCoverMode = .none
+    ) throws -> ExportDirectoryWriteResult {
+        try writeCompleteNoteArchiveMarkdown(
+            bundle,
+            to: destinationDirectory,
+            layout: layout,
             profile: profile,
             coverMode: coverMode,
             now: Date.init,
@@ -98,23 +170,31 @@ public struct ExportFileWriter {
     static func writeCompleteNoteArchiveMarkdown(
         _ bundle: ExportBundle,
         to destinationDirectory: URL,
+        layout: ExportFileLayout = .perBook,
         profile: MarkdownProfile,
         coverMode: ExportCoverMode,
         now: @escaping () -> Date,
         beforeArchiveRename: (() throws -> Void)?
-    ) throws -> MarkdownExportWriteResult {
+    ) throws -> ExportDirectoryWriteResult {
         guard ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options) else {
             throw ExportSafetyValidationError.incompleteArchiveDataset
         }
+        let expectedDocuments: Int
+        switch layout {
+        case .single:
+            expectedDocuments = 1
+        case .perBook:
+            expectedDocuments = bundle.groups.count
+        }
         return try publishArchiveDirectory(
             to: destinationDirectory,
-            expectedDocuments: bundle.groups.count,
+            expectedDocuments: expectedDocuments,
             now: now,
             beforeArchiveRename: beforeArchiveRename
         ) { writer in
             try writer.writeMarkdown(
                 bundle,
-                layout: .perBook,
+                layout: layout,
                 profile: profile,
                 coverMode: coverMode,
                 overwrite: .never
@@ -127,8 +207,8 @@ public struct ExportFileWriter {
         expectedDocuments: Int,
         now: @escaping () -> Date,
         beforeArchiveRename: (() throws -> Void)?,
-        materialize: (ExportFileWriter) throws -> MarkdownExportWriteResult
-    ) throws -> MarkdownExportWriteResult {
+        materialize: (ExportFileWriter) throws -> ExportDirectoryWriteResult
+    ) throws -> ExportDirectoryWriteResult {
         let destination = try validatedArchiveDestination(destinationDirectory)
         let staging = try createArchiveStaging(parent: destination.parent)
         var published = false
@@ -171,7 +251,7 @@ public struct ExportFileWriter {
             throw ExportFileWriterError.archivePublishFailed
         }
         published = true
-        return MarkdownExportWriteResult(
+        return ExportDirectoryWriteResult(
             documentFileCount: staged.documentFileCount,
             files: publishedFiles,
             warnings: staged.warnings
@@ -180,12 +260,13 @@ public struct ExportFileWriter {
 
     public func writeMarkdown(
         _ bundle: ExportBundle,
-        layout: MarkdownExportLayout,
+        layout: ExportFileLayout,
         profile: MarkdownProfile = .plain,
         coverMode: ExportCoverMode = .none,
         overwrite: OverwritePolicy = .never
-    ) throws -> MarkdownExportWriteResult {
-        if case .perBook = layout,
+    ) throws -> ExportDirectoryWriteResult {
+        let producesMultipleFiles = layout == .perBook || coverMode == .file || profile.options.authorPages
+        if producesMultipleFiles,
            ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options),
            permitsCompleteArchivePerBookWrites == false {
             throw ExportFileWriterError.completeArchiveRequiresStaging
@@ -234,7 +315,7 @@ public struct ExportFileWriter {
                 overwrite: overwrite,
                 files: &files
             )
-            return MarkdownExportWriteResult(
+            return ExportDirectoryWriteResult(
                 documentFileCount: 1,
                 files: files,
                 warnings: warnings
@@ -289,7 +370,7 @@ public struct ExportFileWriter {
                 overwrite: overwrite,
                 files: &files
             )
-            return MarkdownExportWriteResult(
+            return ExportDirectoryWriteResult(
                 documentFileCount: documentFiles.count,
                 files: files,
                 warnings: warnings
@@ -318,13 +399,13 @@ public struct ExportFileWriter {
                 case .none:
                     break
                 case .inline:
-                    let media = try Self.coverMedia(cover)
+                    let media = try ExportCoverMedia.resolve(cover)
                     context.cover = .inlineDataURL(
                         "data:\(media.type);base64,\(cover.data.base64EncodedString())"
                     )
                 case .file:
                     guard let attachments else { throw ExportFileWriterError.writeFailed }
-                    let media = try Self.coverMedia(cover)
+                    let media = try ExportCoverMedia.resolve(cover)
                     let fileName = attachmentAllocator.allocate(
                         derivedFrom: "\(Self.fileStem(for: group))-cover",
                         extension: media.extension
@@ -593,6 +674,14 @@ public struct ExportFileWriter {
         return canonical
     }
 
+    private static func validateFileExtension(_ fileExtension: String) throws {
+        guard fileExtension.isEmpty == false,
+              fileExtension.count <= 16,
+              fileExtension.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+            throw ExportFileWriterError.invalidFileName
+        }
+    }
+
     private static func validateFileName(_ fileName: String) throws {
         guard fileName.isEmpty == false,
               fileName != ".",
@@ -652,14 +741,6 @@ public struct ExportFileWriter {
         return Data(normalized.joined(separator: "\n").utf8)
     }
 
-    private static func coverMedia(_ cover: EPUBCover) throws -> (type: String, extension: String) {
-        switch cover.mediaType?.lowercased() {
-        case "image/jpeg": ("image/jpeg", "jpg")
-        case "image/png": ("image/png", "png")
-        case "image/gif": ("image/gif", "gif")
-        default: throw ExportFileWriterError.unsupportedCoverMediaType
-        }
-    }
 
     private static func fileStem(for group: ExportGroup) -> String {
         switch group.source {

@@ -18,12 +18,7 @@ public enum ExportSafetyValidationError: Error, Equatable, Sendable {
 
 enum ExportSafetyValidator {
     static func requiresCompleteNoteArchiveValidation(_ options: ExportOptions) -> Bool {
-        guard options.source == .epub || options.source == .all else { return false }
-        return options.bookSelectors.isEmpty &&
-            options.kinds == [.highlight, .note] &&
-            options.colors == nil &&
-            options.underline == nil &&
-            options.skipFirstPerBook == 0
+        options.completeNotes
     }
 
     static func validateDataset(

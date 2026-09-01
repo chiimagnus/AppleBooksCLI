@@ -6,25 +6,32 @@ import Testing
 @Suite("ExportSafetyValidatorTests")
 struct ExportSafetyValidatorTests {
     @Test
-    func completeArchiveGateOnlyMatchesUnfilteredEPUBOrAllExports() throws {
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(try ExportOptions()))
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(try ExportOptions(source: .all)))
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(try ExportOptions(source: .pdf)) == false)
+    func completeArchiveGateRequiresExplicitUnfilteredEPUBOrAllIntent() throws {
+        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(try ExportOptions()) == false)
         #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(
-            try ExportOptions(bookSelectors: [.assetID("one")])
-        ) == false)
+            try ExportOptions(completeNotes: true)
+        ))
         #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(
-            try ExportOptions(kinds: [.note])
-        ) == false)
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(
-            try ExportOptions(colors: [.yellow])
-        ) == false)
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(
-            try ExportOptions(underline: true)
-        ) == false)
-        #expect(ExportSafetyValidator.requiresCompleteNoteArchiveValidation(
-            try ExportOptions(skipFirstPerBook: 1)
-        ) == false)
+            try ExportOptions(source: .all, completeNotes: true)
+        ))
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(source: .pdf, completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(bookSelectors: [.assetID("one")], completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(kinds: [.note], completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(colors: [.yellow], completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(underline: true, completeNotes: true)
+        }
+        #expect(throws: ExportOptionsError.conflictingOptions) {
+            _ = try ExportOptions(skipFirstPerBook: 1, completeNotes: true)
+        }
     }
 
     @Test
@@ -217,7 +224,7 @@ struct ExportSafetyValidatorTests {
         ])
 
         #expect(throws: ExportSafetyValidationError.rawNoteCountMismatch(expected: 1, actual: 0)) {
-            _ = try fixture.service().makeBundle(options: ExportOptions())
+            _ = try fixture.service().makeBundle(options: ExportOptions(completeNotes: true))
         }
     }
 
@@ -235,7 +242,7 @@ struct ExportSafetyValidatorTests {
             table: .annotations,
             columns: [AppleBooksSchema.Annotation.representativeText]
         )) {
-            _ = try fixture.service().makeBundle(options: ExportOptions())
+            _ = try fixture.service().makeBundle(options: ExportOptions(completeNotes: true))
         }
 
         let filtered = try fixture.service().makeBundle(options: ExportOptions(kinds: [.highlight]))
@@ -273,6 +280,30 @@ struct ExportSafetyValidatorTests {
 
         #expect(result.documentFileCount == 2)
         #expect(FileManager.default.fileExists(atPath: final.path))
+        #expect(result.files.allSatisfy { $0.path.hasPrefix(final.path + "/") })
+        #expect(try stagingNames(in: fixture.root).isEmpty)
+    }
+
+    @Test
+    func genericCompleteArchiveDocumentsUseTheSameStagingAndMaterializationGate() throws {
+        let fixture = try ArchiveFixture()
+        defer { fixture.remove() }
+        let final = fixture.root.appendingPathComponent("ArchiveJSON", isDirectory: true)
+        let value = bundle(groups: [
+            currentGroup(pk: 1, title: "One"),
+            currentGroup(pk: 2, title: "Two"),
+        ])
+
+        let result = try ExportFileWriter.writeCompleteNoteArchiveDocuments(
+            value,
+            to: final,
+            fileExtension: "json"
+        ) { group in
+            Data("records=\(group.records.count)".utf8)
+        }
+
+        #expect(result.documentFileCount == 2)
+        #expect(result.files.map(\.lastPathComponent) == ["One.json", "Two.json"])
         #expect(result.files.allSatisfy { $0.path.hasPrefix(final.path + "/") })
         #expect(try stagingNames(in: fixture.root).isEmpty)
     }
@@ -396,7 +427,7 @@ struct ExportSafetyValidatorTests {
     private func bundle(groups: [ExportGroup]) -> ExportBundle {
         let count = groups.reduce(0) { $0 + $1.records.count }
         return ExportBundle(
-            options: try! ExportOptions(),
+            options: try! ExportOptions(completeNotes: true),
             groups: groups,
             warnings: [],
             statistics: ExportStatistics(

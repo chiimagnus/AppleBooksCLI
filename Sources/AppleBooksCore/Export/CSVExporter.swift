@@ -61,9 +61,17 @@ public enum CSVExporter {
     ]
 
     public static func render(_ bundle: ExportBundle) -> Data {
+        render(groups: bundle.groups)
+    }
+
+    public static func renderDocument(_ group: ExportGroup) -> Data {
+        render(groups: [group])
+    }
+
+    private static func render(groups: [ExportGroup]) -> Data {
         let mapper = CSVRowMapper()
         var output = columns.map(csvQuote).joined(separator: ",") + "\r\n"
-        for group in bundle.groups {
+        for group in groups {
             for record in group.records {
                 output += mapper.row(group: group, record: record)
                     .map(renderCell)

@@ -24,6 +24,31 @@ public enum MarkdownAnnotationExporter {
         render(bundle, profile: profile, contexts: [:], fileMetadata: nil)
     }
 
+    public static func render(
+        _ bundle: ExportBundle,
+        profile: MarkdownProfile = .plain,
+        coverMode: ExportCoverMode
+    ) throws -> String {
+        switch coverMode {
+        case .none:
+            return render(bundle, profile: profile)
+        case .inline:
+            var contexts: [Int: MarkdownRenderContext] = [:]
+            for (index, group) in bundle.groups.enumerated() {
+                guard let cover = group.epubCover else { continue }
+                let media = try ExportCoverMedia.resolve(cover)
+                contexts[index] = MarkdownRenderContext(
+                    cover: .inlineDataURL(
+                        "data:\(media.type);base64,\(cover.data.base64EncodedString())"
+                    )
+                )
+            }
+            return render(bundle, profile: profile, contexts: contexts, fileMetadata: nil)
+        case .file:
+            throw ExportFileWriterError.writeFailed
+        }
+    }
+
     static func render(
         _ bundle: ExportBundle,
         profile: MarkdownProfile,

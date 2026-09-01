@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "applebookscli-pdf-worker", targets: ["AppleBooksPDFWorker"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.8.2"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.9"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
     ],
@@ -26,7 +27,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "AppleBooksCLI",
-            dependencies: ["AppleBooksCore"]
+            dependencies: [
+                "AppleBooksCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
         ),
         .executableTarget(
             name: "AppleBooksPDFWorker",
@@ -38,6 +42,10 @@ let package = Package(
                 "AppleBooksCore",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
+        ),
+        .testTarget(
+            name: "AppleBooksCLITests",
+            dependencies: ["AppleBooksCLI"]
         ),
     ],
     swiftLanguageModes: [.v6]

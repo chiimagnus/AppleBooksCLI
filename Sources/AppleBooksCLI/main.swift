@@ -1,3 +1,3 @@
-import AppleBooksCore
+import Darwin
 
-print(AppleBooksCore.productName)
+exit(CLIEntrypoint.run(arguments: Array(CommandLine.arguments.dropFirst())))

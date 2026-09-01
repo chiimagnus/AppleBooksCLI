@@ -1,5 +1,13 @@
 # Third-Party Notices
 
+## swift-argument-parser
+
+- Source: https://github.com/apple/swift-argument-parser
+- Version: `1.8.2`
+- Revision: `6a52f3251125d74daf04fcbd5e6f08a75d074382`
+- License: Apache License 2.0 with Runtime Library Exception — see `ThirdPartyLicenses/swift-argument-parser-Apache-2.0.txt`
+- Runtime Library Exception: declared by the upstream source headers for this release.
+
 ## SwiftSoup
 
 - Source: https://github.com/scinfu/SwiftSoup

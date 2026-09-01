@@ -65,6 +65,21 @@ struct DatabaseDiscoveryTests {
     }
 
     @Test
+    func permissionFailureIsDistinctForDiagnosticsButPreservesDiscoveryContract() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try touch(fixture.paths.annotationsDirectory, "AEAnnotation-auto.sqlite")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: fixture.paths.libraryDirectory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.paths.libraryDirectory.path) }
+
+        let discovery = DatabaseDiscovery(paths: fixture.paths)
+        #expect(discovery.probe(store: .library) == .failure(.permission))
+        #expect(throws: DatabaseDiscoveryError.missing(.library)) {
+            _ = try discovery.discover()
+        }
+    }
+
+    @Test
     func overrideMustBeAReadableRegularFile() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

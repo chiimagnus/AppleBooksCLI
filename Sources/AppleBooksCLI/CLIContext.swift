@@ -24,6 +24,16 @@ struct CLIContext {
         )
     }
 
+    func diagnostics(backupRoot: URL = SQLiteBackup.defaultRoot()) -> AppleBooksDiagnosticReport {
+        AppleBooksDiagnostics.inspect(
+            libraryOverride: global.libraryDB.map(URL.init(fileURLWithPath:)),
+            annotationsOverride: global.annotationsDB.map(URL.init(fileURLWithPath:)),
+            configurationFile: configurationFile,
+            databaseDiscovery: databaseDiscovery,
+            backupRoot: backupRoot
+        )
+    }
+
     func makeAppleBooks(
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil

@@ -536,6 +536,11 @@ struct CollectionWriter {
         return CollectionWriteTarget(localPK: localPK, stableID: nil)
     }
 
+    static func validateWriteReadiness(on connection: SQLiteConnection) throws {
+        try validateCreateSchema(on: connection)
+        try validateMembershipSchema(inserting: true, on: connection)
+    }
+
     private static func validateCreateSchema(on connection: SQLiteConnection) throws {
         try WriteSchemaGuard.validateTable(
             .collections,

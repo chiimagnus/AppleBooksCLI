@@ -131,6 +131,14 @@ struct AnnotationWriter {
         )
     }
 
+    static func validateWriteReadiness(on connection: SQLiteConnection) throws {
+        guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
+        var required = updateColumns
+        required.insert("ZANNOTATIONUUID")
+        try WriteSchemaGuard.validateTable(.annotations, required: required, inserting: false, on: handle)
+        _ = try WriteSchemaGuard.entity(named: entityName, on: handle)
+    }
+
     private static func validateSchema(for selector: Selector, on handle: OpaquePointer) throws {
         try validateSchema(for: selector, required: updateColumns, on: handle)
     }

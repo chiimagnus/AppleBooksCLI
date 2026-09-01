@@ -16,6 +16,13 @@ public struct DiscoveredAppleBooksDatabases: Equatable, Sendable {
     public let annotationsDB: URL
 }
 
+enum DatabaseStoreProbeError: Error, Equatable {
+    case missing
+    case permission
+    case ambiguous(candidates: [String])
+    case invalidOverride
+}
+
 public struct DatabaseDiscovery: Sendable {
     public let paths: AppleBooksDatabasePaths
 
@@ -27,81 +34,112 @@ public struct DatabaseDiscovery: Sendable {
         libraryOverride: URL? = nil,
         annotationsOverride: URL? = nil
     ) throws -> DiscoveredAppleBooksDatabases {
-        let libraryDB = try resolve(
-            store: .library,
-            override: libraryOverride,
-            directory: paths.libraryDirectory,
-            prefix: "BKLibrary"
-        )
-        let annotationsDB = try resolve(
-            store: .annotations,
-            override: annotationsOverride,
-            directory: paths.annotationsDirectory,
-            prefix: "AEAnnotation"
-        )
+        let libraryDB = try resolve(store: .library, override: libraryOverride)
+        let annotationsDB = try resolve(store: .annotations, override: annotationsOverride)
         return DiscoveredAppleBooksDatabases(libraryDB: libraryDB, annotationsDB: annotationsDB)
     }
 
-    private func resolve(
-        store: AppleBooksStore,
-        override: URL?,
-        directory: URL,
-        prefix: String
-    ) throws -> URL {
-        if let override {
-            return try validatedOverride(override, store: store)
+    func probe(store: AppleBooksStore, override: URL? = nil) -> Result<URL, DatabaseStoreProbeError> {
+        let directory: URL
+        let prefix: String
+        switch store {
+        case .library:
+            directory = paths.libraryDirectory
+            prefix = "BKLibrary"
+        case .annotations:
+            directory = paths.annotationsDirectory
+            prefix = "AEAnnotation"
         }
-        return try discoverSingleDatabase(in: directory, prefix: prefix, store: store)
+
+        if let override {
+            return validatedOverride(override)
+        }
+        return discoverSingleDatabase(in: directory, prefix: prefix)
+    }
+
+    private func resolve(store: AppleBooksStore, override: URL?) throws -> URL {
+        switch probe(store: store, override: override) {
+        case let .success(url):
+            return url
+        case let .failure(error):
+            switch error {
+            case .missing, .permission:
+                if override != nil { throw DatabaseDiscoveryError.invalidOverride(store) }
+                throw DatabaseDiscoveryError.missing(store)
+            case let .ambiguous(candidates):
+                throw DatabaseDiscoveryError.ambiguous(store, candidates: candidates)
+            case .invalidOverride:
+                throw DatabaseDiscoveryError.invalidOverride(store)
+            }
+        }
     }
 
     private func discoverSingleDatabase(
         in directory: URL,
-        prefix: String,
-        store: AppleBooksStore
-    ) throws -> URL {
-        let fileManager = FileManager.default
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            throw DatabaseDiscoveryError.missing(store)
+        prefix: String
+    ) -> Result<URL, DatabaseStoreProbeError> {
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            return .failure(Self.isPermissionError(error) ? .permission : .missing)
         }
 
+        var sawPermissionFailure = false
         let candidates = entries.compactMap { entry -> URL? in
             let name = entry.lastPathComponent
             guard name.hasPrefix(prefix), name.hasSuffix(".sqlite") else { return nil }
-            let values = try? entry.resourceValues(forKeys: [.isRegularFileKey])
-            guard values?.isRegularFile == true else { return nil }
-            return entry.standardizedFileURL.resolvingSymlinksInPath()
+            do {
+                let values = try entry.resourceValues(forKeys: [.isRegularFileKey])
+                guard values.isRegularFile == true else { return nil }
+                return entry.standardizedFileURL.resolvingSymlinksInPath()
+            } catch {
+                if Self.isPermissionError(error) { sawPermissionFailure = true }
+                return nil
+            }
         }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
         switch candidates.count {
         case 0:
-            throw DatabaseDiscoveryError.missing(store)
+            return .failure(sawPermissionFailure ? .permission : .missing)
         case 1:
-            return candidates[0]
+            return .success(candidates[0])
         default:
-            throw DatabaseDiscoveryError.ambiguous(
-                store,
-                candidates: candidates.map(\.lastPathComponent)
-            )
+            return .failure(.ambiguous(candidates: candidates.map(\.lastPathComponent)))
         }
     }
 
-    private func validatedOverride(_ url: URL, store: AppleBooksStore) throws -> URL {
+    private func validatedOverride(_ url: URL) -> Result<URL, DatabaseStoreProbeError> {
         let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
         do {
             let values = try canonical.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey])
             guard values.isRegularFile == true, values.isReadable == true else {
-                throw DatabaseDiscoveryError.invalidOverride(store)
+                return .failure(.invalidOverride)
             }
-        } catch is DatabaseDiscoveryError {
-            throw DatabaseDiscoveryError.invalidOverride(store)
+            return .success(canonical)
         } catch {
-            throw DatabaseDiscoveryError.invalidOverride(store)
+            return .failure(Self.isPermissionError(error) ? .permission : .invalidOverride)
         }
-        return canonical
+    }
+
+    private static func isPermissionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == NSFileReadNoPermissionError {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain,
+           nsError.code == Int(EACCES) || nsError.code == Int(EPERM) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isPermissionError(underlying)
+        }
+        return false
     }
 }

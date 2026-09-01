@@ -2,6 +2,16 @@ import Darwin
 import Foundation
 
 enum EPUBSourceResolver {
+    static func supplementalRootIsReady(_ root: URL) -> Bool {
+        let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        var metadata = stat()
+        guard lstat(canonicalRoot.path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR else {
+            return false
+        }
+        return BookContentAvailability.inspect(canonicalRoot) == .available
+    }
+
     static func reader(for book: Book, configuration: AppleBooksConfiguration) throws -> any EPUBResourceReader {
         guard let rawPath = book.path else { throw ContentError.bookPathUnavailable }
         let currentURL = URL(fileURLWithPath: rawPath).standardizedFileURL

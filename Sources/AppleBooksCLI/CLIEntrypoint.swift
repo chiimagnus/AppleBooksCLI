@@ -4,6 +4,10 @@ protocol GlobalOptionsProviding {
     var global: GlobalOptions { get }
 }
 
+protocol CLIOutputRunnable {
+    func run(output: CLIOutput) throws
+}
+
 enum CLIEntrypoint {
     static func run(arguments: [String]) -> Int32 {
         run(arguments: arguments, output: .standard)
@@ -18,9 +22,13 @@ enum CLIEntrypoint {
         }
 
         let jsonRequested = (command as? any GlobalOptionsProviding)?.global.json ?? false
-        var runnable = command
         do {
-            try runnable.run()
+            if let outputRunnable = command as? any CLIOutputRunnable {
+                try outputRunnable.run(output: output)
+            } else {
+                var runnable = command
+                try runnable.run()
+            }
             return CLIProcessExit.success.rawValue
         } catch {
             return presentRunError(error, jsonRequested: jsonRequested, output: output)

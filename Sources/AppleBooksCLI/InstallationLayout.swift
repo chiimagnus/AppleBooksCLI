@@ -37,3 +37,16 @@ struct InstallationLayout: Equatable, Sendable {
         FileManager.default.isExecutableFile(atPath: pdfWorkerURL.path)
     }
 }
+
+func installedPDFWorkerURL(bundle: Bundle = .main) throws -> URL {
+    let layout: InstallationLayout
+    do {
+        layout = try InstallationLayout.current(bundle: bundle)
+    } catch {
+        throw CLIError.unavailable("Installed PDF worker is unavailable.")
+    }
+    guard layout.pdfWorkerIsExecutable else {
+        throw CLIError.unavailable("Installed PDF worker is unavailable.")
+    }
+    return layout.pdfWorkerURL
+}

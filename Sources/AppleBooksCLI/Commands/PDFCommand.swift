@@ -67,21 +67,7 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
             throw ValidationError("--timeout must be greater than zero.")
         }
 
-        let workerURL: URL
-        if let injectedWorkerURL {
-            workerURL = injectedWorkerURL
-        } else {
-            let layout: InstallationLayout
-            do {
-                layout = try InstallationLayout.current()
-            } catch {
-                throw CLIError.unavailable("Installed PDF worker is unavailable.")
-            }
-            guard layout.pdfWorkerIsExecutable else {
-                throw CLIError.unavailable("Installed PDF worker is unavailable.")
-            }
-            workerURL = layout.pdfWorkerURL
-        }
+        let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
         guard FileManager.default.isExecutableFile(atPath: workerURL.path) else {
             throw CLIError.unavailable("PDF worker is unavailable.")
         }

@@ -182,6 +182,26 @@ enum CLIOperation {
             error is EPUBMetadataError {
             return .unavailable("Book content is unavailable.")
         }
+        if let optionsError = error as? ExportOptionsError {
+            switch optionsError {
+            case .negativeSkip:
+                return .usageInvalid("--skip-first must not be negative.")
+            case .emptyKinds:
+                return .usageInvalid("At least one export kind is required.")
+            case .emptyColors:
+                return .usageInvalid("At least one export color is required when filtering by color.")
+            case .invalidBookSelector:
+                return .usageInvalid("Export book selector is invalid.")
+            case .conflictingOptions:
+                return .usageInvalid("Export options conflict.")
+            }
+        }
+        if error is ExportServiceError {
+            return .unavailable("PDF worker is unavailable for the requested export source.")
+        }
+        if error is ExportSafetyValidationError {
+            return .writeSafety("Complete-note archive safety validation failed.")
+        }
         if error is ExportFileWriterError {
             return .writeSafety("Output path is unsafe or already exists.")
         }

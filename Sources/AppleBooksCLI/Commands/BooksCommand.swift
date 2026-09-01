@@ -143,7 +143,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
     }
 
     func execute() throws -> BookResult {
-        let selector = try selector()
+        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks()
             let overview: BookOverview?
@@ -157,22 +157,6 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
                 throw CLIError.notFound("Book not found.")
             }
             return BookResult(overview: overview)
-        }
-    }
-
-    private func selector() throws -> BookSelector {
-        switch (assetID, pk) {
-        case let (.some(assetID), nil):
-            guard assetID.isEmpty == false else {
-                throw ValidationError("Asset ID must not be empty.")
-            }
-            return .assetID(assetID)
-        case let (nil, .some(localPK)):
-            return .localPK(localPK)
-        case (nil, nil):
-            throw ValidationError("Provide an asset ID or --pk.")
-        case (.some, .some):
-            throw ValidationError("Asset ID and --pk are mutually exclusive.")
         }
     }
 }
@@ -277,11 +261,6 @@ struct BooksGenreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunn
             )
         }
     }
-}
-
-private enum BookSelector {
-    case assetID(String)
-    case localPK(Int64)
 }
 
 private func validateSearchInput(query: String, limit: Int?, offset: Int) throws {
@@ -400,7 +379,7 @@ struct BookResult: Codable, Equatable, Sendable {
         ].joined(separator: "\n")
     }
 
-    fileprivate var humanSummary: String {
+    var humanSummary: String {
         "\(localPK)\t\(assetID ?? "-")\t\(title ?? "-")\t\(author ?? "-")"
     }
 }

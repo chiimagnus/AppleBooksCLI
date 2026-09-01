@@ -103,6 +103,13 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if error is ContentError ||
+            error is EPUBResourceError ||
+            error is DirectoryEPUBPackageError ||
+            error is EPUBNavigationError ||
+            error is EPUBPathError {
+            return .unavailable("Book content is unavailable.")
+        }
         return .internalFailure
     }
 }

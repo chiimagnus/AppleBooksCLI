@@ -1,4 +1,4 @@
-public enum ReadingPositionSource: Equatable, Sendable {
+public enum ReadingPositionSource: String, Codable, Equatable, Sendable {
     case bookmarkToc
     case bookmarkHint
     case recentAnnotationInference

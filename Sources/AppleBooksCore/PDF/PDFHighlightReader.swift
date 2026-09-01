@@ -20,15 +20,25 @@ struct PDFHighlightReader {
             }
             for (annotationIndex, annotation) in page.annotations.enumerated() {
                 guard annotation.type == "Highlight" else { continue }
+                let quadrilateralPoints = annotation.quadrilateralPoints?.map(\.pointValue) ?? []
+                let text = PDFHighlightTextExtractor().extract(
+                    page: page,
+                    annotationBounds: annotation.bounds,
+                    quadrilateralPoints: quadrilateralPoints
+                )
                 highlights.append(
                     PDFHighlight(
                         page: pageIndex + 1,
                         traversalIndex: annotationIndex,
                         bounds: annotation.bounds,
-                        quadrilateralPoints: annotation.quadrilateralPoints?.map(\.pointValue) ?? [],
+                        quadrilateralPoints: quadrilateralPoints,
                         note: annotation.contents,
                         pdfKitRGBA: rgbaComponents(annotation.color),
-                        modifiedAt: annotation.modificationDate
+                        modifiedAt: annotation.modificationDate,
+                        text: text.text,
+                        textSource: text.source,
+                        textIsApproximate: text.isApproximate,
+                        textUnavailableReason: text.unavailableReason
                     )
                 )
             }

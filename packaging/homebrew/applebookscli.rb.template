@@ -1,0 +1,27 @@
+# typed: strict
+# frozen_string_literal: true
+
+# Formula for the prebuilt AppleBooksCLI universal macOS release archive.
+class Applebookscli < Formula
+  desc "Read, inspect, export, and safely mutate local Apple Books data"
+  homepage "https://github.com/__OWNER__/AppleBooksCLI"
+  url "__URL__"
+  version "__VERSION__"
+  sha256 "__SHA256__"
+  license "AGPL-3.0-only"
+
+  def install
+    bin.install "bin/applebookscli"
+    (libexec/"applebookscli").install "libexec/applebookscli/applebookscli-pdf-worker"
+    prefix.install "LICENSE", "THIRD_PARTY_NOTICES.md", "ThirdPartyLicenses"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/applebookscli --version")
+    assert_match "USAGE:", shell_output("#{bin}/applebookscli --help")
+    assert_predicate libexec/"applebookscli/applebookscli-pdf-worker", :executable?
+    assert_predicate prefix/"LICENSE", :file?
+    assert_predicate prefix/"THIRD_PARTY_NOTICES.md", :file?
+    assert_predicate prefix/"ThirdPartyLicenses", :directory?
+  end
+end

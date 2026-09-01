@@ -115,44 +115,44 @@
 
 | 能力 | 状态 | 等价能力要求 |
 | --- | --- | --- |
-| export output destination | 必须复刻 | 支持显式文件/目录输出；默认路径只能是 UX 默认值，不能成为唯一去处 |
-| Markdown export | 必须复刻 | 支持全库和单书；可文件输出，也保留 stdout 可组合路径 |
-| JSON export | 必须复刻 | single-file / per-book；同时查询命令的 `--json` 作为稳定机器协议 |
-| CSV export | 必须复刻 | 全库结构化 export |
-| HTML export | 必须复刻 | 不只是“能写 HTML”，还要保留当前用户可见交互能力 |
-| HTML 搜索 | 必须复刻 | 在导出产物内搜索书名/批注 |
-| HTML 单书折叠 + 全部折叠 | 必须复刻 | collapse/expand + all toggle |
-| HTML 状态持久化 | 必须复刻 | collapse/sidebar 状态 localStorage |
-| HTML sidebar / responsive / print | 必须复刻 | 书籍导航、移动端 sidebar、print-friendly layout |
-| export 类型过滤 | 必须复刻且与 raw type 分层 | highlights-only / bookmarks-only / notes-only / include-bookmarks；presentation kind 规则为 note 非空→note、selected text 空→bookmark、否则 highlight，不能把 presentation bookmark 偷换成 raw `ZANNOTATIONTYPE=3` |
-| export 颜色过滤 | 必须复刻 | yellow/green/blue/pink/purple/underline |
-| export single/multiple file | 必须复刻 | Markdown/JSON 单文件与 per-book |
-| partial export offset | 必须复刻 | `skip_first_x_notes` 的等价 offset/skip 能力 |
-| export statistics | 必须复刻 | books/annotations/type/orphan 等统计 |
-| annotation export ordering | 宿主能力翻译 | 用户可选择按 location/CFI 阅读顺序排序或保留未排序/来源顺序；canonical 数据层不因展示排序改 identity |
-| EPUB/PDF source scope | 宿主能力翻译 | 原 `includePdfHighlights` 开关翻译为明确 source scope，例如 `epub / pdf / all` 或等价 include/exclude PDF flag |
-| 自选有 AEAnnotation highlights 的书 | 宿主能力翻译 | 原 modal 只覆盖这条 EPUB/AEAnnotation 路径；CLI 用一个或多个稳定 book selector 等价实现。不把“选择 PDF”偷算成当前 parity 要求 |
-| Markdown smart overwrite | 宿主能力翻译 | `smart / always / never`；smart hash 必须覆盖实际生成文件的稳定内容与相关 renderer 设置，不能只 hash body 而漏掉 frontmatter |
-| extended frontmatter/body metadata | 宿主能力翻译 | CLI Markdown/Obsidian-compatible profile 提供等价选项 |
-| cover inline / cover file | 宿主能力翻译 | 可 base64/内嵌或输出独立 cover 文件并引用 |
-| tags | 宿主能力翻译 | 可为生成的 Markdown 添加用户指定 tags |
-| chapter headings / annotation date / style / progress | 宿主能力翻译 | 对应 renderer 选项不能静默丢失 |
-| citation | 宿主能力翻译 | author/title/publisher/year/physical location 等价输出 |
-| author pages | 宿主能力翻译 | 不复制 Obsidian UI；需要提供可选的 Obsidian-compatible author-page 生成能力，含原有 Dataview 语义或明确等价输出 |
+| export output destination | 必须复刻/已验收 | 支持 caller 显式文件/目录输出；所有文件写盘统一经过受限 writer，默认 `.never` 不覆盖现存文件，derived filename/path traversal、symlink destination/parent 均 fail closed |
+| Markdown export | 必须复刻/已验收 | 支持 canonical bundle 与单书 renderer；plain/Obsidian-compatible profile 都只消费已选好的 records，不 direct SQL，不因展示分组改写 identity |
+| JSON export | 必须复刻/已验收 | schema-versioned、确定性 single-file / per-document bytes；保留 EPUB/PDF source-specific raw fields、warnings、statistics，PDF 不伪造 annotation UUID/CFI |
+| CSV export | 必须复刻/已验收 | 固定 UTF-8 BOM + CRLF schema；RFC4180 quoting；字符串 cell 在 quoting 前 neutralize spreadsheet formula trigger，typed negative number/date/bool 不误处理 |
+| HTML export | 必须复刻/已验收 | self-contained HTML；CSS/JS 均内嵌，无 CDN/font/runtime network dependency；用户内容只进入 escaped text context，不进入 raw DOM identity/JS literal |
+| HTML 搜索 | 必须复刻/已验收 | client-side 以 DOM `textContent` 搜索 book title/author/annotation text/note，不把用户正文复制进脚本 |
+| HTML 单书折叠 + 全部折叠 | 必须复刻/已验收 | per-book collapse/expand + Collapse All/Expand All；只使用生成的 `book-N` token |
+| HTML 状态持久化 | 必须复刻/已验收 | collapse/sidebar 状态使用 namespaced localStorage key；持久化值只含生成 ordinal，不含 asset/title/path |
+| HTML sidebar / responsive / print | 必须复刻/已验收 | sidebar navigation/active state、移动端 toggle/click-outside、responsive layout；print 隐藏交互控件并强制展开正文 |
+| export 类型过滤 | 必须复刻且与 raw type 分层/已验收 | presentation kind 为纯派生层：trim 后 nonempty note→note、否则 selected text 空→bookmark、否则 highlight；filter 不修改 raw type/style，也不把 presentation bookmark 偷换成 raw `ZANNOTATIONTYPE=3` |
+| export 颜色过滤 | 必须复刻/已验收 | green/blue/yellow/pink/purple + 独立 underline filter；unknown raw style 不伪造已知颜色，PDF 使用其 approximate presentation mapping |
+| export single/multiple file | 必须复刻/已验收 | canonical renderer 支持 single/per-document 语义；完整 note archive 的 per-book/sidecar 写盘必须先写同 parent 受控 staging，实际 document count 校验通过后才 `RENAME_EXCL` 发布，现存 final directory 永不原地混写 |
+| partial export offset | 必须复刻/已验收 | per-book skip 在 kind/color/selector filtering 与最终 ordering 后作用于 annotation rows，不绑定 note 类型 |
+| export statistics | 必须复刻/已验收 | final statistics 只统计最终 selection；sourceTotals 独立保留 pre-filter EPUB/PDF attempted/succeeded/failed/highlight totals |
+| annotation export ordering | 宿主能力翻译/已验收 | canonical options 支持 source order 与 reading order；EPUB 使用去 assertions 后的 CFI numeric lexicographic key，invalid/missing CFI 排在有效值后且 tie 保持 source order；PDF 使用 page→top-to-bottom→left→traversal |
+| EPUB/PDF source scope | 宿主能力翻译/已验收 | canonical source scope 明确为 `epub / pdf / all`；current PDF 的 AEAnnotation mirror row 被排除，historical/unmapped row 不因猜测而丢失 |
+| 自选有 AEAnnotation highlights 的书 | 宿主能力翻译/已验收 | 一个或多个 exact stable `assetID` selector；PDF 另有 exact canonical file selector。missing selector 返回 empty，duplicate stable identity fail closed，不按 title/local-PK 猜测 |
+| Markdown smart overwrite | 宿主能力翻译/已验收 | `smart / always / never`；默认 `.never`。smart 只忽略首个 frontmatter/顶层 JSON 的 run-only timestamp 与自引用 hash，稳定 body/frontmatter/profile 内容任一变化都触发更新 |
+| extended frontmatter/body metadata | 宿主能力翻译/已验收 | Obsidian-compatible profile 显式 opt-in；YAML scalar 使用单一安全 serializer，默认 profile 不隐式增加 metadata/content I/O |
+| cover inline / cover file | 宿主能力翻译/已验收 | inline 使用真实 media type 的 data URL；file 模式按已知 JPEG/PNG/GIF media type 写安全 attachment filename，不硬编码 JPEG、不允许同名覆盖 |
+| tags | 宿主能力翻译/已验收 | 支持 source/custom tags，稳定去重；YAML/Markdown context 均转义，不把 tag 当路径或 raw syntax |
+| chapter headings / annotation date / style / progress | 宿主能力翻译/已验收 | profile options 独立控制；连续 null-location grouping 只借用 presentation heading，不合并或丢失 member raw row |
+| citation | 宿主能力翻译/已验收 | author/title/publisher/year + EPUB physical location/CFI 或 PDF physical page；不为 PDF 发明 EPUB location |
+| author pages | 宿主能力翻译/已验收 | 可选生成 `Authors/` sidecar；author filename/path 与 book/cover 共用同一 confinement owner，sidecar failure 返回明确 warning，不回滚已成功 document export |
 
 ## PDF
 
 | 能力 | 状态 | 等价能力要求 |
 | --- | --- | --- |
-| PDF library metadata | 必须复刻 | `ZCONTENTTYPE=3` 单独识别 |
-| PDF highlight prefilter | 必须复刻 | 低内存扫描 `/Highlight` marker，避免无批注 PDF 全量解析 |
-| PDF scan cache | 必须复刻 | mtime + size 判定未变化，删除已不存在文件的 cache 项 |
-| PDF highlight extraction | 必须复刻且验证启发式 | `/Subtype /Highlight` + QuadPoints → 文本；首尾行几何比例字符估算必须用英文/CJK fixture 验证，不能把估算当规范真值 |
-| PDF highlight note | 必须复刻 | annotation contents 作为 note |
-| PDF page/location | 必须复刻 | page 作为 physical location |
-| PDF color mapping | 必须复刻 | nearest palette；必须保留其“部分颜色为近似值”的不确定性 |
-| PDF parse timeout | 必须复刻且强化 | 单 PDF bounded execution；timeout 必须真正终止/取消底层 work，不能只返回超时结果后让解析继续 |
-| PDF metadata fallback | 必须复刻 | 优先 library title/author，缺失时 filename fallback |
+| PDF library metadata | 必须复刻/已验收 | `ZCONTENTTYPE=3` 单独识别；exact current-library canonical PDF path可附带 Book metadata，fixed iCloud Documents root 只枚举直接 regular `.pdf` child，不递归/fuzzy |
+| PDF raw-marker prefilter | 性能 heuristic 不复刻 | 首版**不**用 raw-byte `/Highlight` marker 作为 negative gate；每个候选都交给 PDFKit worker，避免 marker absence/I/O error 被误判成“无 highlight” |
+| PDF persistent scan cache | 性能 heuristic 不复刻 | 首版不维护 mtime/size persistent cache，也不提供 cache/rescan 状态控制；只有真实 profiling + 可证明无 false-negative 的 invalidation 才另立性能 feature |
+| PDF highlight extraction | 必须复刻且已验收 | PDFKit 成功打开后枚举 `.highlight` annotations；QuadPoints 先从 annotation-local 加 `bounds.origin` 转 page-space，再用 `PDFPage.selection(for:)` 恢复 text；English/CJK/non-zero-origin fixture 已验证，结果明确 `isApproximate=true` |
+| PDF highlight note | 必须复刻/已验收 | PDF annotation contents 作为 optional note；text unavailable 时仍保留 raw highlight/note/page，不把空 text 当整条不存在 |
+| PDF page/location | 必须复刻/已验收 | page 使用 1-based physical page，并保留 page-local traversal index/bounds/quads；不生成 EPUB CFI |
+| PDF color mapping | 必须复刻/已验收 | 保留 PDFKit-normalized RGBA；nearest green/blue/yellow/pink/purple 只作 presentation mapping并保留 distance/approximate provenance；不声称能判断原始 `/C` 是否存在 |
+| PDF parse timeout | 必须复刻且强化/已验收 | 每个 PDF 在独立 worker process 内 bounded execution；parent 持续 drain pipes，timeout terminate→必要时 SIGKILL→wait/reap，oversize/crash/malformed protocol 都是结构化 failure |
+| PDF metadata fallback | 必须复刻/已验收 | exact Book enrichment优先；无 Book 时 display title 只可 fallback filename，filename/base name 不得冒充 Apple asset identity |
 
 ## Safe writes / backup
 
@@ -193,8 +193,8 @@
 | current / historical_inferred / historical_unmapped 区分 | 本地保留 | 当前 Swift annotation enrichment 显式保留三种来源；historical metadata 不授予 current content identity |
 | orphan annotations 不因 current BKLibrary 缺 row 而消失 | 本地保留 | annotation-first 查询保留 orphan row；current library 只做 enrichment |
 | 原始 physical/range/type/style/UUID 字段完整 export | 本地保留 | canonical Annotation model/query 保留 raw identity/location/style 字段，renderer 不得反写 |
-| 导出数量与 raw SQLite count 校验 | 本地保留 | export parity 仍需保持 raw-count 可核验，不得因 grouping/filter 静默丢 row |
-| note-bearing historical asset 必须可识别 | 本地保留 | historical enrichment 使用 explicit mapping；缺 mapping 保持 unmapped，不 fuzzy 推断 |
+| 导出数量与 raw SQLite count 校验 | 本地保留/已验收 | 仅完整 note archive 启用独立 active-raw aggregate：raw note/highlight totals 必须与 final EPUB records 一致；普通 filtered export/query 不被此 gate 阻断 |
+| note-bearing historical asset 必须可识别 | 本地保留/已验收 | raw nonempty note（包括 whitespace-only）若仍为 historical-unmapped 则完整 archive fail closed；explicit historical mapping 可通过，note 缺 selected/representative quote 同样拒绝 |
 
 ## Parity gate 之后才能做
 

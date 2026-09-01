@@ -86,7 +86,7 @@ SDK SQLite3 C API
 
 当前 Swift 6.4 已实测可直接 `import SQLite3` 并调用系统 SQLite；P1 不引入第三方 SQLite 包。SQLite online backup、WAL/open-reader 行为必须在后续写安全 fixture 中用 Swift/SQLite3 验证。
 
-第三方依赖只在对应 task 已证明平台/标准库不足时首次引入，并与 license/provenance 同 commit。当前 EPUB XHTML 解析与 packed EPUB 读取已经在各自真实 consumer 出现时落地，长期设计文档只约束行为与安全边界，不重复依赖来源、revision 或 provenance。PDF parser 的具体选择仍以对应 phase 的可控 fixture 与平台实测为准，不从旧实现语言或宿主包装推断。
+第三方依赖只在对应 task 已证明平台/标准库不足时首次引入，并与 license/provenance 同 commit。当前 EPUB XHTML 解析与 packed EPUB 读取已经在各自真实 consumer 出现时落地，长期设计文档只约束行为与安全边界，不重复依赖来源、revision 或 provenance。PDF 已由当前 macOS SDK 的 PDFKit + 独立 worker process 落地并通过可控 fixture 验收；首版不在 PDFKit 前增加 raw-marker negative gate 或 persistent scan cache，避免性能 heuristic 变成 correctness gate。
 
 ## 不做小 ORM
 
@@ -245,21 +245,26 @@ struct Chapter {
 
 ### PDF highlight
 
-PDF 不伪装成 EPUB CFI annotation。至少需要：
+PDF 不伪装成 EPUB CFI annotation。P6 已验收的 canonical PDF highlight 保留平台实际可取得的数据与 provenance：
 
 ```swift
 struct PDFHighlight {
-    let page: Int
-    let text: String
+    let page: Int                    // 1-based physical page
+    let traversalIndex: Int          // page-local parse/tie-break identity
+    let bounds: CGRect
+    let quadrilateralPoints: [CGPoint]
     let note: String?
-    let style: Int?
-    let sourceDate: Date?
+    let pdfKitRGBA: [Double]?
+    let presentationColor: PDFColorMatch?
+    let modifiedAt: Date?
+    let text: String?
+    let textSource: PDFHighlightTextSource?
+    let textIsApproximate: Bool
+    let textUnavailableReason: PDFHighlightTextUnavailableReason?
 }
 ```
 
-时间字段使用 `sourceDate` 是刻意的：PDF annotation 当前只提供一个可核实来源时间；在 parser task 证明真实来源前，不伪造 `createdAt`/`modifiedAt` 双时间语义。
-
-并保留“颜色映射可能是近似”的事实，不生成虚假的原始 CFI/UUID。
+`modifiedAt` 直接来自 PDFKit 的 `modificationDate` absolute instant；没有独立来源就不制造 `createdAt`。QuadPoints text 使用 page geometry 恢复并显式标记 approximate；恢复不到 text 时 raw highlight、note/page/geometry 仍保留。颜色同时保留 PDFKit-normalized RGBA 与 approximate presentation mapping，不声称是原始 PDF dictionary `/C`，也不生成虚假的 CFI/annotation UUID/Apple asset identity。
 
 ## Selector contract
 
@@ -412,24 +417,20 @@ CLI 必须同时表达 recent-by-creation 与 recent-by-modification。后者还
 
 ## PDF parity
 
-PDF 是 parity 必做，不是“等 EPUB 做完再看”。
+PDF 是 parity 必做，并已在 core 层完成 P6 验收。当前产品 contract 是：
 
-已确认的 legacy PDF adapter 功能语义：
+1. `ZCONTENTTYPE=3` 提供 current-library PDF metadata；exact canonical `ZPATH` 优先，固定 iCloud Documents root 只枚举直接 regular `.pdf` children，不递归、不 fuzzy。
+2. 每个候选 PDF 直接进入 isolated PDFKit worker；首版**没有** raw `/Highlight` marker negative gate，也**没有** mtime/size persistent cache 或 rescan/cache controls。只有 PDFKit 完整成功解析后的 zero highlights 才能表示“无 highlight”。
+3. worker 只处理单个 canonical regular PDF；不读 Apple Books DB/config，不扫描 root，不维护 hidden state。
+4. PDFKit 枚举 `.highlight` annotations，保留 1-based page、traversal index、bounds、quadrilateral points、contents note、normalized RGBA 与 modification date。
+5. QuadPoints 先从 annotation-local 坐标加 `bounds.origin` 转为 page-space，再用 `PDFPage.selection(for:)` 恢复 text；English/CJK、partial/repeated/non-zero-origin fixture 已验证。结果是 geometry-derived approximate，不冒充规范级文本 identity。
+6. 无 usable quads 时允许 bounds fallback；text 无法恢复时保留 highlight 并给 unavailable reason。
+7. nearest five-color palette 只作 presentation mapping；保留 distance/approximate provenance，不声称能识别原始 `/C` presence。
+8. 单 PDF bounded timeout 由 parent process 强制执行：持续 drain stdout/stderr；超时 terminate，短 grace 后仍存活才 SIGKILL，最后 wait/reap。crash、malformed protocol、oversize output、timeout 都是 structured failure，不冒充 empty result。
+9. 多 PDF service 对单文件 failure 继续其它 source；相同 inventory 每次都会进入 parser，没有 hidden persistent scan state。
+10. exact library Book metadata优先；无 Book source时 title 仅 fallback filename。PDF source identity 始终是 canonical file path，不把 filename/base name 伪造成 Apple asset ID。
 
-1. 找到 Apple Books PDF 文档目录与 library metadata。
-2. `/Highlight` marker 低内存 prefilter。
-3. mtime + size scan cache。
-4. cache prune。
-5. pdf.js `/Subtype /Highlight` + QuadPoints → text。
-6. highlight note。
-7. page / physical location。
-8. PDF annotation 的单一来源时间必须保留 provenance，正确处理 PDF date timezone/raw value，不能伪造同时存在 creation/modification 两个原始时间。
-9. color → style nearest mapping，同时暴露“不完全精确”的限制。
-10. 单 PDF bounded timeout，而且 timeout 必须真正停止/取消解析，不能只 `Promise.race` 后让底层工作继续跑。
-11. QuadPoints 文本还原属于几何启发式，英文/CJK fixture 都要验证首尾裁切。
-12. library metadata 优先、filename fallback。
-
-PDF adapter 不能生成不存在的 EPUB CFI/annotation UUID。
+PDF 路径不能生成不存在的 EPUB CFI/annotation UUID，也不能把 PDFKit `modificationDate` 改名成虚构的 creation time。
 
 ## Export parity
 
@@ -457,18 +458,16 @@ PDF adapter 不能生成不存在的 EPUB CFI/annotation UUID。
 
 ### HTML
 
-Parity 不是只生成静态 HTML。既有 HTML export 的用户可见行为包括：
+HTML parity 已在 P6 以 self-contained artifact 验收，不只是“能生成静态 HTML”：
 
-- search。
-- per-book collapse/expand。
-- collapse all / expand all。
-- localStorage state。
-- sidebar navigation / active item。
-- mobile sidebar toggle。
+- search 覆盖 book title/author/annotation text/note，并直接读取 DOM `textContent`，不把用户正文嵌入 JS literal。
+- per-book collapse/expand 与 collapse all / expand all。
+- namespaced localStorage state；collapse/sidebar 只保存生成的 `book-N` token，不保存 raw asset/title/path。
+- sidebar navigation / active item 与 mobile sidebar toggle/click-outside。
 - responsive layout。
-- print styles。
-
-这些需要被 parity 验收。
+- print styles 隐藏 search/navigation/control 并强制展开正文。
+- CSS/JS 全部内嵌；不依赖 CDN、remote font 或 runtime network request。
+- 用户 title/author/identity/path/text/note 都作为 escaped text context 输出，不参与 raw DOM id/href/script identity。
 
 ### Obsidian-compatible Markdown profile
 
@@ -483,14 +482,27 @@ Parity 不是只生成静态 HTML。既有 HTML export 的用户可见行为包�
 - tags/custom tags。
 - cover inline / cover file。
 - chapter headings。
-- annotation creation dates。
+- annotation date（EPUB 以 modifiedAt 优先、createdAt fallback；PDF 只保留可核实的 modifiedAt）。
 - annotation location/CFI sorting toggle。
 - style / underline indicator。
 - reading progress。
 - citation。
 - author pages，保留 Dataview 语义或提供明确等价的 Obsidian-compatible 输出。
 
-consecutive null-location annotation merge 只属于 presentation compatibility 候选；canonical 数据层不得采用这种 identity-changing heuristic，也不得把无位置 bookmark 与相邻用户 annotation 合并成伪造的 current position。
+consecutive null-location annotation grouping 已收敛为显式 opt-in presentation behavior：canonical 数据层不合并 row；连续无位置 records 只能借用后续 located record 的 chapter presentation，成员自身 identity/text/note/time/style 全部保留，尾部无 location records 也不得丢失。它与 current reading position 没有任何 identity 关系。
+
+### Export file safety / complete note archive
+
+P6 文件输出与完整 note archive 已形成独立于 renderer 的安全边界：
+
+- 普通 file output 统一经过一个 filesystem writer；默认 overwrite policy 是 `never`，`smart/always` 必须显式选择。
+- `smart` hash 基于稳定 generated bytes；只忽略首个 Markdown frontmatter或 JSON 顶层的 run-only timestamp/self-hash 字段，正文或 nested 同名稳定字段变化仍必须触发更新。
+- title/author/source-derived filename 只能生成受限单 path component；separator/control/`.`/`..`/leading-trailing dot-space、collision、symlink destination/parent 均由同一 confinement owner 处理。
+- cover inline 使用真实 media type data URL；cover file 与 author sidecar 复用同一 writer/confinement path。
+- 完整 note archive 才启用独立 raw aggregate safety gate；普通 filtered query/export 不受影响。
+- aggregate 使用 canonical active predicate（deleted 必须精确为 `0`，NULL 不视作 active），独立计算 raw nonempty note/selected-text totals，不用已经 materialized 的 records 自证。
+- raw note 包括 whitespace-only；note-bearing historical-unmapped row、note 无 selected/representative quote、raw count mismatch 都 fail closed。
+- 完整 per-book/sidecar archive 的 final directory 必须预先不存在。所有文件先写同 parent 的受控 staging；实际 materialized document count PASS 后才以 exclusive same-filesystem rename 发布。mid-write failure、count mismatch 或 final-target race 都保持 final 不存在/不覆盖竞争者，并只清理本次受控 staging。
 
 ## Safe write contract
 

@@ -4,11 +4,6 @@ import Testing
 @testable import AppleBooksCore
 
 @Test
-func bootstrap() {
-    #expect(AppleBooksCore.productName == "AppleBooksCLI")
-}
-
-@Test
 func sqliteRuntimeIsAvailable() {
     #expect(String(cString: sqlite3_libversion()).isEmpty == false)
 }

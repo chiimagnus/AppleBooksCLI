@@ -38,8 +38,10 @@ jobs:
           npm --version
           gh --version
 
-      - name: Validate release metadata parser
-        run: Tests/PackagingTests/release-metadata-smoke.sh
+      - name: Validate release metadata and ordering
+        run: |
+          Tests/PackagingTests/release-metadata-smoke.sh
+          node scripts/check-release-order.mjs --self-test
 
       - name: Run Swift tests
         run: swift test --disable-automatic-resolution

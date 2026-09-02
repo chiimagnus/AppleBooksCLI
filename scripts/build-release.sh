@@ -141,6 +141,8 @@ if (pkg.name !== '@chiimagnus/applebookscli') throw new Error('unexpected npm pa
 if (pkg.version !== expectedVersion) throw new Error('npm package version mismatch');
 if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('npm package must allow only darwin');
 if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('npm package must allow only arm64');
+if (pkg.publishConfig?.access !== 'public') throw new Error('npm package must publish as public');
+if (pkg.repository?.url !== 'https://github.com/chiimagnus/AppleBooksCLI.git') throw new Error('npm repository contract mismatch');
 if (pkg.bin?.applebookscli !== 'bin/applebookscli') throw new Error('npm bin contract mismatch');
 if (pkg.scripts) throw new Error('release package must not contain install scripts');
 NODE

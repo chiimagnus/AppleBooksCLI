@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chiimagnus/AppleBooksCLI.git"
+    "url": "https://github.com/chiimagnus/AppleBooksCLI.git"
   },
   "homepage": "https://github.com/chiimagnus/AppleBooksCLI",
   "bugs": {
@@ -17,6 +17,9 @@
   "cpu": [
     "arm64"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "applebookscli": "bin/applebookscli"
   },

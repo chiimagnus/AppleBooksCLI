@@ -1724,8 +1724,7 @@
   "help / version": {
     "owner": "cli",
     "implementationPaths": [
-      "Sources/AppleBooksCLI/AppleBooksCLI.swift",
-      "Sources/AppleBooksCLI/Version.swift"
+      "Sources/AppleBooksCLI/AppleBooksCLI.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCLITests/RootCommandTests.swift"

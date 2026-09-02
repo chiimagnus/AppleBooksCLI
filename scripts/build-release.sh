@@ -11,8 +11,14 @@ fail() {
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+RELEASE_METADATA="$SCRIPT_DIR/release-metadata.sh"
+[ -n "${APPLEBOOKSCLI_TAG:-}" ] || fail "APPLEBOOKSCLI_TAG is required and must be the release git tag."
+[ -f "$RELEASE_METADATA" ] || fail "release metadata parser is missing."
+. "$RELEASE_METADATA" "$APPLEBOOKSCLI_TAG"
+VERSION=$RELEASE_VERSION
 DIST_ROOT="$REPO_ROOT/dist"
-BUILD_ROOT="$DIST_ROOT/build/arm64"
+BUILD_ROOT="$DIST_ROOT/build/arm64-$VERSION"
+BUILD_INFO_PLIST="$BUILD_ROOT/applebookscli-Info.plist"
 PACKAGE_PARENT="$DIST_ROOT/npm"
 EXTRACT_ROOT="$DIST_ROOT/extracted/npm"
 SKILL_SOURCE="$REPO_ROOT/Skill/applebookscli"
@@ -30,13 +36,32 @@ command -v node >/dev/null 2>&1 || fail "node is required for release packaging.
 
 "$SKILL_SMOKE" "$SKILL_SOURCE"
 mkdir -p "$BUILD_ROOT"
+cat > "$BUILD_INFO_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>dev.chiimagnus.applebookscli</string>
+  <key>CFBundleName</key>
+  <string>applebookscli</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$VERSION</string>
+</dict>
+</plist>
+EOF
+plutil -lint "$BUILD_INFO_PLIST" >/dev/null
 
 swift build \
   --disable-automatic-resolution \
   --arch arm64 \
   --scratch-path "$BUILD_ROOT" \
   -c release \
-  --product applebookscli
+  --product applebookscli \
+  -Xlinker -sectcreate \
+  -Xlinker __TEXT \
+  -Xlinker __info_plist \
+  -Xlinker "$BUILD_INFO_PLIST"
 swift build \
   --disable-automatic-resolution \
   --arch arm64 \
@@ -79,11 +104,8 @@ validate_arm64_binary() {
 
 validate_arm64_binary "$BUILT_CLI" applebookscli
 validate_arm64_binary "$BUILT_WORKER" applebookscli-pdf-worker
-
-VERSION=$("$BUILT_CLI" --version)
-case "$VERSION" in
-  ""|*[!A-Za-z0-9._-]*) fail "applebookscli --version returned an unsafe package version." ;;
-esac
+[ "$("$BUILT_CLI" --version)" = "$VERSION" ] || fail "built CLI version does not match release git tag."
+otool -s __TEXT __info_plist "$BUILT_CLI" >/dev/null || fail "built CLI is missing embedded release metadata."
 
 PACKAGE_ROOT="$PACKAGE_PARENT/applebookscli-$VERSION"
 PACKAGE_TGZ="$DIST_ROOT/chiimagnus-applebookscli-$VERSION.tgz"

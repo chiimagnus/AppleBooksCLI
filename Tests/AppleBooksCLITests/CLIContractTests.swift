@@ -36,7 +36,7 @@ struct CLIContractTests {
         let version = try harness.run(["--version"])
         #expect(version.status == 0)
         #expect(version.stderr.isEmpty)
-        #expect(version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == AppleBooksCLIVersion.current)
+        #expect(version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "dev")
     }
 
     @Test

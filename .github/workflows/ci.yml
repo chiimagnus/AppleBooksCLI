@@ -38,6 +38,9 @@ jobs:
           npm --version
           gh --version
 
+      - name: Validate release metadata parser
+        run: Tests/PackagingTests/release-metadata-smoke.sh
+
       - name: Run Swift tests
         run: swift test --disable-automatic-resolution
 
@@ -66,6 +69,8 @@ jobs:
           test -s THIRD_PARTY_NOTICES.md
 
       - name: Build and verify npm release package
+        env:
+          APPLEBOOKSCLI_TAG: v0.0.0-beta
         run: scripts/build-release.sh
 
       - name: Verify locked source state

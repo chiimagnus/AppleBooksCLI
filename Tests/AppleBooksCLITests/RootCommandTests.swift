@@ -21,7 +21,7 @@ struct RootCommandTests {
     }
 
     @Test
-    func versionUsesSingleOwnerAndDoesNotRequireOperationalState() {
+    func developmentVersionDoesNotRequireOperationalState() {
         var stdout = ""
         var stderr = ""
 
@@ -32,7 +32,7 @@ struct RootCommandTests {
 
         #expect(code == ExitCode.success.rawValue)
         #expect(stderr.isEmpty)
-        #expect(stdout == AppleBooksCLIVersion.current)
+        #expect(stdout == "dev")
     }
 
     @Test

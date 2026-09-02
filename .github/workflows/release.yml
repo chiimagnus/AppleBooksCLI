@@ -66,6 +66,7 @@ jobs:
           LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.latest ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
           BETA=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.beta ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
           NPM_EXISTS=$(node -e 'const value=require(process.argv[1]); const versions=Array.isArray(value)?value:[value]; process.stdout.write(versions.includes(process.argv[2])?"true":"false")' "$RUNNER_TEMP/npm-versions.json" "$RELEASE_VERSION")
+          CHANNEL_VERSION=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value[process.argv[2]] ?? "")' "$RUNNER_TEMP/npm-dist-tags.json" "$NPM_DIST_TAG")
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             GH_EXISTS=true
           else
@@ -75,18 +76,15 @@ jobs:
           RECOVERY=false
           if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
             [ "$NPM_EXISTS" = false ] || { echo "npm version already exists: $RELEASE_VERSION" >&2; exit 1; }
+            [ "$CHANNEL_VERSION" != "$RELEASE_VERSION" ] || { echo "npm $NPM_DIST_TAG already points at $RELEASE_VERSION" >&2; exit 1; }
             [ "$GH_EXISTS" = false ] || { echo "GitHub Release already exists: $GITHUB_REF_NAME" >&2; exit 1; }
             node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
           else
-            if [ "$GH_EXISTS" = true ] && [ "$NPM_EXISTS" = false ]; then
-              echo "GitHub Release exists without the matching npm version; refusing recovery." >&2
-              exit 1
-            fi
-            if [ "$NPM_EXISTS" = true ]; then
+            if [ "$NPM_EXISTS" = true ] || [ "$CHANNEL_VERSION" = "$RELEASE_VERSION" ]; then
               RECOVERY=true
-              EXPECTED_DIST_TAG=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value[process.argv[2]] ?? "")' "$RUNNER_TEMP/npm-dist-tags.json" "$NPM_DIST_TAG")
-              [ "$EXPECTED_DIST_TAG" = "$RELEASE_VERSION" ] || { echo "npm dist-tag does not point at the recovery version." >&2; exit 1; }
+              [ "$CHANNEL_VERSION" = "$RELEASE_VERSION" ] || { echo "npm dist-tag does not point at the recovery version." >&2; exit 1; }
             else
+              [ "$GH_EXISTS" = false ] || { echo "GitHub Release exists without the matching npm publication; refusing recovery." >&2; exit 1; }
               node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
             fi
           fi
@@ -140,15 +138,16 @@ jobs:
           REGISTRY_ROOT="$RUNNER_TEMP/npm-registry"
           mkdir -p "$REGISTRY_ROOT"
           attempt=1
-          while [ "$attempt" -le 6 ]; do
+          while [ "$attempt" -le 120 ]; do
             if npm pack "@chiimagnus/applebookscli@$RELEASE_VERSION" --pack-destination "$REGISTRY_ROOT" --json > "$RUNNER_TEMP/npm-pack.json" 2> "$RUNNER_TEMP/npm-pack.err"; then
               break
             fi
-            if [ "$attempt" -eq 6 ]; then
+            if [ "$attempt" -eq 120 ]; then
               cat "$RUNNER_TEMP/npm-pack.err" >&2
+              echo "npm package is still unavailable after the publish-time scan window." >&2
               exit 1
             fi
-            sleep 5
+            sleep 15
             attempt=$((attempt + 1))
           done
           REGISTRY_FILENAME=$(node -e 'const value=require(process.argv[1]); if (!Array.isArray(value)||!value[0]?.filename) process.exit(1); process.stdout.write(value[0].filename)' "$RUNNER_TEMP/npm-pack.json")

@@ -12,7 +12,7 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 
 ## 当前发布状态
 
-正式 GitHub Release 与 Homebrew tap 尚未完成发布验收，因此这里暂不提供可复制的 Homebrew 安装命令或 release 下载地址。发布完成后会在最终文档 gate 中补充经过验证的安装方式。
+`v0.1.0` 已作为 immutable GitHub Release 发布，自有 Homebrew tap 也已建立；随后 clean-install gate 暴露了 `skill install` 在 macOS `/private/tmp` alias 下的路径规范化缺陷。旧 release/tag/assets 保持不可变，修复版 `0.1.1` 正在重新执行 CI、release、tap 与 clean-install 验收。最终 Homebrew 安装命令会在修复版通过安装态 gate 后写入长期文档。
 
 从源码验证当前实现：
 

@@ -35,7 +35,9 @@ formula="$tmp/applebookscli.rb"
   --output "$formula"
 
 ruby -c "$formula" >/dev/null
-HOMEBREW_NO_AUTO_UPDATE=1 brew style "$formula"
+style_formula="$tmp/applebookscli_smoke.rb"
+sed 's/class Applebookscli < Formula/class ApplebookscliSmoke < Formula/' "$formula" > "$style_formula"
+HOMEBREW_NO_AUTO_UPDATE=1 brew style "$style_formula"
 
 assert_contains() {
   expected=$1
@@ -43,7 +45,6 @@ assert_contains() {
 }
 
 assert_contains 'homepage "https://github.com/example-org/AppleBooksCLI"'
-assert_contains 'version "0.0.0-test"'
 assert_contains 'license "AGPL-3.0-only"'
 assert_contains 'bin.install "bin/applebookscli"'
 assert_contains '(libexec/"applebookscli").install "libexec/applebookscli/applebookscli-pdf-worker"'
@@ -53,7 +54,7 @@ assert_contains 'codex_home = testpath/"codex-home"'
 assert_contains 'ENV["CODEX_HOME"] = codex_home.to_s'
 assert_contains 'system bin/"applebookscli", "skill", "install"'
 assert_contains 'assert_path_exists codex_home/"skills/applebookscli/SKILL.md"'
-assert_contains 'assert_predicate share/"applebookscli/skill/applebookscli/SKILL.md", :file?'
+assert_contains 'assert_predicate pkgshare/"skill/applebookscli/SKILL.md", :file?'
 assert_contains 'assert_predicate libexec/"applebookscli/applebookscli-pdf-worker", :executable?'
 assert_contains 'assert_predicate prefix/"LICENSE", :file?'
 assert_contains 'assert_predicate prefix/"THIRD_PARTY_NOTICES.md", :file?'
@@ -61,8 +62,17 @@ assert_contains 'assert_predicate prefix/"ThirdPartyLicenses", :directory?'
 assert_contains 'shell_output("#{bin}/applebookscli --version")'
 assert_contains 'shell_output("#{bin}/applebookscli --help")'
 
-if grep -Eq '__[A-Z0-9_]+__|swift build|depends_on' "$formula"; then
-  fail "rendered formula contains an unresolved token or source-build dependency."
+if grep -Eq '__[A-Z0-9_]+__|swift build|depends_on|^[[:space:]]*version[[:space:]]' "$formula"; then
+  fail "rendered formula contains an unresolved token, source-build dependency, or redundant version stanza."
+fi
+
+if "$RENDERER" \
+  --owner example-org \
+  --version 0.0.1-wrong \
+  --url https://example.invalid/applebookscli-0.0.0-test-macos-universal.tar.gz \
+  --sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --output "$tmp/mismatch.rb" >/dev/null 2>&1; then
+  fail "renderer accepted a release URL that does not match --version."
 fi
 if grep -Eq '^[[:space:]]*rtk([[:space:]]|$)|gh[[:space:]]+api|brew[[:space:]]+audit' "$RENDERER" "$TEMPLATE" "$0"; then
   fail "packaging scripts must stay independent of local wrappers, remote release APIs, and online audit."

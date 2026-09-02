@@ -35,7 +35,7 @@ AppleBooksCLI 把 Apple Books 作为独立数据源提供稳定 Swift CLI。Noti
 
 ## 发布状态
 
-`v0.1.0` immutable GitHub Release 与自有 Homebrew tap 已存在；其 clean-install gate 后续暴露了 Skill 安装路径在 macOS `/private/tmp` alias 下的规范化缺陷，因此旧版本保持 immutable，不覆盖 tag/asset。当前源码已根修该路径 owner，并以 `0.1.1` 重新执行 CI、release、tap 与 clean-install 验收；在修复版通过安装态 gate 前，长期文档仍不提供最终 Homebrew 安装命令。
+当前稳定版本为 `v0.1.1`：immutable GitHub Release、自有 Homebrew tap、clean install、PDF worker、Skill 安装与安装态真实只读 smoke 均已通过。Homebrew 安装命令见 `../README.md`。`v0.1.0` 继续作为 immutable 历史 release 保留，不移动旧 tag 或替换旧 asset。
 
 ## 当前设计结论
 

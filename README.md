@@ -10,9 +10,17 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 - 部分 Apple Books 数据访问可能需要为终端或调用进程授予 Full Disk Access。
 - EPUB 未下载、DRM、schema 不兼容或 PDF 解析失败时会返回结构化 unavailable/degraded 结果，不绕过系统保护。
 
-## 当前发布状态
+## 安装
 
-`v0.1.0` 已作为 immutable GitHub Release 发布，自有 Homebrew tap 也已建立；随后 clean-install gate 暴露了 `skill install` 在 macOS `/private/tmp` alias 下的路径规范化缺陷。旧 release/tag/assets 保持不可变，修复版 `0.1.1` 正在重新执行 CI、release、tap 与 clean-install 验收。最终 Homebrew 安装命令会在修复版通过安装态 gate 后写入长期文档。
+当前稳定版本为 `v0.1.1`。GitHub Release 使用 immutable release 保护，并提供 macOS universal（arm64 + x86_64）预编译产物；自有 Homebrew tap 安装同一已校验 release archive。
+
+```sh
+brew tap chiimagnus/tap
+brew install chiimagnus/tap/applebookscli
+applebookscli --version
+```
+
+`v0.1.0` 作为首个已发布版本继续保持 immutable，不移动旧 tag 或替换旧 asset；新安装应使用当前稳定版本。
 
 从源码验证当前实现：
 

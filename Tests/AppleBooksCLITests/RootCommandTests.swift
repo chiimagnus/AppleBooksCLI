@@ -33,7 +33,6 @@ struct RootCommandTests {
         #expect(code == ExitCode.success.rawValue)
         #expect(stderr.isEmpty)
         #expect(stdout == AppleBooksCLIVersion.current)
-        #expect(stdout == "0.0.0-dev")
     }
 
     @Test

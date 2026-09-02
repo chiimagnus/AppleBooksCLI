@@ -26,10 +26,16 @@ AppleBooksCLI 把 Apple Books 作为独立数据源提供稳定 Swift CLI。Noti
 
 ## 文档
 
+- `../README.md`：用户入口、命令概览、Skill 与安装/发布状态。
 - `capability-matrix.md`：用户可见能力、安全边界与 parity contract。
+- `cli-contract.md`：process exit、stdout/stderr、JSON error 与 help/version contract。
 - `macos-27-schema-baseline.md`：当前机器 Apple Books 数据库的净化只读实测基线。
 - `write-safety.md`：写入顺序、backup/restore、Books.app lifecycle 与失败语义。
 - `swift-cli-design-input.md`：Swift CLI 的领域模型、selector、query、content、export 与 mutation 设计输入。
+
+## 发布状态
+
+当前源码已经具备 universal release archive、PDF worker、Skill 与 Homebrew formula 的本地 packaging gate，但正式 GitHub Release、自有 Homebrew tap 与 clean-install 验收尚未执行。因此长期文档暂不把下载地址或 Homebrew 安装命令描述为已发布事实；完成远程发布与安装态验收后再更新。
 
 ## 当前设计结论
 

@@ -1,0 +1,31 @@
+{
+  "name": "applebookscli",
+  "version": "__VERSION__",
+  "description": "Native Apple Books CLI for macOS on Apple Silicon.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chiimagnus/AppleBooksCLI.git"
+  },
+  "homepage": "https://github.com/chiimagnus/AppleBooksCLI",
+  "bugs": {
+    "url": "https://github.com/chiimagnus/AppleBooksCLI/issues"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "applebookscli": "bin/applebookscli"
+  },
+  "files": [
+    "bin/applebookscli",
+    "libexec/applebookscli/applebookscli-pdf-worker",
+    "share/applebookscli/skill/applebookscli/SKILL.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "ThirdPartyLicenses"
+  ]
+}

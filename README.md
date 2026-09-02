@@ -5,23 +5,21 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 ## 平台与运行边界
 
 - macOS 12 或更高版本。
-- Swift 6 / SwiftPM 项目；release 产物为 macOS universal binary（arm64 + x86_64）。
+- Swift 6 / SwiftPM 项目；预编译 release 只发布 macOS Apple Silicon（arm64），不提供 Intel/x86_64 binary。
 - Apple Books 数据库读取默认使用 read-only SQLite 连接。
 - 部分 Apple Books 数据访问可能需要为终端或调用进程授予 Full Disk Access。
 - EPUB 未下载、DRM、schema 不兼容或 PDF 解析失败时会返回结构化 unavailable/degraded 结果，不绕过系统保护。
 
 ## 安装
 
-当前稳定版本为 `v0.1.1`。GitHub Release 使用 immutable release 保护，并提供 macOS universal（arm64 + x86_64）预编译产物；自有 Homebrew tap 安装同一已校验 release archive。
+稳定版本通过 npm 分发；npm package 只允许 `darwin/arm64`，并包含 CLI、PDF worker、`applebookscli` Skill 与许可证文件。GitHub Release 使用 immutable release 保护，并镜像同一 npm `.tgz` 与 SHA-256 checksum。
 
 ```sh
-brew tap chiimagnus/tap
-brew install chiimagnus/tap/applebookscli
+npm install --global applebookscli
 applebookscli --version
 ```
 
-
-从源码运行：
+Intel Mac 不提供预编译包。需要自行构建时使用源码：
 
 ```sh
 swift build --disable-automatic-resolution -c release --product applebookscli

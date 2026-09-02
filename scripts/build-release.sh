@@ -6,322 +6,166 @@ fail() {
   exit 1
 }
 
-usage() {
-  printf 'Usage: %s [--build-only]\n' "$(basename "$0")" >&2
-  exit 64
-}
-
-BUILD_ONLY=0
-case "$#" in
-  0) ;;
-  1)
-    [ "$1" = "--build-only" ] || usage
-    BUILD_ONLY=1
-    ;;
-  *) usage ;;
-esac
+[ "$#" -eq 0 ] || fail "build-release.sh does not accept arguments."
+[ "$(uname -m)" = "arm64" ] || fail "release packages are built only on macOS arm64 hosts."
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 DIST_ROOT="$REPO_ROOT/dist"
-BUILD_ROOT="$DIST_ROOT/build"
+BUILD_ROOT="$DIST_ROOT/build/arm64"
+PACKAGE_PARENT="$DIST_ROOT/npm"
+EXTRACT_ROOT="$DIST_ROOT/extracted/npm"
 SKILL_SOURCE="$REPO_ROOT/Skill/applebookscli"
 SKILL_SMOKE="$REPO_ROOT/Tests/PackagingTests/skill-smoke.sh"
+NPM_SMOKE="$REPO_ROOT/Tests/PackagingTests/npm-smoke.sh"
+PACKAGE_TEMPLATE="$REPO_ROOT/packaging/npm/package.json.template"
 
 cd "$REPO_ROOT"
 [ -f Package.resolved ] || fail "Package.resolved is required for release builds."
-[ -x "$SKILL_SMOKE" ] || fail "repo-native Skill packaging smoke is missing or not executable."
-"$SKILL_SMOKE" "$SKILL_SOURCE"
-mkdir -p "$BUILD_ROOT/arm64" "$BUILD_ROOT/x86_64"
+[ -x "$SKILL_SMOKE" ] || fail "Skill packaging smoke is missing or not executable."
+[ -x "$NPM_SMOKE" ] || fail "npm install smoke is missing or not executable."
+[ -f "$PACKAGE_TEMPLATE" ] || fail "npm package template is missing."
+command -v npm >/dev/null 2>&1 || fail "npm is required for release packaging."
+command -v node >/dev/null 2>&1 || fail "node is required for release packaging."
 
-validate_thin_binary() {
+"$SKILL_SMOKE" "$SKILL_SOURCE"
+mkdir -p "$BUILD_ROOT"
+
+swift build \
+  --disable-automatic-resolution \
+  --arch arm64 \
+  --scratch-path "$BUILD_ROOT" \
+  -c release \
+  --product applebookscli
+swift build \
+  --disable-automatic-resolution \
+  --arch arm64 \
+  --scratch-path "$BUILD_ROOT" \
+  -c release \
+  --product applebookscli-pdf-worker
+
+BIN_DIR=$(swift build \
+  --disable-automatic-resolution \
+  --arch arm64 \
+  --scratch-path "$BUILD_ROOT" \
+  -c release \
+  --show-bin-path)
+BUILT_CLI="$BIN_DIR/applebookscli"
+BUILT_WORKER="$BIN_DIR/applebookscli-pdf-worker"
+
+validate_arm64_binary() {
   binary=$1
-  expected_arch=$2
-  label=$3
-  verify_root="$BUILD_ROOT/verify/$expected_arch"
+  label=$2
+  verify_root="$BUILD_ROOT/verify"
   mkdir -p "$verify_root"
 
   [ -x "$binary" ] || fail "$label is missing or not executable: $binary"
-
-  file_output=$(file "$binary")
-  case "$file_output" in
-    *"Mach-O 64-bit executable $expected_arch"*) ;;
-    *) fail "$label is not a $expected_arch Mach-O executable: $file_output" ;;
-  esac
-
-  lipo_output=$(lipo -info "$binary")
-  case "$lipo_output" in
-    *"architecture: $expected_arch") ;;
-    *) fail "$label is not a thin $expected_arch binary: $lipo_output" ;;
-  esac
-
-  otool -hv "$binary" > "$verify_root/$label.otool.txt"
+  [ "$(xcrun lipo -archs "$binary")" = "arm64" ] || fail "$label must contain only arm64."
+  file "$binary" | grep -F 'Mach-O 64-bit executable arm64' >/dev/null || fail "$label is not an arm64 Mach-O executable."
   xcrun vtool -show-build "$binary" > "$verify_root/$label.vtool.txt"
+  [ "$(awk '$1 == "platform" && $2 == "MACOS" { count += 1 } END { print count + 0 }' "$verify_root/$label.vtool.txt")" -eq 1 ] || \
+    fail "$label must contain one MACOS build record."
+  [ "$(awk '$1 == "minos" && $2 == "12.0" { count += 1 } END { print count + 0 }' "$verify_root/$label.vtool.txt")" -eq 1 ] || \
+    fail "$label must have minos 12.0."
 
-  platform_count=$(awk '$1 == "platform" && $2 == "MACOS" { count += 1 } END { print count + 0 }' "$verify_root/$label.vtool.txt")
-  minos_count=$(awk '$1 == "minos" && $2 == "12.0" { count += 1 } END { print count + 0 }' "$verify_root/$label.vtool.txt")
-  [ "$platform_count" -eq 1 ] || fail "$label $expected_arch slice must target platform MACOS."
-  [ "$minos_count" -eq 1 ] || fail "$label $expected_arch slice must have minos 12.0."
-}
-
-build_arch() {
-  build_arch_name=$1
-  scratch="$BUILD_ROOT/$build_arch_name"
-
-  swift build \
-    --disable-automatic-resolution \
-    --arch "$build_arch_name" \
-    --scratch-path "$scratch" \
-    -c release \
-    --product applebookscli
-
-  swift build \
-    --disable-automatic-resolution \
-    --arch "$build_arch_name" \
-    --scratch-path "$scratch" \
-    -c release \
-    --product applebookscli-pdf-worker
-
-  BUILT_BIN_DIR=$(swift build \
-    --disable-automatic-resolution \
-    --arch "$build_arch_name" \
-    --scratch-path "$scratch" \
-    -c release \
-    --show-bin-path)
-
-  validate_thin_binary "$BUILT_BIN_DIR/applebookscli" "$build_arch_name" applebookscli
-  validate_thin_binary "$BUILT_BIN_DIR/applebookscli-pdf-worker" "$build_arch_name" applebookscli-pdf-worker
-}
-
-build_arch arm64
-ARM64_BIN_DIR=$BUILT_BIN_DIR
-build_arch x86_64
-X86_64_BIN_DIR=$BUILT_BIN_DIR
-
-smoke_native_slice() {
-  native_arch=$1
-  native_bin_dir=$2
-  smoke_root="$BUILD_ROOT/smoke/$native_arch"
-  mkdir -p "$smoke_root"
-
-  version_output=$("$native_bin_dir/applebookscli" --version)
-  [ -n "$version_output" ] || fail "native $native_arch applebookscli --version returned empty output."
-
-  printf '{}' | "$native_bin_dir/applebookscli-pdf-worker" \
-    > "$smoke_root/worker.stdout.json" \
-    2> "$smoke_root/worker.stderr.txt"
-
-  worker_stdout=$(cat "$smoke_root/worker.stdout.json")
-  worker_stderr=$(cat "$smoke_root/worker.stderr.txt")
-  case "$worker_stdout" in
-    *'"errorCode":"malformedRequest"'*) ;;
-    *) fail "native $native_arch worker did not return malformedRequest protocol envelope." ;;
-  esac
-  [ "$worker_stderr" = "malformedRequest" ] || fail "native $native_arch worker stderr code is unstable."
-}
-
-case "$(uname -m)" in
-  arm64) smoke_native_slice arm64 "$ARM64_BIN_DIR" ;;
-  x86_64) smoke_native_slice x86_64 "$X86_64_BIN_DIR" ;;
-  *) fail "unsupported build host architecture: $(uname -m)" ;;
-esac
-
-git diff --exit-code -- Package.resolved >/dev/null || fail "Package.resolved changed during release build."
-
-printf 'release thin build OK: arm64=%s x86_64=%s\n' "$ARM64_BIN_DIR" "$X86_64_BIN_DIR"
-[ "$BUILD_ONLY" -eq 0 ] || exit 0
-
-UNIVERSAL_ROOT="$DIST_ROOT/universal"
-VERIFY_ROOT="$UNIVERSAL_ROOT/verify"
-UNIVERSAL_CLI="$UNIVERSAL_ROOT/applebookscli"
-UNIVERSAL_WORKER="$UNIVERSAL_ROOT/applebookscli-pdf-worker"
-STAGING_PARENT="$DIST_ROOT/staging"
-EXTRACT_PARENT="$DIST_ROOT/extracted"
-
-rm -rf "$UNIVERSAL_ROOT" "$STAGING_PARENT" "$EXTRACT_PARENT"
-mkdir -p "$UNIVERSAL_ROOT" "$VERIFY_ROOT"
-
-xcrun lipo -create \
-  "$ARM64_BIN_DIR/applebookscli" \
-  "$X86_64_BIN_DIR/applebookscli" \
-  -output "$UNIVERSAL_CLI"
-xcrun lipo -create \
-  "$ARM64_BIN_DIR/applebookscli-pdf-worker" \
-  "$X86_64_BIN_DIR/applebookscli-pdf-worker" \
-  -output "$UNIVERSAL_WORKER"
-chmod +x "$UNIVERSAL_CLI" "$UNIVERSAL_WORKER"
-
-assert_universal_archs() {
-  binary=$1
-  label=$2
-  arch_count=0
-  has_arm64=0
-  has_x86_64=0
-  for arch in $(xcrun lipo -archs "$binary"); do
-    arch_count=$((arch_count + 1))
-    case "$arch" in
-      arm64) has_arm64=1 ;;
-      x86_64) has_x86_64=1 ;;
-      *) fail "$label contains unexpected architecture: $arch" ;;
-    esac
-  done
-  [ "$arch_count" -eq 2 ] && [ "$has_arm64" -eq 1 ] && [ "$has_x86_64" -eq 1 ] || \
-    fail "$label must contain exactly arm64 and x86_64."
-}
-
-validate_universal_binary() {
-  binary=$1
-  label=$2
-
-  [ -x "$binary" ] || fail "$label universal binary is missing or not executable."
-  file "$binary" > "$VERIFY_ROOT/$label.file.txt"
-  assert_universal_archs "$binary" "$label"
-
-  codesign --force --sign - "$binary"
-  codesign --verify --strict --verbose=2 "$binary"
-
-  xcrun vtool -show-build "$binary" > "$VERIFY_ROOT/$label.vtool.txt"
-  platform_count=$(awk '$1 == "platform" && $2 == "MACOS" { count += 1 } END { print count + 0 }' "$VERIFY_ROOT/$label.vtool.txt")
-  minos_count=$(awk '$1 == "minos" && $2 == "12.0" { count += 1 } END { print count + 0 }' "$VERIFY_ROOT/$label.vtool.txt")
-  [ "$platform_count" -eq 2 ] || fail "$label universal binary must contain two MACOS build records."
-  [ "$minos_count" -eq 2 ] || fail "$label universal binary must contain two minos 12.0 slices."
-
-  otool -L "$binary" > "$VERIFY_ROOT/$label.otool-L.txt"
-  awk '/^[[:space:]]/ { print $1 }' "$VERIFY_ROOT/$label.otool-L.txt" | while IFS= read -r dependency; do
+  otool -L "$binary" > "$verify_root/$label.otool-L.txt"
+  awk '/^[[:space:]]/ { print $1 }' "$verify_root/$label.otool-L.txt" | while IFS= read -r dependency; do
     case "$dependency" in
-      /System/Library/*|/usr/lib/*) ;;
-      @rpath/*) fail "$label has an unresolved @rpath dependency: $dependency" ;;
-      "") ;;
+      /System/Library/*|/usr/lib/*|"") ;;
       *) fail "$label has a non-system dynamic dependency: $dependency" ;;
     esac
   done
 }
 
-validate_universal_binary "$UNIVERSAL_CLI" applebookscli
-validate_universal_binary "$UNIVERSAL_WORKER" applebookscli-pdf-worker
+validate_arm64_binary "$BUILT_CLI" applebookscli
+validate_arm64_binary "$BUILT_WORKER" applebookscli-pdf-worker
 
-VERSION=$("$UNIVERSAL_CLI" --version)
+VERSION=$("$BUILT_CLI" --version)
 case "$VERSION" in
-  ""|*[!A-Za-z0-9._-]*) fail "applebookscli --version returned an unsafe archive version." ;;
+  ""|*[!A-Za-z0-9._-]*) fail "applebookscli --version returned an unsafe package version." ;;
 esac
 
-STAGING_NAME="applebookscli-$VERSION-macos-universal"
-STAGING_ROOT="$STAGING_PARENT/$STAGING_NAME"
+PACKAGE_ROOT="$PACKAGE_PARENT/applebookscli-$VERSION"
+PACKAGE_TGZ="$DIST_ROOT/applebookscli-$VERSION.tgz"
+CHECKSUM="$PACKAGE_TGZ.sha256"
+rm -rf -- "$PACKAGE_PARENT" "$EXTRACT_ROOT"
+rm -f -- "$PACKAGE_TGZ" "$CHECKSUM"
 mkdir -p \
-  "$STAGING_ROOT/bin" \
-  "$STAGING_ROOT/libexec/applebookscli" \
-  "$STAGING_ROOT/share/applebookscli/skill/applebookscli"
-cp "$UNIVERSAL_CLI" "$STAGING_ROOT/bin/applebookscli"
-cp "$UNIVERSAL_WORKER" "$STAGING_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-cp "$SKILL_SOURCE/SKILL.md" "$STAGING_ROOT/share/applebookscli/skill/applebookscli/SKILL.md"
-cp "$REPO_ROOT/LICENSE" "$STAGING_ROOT/LICENSE"
-cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$STAGING_ROOT/THIRD_PARTY_NOTICES.md"
-cp -R "$REPO_ROOT/ThirdPartyLicenses" "$STAGING_ROOT/ThirdPartyLicenses"
+  "$PACKAGE_ROOT/bin" \
+  "$PACKAGE_ROOT/libexec/applebookscli" \
+  "$PACKAGE_ROOT/share/applebookscli/skill/applebookscli" \
+  "$EXTRACT_ROOT"
 
-ARCHIVE="$DIST_ROOT/$STAGING_NAME.tar.gz"
-CHECKSUM="$ARCHIVE.sha256"
-rm -f "$ARCHIVE" "$CHECKSUM"
-tar -czf "$ARCHIVE" -C "$STAGING_PARENT" "$STAGING_NAME"
+cp "$BUILT_CLI" "$PACKAGE_ROOT/bin/applebookscli"
+cp "$BUILT_WORKER" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+chmod +x "$PACKAGE_ROOT/bin/applebookscli" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
+codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/bin/applebookscli"
+codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+
+cp "$SKILL_SOURCE/SKILL.md" "$PACKAGE_ROOT/share/applebookscli/skill/applebookscli/SKILL.md"
+cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
+cp "$REPO_ROOT/LICENSE" "$PACKAGE_ROOT/LICENSE"
+cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$PACKAGE_ROOT/THIRD_PARTY_NOTICES.md"
+cp -R "$REPO_ROOT/ThirdPartyLicenses" "$PACKAGE_ROOT/ThirdPartyLicenses"
+sed "s/__VERSION__/$VERSION/g" "$PACKAGE_TEMPLATE" > "$PACKAGE_ROOT/package.json"
+
+node - "$PACKAGE_ROOT/package.json" "$VERSION" <<'NODE'
+const fs = require('fs');
+const [path, expectedVersion] = process.argv.slice(2);
+const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+if (pkg.name !== 'applebookscli') throw new Error('unexpected npm package name');
+if (pkg.version !== expectedVersion) throw new Error('npm package version mismatch');
+if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('npm package must allow only darwin');
+if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('npm package must allow only arm64');
+if (pkg.bin?.applebookscli !== 'bin/applebookscli') throw new Error('npm bin contract mismatch');
+if (pkg.scripts) throw new Error('release package must not contain install scripts');
+NODE
+
+npm pack "$PACKAGE_ROOT" --pack-destination "$DIST_ROOT" >/dev/null
+[ -f "$PACKAGE_TGZ" ] || fail "npm pack did not create the expected package: $PACKAGE_TGZ"
 (
   cd "$DIST_ROOT"
-  archive_name=$(basename "$ARCHIVE")
-  checksum_name=$(basename "$CHECKSUM")
-  shasum -a 256 "$archive_name" > "$checksum_name"
-  shasum -a 256 -c "$checksum_name"
+  shasum -a 256 "$(basename "$PACKAGE_TGZ")" > "$(basename "$CHECKSUM")"
+  shasum -a 256 -c "$(basename "$CHECKSUM")"
 )
 
-mkdir -p "$EXTRACT_PARENT"
-tar -xzf "$ARCHIVE" -C "$EXTRACT_PARENT"
-EXTRACTED_ROOT="$EXTRACT_PARENT/$STAGING_NAME"
-EXTRACTED_CLI="$EXTRACTED_ROOT/bin/applebookscli"
-EXTRACTED_WORKER="$EXTRACTED_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-EXTRACTED_SKILL="$EXTRACTED_ROOT/share/applebookscli/skill/applebookscli"
-[ -x "$EXTRACTED_CLI" ] || fail "extracted CLI is missing or not executable."
-[ -x "$EXTRACTED_WORKER" ] || fail "extracted PDF worker is missing or not executable."
-"$SKILL_SMOKE" "$EXTRACTED_SKILL"
-skill_entry_count=$(find "$EXTRACTED_SKILL" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')
-[ "$skill_entry_count" -eq 1 ] || fail "extracted Skill contains unplanned resources."
+tar -xzf "$PACKAGE_TGZ" -C "$EXTRACT_ROOT"
+EXTRACTED="$EXTRACT_ROOT/package"
+EXTRACTED_CLI="$EXTRACTED/bin/applebookscli"
+EXTRACTED_WORKER="$EXTRACTED/libexec/applebookscli/applebookscli-pdf-worker"
+EXTRACTED_SKILL="$EXTRACTED/share/applebookscli/skill/applebookscli"
+[ -x "$EXTRACTED_CLI" ] || fail "extracted npm CLI is missing or not executable."
+[ -x "$EXTRACTED_WORKER" ] || fail "extracted npm PDF worker is missing or not executable."
+[ "$(xcrun lipo -archs "$EXTRACTED_CLI")" = "arm64" ] || fail "extracted npm CLI is not arm64-only."
+[ "$(xcrun lipo -archs "$EXTRACTED_WORKER")" = "arm64" ] || fail "extracted npm worker is not arm64-only."
 codesign --verify --strict --verbose=2 "$EXTRACTED_CLI"
 codesign --verify --strict --verbose=2 "$EXTRACTED_WORKER"
-
-EXTRACTED_VERSION=$(cd / && "$EXTRACTED_CLI" --version)
-[ "$EXTRACTED_VERSION" = "$VERSION" ] || fail "extracted CLI version does not match the archive version."
+"$SKILL_SMOKE" "$EXTRACTED_SKILL"
+cmp "$SKILL_SOURCE/SKILL.md" "$EXTRACTED_SKILL/SKILL.md"
+[ "$(cd / && "$EXTRACTED_CLI" --version)" = "$VERSION" ] || fail "extracted npm CLI version mismatch."
 (cd / && "$EXTRACTED_CLI" --help >/dev/null)
 
-SMOKE_ROOT="$EXTRACT_PARENT/smoke"
-SMOKE_HOME="$SMOKE_ROOT/home"
-SMOKE_LIBRARY="$SMOKE_ROOT/library.sqlite"
-SMOKE_ANNOTATIONS="$SMOKE_ROOT/annotations.sqlite"
-SMOKE_PDF_STDOUT="$SMOKE_ROOT/pdf.stdout.json"
-SMOKE_PDF_STDERR="$SMOKE_ROOT/pdf.stderr.txt"
-SMOKE_WORKER_STDERR="$SMOKE_ROOT/worker.stderr.txt"
-SMOKE_CODEX_HOME="$SMOKE_ROOT/codex-home"
-SMOKE_SKILL_STDOUT="$SMOKE_ROOT/skill.stdout.json"
-SMOKE_SKILL_STDERR="$SMOKE_ROOT/skill.stderr.txt"
-SMOKE_SKILL_CONFLICT_STDOUT="$SMOKE_ROOT/skill-conflict.stdout.json"
-SMOKE_SKILL_CONFLICT_STDERR="$SMOKE_ROOT/skill-conflict.stderr.txt"
-PDF_FIXTURE="$REPO_ROOT/Tests/Fixtures/PDF/corrupt.pdf"
-mkdir -p "$SMOKE_HOME"
-command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required for the extracted release smoke."
-[ -f "$PDF_FIXTURE" ] || fail "synthetic PDF fixture is missing."
-sqlite3 "$SMOKE_LIBRARY" 'CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZCONTENTTYPE INTEGER);'
-sqlite3 "$SMOKE_ANNOTATIONS" 'CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);'
-
-(
-  cd /
-  HOME="$SMOKE_HOME" CFFIXED_USER_HOME="$SMOKE_HOME" \
-    "$EXTRACTED_CLI" pdf highlights \
-      --path "$PDF_FIXTURE" \
-      --library-db "$SMOKE_LIBRARY" \
-      --annotations-db "$SMOKE_ANNOTATIONS" \
-      --json
-) > "$SMOKE_PDF_STDOUT" 2> "$SMOKE_PDF_STDERR"
-[ ! -s "$SMOKE_PDF_STDERR" ] || fail "extracted CLI PDF smoke wrote unexpected diagnostics."
-pdf_smoke=$(cat "$SMOKE_PDF_STDOUT")
-case "$pdf_smoke" in
-  *'"attemptedCount":1'*'"failedCount":1'*'"reason":"unreadableDocument"'*'"provenance":"explicit"'*) ;;
-  *) fail "extracted CLI did not reach the relative PDF worker with the synthetic fixture." ;;
-esac
-
-worker_smoke=$(cd / && printf '{}' | "$EXTRACTED_WORKER" 2> "$SMOKE_WORKER_STDERR")
-case "$worker_smoke" in
-  *'"errorCode":"malformedRequest"'*'"status":"failure"'*) ;;
-  *) fail "extracted universal worker protocol smoke failed." ;;
-esac
-[ "$(cat "$SMOKE_WORKER_STDERR")" = "malformedRequest" ] || fail "extracted worker stderr code is unstable."
-
-(
-  cd /
-  HOME="$SMOKE_HOME" CFFIXED_USER_HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" \
-    "$EXTRACTED_CLI" skill install --json
-) > "$SMOKE_SKILL_STDOUT" 2> "$SMOKE_SKILL_STDERR"
-[ ! -s "$SMOKE_SKILL_STDERR" ] || fail "extracted CLI Skill install wrote unexpected diagnostics."
-grep -F '"installed":true' "$SMOKE_SKILL_STDOUT" >/dev/null || fail "extracted CLI Skill install did not report installed=true."
-grep -F '"replaced":false' "$SMOKE_SKILL_STDOUT" >/dev/null || fail "extracted CLI Skill install did not report replaced=false."
-INSTALLED_SKILL="$SMOKE_CODEX_HOME/skills/applebookscli"
-"$SKILL_SMOKE" "$INSTALLED_SKILL"
-
-set +e
-(
-  cd /
-  HOME="$SMOKE_HOME" CFFIXED_USER_HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" \
-    "$EXTRACTED_CLI" skill install --json
-) > "$SMOKE_SKILL_CONFLICT_STDOUT" 2> "$SMOKE_SKILL_CONFLICT_STDERR"
-skill_conflict_status=$?
-set -e
-[ "$skill_conflict_status" -eq 64 ] || fail "second extracted CLI Skill install must fail with usage exit 64."
-[ ! -s "$SMOKE_SKILL_CONFLICT_STDERR" ] || fail "Skill install conflict wrote unexpected stderr diagnostics."
-grep -F '"code":"usage_invalid"' "$SMOKE_SKILL_CONFLICT_STDOUT" >/dev/null || fail "Skill install conflict did not use the stable JSON error envelope."
-
-ARCHIVE_LIST="$SMOKE_ROOT/archive-contents.txt"
-tar -tzf "$ARCHIVE" > "$ARCHIVE_LIST"
+ARCHIVE_LIST="$EXTRACT_ROOT/archive-contents.txt"
+tar -tzf "$PACKAGE_TGZ" > "$ARCHIVE_LIST"
+for required in \
+  package/package.json \
+  package/bin/applebookscli \
+  package/libexec/applebookscli/applebookscli-pdf-worker \
+  package/share/applebookscli/skill/applebookscli/SKILL.md \
+  package/LICENSE \
+  package/THIRD_PARTY_NOTICES.md; do
+  grep -Fx "$required" "$ARCHIVE_LIST" >/dev/null || fail "npm package is missing required entry: $required"
+done
 while IFS= read -r entry; do
   case "$entry" in
-    *"/.github/features/"*|*"/.build/"*|*"/Tests/"*|*"/tests/"*|*"/config.json"|*"/private-"*)
-      fail "release archive contains forbidden development or private path: $entry"
+    *"/.github/"*|*"/.build/"*|*"/Tests/"*|*"/tests/"*|*"/config.json"|*"/private-"*)
+      fail "npm package contains forbidden development or private path: $entry"
       ;;
   esac
 done < "$ARCHIVE_LIST"
 
+"$NPM_SMOKE" "$PACKAGE_TGZ" "$VERSION"
 git diff --exit-code -- Package.resolved >/dev/null || fail "Package.resolved changed during release packaging."
-printf 'release archive OK: %s (%s host-native smoke; Intel runtime not asserted here)\n' "$ARCHIVE" "$(uname -m)"
+printf 'npm release package OK: %s (darwin-arm64 only)\n' "$PACKAGE_TGZ"

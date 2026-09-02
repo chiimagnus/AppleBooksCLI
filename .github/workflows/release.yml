@@ -10,13 +10,19 @@ permissions:
 
 jobs:
   release:
-    name: Build immutable release candidate
+    name: Build immutable macOS arm64 release
     runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+
+      - name: Set up Node for npm packaging
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          package-manager-cache: false
 
       - name: Record toolchain
         run: |
@@ -25,7 +31,8 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
-          brew --version
+          node --version
+          npm --version
           gh --version
 
       - name: Verify tag matches built CLI version
@@ -56,13 +63,13 @@ jobs:
           cmp .build/checkouts/SwiftSoup/LICENSE ThirdPartyLicenses/SwiftSoup-MIT.txt
           cmp .build/checkouts/ZIPFoundation/LICENSE ThirdPartyLicenses/ZIPFoundation-MIT.txt
 
-      - name: Build and verify release assets
+      - name: Build and verify npm release package
         run: |
           scripts/build-release.sh
-          VERSION=$(dist/universal/applebookscli --version)
-          ARCHIVE="dist/applebookscli-$VERSION-macos-universal.tar.gz"
-          CHECKSUM="$ARCHIVE.sha256"
-          test -f "$ARCHIVE"
+          VERSION=${GITHUB_REF_NAME#v}
+          PACKAGE="dist/applebookscli-$VERSION.tgz"
+          CHECKSUM="$PACKAGE.sha256"
+          test -f "$PACKAGE"
           test -f "$CHECKSUM"
           (cd dist && shasum -a 256 -c "$(basename "$CHECKSUM")")
           git diff --exit-code -- Package.resolved
@@ -72,10 +79,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(dist/universal/applebookscli --version)
-          ARCHIVE="dist/applebookscli-$VERSION-macos-universal.tar.gz"
-          CHECKSUM="$ARCHIVE.sha256"
-          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$CHECKSUM" \
+          VERSION=${GITHUB_REF_NAME#v}
+          PACKAGE="dist/applebookscli-$VERSION.tgz"
+          CHECKSUM="$PACKAGE.sha256"
+          gh release create "$GITHUB_REF_NAME" "$PACKAGE" "$CHECKSUM" \
             --verify-tag \
             --notes-from-tag \
             --title "$GITHUB_REF_NAME"

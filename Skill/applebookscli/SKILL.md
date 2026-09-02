@@ -9,7 +9,7 @@ description: 在 macOS 上需要使用已安装的 applebookscli 访问本机 Ap
 
 ## 按任务选择路径
 
-- **查询**：书籍、阅读状态、统计、批注和 collection 直接使用对应只读命令。普通查询不要机械先跑 `doctor`；只有用户本来就在诊断，或实际返回 permission / unavailable 时，再用 `doctor --json` 定位环境条件。用户只给标题、名称等展示文本时，先 search/list；只有唯一匹配后才把稳定 identity 传给后续命令，不静默选择多个候选中的第一项。
+- **查询**：书籍、阅读状态、统计、批注和 collection 直接使用对应只读命令。普通查询不要机械先跑 `doctor`；只有用户本来就在诊断，或实际返回 permission / unavailable 时，再用 `doctor --json` 定位环境条件。用户只给标题、名称等展示文本时，先 search/list；只有唯一匹配后才把稳定 identity 传给后续命令，不静默选择多个候选中的第一项。向用户展示一条已经唯一解析的具体 annotation（高亮或带 note 的笔记）时，优先使用 `annotations get --json` 或已有的等价单条结果；若 CLI 返回 `appleBooksURL`，一并提供给用户作为 Apple Books 一键跳转入口。不要在 Skill 中自行拼接 `ibooks://`，也不要为了生成该链接额外调用 `content locate`。
 - **EPUB / PDF**：先解析 exact book/source，再直接调用完成请求所需的最窄 content/PDF 命令；只有需要解释 EPUB 为什么不可用时才用 `content status --json` 诊断 materialization、DRM/encryption 或 not-downloaded。不可用时按结果报告，不自行绕过或触发额外下载。PDF 没有 exact book/path 时先 `pdf list --json` 解析唯一 source；worker failure 与“没有 highlights”是不同结果。
 - **导出**：先确定用户要求的范围、格式和输出目标，再运行 `export`。用户没有要求覆盖时保持 no-clobber，不因为文件已存在就自行升级 overwrite policy。“完整笔记归档”必须使用 complete-notes 路径；安全或完整性校验失败时停止并报告，不能降级成普通 export 后声称归档完整。
 - **写入**：只有用户明确要求 annotation 或 collection 变更时才执行 mutation。涉及既有对象时先只读解析 exact target，并用 `--json` 执行写命令。以 `committed` / `changed` 判定结果；已 committed 的操作不能因后续 warning 自动重试，`changed=false` 是成功的幂等 no-op。只有 CLI 报 read-back warning，或返回值仍不足以证明用户要求的最终状态时，才补一条最窄只读确认。

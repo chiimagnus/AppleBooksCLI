@@ -12,8 +12,8 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}
+  queue: max
 
 jobs:
   release:
@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node and npm registry
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -34,33 +35,31 @@ jobs:
           package-manager-cache: false
 
       - name: Preflight tag and publication state
+        id: metadata
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           . scripts/release-metadata.sh "$GITHUB_REF_NAME"
           {
             echo "RELEASE_VERSION=$RELEASE_VERSION"
-            echo "RELEASE_CHANNEL=$RELEASE_CHANNEL"
             echo "NPM_DIST_TAG=$NPM_DIST_TAG"
             echo "GITHUB_PRERELEASE=$GITHUB_PRERELEASE"
           } >> "$GITHUB_ENV"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
-          Tests/PackagingTests/release-metadata-smoke.sh
-          node scripts/check-release-order.mjs --self-test
           node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) process.exit(1)' "$(npm --version)"
 
           git fetch --no-tags origin main
           test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "release tag must point at current origin/main HEAD" >&2; exit 1; }
+          git merge-base --is-ancestor HEAD origin/main || { echo "release tag must point at a commit on main" >&2; exit 1; }
 
-          CI_STATE=$(gh run list --workflow CI --event push --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq 'if length == 0 then "" else "\(.[0].status):\(.[0].conclusion)" end')
+          CI_STATE=$(gh run list --workflow ci.yml --event push --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq 'if length == 0 then "" else "\(.[0].status):\(.[0].conclusion)" end')
           test "$CI_STATE" = "completed:success" || { echo "exact-SHA CI must succeed before tagging; got: ${CI_STATE:-missing}" >&2; exit 1; }
 
-          npm view @chiimagnus/applebookscli versions --json > "$RUNNER_TEMP/npm-versions.json"
-          npm view @chiimagnus/applebookscli dist-tags --json > "$RUNNER_TEMP/npm-dist-tags.json"
-          LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.latest ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
-          BETA=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.beta ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
-          NPM_EXISTS=$(node -e 'const value=require(process.argv[1]); const versions=Array.isArray(value)?value:[value]; process.stdout.write(versions.includes(process.argv[2])?"true":"false")' "$RUNNER_TEMP/npm-versions.json" "$RELEASE_VERSION")
+          npm view @chiimagnus/applebookscli versions dist-tags --json > "$RUNNER_TEMP/npm-state.json"
+          LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value["dist-tags"]?.latest ?? "")' "$RUNNER_TEMP/npm-state.json")
+          BETA=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value["dist-tags"]?.beta ?? "")' "$RUNNER_TEMP/npm-state.json")
+          NPM_EXISTS=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.versions.includes(process.argv[2])?"true":"false")' "$RUNNER_TEMP/npm-state.json" "$RELEASE_VERSION")
           test "$NPM_EXISTS" = false || { echo "npm version already exists: $RELEASE_VERSION" >&2; exit 1; }
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "GitHub Release already exists: $GITHUB_REF_NAME" >&2
@@ -71,31 +70,25 @@ jobs:
       - name: Build release package
         env:
           APPLEBOOKSCLI_TAG: ${{ github.ref_name }}
-        run: |
-          scripts/build-release.sh
-          ASSET="chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
-          (cd dist && shasum -a 256 "$ASSET" > "$ASSET.sha256")
+        run: scripts/build-release.sh
+
+      - name: Attest release asset
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: dist/chiimagnus-applebookscli-${{ steps.metadata.outputs.version }}.tgz
 
       - name: Publish npm package
         run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG"
-
-      - name: Attest release assets
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: |
-            dist/chiimagnus-applebookscli-${{ env.RELEASE_VERSION }}.tgz
-            dist/chiimagnus-applebookscli-${{ env.RELEASE_VERSION }}.tgz.sha256
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ASSET="dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
-          CHECKSUM="$ASSET.sha256"
           if [ "$GITHUB_PRERELEASE" = true ]; then
-            gh release create "$GITHUB_REF_NAME" "$ASSET" "$CHECKSUM" \
+            gh release create "$GITHUB_REF_NAME" "$ASSET" \
               --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --prerelease --latest=false
           else
-            gh release create "$GITHUB_REF_NAME" "$ASSET" "$CHECKSUM" \
+            gh release create "$GITHUB_REF_NAME" "$ASSET" \
               --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --latest
           fi

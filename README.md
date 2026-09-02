@@ -25,7 +25,7 @@ npm install --global @chiimagnus/applebookscli@beta
 
 ## Release channels
 
-Git tag 是 release 版本的唯一 owner；源码不保存手工版本号。稳定版 tag 使用 `vMAJOR.MINOR.PATCH`（如 `v1.2.1`），beta 使用 `vMAJOR.MINOR.PATCH-beta` 或后续迭代的 `vMAJOR.MINOR.PATCH-beta.N`。push 合法 tag 后，GitHub Actions 会执行完整测试/隐私/license/package gate，再发布 npm 与 GitHub Release：稳定版进入 npm `latest` 并成为普通 GitHub Release，beta 进入 npm `beta` 并标记 GitHub prerelease。普通开发构建的 `applebookscli --version` 显示 `dev`；release binary 的版本由对应 tag 注入。
+Git tag 是 release 版本的唯一 owner；源码不保存手工版本号。稳定版 tag 使用 `vMAJOR.MINOR.PATCH`（如 `v1.2.1`），beta 使用 `vMAJOR.MINOR.PATCH-beta` 或后续迭代的 `vMAJOR.MINOR.PATCH-beta.N`。release tag 必须指向当前 `main` HEAD，且该 SHA 的 CI 已成功；Release workflow 不重复跑完整测试，只构建一次正式 package 后发布 npm 与 GitHub Release。稳定版进入 npm `latest` 并成为普通 GitHub Release，beta 进入 npm `beta` 并标记 GitHub prerelease。普通开发构建的 `applebookscli --version` 显示 `dev`；release binary 的版本由对应 tag 注入。
 
 ## 配置
 

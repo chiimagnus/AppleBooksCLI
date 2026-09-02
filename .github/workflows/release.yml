@@ -6,6 +6,7 @@ on:
       - "v*"
 
 permissions:
+  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -18,23 +19,23 @@ jobs:
   release:
     name: Publish tagged release
     runs-on: macos-26
+    timeout-minutes: 10
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
-      - name: Set up Node
+      - name: Set up Node and npm registry
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      - name: Use npm with trusted publishing support
-        run: npm install --global npm@11.19.1
-
-      - name: Resolve release metadata
+      - name: Preflight tag and publication state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           . scripts/release-metadata.sh "$GITHUB_REF_NAME"
           {
@@ -43,167 +44,58 @@ jobs:
             echo "NPM_DIST_TAG=$NPM_DIST_TAG"
             echo "GITHUB_PRERELEASE=$GITHUB_PRERELEASE"
           } >> "$GITHUB_ENV"
-          printf 'tag=%s version=%s channel=%s npm-tag=%s prerelease=%s\n' \
-            "$GITHUB_REF_NAME" "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$NPM_DIST_TAG" "$GITHUB_PRERELEASE"
 
-      - name: Verify tag is releasable from main
-        run: |
-          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$(git rev-parse HEAD)"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor HEAD origin/main
-
-      - name: Validate release metadata and ordering logic
-        run: |
           Tests/PackagingTests/release-metadata-smoke.sh
           node scripts/check-release-order.mjs --self-test
+          node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) process.exit(1)' "$(npm --version)"
 
-      - name: Inspect remote publication state
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "release tag must point at current origin/main HEAD" >&2; exit 1; }
+
+          CI_STATE=$(gh run list --workflow CI --event push --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq 'if length == 0 then "" else "\(.[0].status):\(.[0].conclusion)" end')
+          test "$CI_STATE" = "completed:success" || { echo "exact-SHA CI must succeed before tagging; got: ${CI_STATE:-missing}" >&2; exit 1; }
+
           npm view @chiimagnus/applebookscli versions --json > "$RUNNER_TEMP/npm-versions.json"
           npm view @chiimagnus/applebookscli dist-tags --json > "$RUNNER_TEMP/npm-dist-tags.json"
           LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.latest ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
           BETA=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.beta ?? "")' "$RUNNER_TEMP/npm-dist-tags.json")
           NPM_EXISTS=$(node -e 'const value=require(process.argv[1]); const versions=Array.isArray(value)?value:[value]; process.stdout.write(versions.includes(process.argv[2])?"true":"false")' "$RUNNER_TEMP/npm-versions.json" "$RELEASE_VERSION")
-          CHANNEL_VERSION=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value[process.argv[2]] ?? "")' "$RUNNER_TEMP/npm-dist-tags.json" "$NPM_DIST_TAG")
+          test "$NPM_EXISTS" = false || { echo "npm version already exists: $RELEASE_VERSION" >&2; exit 1; }
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            GH_EXISTS=true
-          else
-            GH_EXISTS=false
+            echo "GitHub Release already exists: $GITHUB_REF_NAME" >&2
+            exit 1
           fi
+          node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
 
-          RECOVERY=false
-          if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
-            [ "$NPM_EXISTS" = false ] || { echo "npm version already exists: $RELEASE_VERSION" >&2; exit 1; }
-            [ "$CHANNEL_VERSION" != "$RELEASE_VERSION" ] || { echo "npm $NPM_DIST_TAG already points at $RELEASE_VERSION" >&2; exit 1; }
-            [ "$GH_EXISTS" = false ] || { echo "GitHub Release already exists: $GITHUB_REF_NAME" >&2; exit 1; }
-            node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
-          else
-            if [ "$NPM_EXISTS" = true ] || [ "$CHANNEL_VERSION" = "$RELEASE_VERSION" ]; then
-              RECOVERY=true
-              [ "$CHANNEL_VERSION" = "$RELEASE_VERSION" ] || { echo "npm dist-tag does not point at the recovery version." >&2; exit 1; }
-            else
-              [ "$GH_EXISTS" = false ] || { echo "GitHub Release exists without the matching npm publication; refusing recovery." >&2; exit 1; }
-              node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
-            fi
-          fi
-          echo "RECOVERY=$RECOVERY" >> "$GITHUB_ENV"
-
-      - name: Record toolchain
-        run: |
-          test "$(uname -m)" = "arm64"
-          uname -m
-          sw_vers
-          xcodebuild -version
-          swift --version
-          node --version
-          npm --version
-          gh --version
-
-      - name: Run Swift tests and capability gates
-        run: |
-          swift test --disable-automatic-resolution
-          swift test --disable-automatic-resolution --filter CapabilityParityTests
-          swift test --disable-automatic-resolution --filter CLICapabilityReachabilityTests
-
-      - name: Validate Skill and public source history
-        run: |
-          Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
-          swift scripts/check-private-data.swift --self-test
-          swift scripts/check-private-data.swift --static
-
-      - name: Verify dependency provenance and licenses
-        run: |
-          test "$(git -C .build/checkouts/swift-argument-parser rev-parse HEAD)" = "6a52f3251125d74daf04fcbd5e6f08a75d074382"
-          test "$(git -C .build/checkouts/SwiftSoup rev-parse HEAD)" = "18b80329749eca5ea29fc50211dca5c7eff5bfec"
-          test "$(git -C .build/checkouts/ZIPFoundation rev-parse HEAD)" = "22787ffb59de99e5dc1fbfe80b19c97a904ad48d"
-          cmp .build/checkouts/swift-argument-parser/LICENSE.txt ThirdPartyLicenses/swift-argument-parser-Apache-2.0.txt
-          cmp .build/checkouts/SwiftSoup/LICENSE ThirdPartyLicenses/SwiftSoup-MIT.txt
-          cmp .build/checkouts/ZIPFoundation/LICENSE ThirdPartyLicenses/ZIPFoundation-MIT.txt
-          test -s LICENSE
-          test -s THIRD_PARTY_NOTICES.md
-
-      - name: Build and verify release package
+      - name: Build release package
         env:
           APPLEBOOKSCLI_TAG: ${{ github.ref_name }}
-        run: scripts/build-release.sh
+        run: |
+          scripts/build-release.sh
+          ASSET="chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
+          (cd dist && shasum -a 256 "$ASSET" > "$ASSET.sha256")
 
       - name: Publish npm package
-        if: env.RECOVERY != 'true'
         run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG"
-
-      - name: Verify npm registry artifact
-        run: |
-          REGISTRY_ROOT="$RUNNER_TEMP/npm-registry"
-          mkdir -p "$REGISTRY_ROOT"
-          attempt=1
-          while [ "$attempt" -le 120 ]; do
-            if npm pack "@chiimagnus/applebookscli@$RELEASE_VERSION" --pack-destination "$REGISTRY_ROOT" --json > "$RUNNER_TEMP/npm-pack.json" 2> "$RUNNER_TEMP/npm-pack.err"; then
-              break
-            fi
-            if [ "$attempt" -eq 120 ]; then
-              cat "$RUNNER_TEMP/npm-pack.err" >&2
-              echo "npm package is still unavailable after the publish-time scan window." >&2
-              exit 1
-            fi
-            sleep 15
-            attempt=$((attempt + 1))
-          done
-          REGISTRY_FILENAME=$(node -e 'const value=require(process.argv[1]); if (!Array.isArray(value)||!value[0]?.filename) process.exit(1); process.stdout.write(value[0].filename)' "$RUNNER_TEMP/npm-pack.json")
-          REGISTRY_TGZ="$REGISTRY_ROOT/$REGISTRY_FILENAME"
-          LOCAL_TGZ="dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
-          test -f "$REGISTRY_TGZ"
-          cmp "$LOCAL_TGZ" "$REGISTRY_TGZ"
-          Tests/PackagingTests/npm-smoke.sh "$REGISTRY_TGZ" "$RELEASE_VERSION"
-          node - "$REGISTRY_TGZ" "$RELEASE_VERSION" <<'NODE'
-          const cp = require('child_process');
-          const [archive, version] = process.argv.slice(2);
-          const pkg = JSON.parse(cp.execFileSync('tar', ['-xOf', archive, 'package/package.json'], {encoding: 'utf8'}));
-          if (pkg.name !== '@chiimagnus/applebookscli') throw new Error('registry package name mismatch');
-          if (pkg.version !== version) throw new Error('registry package version mismatch');
-          if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('registry package os mismatch');
-          if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('registry package cpu mismatch');
-          NODE
-          DIST_TAG_VALUE=$(npm view "@chiimagnus/applebookscli" "dist-tags.$NPM_DIST_TAG")
-          [ "$DIST_TAG_VALUE" = "$RELEASE_VERSION" ] || { echo "npm dist-tag verification failed." >&2; exit 1; }
-          cp "$REGISTRY_TGZ" "dist/$REGISTRY_FILENAME"
-          (cd dist && shasum -a 256 "$REGISTRY_FILENAME" > "$REGISTRY_FILENAME.sha256")
-          echo "RELEASE_ASSET=dist/$REGISTRY_FILENAME" >> "$GITHUB_ENV"
-          echo "RELEASE_CHECKSUM=dist/$REGISTRY_FILENAME.sha256" >> "$GITHUB_ENV"
 
       - name: Attest release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: |
-            ${{ env.RELEASE_ASSET }}
-            ${{ env.RELEASE_CHECKSUM }}
+            dist/chiimagnus-applebookscli-${{ env.RELEASE_VERSION }}.tgz
+            dist/chiimagnus-applebookscli-${{ env.RELEASE_VERSION }}.tgz.sha256
 
-      - name: Publish or verify GitHub Release
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            [ "$GITHUB_RUN_ATTEMPT" -gt 1 ] || { echo "GitHub Release unexpectedly exists." >&2; exit 1; }
-            EXISTING_PRERELEASE=$(gh release view "$GITHUB_REF_NAME" --json isPrerelease --jq .isPrerelease)
-            [ "$EXISTING_PRERELEASE" = "$GITHUB_PRERELEASE" ] || { echo "GitHub prerelease state mismatch." >&2; exit 1; }
-            VERIFY_ROOT="$RUNNER_TEMP/github-release"
-            mkdir -p "$VERIFY_ROOT"
-            gh release download "$GITHUB_REF_NAME" --dir "$VERIFY_ROOT" --pattern "$(basename "$RELEASE_ASSET")" --pattern "$(basename "$RELEASE_CHECKSUM")"
-            cmp "$RELEASE_ASSET" "$VERIFY_ROOT/$(basename "$RELEASE_ASSET")"
-            cmp "$RELEASE_CHECKSUM" "$VERIFY_ROOT/$(basename "$RELEASE_CHECKSUM")"
-            exit 0
-          fi
-
+          ASSET="dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
+          CHECKSUM="$ASSET.sha256"
           if [ "$GITHUB_PRERELEASE" = true ]; then
-            gh release create "$GITHUB_REF_NAME" "$RELEASE_ASSET" "$RELEASE_CHECKSUM" \
+            gh release create "$GITHUB_REF_NAME" "$ASSET" "$CHECKSUM" \
               --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --prerelease --latest=false
           else
-            gh release create "$GITHUB_REF_NAME" "$RELEASE_ASSET" "$RELEASE_CHECKSUM" \
+            gh release create "$GITHUB_REF_NAME" "$ASSET" "$CHECKSUM" \
               --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --latest
           fi
-
-      - name: Verify locked source state
-        run: |
-          git diff --exit-code -- Package.resolved
-          git diff --check

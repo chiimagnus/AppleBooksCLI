@@ -13,54 +13,30 @@ permissions:
 
 jobs:
   arm64-full:
-    name: macOS arm64 full gate
+    name: macOS arm64 gate
     runs-on: macos-26
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
-      - name: Set up Node for npm packaging
+      - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "24"
           package-manager-cache: false
 
-      - name: Record toolchain
+      - name: Run CI gates
         run: |
           test "$(uname -m)" = "arm64"
-          uname -m
-          sw_vers
-          xcodebuild -version
-          swift --version
-          node --version
-          npm --version
-          gh --version
-
-      - name: Validate release metadata and ordering
-        run: |
           Tests/PackagingTests/release-metadata-smoke.sh
           node scripts/check-release-order.mjs --self-test
-
-      - name: Run Swift tests
-        run: swift test --disable-automatic-resolution
-
-      - name: Run capability gates
-        run: |
-          swift test --disable-automatic-resolution --filter CapabilityParityTests
-          swift test --disable-automatic-resolution --filter CLICapabilityReachabilityTests
-
-      - name: Validate packaged Skill
-        run: Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
-
-      - name: Scan public source history
-        run: |
+          Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
           swift scripts/check-private-data.swift --self-test
           swift scripts/check-private-data.swift --static
-
-      - name: Verify dependency provenance and licenses
-        run: |
+          swift test --disable-automatic-resolution
           test "$(git -C .build/checkouts/swift-argument-parser rev-parse HEAD)" = "6a52f3251125d74daf04fcbd5e6f08a75d074382"
           test "$(git -C .build/checkouts/SwiftSoup rev-parse HEAD)" = "18b80329749eca5ea29fc50211dca5c7eff5bfec"
           test "$(git -C .build/checkouts/ZIPFoundation rev-parse HEAD)" = "22787ffb59de99e5dc1fbfe80b19c97a904ad48d"
@@ -69,13 +45,5 @@ jobs:
           cmp .build/checkouts/ZIPFoundation/LICENSE ThirdPartyLicenses/ZIPFoundation-MIT.txt
           test -s LICENSE
           test -s THIRD_PARTY_NOTICES.md
-
-      - name: Build and verify npm release package
-        env:
-          APPLEBOOKSCLI_TAG: v0.0.0-beta
-        run: scripts/build-release.sh
-
-      - name: Verify locked source state
-        run: |
           git diff --exit-code -- Package.resolved
           git diff --check

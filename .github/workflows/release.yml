@@ -28,6 +28,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "24"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
       - name: Use npm with trusted publishing support
@@ -132,7 +133,7 @@ jobs:
 
       - name: Publish npm package
         if: env.RECOVERY != 'true'
-        run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG" --provenance
+        run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG"
 
       - name: Verify npm registry artifact
         run: |

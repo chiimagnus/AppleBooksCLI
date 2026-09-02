@@ -21,6 +21,22 @@ final class AppleBooksLiveContentTests: XCTestCase {
         }
     }
 
+    func testEligibleMalformedPackagePropagatesParserFailure() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathExtension("epub")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("META-INF", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data("<not-container/>".utf8).write(to: root.appendingPathComponent("META-INF/container.xml"))
+
+        XCTAssertThrowsError(try openEligibleContent(root)) { error in
+            XCTAssertEqual(error as? DirectoryEPUBPackageError, .invalidContainer)
+        }
+    }
+
     private func runLiveContentGate() throws -> Bool {
         let discovered = try DatabaseDiscovery().discover()
         let library = try SQLiteConnection.readOnly(path: discovered.libraryDB.path)
@@ -52,12 +68,7 @@ final class AppleBooksLiveContentTests: XCTestCase {
             inspectedCandidates += 1
             guard inspectedCandidates <= 32 else { break }
 
-            let content: BookContent
-            do {
-                content = try BookContent(root: root)
-            } catch {
-                continue
-            }
+            guard let content = try openEligibleContent(root) else { continue }
 
             do {
                 let chapters = try content.listChapters()
@@ -79,6 +90,24 @@ final class AppleBooksLiveContentTests: XCTestCase {
             }
         }
         return false
+    }
+
+    private func openEligibleContent(_ root: URL) throws -> BookContent? {
+        do {
+            return try BookContent(root: root)
+        } catch ContentError.unavailable(_) {
+            return nil
+        } catch ContentError.unsupportedFormat {
+            return nil
+        } catch ContentError.contentEncryptionUnsupported {
+            return nil
+        } catch ContentError.malformedEncryptionMetadata {
+            return nil
+        } catch is EPUBPathError {
+            return nil
+        } catch is EPUBResourceError {
+            return nil
+        }
     }
 }
 

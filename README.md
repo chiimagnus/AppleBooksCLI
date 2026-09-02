@@ -12,23 +12,10 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 
 ## 安装
 
-稳定版本通过 npm 分发；npm package 只允许 `darwin/arm64`，并包含 CLI、PDF worker、`applebookscli` Skill 与许可证文件。GitHub Release 使用 immutable release 保护，并镜像同一 npm `.tgz` 与 SHA-256 checksum。GitHub Release 与 npm registry 均由维护者手动发布；GitHub Actions 只负责验证，不执行发布副作用。
-
 ```sh
 npm install --global applebookscli
 applebookscli --version
 ```
-
-Intel Mac 不提供预编译包。需要自行构建时使用源码：
-
-```sh
-swift build --disable-automatic-resolution -c release --product applebookscli
-BIN_DIR=$(swift build --disable-automatic-resolution -c release --show-bin-path)
-"$BIN_DIR/applebookscli" --version
-"$BIN_DIR/applebookscli" --help
-```
-
-维护验证由仓库现有 tests、packaging scripts 与 CI workflow 拥有，不在 README 复制一份会漂移的 gate 清单。
 
 ## 配置
 
@@ -79,16 +66,6 @@ applebookscli skill install --force
 ```
 
 `--force` 使用 staging + rename + rollback，并拒绝跟随已有 target symlink；它不会递归删除未知目标目录。
-
-## 写入与备份安全
-
-collection / annotation 写命令只经过统一 guarded mutation rail：写前先做 read-only preflight，必要时停止 Books.app，在 quiet state 创建 fresh SQLite safety backup，事务内 revalidate 并校验 invariant，COMMIT 后再用 fresh read-only connection read-back。COMMIT 后的 read-back/relaunch warning 不会被谎报成 rollback；restore 也会先保护当前 live DB，并明确区分 applied 与 verified。
-
-AppleBooksCLI 不提供创建新 highlight、修改 selected text/CFI range 或任意写 current reading position 的命令。完整 mutation / backup / restore contract 只在 [`docs/write-safety.md`](docs/write-safety.md) 维护。
-
-## 导出安全
-
-`export` 支持 JSON、CSV、Markdown 与 self-contained HTML。完整 note archive 使用独立 raw count 与 materialization gate；historical/unmapped annotation 不会因为当前 BKLibrary 缺少对应 book row 而被静默丢弃。输出路径、symlink、覆盖策略与多文件 archive publication 均由统一 filesystem writer 管理。
 
 ## 文档
 

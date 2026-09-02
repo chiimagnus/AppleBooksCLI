@@ -71,7 +71,7 @@ CLI="$PREFIX/bin/applebookscli"
 [ "$(cd / && "$CLI" --version)" = "$EXPECTED_VERSION" ] || fail "npm-installed CLI version mismatch."
 (cd / && "$CLI" --help >/dev/null)
 
-PACKAGE_ROOT="$PREFIX/lib/node_modules/applebookscli"
+PACKAGE_ROOT="$PREFIX/lib/node_modules/@chiimagnus/applebookscli"
 WORKER="$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 SKILL="$PACKAGE_ROOT/share/applebookscli/skill/applebookscli"
 [ -x "$WORKER" ] || fail "npm-installed PDF worker is missing or not executable."

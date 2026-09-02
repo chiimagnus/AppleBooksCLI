@@ -86,7 +86,7 @@ case "$VERSION" in
 esac
 
 PACKAGE_ROOT="$PACKAGE_PARENT/applebookscli-$VERSION"
-PACKAGE_TGZ="$DIST_ROOT/applebookscli-$VERSION.tgz"
+PACKAGE_TGZ="$DIST_ROOT/chiimagnus-applebookscli-$VERSION.tgz"
 CHECKSUM="$PACKAGE_TGZ.sha256"
 rm -rf -- "$PACKAGE_PARENT" "$EXTRACT_ROOT"
 rm -f -- "$PACKAGE_TGZ" "$CHECKSUM"
@@ -115,7 +115,7 @@ node - "$PACKAGE_ROOT/package.json" "$VERSION" <<'NODE'
 const fs = require('fs');
 const [path, expectedVersion] = process.argv.slice(2);
 const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-if (pkg.name !== 'applebookscli') throw new Error('unexpected npm package name');
+if (pkg.name !== '@chiimagnus/applebookscli') throw new Error('unexpected npm package name');
 if (pkg.version !== expectedVersion) throw new Error('npm package version mismatch');
 if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('npm package must allow only darwin');
 if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('npm package must allow only arm64');

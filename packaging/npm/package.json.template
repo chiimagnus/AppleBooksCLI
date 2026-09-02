@@ -1,5 +1,5 @@
 {
-  "name": "applebookscli",
+  "name": "@chiimagnus/applebookscli",
   "version": "__VERSION__",
   "description": "Native Apple Books CLI for macOS on Apple Silicon.",
   "license": "AGPL-3.0-only",

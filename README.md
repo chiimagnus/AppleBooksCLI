@@ -13,7 +13,7 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 ## 安装
 
 ```sh
-npm install --global applebookscli
+npm install --global @chiimagnus/applebookscli
 applebookscli --version
 ```
 

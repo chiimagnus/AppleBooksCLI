@@ -4,18 +4,14 @@ import Testing
 @Suite("CapabilityParityTests")
 struct CapabilityParityTests {
     @Test
-    func requiredMatrixRowsHaveRealImplementationTestAndCLIReachabilityAnchors() throws {
+    func implementedMatrixRowsHaveRealImplementationTestAndCLIReachabilityAnchors() throws {
         let root = repositoryRoot()
         let rows = try matrixRows(at: root.appendingPathComponent("docs/capability-matrix.md"))
         let duplicateMatrixKeys = duplicates(rows.map(\.capability))
         #expect(duplicateMatrixKeys.isEmpty, "duplicate capability names: \(duplicateMatrixKeys.sorted())")
 
-        let coreVerified = Set(rows.filter(\.isCoreVerified).map(\.capability))
-        let cliVerified = Set(rows.filter(\.isCLIVerified).map(\.capability))
-        let required = Set(rows.filter(\.isRequiredCategory).map(\.capability))
-        #expect(coreVerified.isSubset(of: required))
-        #expect(coreVerified.isEmpty == false)
-        #expect(cliVerified == required, "required capability missing CLI verification: \(required.subtracting(cliVerified).sorted())")
+        let implemented = Set(rows.filter(\.isImplemented).map(\.capability))
+        #expect(implemented.isEmpty == false)
 
         let fixtureURL = root.appendingPathComponent("Tests/Fixtures/Parity/capability-anchors.json")
         let data = try Data(contentsOf: fixtureURL)
@@ -26,16 +22,17 @@ struct CapabilityParityTests {
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let anchorKeys = Set(object.keys)
         #expect(
-            anchorKeys == required,
-            "required anchor mismatch; missing=\(required.subtracting(anchorKeys).sorted()) extra=\(anchorKeys.subtracting(required).sorted())"
+            anchorKeys == implemented,
+            "implemented anchor mismatch; missing=\(implemented.subtracting(anchorKeys).sorted()) extra=\(anchorKeys.subtracting(implemented).sorted())"
         )
 
         for capability in anchorKeys.sorted() {
             let value = try #require(object[capability] as? [String: Any])
             #expect(
-                Set(value.keys) == ["implementationPaths", "testPaths", "cliHelpArgs"],
+                Set(value.keys) == ["owner", "implementationPaths", "testPaths", "cliHelpArgs"],
                 "\(capability) anchor contains unsupported fields: \(value.keys.sorted())"
             )
+            let owner = try owner(value["owner"], capability: capability)
             let implementationPaths = try stringArray(value["implementationPaths"], capability: capability)
             let testPaths = try stringArray(value["testPaths"], capability: capability)
             let cliHelpArgs = try stringMatrix(value["cliHelpArgs"], capability: capability)
@@ -46,25 +43,24 @@ struct CapabilityParityTests {
             #expect(Set(testPaths).count == testPaths.count)
             #expect(Set(cliHelpArgs.map { $0.joined(separator: "\u{1F}") }).count == cliHelpArgs.count)
 
-            let row = try #require(rows.first { $0.capability == capability })
             for path in implementationPaths {
                 let file = try anchoredFile(path, under: root)
-                if row.isCoreVerified {
+                switch owner {
+                case .core:
                     #expect(path.hasPrefix("Sources/AppleBooksCore/") || path.hasPrefix("Sources/AppleBooksPDFWorker/"))
-                    #expect(path.hasPrefix("Sources/AppleBooksCLI/") == false, "P6 core anchor must remain core-owned")
-                } else {
-                    #expect(row.isCLIVerified)
-                    #expect(path.hasPrefix("Sources/AppleBooksCLI/"), "P7-only capability must point at its real CLI owner")
+                case .cli:
+                    #expect(path.hasPrefix("Sources/AppleBooksCLI/"))
                 }
                 #expect(file.pathExtension == "swift")
                 #expect(try Data(contentsOf: file).isEmpty == false)
             }
             for path in testPaths {
                 let file = try anchoredFile(path, under: root)
-                if row.isCoreVerified {
+                switch owner {
+                case .core:
                     #expect(path.hasPrefix("Tests/AppleBooksCoreTests/"))
-                } else {
-                    #expect(path.hasPrefix("Tests/AppleBooksCLITests/"), "P7-only capability must point at an executable CLI test")
+                case .cli:
+                    #expect(path.hasPrefix("Tests/AppleBooksCLITests/"))
                 }
                 #expect(file.pathExtension == "swift")
                 let text = try String(contentsOf: file, encoding: .utf8)
@@ -90,7 +86,7 @@ struct CapabilityParityTests {
     }
 
     @Test
-    func p6RenderersStayDatabaseFreeAndProductionRuntimeStaysSwiftOnly() throws {
+    func renderersStayDatabaseFreeAndProductionRuntimeStaysSwiftOnly() throws {
         let root = repositoryRoot()
         let rendererPaths = [
             "Sources/AppleBooksCore/Export/JSONExporter.swift",
@@ -162,6 +158,13 @@ struct CapabilityParityTests {
         }
     }
 
+    private func owner(_ raw: Any?, capability: String) throws -> CapabilityOwner {
+        guard let value = raw as? String, let owner = CapabilityOwner(rawValue: value) else {
+            throw CapabilityParityFixtureError.invalidAnchor(capability)
+        }
+        return owner
+    }
+
     private func stringMatrix(_ raw: Any?, capability: String) throws -> [[String]] {
         guard let values = raw as? [Any] else {
             throw CapabilityParityFixtureError.invalidAnchor(capability)
@@ -190,8 +193,9 @@ struct CapabilityParityTests {
         guard components.contains("..") == false, components.contains(".") == false else {
             throw CapabilityParityFixtureError.unsafePath(path)
         }
-        let file = root.appendingPathComponent(path).standardizedFileURL
-        guard file.path.hasPrefix(root.path + "/"),
+        let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let file = canonicalRoot.appendingPathComponent(path).standardizedFileURL
+        guard file.path.hasPrefix(canonicalRoot.path + "/"),
               file.resolvingSymlinksInPath().path == file.path,
               (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
             throw CapabilityParityFixtureError.stalePath(path)
@@ -280,19 +284,14 @@ private struct MatrixRow {
     let capability: String
     let status: String
 
-    var isRequiredCategory: Bool {
-        status.hasPrefix("必须复刻") ||
-            status.hasPrefix("宿主能力翻译") ||
-            status.hasPrefix("本地保留")
+    var isImplemented: Bool {
+        status.hasPrefix("已实现")
     }
+}
 
-    var isCoreVerified: Bool {
-        isRequiredCategory && (status.contains("core已验收") || status.contains("已固化"))
-    }
-
-    var isCLIVerified: Bool {
-        isRequiredCategory && status.contains("CLI已验收")
-    }
+private enum CapabilityOwner: String {
+    case core
+    case cli
 }
 
 private enum CapabilityParityFixtureError: Error {

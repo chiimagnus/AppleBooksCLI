@@ -6,9 +6,9 @@ import Testing
 @Suite("CLICapabilityReachabilityTests")
 struct CLICapabilityReachabilityTests {
     @Test
-    func everyRequiredCapabilityHasExecutableHelpReachabilityBeforeDiscovery() throws {
+    func everyImplementedCapabilityHasExecutableHelpReachabilityBeforeDiscovery() throws {
         let root = repositoryRoot()
-        let required = try requiredCapabilities(at: root.appendingPathComponent("docs/capability-matrix.md"))
+        let required = try implementedCapabilities(at: root.appendingPathComponent("docs/capability-matrix.md"))
         let anchors = try reachabilityAnchors(at: root.appendingPathComponent("Tests/Fixtures/Parity/capability-anchors.json"))
         try requireCompleteReachability(required: required, anchors: anchors)
 
@@ -76,7 +76,7 @@ private func reachabilityAnchors(at url: URL) throws -> [String: ReachabilityAnc
     try JSONDecoder().decode([String: ReachabilityAnchor].self, from: Data(contentsOf: url))
 }
 
-private func requiredCapabilities(at url: URL) throws -> Set<String> {
+private func implementedCapabilities(at url: URL) throws -> Set<String> {
     let text = try String(contentsOf: url, encoding: .utf8)
     let rows = text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine -> (String, String)? in
         let line = String(rawLine)
@@ -95,9 +95,7 @@ private func requiredCapabilities(at url: URL) throws -> Set<String> {
         return (cells[0], cells[1])
     }
     return Set(rows.compactMap { capability, status in
-        status.hasPrefix("必须复刻") || status.hasPrefix("宿主能力翻译") || status.hasPrefix("本地保留")
-            ? capability
-            : nil
+        status.hasPrefix("已实现") ? capability : nil
     })
 }
 

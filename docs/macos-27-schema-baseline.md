@@ -1,50 +1,68 @@
-# macOS 27 Apple Books Schema 基线
+# macOS 27 Apple Books schema baseline
 
-> 采样时间：2026-08-30，macOS 27.0（Build `26A5421a`）。这是净化后的研究基线：只保留 schema、行为不变量与运行时验证；真实书库规模、asset ID、书名、CFI、UUID 和用户绝对路径不进入本仓库。
+> **Recorded baseline, not product contract.** 本页只记录 2026-08-30 在 macOS 27.0（build `26A5421a`）上通过只读采样得到的 schema / behavior 事实。它不因为 AppleBooksCLI 后续实现变化而自动改写，也不能外推到其它 macOS / Books 版本。当前产品能力见 [`capability-matrix.md`](capability-matrix.md)。
 
-## 数据库发现
+## 证据边界
 
-Apple Books 当前使用 BKLibrary 与 AEAnnotation 两个独立 SQLite store。文件名带版本样式后缀，因此实现不得写死完整文件名；应在固定 Apple Books 容器目录按已知 prefix + `.sqlite` 确定性发现，并允许两个 store 独立 override。
+- 采样只读取本机 Apple Books SQLite schema / counts /必要的类型分布，没有执行 mutation。
+- 记录保持净化：不包含真实书名、asset ID、annotation UUID/CFI/正文或用户绝对路径。
+- 本页证明的是“这个系统版本当时观测到什么”，不是 Apple 未公开 schema 的稳定承诺。
+- 写入、backup/restore、EPUB/PDF parser correctness 由产品实现和 executable tests 单独证明，见 [`write-safety.md`](write-safety.md) 与 [`architecture.md`](architecture.md)。
 
-## 已核实的数据寿命不变量
+## 双 store 发现
 
-本机只读检查证明 active annotations 可以在当前 BKLibrary 已无对应 row 后继续存在：
+该环境存在两个独立 Core Data SQLite store：
 
-```text
-Book library lifetime != Annotation lifetime
-```
+- BKLibrary：书籍、collection、membership 等 library state。
+- AEAnnotation：highlight/note/bookmark 等 annotation state。
 
-因此 annotation 必须以自身 `asset_id` / UUID 独立存在；当前 BKLibrary metadata 只是 enrichment。找不到 current library row 时仍返回 annotation；历史 metadata 可由显式用户配置补充。真实数量与具体 identities 已从迁移副本删除。
+因此产品必须把两个 store 分别发现、分别 override、分别打开；annotation existence 不能依赖 current BKLibrary row 一定存在。
 
-## Annotation schema
+## AEAnnotation 观测
 
-macOS 27 的 `ZAEANNOTATION` 已核实包含写/读路径依赖的核心列：
+`ZAEANNOTATION` 当时可见的产品相关列包括：
 
-```text
-Z_PK Z_ENT Z_OPT
-ZANNOTATIONDELETED ZANNOTATIONISUNDERLINE ZANNOTATIONSTYLE ZANNOTATIONTYPE
-ZANNOTATIONCREATIONDATE ZANNOTATIONMODIFICATIONDATE
-ZANNOTATIONASSETID ZANNOTATIONLOCATION ZANNOTATIONNOTE
-ZANNOTATIONREPRESENTATIVETEXT ZANNOTATIONSELECTEDTEXT ZANNOTATIONUUID
-ZPLABSOLUTEPHYSICALLOCATION ZPLLOCATIONRANGESTART ZPLLOCATIONRANGEEND
-```
+- identity / relation：`Z_PK`、`Z_ENT`、`Z_OPT`、`ZANNOTATIONUUID`、`ZANNOTATIONASSETID`；
+- lifecycle/type：`ZANNOTATIONDELETED`、`ZANNOTATIONISUNDERLINE`、`ZANNOTATIONSTYLE`、`ZANNOTATIONTYPE`；
+- time：`ZANNOTATIONCREATIONDATE`、`ZANNOTATIONMODIFICATIONDATE`；
+- text：`ZANNOTATIONSELECTEDTEXT`、`ZANNOTATIONREPRESENTATIVETEXT`、`ZANNOTATIONNOTE`；
+- location：`ZANNOTATIONLOCATION`、`ZPLABSOLUTEPHYSICALLOCATION`、`ZPLLOCATIONRANGESTART`、`ZPLLOCATIONRANGEEND`；
+- chapter hint：`ZFUTUREPROOFING5`。
 
-另有 creator/storage/user-data 与 `ZFUTUREPROOFING*` 列。`Z_PRIMARYKEY` 中存在 `AEAnnotation` entity。note / soft-delete 所需的 UUID、note、modification date、deleted flag 与 `Z_OPT` 当前均存在。这只证明 schema shape 当前相容，不证明真实写入的 Books.app / iCloud 行为已验收。
+另有 creator/storage/user-data 与其它 `ZFUTUREPROOFING*` 列。`Z_PRIMARYKEY` 中观测到 `AEAnnotation` entity。note / soft-delete 所需的 UUID、note、modification date、deleted flag 与 `Z_OPT` 在该 baseline 中存在。
 
-## Collection schema
+这只证明 schema shape 当时相容；本页本身不证明 write ceremony、Books.app cache 或 iCloud 跨设备行为。
 
-`ZBKCOLLECTION` 当前包含 PK/entity/version、deleted/hidden/placeholder、sort/view、modification、collection ID/details/title 等列；`ZBKCOLLECTIONMEMBER` 当前包含 PK/entity/version、sort、asset/collection foreign keys、local modification 与 asset IDs。
+## Type=3 current reading bookmark
 
-当前 entity mapping 与 `BKCollection` / `BKCollectionMember` 关系一致，但 writer 不得只靠固定数字：写前必须从 `Z_PRIMARYKEY` 按 entity name 解析并验证 `Z_ENT`、目标表、必填列；漂移即 fail closed。
+只读样本显示 `ZANNOTATIONTYPE = 3` 与 current-reading bookmark 语义相关，因此产品把它与普通 user annotations 分轨：
 
-## Annotation type 证据边界
+- 普通 user scope 默认排除 type=3；
+- current reading position 走独立 query；
+- active-raw scope 可显式观察这类 row。
 
-本机只读验证支持把 `ZANNOTATIONTYPE=3` 作为 current-reading bookmark 查询依据，但 raw `type` 必须永久保留。type=1/type=2 的样本不足以建立跨 macOS 版本的永久语义，不能把当前样本标签当 Apple 官方规范。
+这个结论来自该系统版本的实机观测与后续 synthetic regressions 共同约束；若未来系统版本改变 type 语义，应建立新的 dated baseline，而不是静默改写本页历史记录。
 
-## EPUB / PDF 分轨
+## BKLibrary / collection 观测
 
-当前数据来源表明 EPUB content/CFI 与 PDF highlights 是两条不同路径：PDF highlight 来自 PDF 文件的 `/Subtype /Highlight + QuadPoints`，而不是 AEAnnotation selected-text row。因此两者必须分 adapter；PDF parity 仍需 synthetic/可控 fixture 验证 text、note、page、color、cache 与 timeout。
+该环境的 library store 提供书籍、collection、membership 以及 Core Data `Z_PRIMARYKEY` bookkeeping。collection write 所需的 collection/member entity、PK、`Z_OPT`、deleted flag、sort/timestamp 等列在当时 schema 中可解析。
 
-## 当前 Swift runtime 基线
+entity numeric ID 属于 store 内部事实，不应被写死成跨机器常量；产品写路径应从当前 `Z_PRIMARYKEY` 动态解析并 fail closed。
 
-Swift 6.4 已在本机实测可直接 `import SQLite3` 并读取系统 SQLite 版本；AppleBooksCLI 使用 SwiftPM、Swift 6 language mode 与 macOS 12 deployment target。P1 当时尚未需要第三方 SwiftPM dependency；后续 parser/content source dependency 属于产品实现事实，不属于本 schema 采样基线。SQLite online backup、WAL/open-reader 与 restore correctness 已在后续 synthetic safety gate 中验证；本文仍只记录实机 schema/行为证据，不把 synthetic implementation evidence 冒充 macOS 27 schema 事实。
+## EPUB / PDF source 观测
+
+实机 library metadata 同时包含 EPUB 与 PDF 类型，且内容来源形态不同：
+
+- EPUB 可能指向 Books 管理的 content path，并受 materialization/DRM 状态影响；
+- PDF 以 `ZCONTENTTYPE = 3` 单独识别，并可能对应 canonical readable PDF file path。
+
+本 baseline 只证明 source shape / metadata 区分存在，不证明任意一本真实资源都可读。当前 directory/packed EPUB resolver、CFI、PDF worker、degraded behavior 由产品 tests 与 [`architecture.md`](architecture.md) 拥有。
+
+## 维护规则
+
+若新的 macOS / Books 版本出现 schema drift：
+
+1. 先做新的净化只读采样；
+2. 明确记录系统版本、日期与 evidence scope；
+3. 再决定是否需要修改 read capability degradation 或 write fail-closed guard；
+4. 不为了让旧 baseline “看起来最新”而覆盖历史观测。

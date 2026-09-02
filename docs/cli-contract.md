@@ -1,6 +1,6 @@
 # AppleBooksCLI process contract
 
-This document records the stable process-level contract. Command-specific fields are documented with their owning commands instead of snapshotting ArgumentParser help text.
+> Audience：CLI 自动化调用方与维护者。本文只拥有稳定的 **process-level contract**；command-specific 参数/字段由当前命令与 `--help` 拥有，不在这里 snapshot ArgumentParser help。exit status、public error code、stdout/stderr 或 JSON envelope 变化时必须同步本文与 output/CLI contract tests。
 
 ## Exit status
 

@@ -1,49 +1,37 @@
-# Apple Books CLI 文档索引
+# AppleBooksCLI 文档索引
 
-> 更新时间：2026-09-02。这里记录 AppleBooksCLI 的长期产品 contract、本机只读验证与安全边界；实施来源和迁移证据属于 `.github/features/`，不进入长期 tracked 文档。
+这里维护 AppleBooksCLI 的长期文档拓扑。实施计划、审计与一次性迁移证据属于 `.github/features/`，不进入长期产品文档；具体命令参数以当前 `applebookscli --help` 为准。
 
-## 目标与 contract
+## 文档 owner
 
-AppleBooksCLI 把 Apple Books 作为独立数据源提供稳定 Swift CLI。Notion 等下游只消费稳定输出契约，不直接理解 Apple Books SQLite / EPUB / PDF 内部结构。
+| 文档 | Audience / Job | Edit trigger | 主要 evidence / consumer |
+| --- | --- | --- | --- |
+| [`../README.md`](../README.md) | 用户入口：安装、平台边界、命令组、Skill、license | stable release、安装方式、用户入口或顶层产品定位变化 | release/Homebrew/installed CLI |
+| [`capability-matrix.md`](capability-matrix.md) | 用户与维护者：**当前能力范围与明确不支持项的唯一 owner** | 新增、删除或改变用户可见 capability / safety boundary | `CapabilityParityTests`、`CLICapabilityReachabilityTests`、`capability-anchors.json` |
+| [`architecture.md`](architecture.md) | 维护者：跨模块数据流、identity、source、分层与非目标 | DB/source/identity、Core↔CLI↔worker、config、export ownership 变化 | `Sources/**` + 对应 executable tests |
+| [`cli-contract.md`](cli-contract.md) | CLI/自动化调用方：process exit、stdout/stderr、JSON error contract | exit code、JSON envelope、parse/help/version/completion 行为变化 | `CLIEntrypoint`、`CLIError`、output/contract tests |
+| [`write-safety.md`](write-safety.md) | 维护者与高风险调用方：mutation/backup/restore/lifecycle 的唯一安全顺序 owner | writable scope、schema guard、backup/restore、Books lifecycle、irreversible result 变化 | mutation/restore/lifecycle implementation + tests |
+| [`macos-27-schema-baseline.md`](macos-27-schema-baseline.md) | 维护者：一个**带日期和系统版本作用域**的实机 schema/behavior 观测 | 需要建立新的 macOS baseline 时新增/更新明确的采样记录；不能因产品实现变化自动改写历史观测 | 只读实机 schema sampling；不是产品 contract |
 
-`capability-matrix.md` 是用户可见能力与安全边界的唯一范围真源。当前范围包括：
+## 运行时与发布输入
 
-- books / collections / annotations / reading status / stats。
-- EPUB、ToC、CFI、chapter content 与 annotation context。
-- PDF highlight extraction；首版不复刻 raw-marker prefilter / persistent scan cache 这类 performance heuristic。
-- JSON / Markdown / CSV / self-contained HTML export。
-- annotation / collection 写能力、backup / restore 与 Books.app lifecycle。
-- 宿主特定交互转译成 CLI 等价 flags/profile；不复制 transport 或 UI chrome。
+这些 Markdown 不是普通说明页，修改会进入产品或发布产物：
 
-当前不包含：
+| 文件 | Owner / consumer | Edit trigger |
+| --- | --- | --- |
+| [`../Skill/applebookscli/SKILL.md`](../Skill/applebookscli/SKILL.md) | 随 release/Homebrew 分发并由 Codex 读取的 runtime Skill | CLI workflow、安全边界或 Skill installation behavior 变化；修改后必须跑 canonical Skill validator/packaging smoke |
+| [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | release archive / license provenance | `Package.swift` / `Package.resolved` 的实际 dependency/version/revision/license 变化 |
 
-- 从零创建新的 Apple Books highlight / annotation。
-- 修改 selected-text / CFI range。
-- 任意写 current reading position。
-- Notion projection/import；它是 CLI 的下游消费者。
+## 事实归属规则
 
-真实 Apple Books 数据库写验收必须在 fixture、schema、backup/restore 与 lifecycle gates 全部通过后，再经用户明确批准执行。
+- **能力有没有**：只改 `capability-matrix.md`，不要在 index/architecture 再维护第二份 checklist。
+- **命令怎么拼**：以 `--help` 为准；长期文档只记录跨命令仍需稳定的语义。
+- **mutation / restore 顺序**：只改 `write-safety.md`；architecture 只链接，不复制 ceremony。
+- **稳定 identity / source / export 分层**：由 `architecture.md` 拥有。
+- **当前安装版本与分发入口**：由 README + release/Homebrew 事实拥有；Git tag/release 历史不复制进 docs。
+- **一次机器上的 schema 事实**：放 dated baseline，并明确 evidence scope；不能把 observed shape 自动升级为跨版本保证。
+- **机械验证命令**：由 tests、scripts、workflows 拥有；文档只说明何种变化应触发哪类验证，不复制整套 CI。
 
-## 文档
+## 更新文档时
 
-- `../README.md`：用户入口、命令概览、Skill 与安装/发布状态。
-- `capability-matrix.md`：用户可见能力、安全边界与 parity contract。
-- `cli-contract.md`：process exit、stdout/stderr、JSON error 与 help/version contract。
-- `macos-27-schema-baseline.md`：当前机器 Apple Books 数据库的净化只读实测基线。
-- `write-safety.md`：写入顺序、backup/restore、Books.app lifecycle 与失败语义。
-- `swift-cli-design-input.md`：Swift CLI 的领域模型、selector、query、content、export 与 mutation 设计输入。
-
-## 发布状态
-
-当前稳定版本为 `v0.1.1`：immutable GitHub Release、自有 Homebrew tap、clean install、PDF worker、Skill 安装与安装态真实只读 smoke 均已通过。Homebrew 安装命令见 `../README.md`。`v0.1.0` 继续作为 immutable 历史 release 保留，不移动旧 tag 或替换旧 asset。
-
-## 当前设计结论
-
-1. **Swift 6 + SwiftPM + SDK SQLite3**：读取和 SQLite-level backup/restore 不依赖第二套运行时。
-2. **双数据库独立 read-only**：BKLibrary 与 AEAnnotation 分别发现、分别 override、分别以只读 handle 打开。
-3. **annotation-first**：annotation 生命周期独立于当前 BKLibrary；current metadata 只是 enrichment，historical/unmapped annotation 不能消失。
-4. **raw semantics 优先**：raw type/style/UUID/CFI/reading progress 不被展示 heuristic 覆盖；用户 scope 与 raw/system scope 显式分离。
-5. **EPUB / PDF 分轨**：EPUB content/CFI 与 PDF file annotations 使用不同 adapter；不可读或 DRM 状态结构化降级。
-6. **写入单轨**：read-only preflight → 必要时停止 Books → fresh online backup + integrity → short-lived transaction → invariant check → read-back → 恢复原 Books.app 状态。
-7. **输出分层**：机器 JSON 与 human diagnostics 分离；export renderer 不反向改变 canonical identity。
-8. **隐私默认关闭**：tracked docs、tests、logs 和 release evidence 不记录真实 title、asset ID、UUID、CFI、note/highlight 正文或用户绝对路径。
+先核对当前 source/test/runtime 事实，再修改其 canonical owner。若一个事实需要在多页出现，非 owner 页面只保留一句边界说明和链接。任何页面开始出现 phase、todo、迁移 commit、候选命令树或大段 source struct 镜像，都应先判断这些内容是否已经变成过时实施历史。

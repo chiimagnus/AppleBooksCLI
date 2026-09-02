@@ -20,17 +20,26 @@ brew install chiimagnus/tap/applebookscli
 applebookscli --version
 ```
 
-`v0.1.0` 作为首个已发布版本继续保持 immutable，不移动旧 tag 或替换旧 asset；新安装应使用当前稳定版本。
 
-从源码验证当前实现：
+从源码运行：
 
 ```sh
-swift test --disable-automatic-resolution
 swift build --disable-automatic-resolution -c release --product applebookscli
 BIN_DIR=$(swift build --disable-automatic-resolution -c release --show-bin-path)
 "$BIN_DIR/applebookscli" --version
 "$BIN_DIR/applebookscli" --help
 ```
+
+维护验证由仓库现有 tests、packaging scripts 与 CI workflow 拥有，不在 README 复制一份会漂移的 gate 清单。
+
+## 配置
+
+默认配置文件是 `~/.config/applebookscli/config.json`，不存在时按空配置运行。仓库提供 `Config/applebookscli.example.json` 示例；当前配置只用于：
+
+- `epub_root`：为 current Book 提供 exact-basename packed EPUB supplemental root；
+- `historical_assets`：按 exact asset ID 补充 historical annotation 的 title/author metadata。
+
+也可以用全局 `--config <path>` 指定其它配置文件；`--library-db` / `--annotations-db` 用于显式 DB override、fixture 与诊断。配置不会把 historical metadata 升级成 current Book/content identity。
 
 ## 命令概览
 
@@ -75,19 +84,9 @@ applebookscli skill install --force
 
 ## 写入与备份安全
 
-写命令不会直接从 CLI 层执行随意 SQLite mutation。核心写入路径统一遵守：
+collection / annotation 写命令只经过统一 guarded mutation rail：写前先做 read-only preflight，必要时停止 Books.app，在 quiet state 创建 fresh SQLite safety backup，事务内 revalidate 并校验 invariant，COMMIT 后再用 fresh read-only connection read-back。COMMIT 后的 read-back/relaunch warning 不会被谎报成 rollback；restore 也会先保护当前 live DB，并明确区分 applied 与 verified。
 
-1. read-only schema/entity/selector preflight；
-2. 记录 Books.app 原运行状态，必要时 clean quit 并确认停止；
-3. 对稳定 live database 创建 fresh SQLite online backup，并执行 integrity check；
-4. short-lived writable connection + `BEGIN IMMEDIATE`；
-5. transaction 内 revalidate、mutation 与 invariant check；
-6. COMMIT/ROLLBACK 后关闭 writable handle，再用 fresh read-only handle read-back；
-7. 仅在 Books.app 原本运行时恢复应用。
-
-COMMIT 已成功但应用恢复失败时会返回 committed success + warning，而不会谎报 rollback。AppleBooksCLI 不提供创建新 highlight、修改 selected text/CFI range 或任意写 current reading position 的命令。
-
-完整写入安全 contract 见 `docs/write-safety.md`。
+AppleBooksCLI 不提供创建新 highlight、修改 selected text/CFI range 或任意写 current reading position 的命令。完整 mutation / backup / restore contract 只在 [`docs/write-safety.md`](docs/write-safety.md) 维护。
 
 ## 导出安全
 
@@ -95,7 +94,7 @@ COMMIT 已成功但应用恢复失败时会返回 committed success + warning，
 
 ## 文档
 
-长期产品 contract 从 `docs/index.md` 开始。能力范围以 `docs/capability-matrix.md` 为准；CLI process contract 见 `docs/cli-contract.md`。
+长期产品文档从 `docs/index.md` 开始。能力范围以 `docs/capability-matrix.md` 为准；架构与 identity/source 边界见 `docs/architecture.md`；CLI process contract 见 `docs/cli-contract.md`；mutation/restore safety 见 `docs/write-safety.md`。
 
 ## License
 

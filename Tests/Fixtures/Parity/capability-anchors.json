@@ -1,5 +1,6 @@
 {
   "Books.app lifecycle": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/BooksAppController.swift",
       "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift"
@@ -23,6 +24,7 @@
     ]
   },
   "CFI chapter hint": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Location.swift"
     ],
@@ -37,6 +39,7 @@
     ]
   },
   "CFI char range diagnostics": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Location.swift"
     ],
@@ -51,6 +54,7 @@
     ]
   },
   "CFI raw round-trip": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Location.swift"
     ],
@@ -65,6 +69,7 @@
     ]
   },
   "CSV export": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/CSVExporter.swift"
     ],
@@ -79,6 +84,7 @@
     ]
   },
   "DRM gate": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/EPUBEncryption.swift"
     ],
@@ -93,6 +99,7 @@
     ]
   },
   "EPUB OPF / iTunes metadata enrichment": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/EPUBMetadata.swift"
     ],
@@ -107,6 +114,7 @@
     ]
   },
   "EPUB ToC": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
     ],
@@ -123,6 +131,7 @@
     ]
   },
   "EPUB/PDF source scope": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportService.swift"
@@ -138,6 +147,7 @@
     ]
   },
   "HTML export": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/HTMLExporter.swift"
     ],
@@ -152,6 +162,7 @@
     ]
   },
   "HTML sidebar / responsive / print": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/HTMLExporter.swift"
     ],
@@ -166,6 +177,7 @@
     ]
   },
   "HTML 单书折叠 + 全部折叠": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/HTMLExporter.swift"
     ],
@@ -180,6 +192,7 @@
     ]
   },
   "HTML 搜索": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/HTMLExporter.swift"
     ],
@@ -194,6 +207,7 @@
     ]
   },
   "HTML 状态持久化": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/HTMLExporter.swift"
     ],
@@ -208,6 +222,7 @@
     ]
   },
   "JSON export": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/JSONExporter.swift"
     ],
@@ -222,6 +237,7 @@
     ]
   },
   "Markdown export": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
     ],
@@ -240,6 +256,7 @@
     ]
   },
   "Markdown smart overwrite": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/OverwritePolicy.swift",
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
@@ -254,42 +271,8 @@
       ]
     ]
   },
-  "Obsidian book-selection modal": {
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportService.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--book"
-      ],
-      [
-        "export",
-        "--book-pk"
-      ]
-    ]
-  },
-  "Obsidian settings tab": {
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift",
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--profile"
-      ]
-    ]
-  },
   "PDF color mapping": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFColorMapping.swift"
     ],
@@ -304,6 +287,7 @@
     ]
   },
   "PDF highlight extraction": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift",
       "Sources/AppleBooksCore/PDF/PDFHighlightTextExtractor.swift"
@@ -319,6 +303,7 @@
     ]
   },
   "PDF highlight note": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
     ],
@@ -333,6 +318,7 @@
     ]
   },
   "PDF library metadata": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFSource.swift",
       "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
@@ -348,6 +334,7 @@
     ]
   },
   "PDF metadata fallback": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFSource.swift",
       "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
@@ -363,6 +350,7 @@
     ]
   },
   "PDF page/location": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFHighlight.swift",
       "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
@@ -378,6 +366,7 @@
     ]
   },
   "PDF parse timeout": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFWorkerClient.swift"
     ],
@@ -393,6 +382,7 @@
     ]
   },
   "SQLite DB 自动发现": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
     ],
@@ -406,6 +396,7 @@
     ]
   },
   "add book": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
     ],
@@ -426,6 +417,7 @@
     ]
   },
   "annotation context window": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/AnnotationContext.swift"
     ],
@@ -446,6 +438,7 @@
     ]
   },
   "annotation export ordering": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportRecord.swift"
@@ -461,6 +454,7 @@
     ]
   },
   "annotation identity": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Annotation.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
@@ -477,6 +471,7 @@
     ]
   },
   "annotations by book": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
       "Sources/AppleBooksCore/AppleBooks.swift"
@@ -498,6 +493,7 @@
     ]
   },
   "annotations by date range": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -518,6 +514,7 @@
     ]
   },
   "author pages": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -533,6 +530,7 @@
     ]
   },
   "author sentinel normalization": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Book.swift"
     ],
@@ -547,6 +545,7 @@
     ]
   },
   "backup list/retention": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
     ],
@@ -561,6 +560,7 @@
     ]
   },
   "chapter headings / annotation date / style / progress": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -588,6 +588,7 @@
     ]
   },
   "chapter text": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/BookContent.swift",
       "Sources/AppleBooksCore/Content/XHTMLText.swift"
@@ -603,6 +604,7 @@
     ]
   },
   "chapter text pagination": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/BookContent.swift"
     ],
@@ -623,6 +625,7 @@
     ]
   },
   "citation": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -638,6 +641,7 @@
     ]
   },
   "context 中精确标出 highlight": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/AnnotationContext.swift"
     ],
@@ -652,6 +656,7 @@
     ]
   },
   "cover inline / cover file": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -667,6 +672,7 @@
     ]
   },
   "cover 提取": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/EPUBCover.swift"
     ],
@@ -682,6 +688,7 @@
     ]
   },
   "create collection": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
     ],
@@ -695,7 +702,8 @@
       ]
     ]
   },
-  "current / historical_inferred / historical_unmapped 区分": {
+  "current / historical / unmapped source 区分": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/AnnotationSource.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
@@ -711,6 +719,7 @@
     ]
   },
   "current reading chapter": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Reading/CurrentReadingChapter.swift"
     ],
@@ -725,6 +734,7 @@
     ]
   },
   "current reading position": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
       "Sources/AppleBooksCore/Models/ReadingPosition.swift"
@@ -740,6 +750,7 @@
     ]
   },
   "current-library packed EPUB fallback": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/EPUBSourceResolver.swift"
     ],
@@ -755,6 +766,7 @@
     ]
   },
   "current-position fallback": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
       "Sources/AppleBooksCore/Models/ReadingPosition.swift"
@@ -770,6 +782,7 @@
     ]
   },
   "delete collection": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
     ],
@@ -784,6 +797,7 @@
     ]
   },
   "directory / packed parser 等价": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/DirectoryEPUBResourceReader.swift",
       "Sources/AppleBooksCore/Content/ZIPEPUBResourceReader.swift"
@@ -800,6 +814,7 @@
     ]
   },
   "export output destination": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
     ],
@@ -814,6 +829,7 @@
     ]
   },
   "export single/multiple file": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift"
@@ -829,6 +845,7 @@
     ]
   },
   "export statistics": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportBundle.swift",
       "Sources/AppleBooksCore/Export/ExportService.swift"
@@ -844,6 +861,7 @@
     ]
   },
   "export 类型过滤": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportRecord.swift"
@@ -859,6 +877,7 @@
     ]
   },
   "export 颜色过滤": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportRecord.swift"
@@ -874,6 +893,7 @@
     ]
   },
   "export/filter underline": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportRecord.swift"
@@ -889,6 +909,7 @@
     ]
   },
   "extended frontmatter/body metadata": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -908,6 +929,7 @@
     ]
   },
   "finished books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
@@ -922,6 +944,7 @@
     ]
   },
   "full annotation text search": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -937,6 +960,7 @@
     ]
   },
   "genre 查询": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
@@ -951,6 +975,7 @@
     ]
   },
   "get/describe annotation": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
       "Sources/AppleBooksCore/AppleBooks.swift"
@@ -967,6 +992,7 @@
     ]
   },
   "get/describe book": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/BookQueries.swift",
       "Sources/AppleBooksCore/Models/Book.swift"
@@ -983,6 +1009,7 @@
     ]
   },
   "get/describe collection": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
     ],
@@ -998,6 +1025,7 @@
     ]
   },
   "highlights by color": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift",
       "Sources/AppleBooksCore/Models/AnnotationColor.swift"
@@ -1014,6 +1042,7 @@
     ]
   },
   "historical asset metadata 显式映射": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Configuration/AppleBooksConfiguration.swift"
     ],
@@ -1029,6 +1058,7 @@
     ]
   },
   "in-progress books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
@@ -1043,6 +1073,7 @@
     ]
   },
   "library stats": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift"
     ],
@@ -1056,6 +1087,7 @@
     ]
   },
   "list annotations": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1071,6 +1103,7 @@
     ]
   },
   "list books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
@@ -1085,6 +1118,7 @@
     ]
   },
   "list books with annotations": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
       "Sources/AppleBooksCore/Models/BookOverview.swift"
@@ -1101,6 +1135,7 @@
     ]
   },
   "list collection books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
     ],
@@ -1116,6 +1151,7 @@
     ]
   },
   "list collections": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
     ],
@@ -1130,6 +1166,7 @@
     ]
   },
   "note-bearing historical asset 必须可识别": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
@@ -1145,6 +1182,7 @@
     ]
   },
   "orphan annotations 不因 current BKLibrary 缺 row 而消失": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1160,6 +1198,7 @@
     ]
   },
   "partial export offset": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportRecord.swift"
@@ -1175,6 +1214,7 @@
     ]
   },
   "recent annotations by creation": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1190,6 +1230,7 @@
     ]
   },
   "recent annotations by modification": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1205,6 +1246,7 @@
     ]
   },
   "recently read books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
@@ -1219,6 +1261,7 @@
     ]
   },
   "remove book": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
     ],
@@ -1239,6 +1282,7 @@
     ]
   },
   "rename collection": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
     ],
@@ -1254,6 +1298,7 @@
     ]
   },
   "restore": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift",
       "Sources/AppleBooksCore/AppleBooks.swift"
@@ -1270,6 +1315,7 @@
     ]
   },
   "sanitised errors": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/MutationResult.swift"
     ],
@@ -1285,6 +1331,7 @@
     ]
   },
   "search collections by title": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
     ],
@@ -1299,6 +1346,7 @@
     ]
   },
   "search highlighted text": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1314,6 +1362,7 @@
     ]
   },
   "search note text": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
@@ -1329,6 +1378,7 @@
     ]
   },
   "soft-delete annotation": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift"
     ],
@@ -1343,6 +1393,7 @@
     ]
   },
   "supplemental EPUB root / 外部 EPUB fallback": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Configuration/AppleBooksConfiguration.swift",
       "Sources/AppleBooksCore/Content/EPUBSourceResolver.swift"
@@ -1359,6 +1410,7 @@
     ]
   },
   "tags": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
@@ -1374,6 +1426,7 @@
     ]
   },
   "title search": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
@@ -1388,6 +1441,7 @@
     ]
   },
   "title/author/genre 综合搜索": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
@@ -1402,6 +1456,7 @@
     ]
   },
   "unstarted books": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
@@ -1416,6 +1471,7 @@
     ]
   },
   "丰富书籍 metadata": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Book.swift"
     ],
@@ -1430,6 +1486,7 @@
     ]
   },
   "保留 raw annotation 字段": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Annotation.swift"
     ],
@@ -1444,6 +1501,7 @@
     ]
   },
   "修改已有 annotation note": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift"
     ],
@@ -1459,6 +1517,7 @@
     ]
   },
   "写 schema fail-closed": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/WriteSchemaGuard.swift"
     ],
@@ -1472,6 +1531,7 @@
     ]
   },
   "写事务": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift"
     ],
@@ -1490,6 +1550,7 @@
     ]
   },
   "写前 backup": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift",
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
@@ -1509,6 +1570,7 @@
     ]
   },
   "原始 physical/range/type/style/UUID 字段完整 export": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Annotation.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift"
@@ -1524,6 +1586,7 @@
     ]
   },
   "导出数量与 raw SQLite count 校验": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
@@ -1539,6 +1602,7 @@
     ]
   },
   "本地 materialization 检查": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/BookContentAvailability.swift"
     ],
@@ -1553,6 +1617,7 @@
     ]
   },
   "细粒度 spine entry": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Content/BookContent.swift",
       "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
@@ -1568,6 +1633,7 @@
     ]
   },
   "自定义 annotations/library DB 路径": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
     ],
@@ -1586,6 +1652,7 @@
     ]
   },
   "自选有 AEAnnotation highlights 的书": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
       "Sources/AppleBooksCore/Export/ExportService.swift"
@@ -1605,6 +1672,7 @@
     ]
   },
   "读取 schema capability detection": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Database/AppleBooksSchema.swift"
     ],
@@ -1618,6 +1686,7 @@
     ]
   },
   "输入边界校验": {
+    "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift",
       "Sources/AppleBooksCore/Mutations/CollectionWriter.swift"
@@ -1639,6 +1708,7 @@
     ]
   },
   "Full Disk Access / DB 可访问性诊断": {
+    "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/Commands/DoctorCommand.swift"
     ],
@@ -1652,6 +1722,7 @@
     ]
   },
   "help / version": {
+    "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/AppleBooksCLI.swift",
       "Sources/AppleBooksCLI/Version.swift"
@@ -1666,6 +1737,7 @@
     ]
   },
   "人类输出与机器输出分离": {
+    "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/CLIEntrypoint.swift",
       "Sources/AppleBooksCLI/Output.swift"
@@ -1682,6 +1754,7 @@
     ]
   },
   "list all / group by book": {
+    "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
     ],

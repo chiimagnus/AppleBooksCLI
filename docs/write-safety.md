@@ -1,291 +1,225 @@
-# Apple Books 写安全约束
+# Apple Books 写入与恢复安全约束
 
-> 本文是写路径的安全 contract，不代表当前已经允许对真实 Apple Books 数据库执行写操作。当前阶段没有对真实库做任何 mutation。
+> 本文是 AppleBooksCLI mutation / backup / restore 的唯一长期安全 owner。它描述当前已实现的安全 rail，而不是实施计划。用户可见能力范围见 [`capability-matrix.md`](capability-matrix.md)，跨模块架构边界见 [`architecture.md`](architecture.md)。
+
+## 文档职责
+
+- **Audience**：修改 collection / annotation write、backup/restore、Books.app lifecycle 或 CLI write result 的维护者。
+- **Job**：固定不可丢失的前置检查、quiet-state backup、事务、不变量、read-back 与不可逆边界。
+- **Edit trigger**：mutation/restore 顺序、backup primitive、schema guard、Books.app lifecycle、public write result/warning 或 writable scope 变化。
+- **Evidence**：`MutationCoordinator`、`SQLiteBackup`、`CollectionWriter`、`AnnotationWriter`、`BooksAppController` 及其 mutation/restore/lifecycle tests。
 
 ## 总原则
 
-Apple Books SQLite 是 Apple / Core Data 拥有的数据文件，不是普通业务数据库。一个 SQL 能执行成功，不代表 Books.app、Core Data optimistic locking 或 iCloud sync 会接受这次修改。
+Apple Books SQLite 是 Apple / Core Data 拥有的数据文件。SQL 能执行不等于 Core Data cache、optimistic locking 或跨设备状态一定接受这次修改。因此 AppleBooksCLI 的写能力只能经过 guarded mutation rail，不能从 CLI 或新 helper 旁路直接写 live database。
 
-因此：
+读取和写入必须分轨：
 
-```text
-看懂 schema
-!=
-可以安全写
-```
+- 普通读取使用 strict read-only SQLite connection，不触发 Books.app lifecycle。
+- 写入使用短生命周期 writable connection；schema 不确定时 fail closed。
+- 每次 mutation 在进入 writable rail 前都要有 quiet-state safety backup。
+- transaction 前的 selector/schema preflight 不能代替 transaction 内 revalidation。
+- 已经跨过不可逆边界的结果不能伪装成“未发生”，也不能诱导调用方盲目重试。
 
-任何真实写能力都必须先通过 fixture / 副本验证，再单独做真实库验收。
+## Mutation ceremony
 
-## 读取与写入必须完全分轨
-
-读取：
-
-- SQLite 强制 read-only。
-- optional column 缺失时可以 capability degradation。
-- 不触发 Books.app 生命周期管理。
-- 不触发 iCloud book hydration，仅为了“检查是否可读”时尤其如此。
-
-写入：
-
-- 使用独立、短生命周期 writable connection。
-- schema 不确定时 fail closed。
-- 写前必须有可恢复 backup。
-- transaction 之外不能留下 Core Data bookkeeping 半状态。
-- Books.app 内存 cache 必须纳入协议。
-
-不要让一个 `Database` helper 隐式地从 read-only 升级成 writable。
-
-## 已确认 mutation ceremony
-
-AppleBooksCLI 写一次 mutation 的顺序固定为：
+collection 与 annotation mutation 统一经过 `MutationCoordinator.perform`：
 
 ```text
-1. 定位目标 DB
-2. 只读读取并验证实时 schema / Core Data entity
-3. 只读解析目标 selector / mutation 前置条件
-4. 记录 Books.app 是否原先运行（wasRunning）
-5. 若 wasRunning=true，clean quit Books.app，并确认进程退出
-6. 在 quiet state 创建 SQLite online backup
-7. 验证 backup integrity
-8. 打开短生命周期 writable connection
+1. 以 read-only connection 打开目标 DB
+2. read-only schema / selector / target preflight
+3. 关闭 preflight connection
+4. 记录 Books.app 原运行状态 wasRunning
+5. 若 wasRunning=true：clean quit，并等待进程退出
+6. quiet state 创建 fresh SQLite online backup，并校验 backup
+7. 打开短生命周期 read-write SQLite connection
+8. 配置 bounded busy timeout
 9. BEGIN IMMEDIATE
-10. 在 transaction 内重新校验目标 row / 前置条件
+10. transaction 内重新校验 schema / target / 前置条件
 11. 执行一个 domain mutation
-12. 校验受影响行 / Core Data invariant
-13. COMMIT；异常则 ROLLBACK
+12. 校验 domain / Core Data invariant
+13. COMMIT；此前任一步失败则 ROLLBACK
 14. 关闭 writable connection
-15. 用新的 read-only connection 做 mutation read-back verification
-16. 若 wasRunning=true，重新打开 Books.app
+15. 用 fresh read-only connection 做 read-back verification
+16. 若 wasRunning=true：恢复 Books.app
 ```
 
-关键约束：**schema / selector 等不会改变 Apple Books 状态的前置检查都应在关闭 Books.app 之前完成**。online backup 则故意放在确认 Books 已停止之后，确保包含 app 退出时最后落盘的数据；若 quiet-state backup 失败，必须在返回主失败前尽力恢复原先运行状态。
+关键约束：
 
-Books.app 关闭前做的 target preflight 不是最终并发保证；因为 app 在这期间仍可能改变 row，所以 writable transaction 内必须再次验证目标状态。
+- 不改变数据的 preflight 应在关闭 Books.app **之前**完成；无效 selector/schema 不应打扰用户应用状态。
+- backup 必须在 Books.app 已停止后的 quiet state 创建，才能包含 app 退出时最后落盘的数据。
+- Books 在 preflight 与 writable transaction 之间仍可能改变数据，所以 transaction 内必须 revalidate。
+- 每个 domain writer 只负责自己的 mutation 与 invariant；事务、backup、lifecycle 由 coordinator 统一拥有。
 
-任一 COMMIT 前 mutation/transaction 步骤失败：ROLLBACK；若已有 backup，返回受控 backup handle，不暴露绝对路径。若失败发生在 Books 已被 CLI 成功关闭之后，应在 writable handle 已关闭后尽力恢复原先运行状态；恢复失败只能作为 secondary warning，不能覆盖 primary failure。
+## Mutation 不可逆边界与结果
 
-**COMMIT 成功就是不可逆的 public boundary。** 之后 writable close、read-back verification 或 Books.app relaunch 失败，都必须返回 committed success + warning；不能伪装成 rollback，也不能诱导用户安全地重试同一次 mutation。
+`COMMIT` 成功就是 mutation 的 public irreversible boundary。
 
-## Backup：采用 SQLite online backup，不复制 live `.sqlite`
+COMMIT 前失败：
 
-WAL 模式下裸文件复制可能漏掉未 checkpoint 数据；restore 时仍存活的 helper/read connection 也可能把旧 WAL 页重新覆盖回来。
+- transaction 已打开则 rollback；
+- writable handle 必须关闭；
+- 若 CLI 曾关闭 Books.app，要尽力恢复原运行状态；
+- 若 safety backup 已创建，failure 可以携带该受控 handle；
+- relaunch recovery 失败只能作为 secondary warning，不能覆盖 primary failure。
 
-AppleBooksCLI 已实测 Swift 6.4 可直接使用 SDK `SQLite3`。Swift 实现 contract 是：
+COMMIT 后：
 
-- source 以 read-only SQLite connection 打开。
-- 使用 SQLite3 C API 的 online backup primitive（`sqlite3_backup_*`）；具体 WAL/open-reader 行为必须在后续 fixture gate 实测后才能宣称完成。
-- 先写临时 `.part`/临时路径；成功后再作为有效 backup 暴露。
-- backup 本身运行 `PRAGMA integrity_check`。
-- 做 retention，但 batch mutation 期间要保住 batch 开始前的 restore point。
+- writable close、fresh read-back 或 Books.app relaunch 失败都不能把结果改写成“未提交”；
+- structured result 保持 `committed=true`、`changed`、backup handle 与可用 stable/local identity；
+- post-commit warning 当前包括 `writable_close_failed`、`read_back_failed`、`relaunch_failed`。
 
-禁止用 `wal_checkpoint(TRUNCATE) +` 文件复制替代 SQLite online backup；backup 必须由 SQLite3 的一致性机制拥有。
+调用方看到 committed success + warning 时，应报告 warning 并根据需要重新读取状态；**不能自动重试同一个 mutation**。
+
+## Backup
+
+live SQLite 不使用裸 `.sqlite` 文件复制作为 safety backup。WAL 模式下裸复制可能漏掉未 checkpoint 数据，也可能在 restore 时被旧 reader/WAL 状态重新污染。
+
+当前 backup contract：
+
+- source 由 read-only SQLite connection 驱动；
+- 使用 SQLite `sqlite3_backup_*` online backup primitive；
+- 完成后的 backup 必须通过 integrity verification 后才可作为有效 restore source；
+- backup store 只接受自己的 regular-file handle，不把绝对路径当 public selector；
+- retention 不能在当前 restore apply 完成前淘汰被选中的 restore point；
+- annotation mutation 也创建内部 safety backup，但 public `backups list/restore` 当前只覆盖 BKLibrary。
 
 ## Restore
 
-Restore 比普通 write 更危险。
+Restore 比普通 mutation 风险更高。public `backups restore <handle>` 只接受 `backups list` 返回的受控 BKLibrary handle，并通过 SQLite backup API 反向写回 live destination，不做文件系统覆盖。
 
-Restore 把已验证 backup 作为 SQLite source，通过 SQLite backup API 反向写回 live destination，而不是文件系统覆盖。
-
-顺序：
+当前顺序：
 
 ```text
-1. 校验 opaque restore handle 只能解析到自己的 Library backup store
-2. restore source 必须是自有 regular file，integrity_check = ok
-3. 以 strict read-only SQLite connection 打开并持有 restore source
-4. 记录 Books.app 是否原先运行（wasRunning）
-5. 若 wasRunning=true，clean quit Books.app，并确认进程退出
-6. quiet state 下对当前 live DB 创建 fresh SQLite online safety backup
-7. safety backup integrity_check = ok
-8. 用步骤 3 已打开的 source connection 执行 SQLite-level reverse restore
-9. sqlite3_backup_finish 成功后进入 restoreApplied=true 边界
-10. 关闭 restore source，执行 WAL checkpoint + live integrity/read-back
-11. verification 成功后恢复正常 retention
-12. 若 wasRunning=true，恢复 Books.app
+1. 校验 handle，并以 strict read-only connection 打开 restore source
+2. 记录 Books.app 原运行状态 wasRunning
+3. 若 wasRunning=true：clean quit，并等待进程退出
+4. quiet state 对当前 live DB 创建 fresh safety backup，同时保护选中的 restore handle
+5. 用已打开的 restore source 执行 SQLite-level apply
+6. 关闭 restore source
+7. checkpoint restored destination，并做 integrity verification
+8. verification 成功后恢复正常 retention
+9. 若 wasRunning=true：恢复 Books.app
+10. 返回 restored-from handle、fresh safety handle、verified 与 warning codes
 ```
 
-restore source 必须在 safety backup rotation **之前**打开，而且 safety-backup retention 在 restore apply 前必须临时保护所选 handle。不能假设“文件被 unlink 后，已经打开的 SQLite connection 一定还能可靠完成 backup”；macOS/SQLite synthetic regression 已证明该假设不成立。restore apply 成功并关闭 source 后才恢复正常 retention；restore 或 verification 失败时优先保留所选 restore point 与 fresh safety backup，而不是为了数量上限删除恢复证据。
+先打开 restore source、再做 safety-backup retention 是正确性的一部分；不能假设“路径仍在”与“已打开 source 能可靠完成 restore”可以互相替代。
 
-**`sqlite3_backup_finish` 成功就是 restore 的不可逆 public boundary。** 在此之前失败返回 `restoreApplied=false`；若已经 apply，后续 WAL checkpoint / live integrity-read-back 失败必须返回 `restoreApplied=true, verified=false` 与 `verification_failed` warning，不得伪装成“没有恢复”或诱导用户重试。已 apply 后 retention cleanup 失败是 `retention_failed` warning；relaunch 失败是 `relaunch_failed` warning。`wasRunning=false` 的成功 restore 不得为了 parity 无条件启动 Books。
+`SQLiteBackup.applyRestore` 成功后，restore 已经跨过不可逆边界。Core 以 `restoreApplied=true` 表达这一点；CLI 映射为 `changed=true`，并用 `status=restored_verified` / `restored_unverified` 与 `verified` 区分验证结果。之后：
 
-需要额外 fixture 测试：restore 时存在只读连接 / WAL reader，恢复后的旧状态不能被重新 replay；selected backup 即使会被 retention 淘汰，也必须在当前 restore apply 完成前受到保护。
+- checkpoint/integrity 失败 → `restoreApplied=true`、`verified=false`、`verification_failed`；
+- retention 失败 → `retention_failed` warning；
+- relaunch 失败 → `relaunch_failed` warning。
 
-## Books.app 生命周期
+这些都不能被包装成“restore 没发生”。调用方看到 applied-but-unverified 结果时，应保留 restored-from handle 与 fresh safety handle并先检查状态，**不能自动重复 restore**。
 
-Books.app 本身运行时直接写不安全。
+## Books.app lifecycle
 
-原因：
-
-- Books.app 会 cache Core Data rows。
-- optimistic locking 依赖 `Z_OPT`。
-- app 内存状态可能覆盖外部 SQLite 修改。
-
-AppleBooksCLI 采用自动 clean quit / 条件恢复，同时精确保存原始运行状态：
+Books.app 的运行状态是写协议的一部分：
 
 ```text
 wasRunning = false
-  → 不需要为了写入而启动 Books；写完仍保持关闭
+→ mutation/restore 不主动启动 Books
 
 wasRunning = true
-  → 前置检查通过后 clean quit
-  → mutation 完成后恢复 launch
+→ preflight 通过后 clean quit
+→ quiet-state backup + write/restore
+→ 完成或可恢复失败后尽力恢复 launch
 ```
 
-底层 invariant：**不能在 Books.app 活跃状态下静默直接写。**
+底层 invariant 是：不能在 Books.app 活跃状态下静默直接写 live store。`BKAgentService`、`bookassetd` 等常驻 helper daemon 不等同于 Books.app running gate；SQLite busy/locking 由数据库 rail 处理。
 
-COMMIT 成功后，read-back 或 relaunch 失败时 mutation 仍然是成功；structured result 保留 `committed=true`、受控 backup handle、最小 local/stable identity、`changed` 与 warning code。不能把 post-commit failure 谎报成写入失败或已回滚。
+## Schema guard
 
-不要把 `BKAgentService` / `bookassetd` 等 helper daemon 当成永久禁止写的条件；它们常驻。SQLite lock / busy timeout 与 online backup 用来处理数据库层并发。
+读取允许 optional capability degradation，写入不允许猜 schema。
 
-## Schema guard：写路径必须 fail closed
+写前必须验证：
 
-读取 optional metadata 可以这样：
+- target table 存在；
+- mutation 所需列全部存在；
+- 没有 writer 不知道如何填充的新 required/NOT NULL 列；
+- `Z_PRIMARYKEY` 中目标 Core Data entity 存在且唯一；
+- entity name → `Z_ENT` 与实际 row/table 一致；
+- target row 当前状态满足 mutation 前置条件。
 
-```text
-字段不存在 → 不返回这项能力
-```
-
-写入不能这样。
-
-写前至少验证：
-
-- target table 存在。
-- mutation 所需列全部存在。
-- 没有 writer 不知道如何填充的新 NOT NULL 列。
-- `Z_PRIMARYKEY` 中目标 Core Data entity 名存在。
-- entity name → `Z_ENT` 与实际目标 row / table 一致。
-- 目标 row 当前状态符合 mutation 前置条件。
-
-因此 collection 不应只写死：
-
-```text
-Collection = 2
-CollectionMember = 3
-```
-
-虽然 macOS 27 当前实机就是 2/3，但 writer 应解析：
-
-```text
-BKCollection       → 当前 Z_ENT
-BKCollectionMember → 当前 Z_ENT
-AEAnnotation       → 当前 Z_ENT
-```
-
-并在异常时拒绝写。
+`BKCollection`、`BKCollectionMember`、`AEAnnotation` 的 entity ID 必须从当前 store 解析，不能把一次机器上观察到的数字写死成永久 contract。
 
 ## Core Data bookkeeping
 
-### Insert
+Insert 至少维护：
 
-Core Data insert 至少要维护：
+- `Z_PRIMARYKEY.Z_MAX` 与新 `Z_PK`；
+- 当前解析出的 `Z_ENT`；
+- `Z_OPT = 1`；
+- 对应 entity 使用的 modification/local timestamp。
 
-- `Z_PRIMARYKEY.Z_MAX`
-- `Z_PK`
-- `Z_ENT`
-- `Z_OPT = 1`
-- 对应 local / modification timestamp
+PK allocation 与 insert 必须处于同一 transaction。
 
-分配 PK 必须和 domain insert 在同一 transaction。
+Update 需要按 entity 自己的规则 bump `Z_OPT` 并更新其时间字段；annotation note 使用 `ZANNOTATIONNOTE`、`ZANNOTATIONMODIFICATIONDATE`、`Z_OPT`，不能套用 collection timestamp 规则。
 
-### Update
+Delete 当前都是 soft-delete 语义：
 
-常规 row update 需要 bump：
+- annotation：`ZANNOTATIONDELETED = 1`；
+- collection：`ZDELETEDFLAG = 1`，并按 collection contract 清理 membership。
 
-```text
-Z_OPT = Z_OPT + 1
-```
+CLI 不提供对 annotation row 的 hard delete。
 
-并刷新该 entity 实际使用的 modification timestamp。
+## 当前 writable surface
 
-Annotation note mutation 使用：
+当前 release 的 guarded write surface：
 
-```text
-ZANNOTATIONNOTE
-ZANNOTATIONMODIFICATIONDATE
-Z_OPT
-```
+- collection create / rename / soft-delete；
+- collection add-book / remove-book，重复 add / missing remove 保持 idempotent `changed=false`；
+- existing annotation update-note；
+- existing annotation soft-delete；
+- BKLibrary backup list / restore。
 
-不要误用 collection 的 `ZLOCALMODDATE` 规则套 annotation。
+当前不提供：
 
-### Delete
+- 从零创建 Apple Books highlight / annotation；
+- 修改 selected text / CFI range；
+- 写 current reading position；
+- public annotation-backup catalog/restore surface。
 
-Apple Books 多处采用 sync tombstone / soft-delete 语义。
+## Identity 与输入边界
 
-当前 schema 与 fixture contract 要求：
-
-- annotation：`ZANNOTATIONDELETED = 1`。
-- collection：`ZDELETEDFLAG = 1`，membership rows 另有删除语义。
-
-禁止把 CLI `delete annotation` 实现成 `DELETE FROM ZAEANNOTATION`。
-
-## Identity
-
-优先身份：
+优先 stable identity：
 
 ```text
 annotation → ZANNOTATIONUUID
 book       → ZASSETID
+collection → collection ID
 ```
 
-`Z_PK` 是当前本机数据库内部主键，只作为：
+numeric `Z_PK` 只属于当前本机 DB，可用于显式 local selector / 内部 foreign key，不得伪装成跨设备稳定身份。
 
-- 查询/诊断显示。
-- 必要的内部 foreign key。
-- 明确兼容场景 fallback。
+CLI 边界继续负责 selector/search/name/note 等输入校验；SQL value 使用参数绑定，table/column identifier 只能来自受控内部枚举。annotation note 当前要求非空且最多 10,000 个 Swift `Character`。
 
-用户级 CLI 不应把 numeric PK 伪装成跨设备稳定身份。
+## 隐私与错误输出
 
-## Parity writer 范围
+默认错误/diagnostic 不应 dump 用户书名、annotation 正文、完整 SQLite row 或绝对 backup path。结果需要让调用方知道：
 
-这些不是“以后可选的第一批写功能”，而是当前 write parity contract 必须覆盖的 writer 能力：
+- mutation 是否 `committed`；
+- restore 是否 `changed`、当前 `status` 与 `verified`；
+- 是否有受控 backup/safety handle；
+- 是否有 post-boundary warning。
 
-- collection create / rename / delete。
-- collection add-book / remove-book。
-- existing annotation update-note。
-- existing annotation soft-delete。
+机器/人类输出协议见 [`cli-contract.md`](cli-contract.md)。
 
-没有成熟证据：
+## iCloud caveat
 
-- 从零创建新的 highlight / annotation。
-- 修改 selected-text / CFI range。
-- 任意改变 reading position。
+当前 collection write contract 不承诺 mutation 会如何、何时同步到其它 Apple 设备。未完成独立多设备 iCloud 验收前，文档和成功结果都不得把本地 committed/read-back 等同于 cross-device sync。
 
-后者属于 parity 后的单独逆向研究；在 parity gate 完成前不实现。
+## 维护验证
 
-## 测试阶梯
+修改写 rail 时至少要覆盖：
 
-任何写能力必须依次经过：
+- happy-path mutation + fresh read-back；
+- preflight / quit / backup / begin / revalidate / mutation / invariant / commit failure；
+- COMMIT 后 close/read-back/relaunch warning；
+- schema drift fail closed；
+- online backup / WAL / open-reader；
+- restore source rejection、fresh safety backup、apply、post-apply verification/retention/relaunch；
+- Books.app originally-running 与 originally-closed 两种 lifecycle。
 
-```text
-1. 纯 mapper / schema tests
-2. synthetic SQLite fixture
-3. 由当前 macOS 27 schema 生成的 fixture
-4. transaction failure / rollback
-5. schema drift fail-closed
-6. backup / restore + open reader / WAL tests
-7. Books.app lifecycle fake / integration seam
-8. 仅在明确允许后，真实库最小 mutation + Apple Books UI/read-back 验收
-```
-
-真实库测试之前不得跳级。
-
-## 输入边界与 iCloud caveat
-
-安全 rail 不只包括 transaction。CLI 边界必须验证 selector/search/name/note 等输入；annotation note 当前限制为非空且最多 10,000 字符。写命令至少必须：
-
-- selector 格式/长度可控。
-- collection title/details、note 等文本在进 DB 之前验证。
-- SQL value 始终参数化；table/column identifier 只能来自受控内部枚举。
-- 拒绝明显异常的大输入，而不是把 Core Data 当通用 blob store。
-
-当前尚未完成真实多设备 iCloud collection 验收，所以 CLI 文档/成功结果不得承诺跨设备同步。
-
-## 错误输出
-
-错误需要同时满足：
-
-- 用户知道 mutation 是否发生。
-- 用户知道 backup 在哪里。
-- COMMIT 后失败不能误导成“没写入”。
-- 系统异常不要把完整用户书名 / note / SQL row dump 泄进默认日志。
-
-调试模式可以提供结构化诊断，但仍不要无必要地打印完整批注正文。
+具体命令由 tests/CI 拥有，本文不复制会漂移的执行清单。

@@ -12,7 +12,7 @@ AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它�
 
 ## 安装
 
-稳定版本通过 npm 分发；npm package 只允许 `darwin/arm64`，并包含 CLI、PDF worker、`applebookscli` Skill 与许可证文件。GitHub Release 使用 immutable release 保护，并镜像同一 npm `.tgz` 与 SHA-256 checksum。
+稳定版本通过 npm 分发；npm package 只允许 `darwin/arm64`，并包含 CLI、PDF worker、`applebookscli` Skill 与许可证文件。GitHub Release 使用 immutable release 保护，并镜像同一 npm `.tgz` 与 SHA-256 checksum。GitHub Release 与 npm registry 均由维护者手动发布；GitHub Actions 只负责验证，不执行发布副作用。
 
 ```sh
 npm install --global applebookscli

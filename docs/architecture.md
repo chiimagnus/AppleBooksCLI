@@ -177,4 +177,4 @@ machine/human process contract 由 [`cli-contract.md`](cli-contract.md) 拥有�
 
 ## 维护验证
 
-修改本页涉及的架构边界时，至少应让现有对应 tests 与 capability gates证明行为仍成立；release packaging、privacy、npm install 等分发 gate 由 workflow/scripts 自己拥有，本文不复制命令清单。用户可见范围变化必须同步 [`capability-matrix.md`](capability-matrix.md)；mutation/restore 语义变化必须同步 [`write-safety.md`](write-safety.md)。
+修改本页涉及的架构边界时，至少应让现有对应 tests 与 capability gates证明行为仍成立；release packaging、privacy、npm install 等分发验证由 CI/scripts 拥有，实际 GitHub Release 与 npm publish 由维护者手动执行。本文不复制命令清单。用户可见范围变化必须同步 [`capability-matrix.md`](capability-matrix.md)；mutation/restore 语义变化必须同步 [`write-safety.md`](write-safety.md)。

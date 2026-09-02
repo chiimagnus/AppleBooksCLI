@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  arm64-full:
+    name: arm64 full gate
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Record toolchain
+        run: |
+          test "$(uname -m)" = "arm64"
+          uname -m
+          sw_vers
+          xcodebuild -version
+          swift --version
+          brew --version
+          gh --version
+
+      - name: Run Swift tests
+        run: swift test --disable-automatic-resolution
+
+      - name: Run capability gates
+        run: |
+          swift test --disable-automatic-resolution --filter CapabilityParityTests
+          swift test --disable-automatic-resolution --filter CLICapabilityReachabilityTests
+
+      - name: Validate packaged Skill
+        run: Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
+
+      - name: Scan public source history
+        run: |
+          swift scripts/check-private-data.swift --self-test
+          swift scripts/check-private-data.swift --static
+
+      - name: Verify dependency provenance and licenses
+        run: |
+          test "$(git -C .build/checkouts/swift-argument-parser rev-parse HEAD)" = "6a52f3251125d74daf04fcbd5e6f08a75d074382"
+          test "$(git -C .build/checkouts/SwiftSoup rev-parse HEAD)" = "18b80329749eca5ea29fc50211dca5c7eff5bfec"
+          test "$(git -C .build/checkouts/ZIPFoundation rev-parse HEAD)" = "22787ffb59de99e5dc1fbfe80b19c97a904ad48d"
+          cmp .build/checkouts/swift-argument-parser/LICENSE.txt ThirdPartyLicenses/swift-argument-parser-Apache-2.0.txt
+          cmp .build/checkouts/SwiftSoup/LICENSE ThirdPartyLicenses/SwiftSoup-MIT.txt
+          cmp .build/checkouts/ZIPFoundation/LICENSE ThirdPartyLicenses/ZIPFoundation-MIT.txt
+          test -s LICENSE
+          test -s THIRD_PARTY_NOTICES.md
+
+      - name: Build and verify universal release
+        run: scripts/build-release.sh
+
+      - name: Verify Homebrew formula offline
+        run: Tests/PackagingTests/homebrew-smoke.sh
+
+      - name: Verify locked source state
+        run: |
+          git diff --exit-code -- Package.resolved
+          git diff --check
+
+  intel-runtime:
+    name: Intel runtime gate
+    runs-on: macos-26-intel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Record toolchain
+        run: |
+          test "$(uname -m)" = "x86_64"
+          uname -m
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Run Swift tests natively
+        run: swift test --disable-automatic-resolution
+
+      - name: Build native CLI and PDF worker
+        run: |
+          swift build --disable-automatic-resolution --arch x86_64 -c debug --product applebookscli
+          swift build --disable-automatic-resolution --arch x86_64 -c debug --product applebookscli-pdf-worker
+          BIN_DIR=$(swift build --disable-automatic-resolution --arch x86_64 -c debug --show-bin-path)
+          test "$(xcrun lipo -archs "$BIN_DIR/applebookscli")" = "x86_64"
+          test "$(xcrun lipo -archs "$BIN_DIR/applebookscli-pdf-worker")" = "x86_64"
+
+      - name: Run native CLI worker and PDF smoke
+        run: |
+          BIN_DIR=$(swift build --disable-automatic-resolution --arch x86_64 -c debug --show-bin-path)
+          SMOKE_ROOT="$RUNNER_TEMP/applebookscli-intel-smoke"
+          INSTALL_ROOT="$SMOKE_ROOT/install"
+          HOME_ROOT="$SMOKE_ROOT/home"
+          test ! -e "$SMOKE_ROOT"
+          mkdir -p "$INSTALL_ROOT/bin" "$INSTALL_ROOT/libexec/applebookscli" "$HOME_ROOT"
+          cp "$BIN_DIR/applebookscli" "$INSTALL_ROOT/bin/applebookscli"
+          cp "$BIN_DIR/applebookscli-pdf-worker" "$INSTALL_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+          chmod +x "$INSTALL_ROOT/bin/applebookscli" "$INSTALL_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+
+          "$INSTALL_ROOT/bin/applebookscli" --version
+          "$INSTALL_ROOT/bin/applebookscli" --help >/dev/null
+
+          printf '{}' | "$INSTALL_ROOT/libexec/applebookscli/applebookscli-pdf-worker" \
+            > "$SMOKE_ROOT/worker.stdout.json" \
+            2> "$SMOKE_ROOT/worker.stderr.txt"
+          grep -F '"errorCode":"malformedRequest"' "$SMOKE_ROOT/worker.stdout.json" >/dev/null
+          test "$(cat "$SMOKE_ROOT/worker.stderr.txt")" = "malformedRequest"
+
+          command -v sqlite3 >/dev/null
+          sqlite3 "$SMOKE_ROOT/library.sqlite" 'CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZCONTENTTYPE INTEGER);'
+          sqlite3 "$SMOKE_ROOT/annotations.sqlite" 'CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);'
+          HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" \
+            "$INSTALL_ROOT/bin/applebookscli" pdf highlights \
+              --path "$GITHUB_WORKSPACE/Tests/Fixtures/PDF/corrupt.pdf" \
+              --library-db "$SMOKE_ROOT/library.sqlite" \
+              --annotations-db "$SMOKE_ROOT/annotations.sqlite" \
+              --json \
+            > "$SMOKE_ROOT/pdf.stdout.json" \
+            2> "$SMOKE_ROOT/pdf.stderr.txt"
+          test ! -s "$SMOKE_ROOT/pdf.stderr.txt"
+          grep -F '"attemptedCount":1' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null
+          grep -F '"failedCount":1' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null
+          grep -F '"reason":"unreadableDocument"' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null
+          grep -F '"provenance":"explicit"' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null
+
+      - name: Verify locked source state
+        run: |
+          git diff --exit-code -- Package.resolved
+          git diff --check

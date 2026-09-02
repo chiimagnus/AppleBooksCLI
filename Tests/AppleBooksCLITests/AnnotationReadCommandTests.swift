@@ -30,6 +30,7 @@ struct AnnotationReadCommandTests {
             ["annotations", "list", "--book", "123"]
         )
         #expect(byAsset.items.map(\.localPK) == [2, 1])
+        #expect(byAsset.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
 
         let byPK = try fixture.runJSON(
             AnnotationCollectionResult.self,
@@ -119,6 +120,7 @@ struct AnnotationReadCommandTests {
         #expect(byUUID.rangeStart == 11)
         #expect(byUUID.rangeEnd == 12)
         #expect(byUUID.rawCFI == "epubcfi(/6/2[ch-one]!/4/2,:0,:0)")
+        #expect(byUUID.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
         #expect(byUUID.source.kind == "currentLibrary")
         #expect(byUUID.source.bookLocalPK == 1)
 
@@ -126,6 +128,7 @@ struct AnnotationReadCommandTests {
         #expect(byPK.localPK == 123)
         #expect(byPK.uuid == "other")
         #expect(byPK.rawAssetID == "asset-pk-123")
+        #expect(byPK.appleBooksURL == "ibooks://assetid/asset-pk-123")
 
         let hidden = Capture()
         let hiddenCode = CLIEntrypoint.run(
@@ -149,6 +152,23 @@ struct AnnotationReadCommandTests {
         )
         #expect(deletedCode == CLIProcessExit.notFound.rawValue)
         #expect(deleted.stdout.contains("deleted-private") == false)
+
+        let human = Capture()
+        let humanCode = CLIEntrypoint.run(
+            arguments: ["annotations", "get", "123"] + fixture.globalArguments,
+            output: human.output
+        )
+        #expect(humanCode == CLIProcessExit.success.rawValue)
+        #expect(human.stderr.isEmpty)
+        #expect(human.stdout.contains("Apple Books URL: ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)"))
+    }
+
+    @Test
+    func appleBooksURLRequiresAssetIDAndFallsBackToBookLevelWithoutCFI() {
+        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: nil, rawCFI: "epubcfi(/6/2)") == nil)
+        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "   ", rawCFI: "epubcfi(/6/2)") == nil)
+        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "book", rawCFI: nil) == "ibooks://assetid/book")
+        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "book", rawCFI: "  ") == "ibooks://assetid/book")
     }
 
     @Test
@@ -161,6 +181,7 @@ struct AnnotationReadCommandTests {
             ["annotations", "search", "%_\\", "--field", "highlight"]
         )
         #expect(literal.items.map(\.localPK) == [1])
+        #expect(literal.items.first?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
 
         let greenPage = try fixture.runJSON(
             AnnotationCollectionResult.self,
@@ -199,6 +220,7 @@ struct AnnotationReadCommandTests {
         )
         #expect(created.items.map(\.localPK) == [123, 7, 5, 6, 1, 2])
         #expect(created.items.contains(where: { $0.localPK == 3 }) == false)
+        #expect(created.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
 
         let modified = try fixture.runJSON(
             AnnotationCollectionResult.self,
@@ -223,6 +245,7 @@ struct AnnotationReadCommandTests {
         )
         #expect(Set(result.items.map(\.localPK)) == [1, 5, 6])
         #expect(result.items.contains(where: { $0.localPK == 7 }) == false)
+        #expect(result.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
         #expect(result.items.contains(where: { $0.localPK == 3 }) == false)
     }
 

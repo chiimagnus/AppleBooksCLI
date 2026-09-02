@@ -76,6 +76,28 @@ struct SkillInstallerPathTests {
     }
 
     @Test
+    func missingCodexHomeUnderPrivateTmpAliasInstallsWithStableCanonicalPaths() throws {
+        let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            .appendingPathComponent("applebookscli-skill-private-tmp-\(UUID().uuidString)", isDirectory: true)
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("---\nname: applebookscli\ndescription: fixture\n---\nbody\n".utf8)
+            .write(to: source.appendingPathComponent("SKILL.md"))
+
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let installer = SkillInstaller(
+            sourceURL: source,
+            environment: ["CODEX_HOME": codexHome.path],
+            homeDirectory: root
+        )
+
+        let result = try installer.install()
+        #expect(result.target.resolvingSymlinksInPath().path == result.target.path)
+        #expect(FileManager.default.fileExists(atPath: result.target.appendingPathComponent("SKILL.md").path))
+    }
+
+    @Test
     func rejectsSymlinkedPackagedSourceAndSkillFile() throws {
         let fixture = try PathFixture()
         defer { fixture.remove() }

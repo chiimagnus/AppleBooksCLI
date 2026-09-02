@@ -342,7 +342,7 @@ struct SkillInstaller {
             }
             return resolved
         case .missing:
-            return candidate.resolvingSymlinksInPath()
+            return canonicalMissingDirectory(candidate)
         case .regular, .other:
             throw SkillInstallerError.invalidCodexHome
         }
@@ -360,10 +360,29 @@ struct SkillInstaller {
             }
             return resolved
         case .missing:
-            return candidate
+            return canonicalMissingDirectory(candidate)
         case .regular, .other:
             throw SkillInstallerError.invalidSkillsDirectory
         }
+    }
+
+    private func canonicalMissingDirectory(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        var ancestor = standardized
+        var missingComponents: [String] = []
+
+        while nodeKind(at: ancestor) == .missing {
+            let parent = ancestor.deletingLastPathComponent()
+            guard parent.path != ancestor.path else { return standardized }
+            missingComponents.append(ancestor.lastPathComponent)
+            ancestor = parent
+        }
+
+        var canonical = ancestor.resolvingSymlinksInPath().standardizedFileURL
+        for component in missingComponents.reversed() {
+            canonical.appendPathComponent(component, isDirectory: true)
+        }
+        return canonical.standardizedFileURL
     }
 
     private enum NodeKind: Equatable {

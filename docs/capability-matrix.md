@@ -59,6 +59,7 @@
 | list all / group by book | 已实现（展示） | 全库 user annotations 按 creation newest-first 取数后按书分组；orphan 与 null-location rows 必须保留。机器 JSON 不复制文本 formatter，也不能因展示分组改变 canonical ordering/identity |
 | annotations by book | 已实现 | book asset ID / numeric PK 可筛选；user-only 视图优先按 EPUB ToC chapter order、章内 creation 排序；内容不可读时降级到 creation/local-PK 稳定顺序但不得丢 annotation；raw scope 还必须能包含 active type=3 |
 | get/describe annotation | 已实现 | UUID 优先；numeric PK 可兼容；返回 raw 字段和关联书籍信息 |
+| Apple Books annotation deep link | 已实现（展示） | annotation 结果提供 `appleBooksURL`；有 raw CFI 时定位到对应内容位置，无 CFI 时退化为书籍级链接；deep link 是展示层派生值，不替代 asset ID / annotation UUID / raw CFI |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 作为独立原始状态保留 |
 | export/filter underline | 已实现 | `--colors ...underline` 的用户可见过滤能力不能丢 |
 | search highlighted text | 已实现 | case-insensitive partial search |

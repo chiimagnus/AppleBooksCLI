@@ -1,86 +1,167 @@
 # AppleBooksCLI
 
-AppleBooksCLI 是一个面向 macOS Apple Books 本地数据的 Swift CLI。它提供稳定的只读查询、EPUB/PDF 内容读取、导出、受保护的 collection/annotation 写入、SQLite backup/restore，以及随安装包分发的 `applebookscli` Skill。
+AppleBooksCLI 是一个用于 macOS Apple Books 的命令行工具。你可以直接查询自己的书库、阅读状态、划线与笔记，读取可用的 EPUB/PDF 内容，导出笔记，并在需要时安全地修改笔记或藏书。
 
-## 平台与运行边界
+## 主要功能
+
+- 浏览、搜索 Apple Books 书库与阅读状态。
+- 查询划线、笔记、最近批注，并按书籍或时间定位。
+- 查看单条批注时获得可直接跳回 Apple Books 对应划线位置的链接。
+- 读取可用 EPUB 的目录、章节、元数据与批注上下文。
+- 提取 PDF 划线与笔记。
+- 导出 JSON、CSV、Markdown 或 HTML。
+- 安全修改笔记、管理藏书，并在写入前自动备份。
+- 安装随 CLI 一起分发的 `applebookscli` Skill，供 Codex/AI 直接使用。
+
+## 系统要求
 
 - macOS 12 或更高版本。
-- Swift 6 / SwiftPM 项目；预编译 release 只发布 macOS Apple Silicon（arm64），不提供 Intel/x86_64 binary。
-- Apple Books 数据库读取默认使用 read-only SQLite 连接。
-- 部分 Apple Books 数据访问可能需要为终端或调用进程授予 Full Disk Access。
-- EPUB 未下载、DRM、schema 不兼容或 PDF 解析失败时会返回结构化 unavailable/degraded 结果，不绕过系统保护。
+- npm 发布的预编译版本目前支持 Apple Silicon（arm64）。
+- 读取 Apple Books 数据时，macOS 可能要求为终端或调用进程授予 Full Disk Access。
+- 未下载的 EPUB、DRM 内容或当前系统无法读取的内容会明确提示不可用或能力受限；AppleBooksCLI 不绕过系统保护。
 
 ## 安装
+
+安装稳定版：
 
 ```sh
 npm install --global @chiimagnus/applebookscli
 applebookscli --version
 ```
 
-Beta 版本使用独立 npm dist-tag，不会改动稳定版 `latest`：
+如果需要试用 beta：
 
 ```sh
 npm install --global @chiimagnus/applebookscli@beta
 ```
 
-## Release channels
-
-Git tag 是 release 版本的唯一 owner；源码不保存手工版本号。稳定版 tag 使用 `vMAJOR.MINOR.PATCH`（如 `v1.2.1`），beta 使用 `vMAJOR.MINOR.PATCH-beta` 或后续迭代的 `vMAJOR.MINOR.PATCH-beta.N`。release tag 必须指向当前 `main` HEAD，且该 SHA 的 CI 已成功；Release workflow 不重复跑完整测试，只构建一次正式 package 后发布 npm 与 GitHub Release。稳定版进入 npm `latest` 并成为普通 GitHub Release，beta 进入 npm `beta` 并标记 GitHub prerelease。普通开发构建的 `applebookscli --version` 显示 `dev`；release binary 的版本由对应 tag 注入。
-
-## 配置
-
-默认配置文件是 `~/.config/applebookscli/config.json`，不存在时按空配置运行。仓库提供 `Config/applebookscli.example.json` 示例；当前配置只用于：
-
-- `epub_root`：为 current Book 提供 exact-basename packed EPUB supplemental root；
-- `historical_assets`：按 exact asset ID 补充 historical annotation 的 title/author metadata。
-
-也可以用全局 `--config <path>` 指定其它配置文件；`--library-db` / `--annotations-db` 用于显式 DB override、fixture 与诊断。配置不会把 historical metadata 升级成 current Book/content identity。
-
-## 命令概览
-
-| 命令 | 用途 |
-| --- | --- |
-| `doctor` | 检查数据库、配置、内容与已安装 PDF worker 的可用性 |
-| `books` | 列出、读取、搜索书籍与 annotated-only 视图 |
-| `reading` / `stats` | 阅读状态、最近阅读、当前位置与统计 |
-| `content` | EPUB status、metadata、ToC、chapter、CFI/context |
-| `annotations` | 批注读取、搜索、时间范围，以及显式 note update / soft-delete |
-| `collections` | collection 读取、创建、重命名、membership 与 soft-delete |
-| `pdf` | PDF inventory 与 highlight extraction |
-| `export` | JSON、CSV、Markdown、HTML 与 complete-note archive |
-| `backups` | 列出安全 backup handle，并按 handle restore |
-| `skill install` | 安装随 CLI 分发的 `applebookscli` Skill |
-
-具体参数以对应命令的 `--help` 为准，例如：
+更新到最新稳定版：
 
 ```sh
-applebookscli books --help
-applebookscli export --help
-applebookscli collections --help
+npm install --global @chiimagnus/applebookscli@latest
 ```
 
-Operational command 的 `--json` 输出保持单一机器可解析值；human diagnostics 不混入 machine stdout。完整 process-level contract 见 `docs/cli-contract.md`。
+## 快速开始
 
-## Skill
+```sh
+# 浏览书库
+applebookscli books list
 
-安装包包含唯一的 `applebookscli` Skill 资源；Skill 只描述如何调用 CLI，不包含第二套 Apple Books 数据实现。
+# 查看正在阅读的书
+applebookscli reading in-progress
+
+# 查看最近创建的批注
+applebookscli annotations recent
+
+# 查看书库统计
+applebookscli stats
+```
+
+需要结构化结果时，大多数查询命令支持 `--json`：
+
+```sh
+applebookscli books list --json
+applebookscli annotations recent --json
+```
+
+## 笔记、划线与定位
+
+先找到批注，再用 UUID 查看具体内容：
+
+```sh
+applebookscli annotations recent --json
+applebookscli annotations get <annotation-uuid>
+```
+
+单条批注结果会包含对应的 `appleBooksURL`，可以直接跳回 Apple Books 中该书或对应划线位置。
+
+如果需要查看划线前后的正文：
+
+```sh
+applebookscli content context <annotation-uuid>
+```
+
+搜索、按书筛选、颜色、时间范围等能力以当前帮助为准：
+
+```sh
+applebookscli annotations --help
+```
+
+## EPUB 与 PDF
+
+```sh
+# EPUB 内容相关命令
+applebookscli content --help
+
+# 查看 PDF inventory
+applebookscli pdf list
+
+# 提取某个 PDF 的 highlights
+applebookscli pdf highlights --help
+```
+
+AppleBooksCLI 只读取本机当前可访问的内容；不会为了检查内容而主动触发 iCloud 下载，也不会绕过 DRM。
+
+## 导出
+
+```sh
+# Markdown
+applebookscli export --format markdown --output ~/Desktop/apple-books.md
+
+# JSON
+applebookscli export --format json --output ~/Desktop/apple-books.json
+```
+
+还支持 CSV、HTML、按书分组、筛选划线/笔记、Obsidian 格式、封面与完整笔记归档等选项：
+
+```sh
+applebookscli export --help
+```
+
+## 安全写入
+
+AppleBooksCLI 可以修改已有笔记和管理藏书。写入前会自动创建备份，并在写入后验证结果；普通查询不会隐式修改 Apple Books 数据。
+
+```sh
+applebookscli annotations update-note --help
+applebookscli collections --help
+applebookscli backups --help
+```
+
+## 安装 AppleBooksCLI Skill
+
+npm 包中包含配套的 `applebookscli` Skill：
 
 ```sh
 applebookscli skill install
 ```
 
-默认目标为 `${CODEX_HOME:-~/.codex}/skills/applebookscli`。已有目标不会被默认覆盖；只有用户显式要求时才使用：
+它会安装到 `${CODEX_HOME:-~/.codex}/skills/applebookscli`。如果目标已经存在，CLI 默认不会覆盖；需要明确替换时使用：
 
 ```sh
 applebookscli skill install --force
 ```
 
-`--force` 使用 staging + rename + rollback，并拒绝跟随已有 target symlink；它不会递归删除未知目标目录。
+## 可选配置
 
-## 文档
+大多数用户不需要配置文件。只有需要指定额外的 EPUB 目录，或给历史批注补充书名/作者信息时，才需要 `~/.config/applebookscli/config.json`。
 
-长期产品文档从 `docs/index.md` 开始。能力范围以 `docs/capability-matrix.md` 为准；架构与 identity/source 边界见 `docs/architecture.md`；CLI process contract 见 `docs/cli-contract.md`；mutation/restore safety 见 `docs/write-safety.md`。
+示例见 [`Config/applebookscli.example.json`](Config/applebookscli.example.json)。
+
+## 获取帮助
+
+CLI 自带完整帮助，具体命令与参数以当前安装版本为准：
+
+```sh
+applebookscli --help
+applebookscli <group> --help
+applebookscli <group> <subcommand> --help
+```
+
+## 开发与维护
+
+架构、CLI contract、写入安全、发布流程和其它维护者文档从 [`docs/index.md`](docs/index.md) 开始。
 
 ## License
 
-AppleBooksCLI 使用 GNU Affero General Public License v3（AGPLv3）。实际构建依赖的第三方 notice 与许可证文本见 `THIRD_PARTY_NOTICES.md` 和 `ThirdPartyLicenses/`。
+AppleBooksCLI 使用 GNU Affero General Public License v3（AGPLv3）。第三方 notice 与许可证文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`ThirdPartyLicenses/`](ThirdPartyLicenses/)。

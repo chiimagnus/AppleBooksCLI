@@ -38,6 +38,9 @@ public final class AppleBooks {
         let collectionCloudProjector = manageBooksApplication
             ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
             : nil
+        let collectionCloudSynchronizer = manageBooksApplication
+            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: booksApp)
+            : nil
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
@@ -45,7 +48,8 @@ public final class AppleBooks {
             collectionWriter: CollectionWriter(
                 database: libraryDB,
                 booksApp: booksApp,
-                cloudProjector: collectionCloudProjector
+                cloudProjector: collectionCloudProjector,
+                cloudSynchronizer: collectionCloudSynchronizer
             ),
             annotationWriter: AnnotationWriter(database: annotationsDB, booksApp: booksApp),
             restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
@@ -133,8 +137,12 @@ public final class AppleBooks {
         return try collectionQueries.books(in: collection)
     }
 
-    public func createCollection(title: String, details: String? = nil) throws -> MutationResult {
-        try collectionWriter.createCollection(title: title, details: details)
+    public func createCollection(
+        title: String,
+        details: String? = nil,
+        syncCloud: Bool = false
+    ) throws -> MutationResult {
+        try collectionWriter.createCollection(title: title, details: details, syncCloud: syncCloud)
     }
 
     public func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {

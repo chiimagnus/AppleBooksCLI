@@ -208,7 +208,9 @@ CLI 边界继续负责 selector/search/name/note 等输入校验；SQL value 使
 
 ## iCloud caveat
 
-当前 collection write contract 不承诺 mutation 会如何、何时同步到其它 Apple 设备。未完成独立多设备 iCloud 验收前，文档和成功结果都不得把本地 committed/read-back 等同于 cross-device sync。
+普通 mutation 的 `committed` / read-back 只证明本地结果，不能等同于 iCloud 或 cross-device sync。当前唯一显式 CloudKit acknowledgement rail 是 `collections create --sync`：Stage A projection 成功后，它会受控重建当前用户的 `bookdatastored`、启动 Books，并等待 exact `BCCollectionDetail` 满足 `syncGeneration >= editGeneration` 且 `ckSystemFields` 非空。该生命周期副作用只允许由 `--sync` 显式选择，不能加入默认 create。
+
+`--sync` 成功可以证明当前 Mac 已把该 collection record 上传到 Apple Books 的 iCloud CloudKit private database，但不能单凭这一点声称另一台设备已经显示。若返回 `cloud_sync_failed`，本地 mutation 仍可能已经 `committed=true`，不得自动重试。create 未带 `--sync`、collection rename/delete/membership 以及 annotation mutation 仍没有这个 CloudKit ack contract。
 
 ## 维护验证
 

@@ -4,6 +4,7 @@ public enum MutationWarning: String, Equatable, Sendable {
     case writableCloseFailed = "writable_close_failed"
     case readBackFailed = "read_back_failed"
     case cloudProjectionFailed = "cloud_projection_failed"
+    case cloudSyncFailed = "cloud_sync_failed"
     case relaunchFailed = "relaunch_failed"
 }
 

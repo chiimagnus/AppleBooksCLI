@@ -63,6 +63,70 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
+    func requestedCloudSyncRequiresProjectionAndPreservesCommittedResultAsWarningOnFailure() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let result = try fixture.writer.createCollection(title: "Sync Shelf", syncCloud: true)
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.warnings == [.cloudSyncFailed])
+        #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Sync Shelf'") == 1)
+    }
+
+    @Test
+    func requestedCloudSyncRunsAfterSuccessfulProjection() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var projectedID: String?
+        var syncedID: String?
+        let synchronizer = CollectionCloudSynchronizer(
+            booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
+            stateAction: { collectionID in
+                syncedID = collectionID
+                return .init(editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+            },
+            recycleAction: {}
+        )
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
+            cloudProjector: CollectionCloudProjector { projectedID = $0.collectionID },
+            cloudSynchronizer: synchronizer
+        )
+
+        let result = try writer.createCollection(title: "Synced Shelf", syncCloud: true)
+
+        #expect(result.warnings.isEmpty)
+        #expect(projectedID == result.stableID)
+        #expect(syncedID == result.stableID)
+    }
+
+    @Test
+    func projectionFailureAlsoMarksRequestedCloudSyncUnconfirmed() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
+            cloudProjector: CollectionCloudProjector { _ in throw CollectionCloudSyncError.cloudRecordMissing },
+            cloudSynchronizer: CollectionCloudSynchronizer(
+                booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
+                stateAction: { _ in .init(editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1) },
+                recycleAction: {}
+            )
+        )
+
+        let result = try writer.createCollection(title: "Projection Failed", syncCloud: true)
+
+        #expect(result.committed)
+        #expect(result.warnings == [.cloudProjectionFailed, .cloudSyncFailed])
+    }
+
+    @Test
     func renamePreservesIdentityDetailsAndSortWhileTouchingOptAndTimestamps() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

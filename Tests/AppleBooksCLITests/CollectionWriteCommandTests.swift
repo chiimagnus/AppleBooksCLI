@@ -23,6 +23,34 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
+    func createHelpExposesExplicitCloudSyncFlag() {
+        var stdout = ""
+        var stderr = ""
+        let code = CLIEntrypoint.run(
+            arguments: ["collections", "create", "--help"],
+            output: CLIOutput(stdout: { stdout += $0 }, stderr: { stderr += $0 })
+        )
+        #expect(code == CLIProcessExit.success.rawValue)
+        #expect(stderr.isEmpty)
+        #expect(stdout.contains("--sync"))
+        #expect(stdout.contains("CloudKit"))
+        #expect(stdout.contains("acknowledgement"))
+    }
+
+    @Test
+    func createSyncFlagPreservesCommittedMutationAndSurfacesMissingLiveSyncAsWarning() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let command = try CollectionsCreateCommand.parse(["Synced Shelf", "--sync"])
+
+        let result = try command.execute(using: fixture.books())
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.warningCodes == ["cloud_sync_failed"])
+    }
+
+    @Test
     func createAndRenameUseCoreMutationRailAndStableRenamePreservesIdentity() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

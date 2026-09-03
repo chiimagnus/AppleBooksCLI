@@ -37,6 +37,8 @@ CLI 自身是命令契约。需要确认命令、参数或枚举值时，优先�
 
 `committed=true` 表示事务已经提交，不能因为后续 warning 自动重试；`changed=false` 是成功的幂等 no-op。出现 `read_back_failed`，或调用超时/中断导致结果未知时，先做最窄只读确认，再决定是否还需要写入。CLI 创建的 safety backup 默认保留。
 
+只有用户明确要求新建 collection 并同步到 iCloud 时，才给 `collections create` 加 `--sync`。该 flag 会在本地 commit/projection 后受控重建 `bookdatastored`、启动 Books，并等待 exact cloud row acknowledgement；不要为了“更保险”对普通 create 默认追加。`cloud_sync_failed` 是 post-commit warning：保留 `committed=true` 语义，不自动重试。
+
 `backups list/restore` 只面向 library database；不要假定 annotation mutation 返回的 backup handle 可以交给这个恢复面。Restore 以返回的 `changed`、`status`、`verified` 为准；`restored_unverified` 表示恢复已经应用但验证失败，不能自动再 restore。
 
 ## EPUB、PDF 与导出
@@ -47,4 +49,4 @@ EPUB 内容不可用时，只有需要解释原因才运行 `content status --js
 
 ## 返回结果
 
-不要把 exit 0 当成用户目标已经完成；以实际返回数据证明结果，并区分 empty、not found、unavailable、degraded 和 warning。本地 mutation 成功也不等于已经同步到 iCloud；没有另一设备或其它端到端证据时，只确认本地 Apple Books 状态。
+不要把 exit 0 当成用户目标已经完成；以实际返回数据证明结果，并区分 empty、not found、unavailable、degraded 和 warning。普通本地 mutation 成功不等于已经同步到 iCloud。`collections create --sync` 若返回 `committed=true` 且没有 `cloud_sync_failed`，表示 CLI 已用 exact `BCCollectionDetail` 的 generation/system-fields acknowledgement 确认当前 Mac 完成 Apple Books CloudKit upload；可以表述为“已上传到 Apple Books iCloud/CloudKit”，但没有 second-device 证据时不能声称另一设备已经显示。

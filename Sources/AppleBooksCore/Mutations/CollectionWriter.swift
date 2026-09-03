@@ -46,13 +46,15 @@ struct CollectionWriter {
 
     private let coordinator: MutationCoordinator
     private let cloudProjector: CollectionCloudProjector?
+    private let cloudSynchronizer: CollectionCloudSynchronizer?
 
     init(
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
         booksApp: BooksAppController = .live,
-        cloudProjector: CollectionCloudProjector? = nil
+        cloudProjector: CollectionCloudProjector? = nil,
+        cloudSynchronizer: CollectionCloudSynchronizer? = nil
     ) {
         coordinator = MutationCoordinator(
             database: database,
@@ -61,9 +63,10 @@ struct CollectionWriter {
             booksApp: booksApp
         )
         self.cloudProjector = cloudProjector
+        self.cloudSynchronizer = cloudSynchronizer
     }
 
-    func createCollection(title: String, details: String? = nil) throws -> MutationResult {
+    func createCollection(title: String, details: String? = nil, syncCloud: Bool = false) throws -> MutationResult {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
@@ -78,7 +81,7 @@ struct CollectionWriter {
             }
         }
 
-        return try coordinator.perform(
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateCreateSchema(on: connection)
             },
@@ -135,6 +138,19 @@ struct CollectionWriter {
                 }
             }
         )
+        guard syncCloud else { return result }
+        guard cloudProjector != nil,
+              result.warnings.contains(.cloudProjectionFailed) == false,
+              let collectionID = result.stableID,
+              let cloudSynchronizer else {
+            return addingCloudSyncWarning(to: result)
+        }
+        do {
+            try cloudSynchronizer.sync(collectionID: collectionID)
+            return result
+        } catch {
+            return addingCloudSyncWarning(to: result)
+        }
     }
 
     func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {
@@ -1008,6 +1024,17 @@ struct CollectionWriter {
     private static func bindOptional(_ value: String?, to statement: OpaquePointer, index: Int32) -> Int32 {
         guard let value else { return sqlite3_bind_null(statement, index) }
         return bind(value, to: statement, index: index)
+    }
+
+    private func addingCloudSyncWarning(to result: MutationResult) -> MutationResult {
+        guard result.warnings.contains(.cloudSyncFailed) == false else { return result }
+        return MutationResult(
+            backupHandle: result.backupHandle,
+            localPK: result.localPK,
+            stableID: result.stableID,
+            changed: result.changed,
+            warnings: result.warnings + [.cloudSyncFailed]
+        )
     }
 
     private struct CreatedCollection {

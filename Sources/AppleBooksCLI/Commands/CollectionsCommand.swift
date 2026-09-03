@@ -163,6 +163,9 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, help: "Optional collection details.")
     var details: String?
 
+    @Flag(name: .long, help: "After local commit, recycle the Apple Books data service, launch Books, and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -175,7 +178,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try books.createCollection(title: title, details: details))
+            return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
         }
     }
 }

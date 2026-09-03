@@ -35,23 +35,16 @@ struct CollectionCloudProjector {
         },
         bridgeAction: @escaping BridgeAction = liveBridgeAction
     ) -> CollectionCloudProjector? {
-        let databasePaths = AppleBooksDatabasePaths.defaults(homeDirectory: homeDirectory)
-        let discovery = DatabaseDiscovery(paths: databasePaths)
-        guard case let .success(discoveredLibrary) = discovery.probe(store: .library),
-              discoveredLibrary == libraryDatabase.standardizedFileURL.resolvingSymlinksInPath() else {
+        guard let location = CollectionCloudStoreLocation.live(
+            libraryDatabase: libraryDatabase,
+            homeDirectory: homeDirectory
+        ) else {
             return nil
         }
 
-        // ponytail: 该私有布局只覆盖当前已验证的 macOS；路径变化时保持失败关闭，先在隔离 clone 验证后再升级。
-        let root = homeDirectory
-            .appendingPathComponent("Library/Group Containers/group.com.apple.iBooks/Documents/BCCloudData-BookDataStoreService", isDirectory: true)
-        let cloudDatabase = root
-            .appendingPathComponent("BCCloudCollections", isDirectory: true)
-            .appendingPathComponent("BCCloudCollections", isDirectory: false)
-
         return CollectionCloudProjector { input in
-            try backupAction(cloudDatabase, backupRoot)
-            let status = bridgeAction(root, cloudDatabase, input)
+            try backupAction(location.database, backupRoot)
+            let status = bridgeAction(location.root, location.database, input)
             guard status == 0 else {
                 throw CollectionCloudProjectionError.bridgeRejected(status)
             }

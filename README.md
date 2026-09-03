@@ -128,6 +128,14 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
+创建藏书时可以显式要求等待 Apple Books 的 CloudKit acknowledgement：
+
+```sh
+applebookscli collections create "My Shelf" --sync --json
+```
+
+`--sync` 只用于 collection create：本地提交后会受控重建 Apple Books 数据服务、启动 Books，并等待该 collection 的 cloud row 获得 acknowledgement。它会产生应用/系统服务生命周期副作用，因此不会默认启用。成功确认的是当前 Mac 已把该 collection 上传到 Apple Books 的 iCloud CloudKit；是否已经在另一台设备显示，仍需在对应设备上单独确认。其它 collection/annotation mutation 目前不能由本地 `committed=true` 外推为已同步到 iCloud。
+
 ## 安装 AppleBooksCLI Skill
 
 npm 包中包含配套的 `applebookscli` Skill：

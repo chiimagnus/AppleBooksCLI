@@ -11,7 +11,7 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 1)
+        #expect(root["schemaVersion"] as? Int == 2)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -57,6 +57,7 @@ struct JSONExporterTests {
         #expect(orphanAnnotation["style"] as? Int == 2)
         #expect(orphanAnnotation["note"] == nil)
         #expect(orphanAnnotation["modifiedAt"] == nil)
+        #expect(orphanAnnotation["appleBooksURL"] as? String == "ibooks://assetid/orphan-asset#epubcfi(/6/4%5Bchapter%5D!/4/2,:3,:9)")
         let location = try dictionary(orphanAnnotation["location"])
         #expect(location["rawCFI"] as? String == fixture.rawCFI)
 
@@ -196,7 +197,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 1)
+        #expect(document["schemaVersion"] as? Int == 2)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)

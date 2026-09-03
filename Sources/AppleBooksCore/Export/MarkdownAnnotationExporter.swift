@@ -223,6 +223,9 @@ public enum MarkdownAnnotationExporter {
             if let cfi = annotation.location?.rawCFI {
                 blocks.append("**Location:** \(escapeInline(cfi))")
             }
+            if let link = appleBooksLink(annotation) {
+                blocks.append(link)
+            }
             if let date = annotation.modifiedAt ?? annotation.createdAt {
                 blocks.append("**Date:** \(formatDate(date))")
             }
@@ -266,6 +269,9 @@ public enum MarkdownAnnotationExporter {
             if let cfi = annotation.location?.rawCFI {
                 blocks.append("**Location:** \(escapeInline(cfi))")
             }
+            if let link = appleBooksLink(annotation) {
+                blocks.append(link)
+            }
             if options.annotationDates, let date = annotation.modifiedAt ?? annotation.createdAt {
                 blocks.append("**Date:** \(formatDate(date))")
             }
@@ -294,6 +300,10 @@ public enum MarkdownAnnotationExporter {
             blocks.append(blockquote(label: "Citation", text: citation))
         }
         return blocks.joined(separator: "\n\n")
+    }
+
+    private static func appleBooksLink(_ annotation: Annotation) -> String? {
+        annotation.appleBooksURL.map { "**Apple Books:** [Open in Apple Books](<\($0)>)" }
     }
 
     private static func frontmatter(

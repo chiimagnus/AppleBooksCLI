@@ -707,7 +707,7 @@ struct AnnotationResult: Codable, Equatable, Sendable {
         selectedText = annotation.selectedText
         note = annotation.note
         rawCFI = annotation.location?.rawCFI
-        appleBooksURL = Self.makeAppleBooksURL(rawAssetID: annotation.rawAssetID, rawCFI: annotation.location?.rawCFI)
+        appleBooksURL = annotation.appleBooksURL
         chapterHint = annotation.chapterHint
         physicalLocation = annotation.physicalLocation
         rangeStart = annotation.rangeStart
@@ -735,22 +735,6 @@ struct AnnotationResult: Codable, Equatable, Sendable {
         let text = firstNonEmpty(selectedText, representativeText, note)?
             .replacingOccurrences(of: "\n", with: " ") ?? "-"
         return "\(localPK)\t\(uuid ?? "-")\t\(rawAssetID ?? "-")\t\(text)"
-    }
-
-    static func makeAppleBooksURL(rawAssetID: String?, rawCFI: String?) -> String? {
-        guard let assetID = rawAssetID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              assetID.isEmpty == false else {
-            return nil
-        }
-
-        var components = URLComponents()
-        components.scheme = "ibooks"
-        components.host = "assetid"
-        components.path = "/\(assetID)"
-        if let cfi = rawCFI?.trimmingCharacters(in: .whitespacesAndNewlines), cfi.isEmpty == false {
-            components.fragment = cfi
-        }
-        return components.url?.absoluteString
     }
 }
 

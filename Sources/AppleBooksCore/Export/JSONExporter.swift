@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -147,6 +147,7 @@ private struct JSONExportMapper {
             representativeText: value.representativeText,
             selectedText: value.selectedText,
             note: value.note,
+            appleBooksURL: value.appleBooksURL,
             location: value.location.map(JSONLocationDTO.init),
             chapterHint: value.chapterHint,
             physicalLocation: value.physicalLocation,
@@ -325,6 +326,7 @@ private struct JSONAnnotationDTO: Encodable {
     let representativeText: String?
     let selectedText: String?
     let note: String?
+    let appleBooksURL: String?
     let location: JSONLocationDTO?
     let chapterHint: String?
     let physicalLocation: Int64?

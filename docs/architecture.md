@@ -80,6 +80,7 @@ BKLibrary 与 AEAnnotation 是两个独立 store：
 
 - `ZANNOTATIONUUID` 是首选稳定 annotation identity；numeric PK 只用于明确的本机/诊断兼容路径。
 - raw type/style/underline/selected/note/representative/CFI/physical range/time 必须保留。
+- `appleBooksURL` 只从 raw asset ID + optional raw CFI 派生，供 CLI/export presentation 共享；它不是 source identity，也不能反向覆盖 raw CFI。
 - user annotation scope 与 raw/system scope 分开；type=3 current-reading bookmark 不能与展示层 `presentationKind=bookmark` 混为同一语义。
 - soft-deleted row 默认不进入普通读取。
 

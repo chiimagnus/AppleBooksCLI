@@ -73,6 +73,52 @@ struct DomainModelTests {
         #expect(annotation.style == 99)
         #expect(annotation.type == nil)
         #expect(annotation.isDeleted == nil)
+        #expect(annotation.appleBooksURL == nil)
+    }
+
+    @Test
+    func annotationDerivesAppleBooksURLFromStableAssetAndOptionalCFI() {
+        let located = Annotation(
+            localPK: 10,
+            uuid: nil,
+            rawAssetID: "book",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: nil,
+            selectedText: nil,
+            note: nil,
+            location: Location(rawCFI: "epubcfi(/6/2[ch]!/4/2,:0,:0)"),
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let bookOnly = Annotation(
+            localPK: 11,
+            uuid: nil,
+            rawAssetID: " book ",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: nil,
+            selectedText: nil,
+            note: nil,
+            location: nil,
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+
+        #expect(located.appleBooksURL == "ibooks://assetid/book#epubcfi(/6/2%5Bch%5D!/4/2,:0,:0)")
+        #expect(bookOnly.appleBooksURL == "ibooks://assetid/book")
     }
 
     @Test

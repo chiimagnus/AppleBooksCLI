@@ -102,7 +102,8 @@ struct HTMLExporterStructureTests {
         let sectionIDs = try sections.map { try $0.attr("id") }
         let bodyIDs = try document.select(".book-body[id]").array().map { try $0.attr("id") }
         let sidebarHrefValues = try document.select("a.sidebar-link[href]").array().map { try $0.attr("href") }
-        let appleBooksHrefValues = try document.select("a.apple-books-link[href]").array().map { try $0.attr("href") }
+        let appleBooksLinks = try document.select("a.apple-books-link[href]").array()
+        let appleBooksHrefValues = try appleBooksLinks.map { try $0.attr("href") }
         #expect(sectionIDs == ["book-0", "book-1", "book-2"])
         #expect(bodyIDs == ["book-body-0", "book-body-1", "book-body-2"])
         #expect(sidebarHrefValues == ["#book-0", "#book-1", "#book-2"])
@@ -115,6 +116,9 @@ struct HTMLExporterStructureTests {
         ].compactMap { $0 })
         #expect(idValues.allSatisfy { $0.contains("asset") == false })
         #expect(appleBooksHrefValues.allSatisfy { $0.hasPrefix("ibooks://assetid/") })
+        #expect(try appleBooksLinks[0].text() == fixture.currentAnnotation.location?.rawCFI)
+        #expect(try appleBooksLinks[1].text() == "Open book")
+        #expect(bodyText.contains("Open in Apple Books") == false)
 
         // Escaping is presentation-only; the canonical DTO stays byte-for-byte unchanged.
         #expect(fixture.currentBook.title == fixture.hostileTitle)

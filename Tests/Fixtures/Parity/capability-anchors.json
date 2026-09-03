@@ -1,4 +1,19 @@
 {
+  "Apple Books annotation deep link": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationReadCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "get"
+      ]
+    ]
+  },
   "Books.app lifecycle": {
     "owner": "core",
     "implementationPaths": [

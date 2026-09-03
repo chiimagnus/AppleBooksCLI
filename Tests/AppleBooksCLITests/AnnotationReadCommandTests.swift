@@ -164,14 +164,6 @@ struct AnnotationReadCommandTests {
     }
 
     @Test
-    func appleBooksURLRequiresAssetIDAndFallsBackToBookLevelWithoutCFI() {
-        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: nil, rawCFI: "epubcfi(/6/2)") == nil)
-        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "   ", rawCFI: "epubcfi(/6/2)") == nil)
-        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "book", rawCFI: nil) == "ibooks://assetid/book")
-        #expect(AnnotationResult.makeAppleBooksURL(rawAssetID: "book", rawCFI: "  ") == "ibooks://assetid/book")
-    }
-
-    @Test
     func searchDelegatesLiteralFieldAndColorFilteringBeforePagination() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

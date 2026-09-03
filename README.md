@@ -112,7 +112,7 @@ applebookscli export --format markdown --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
 ```
 
-还支持 CSV、HTML、按书分组、筛选划线/笔记、Obsidian 格式、封面与完整笔记归档等选项：
+还支持 CSV、HTML、按书分组、筛选划线/笔记、Obsidian 格式、封面与完整笔记归档等选项。HTML 与 Markdown 中的 EPUB 批注会附带可点击的 `Open in Apple Books`；JSON 与 CSV 也会保留对应 deep link，方便其它工具继续使用：
 
 ```sh
 applebookscli export --help

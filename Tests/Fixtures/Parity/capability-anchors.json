@@ -1,16 +1,28 @@
 {
   "Apple Books annotation deep link": {
-    "owner": "cli",
+    "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
+      "Sources/AppleBooksCore/Models/Annotation.swift",
+      "Sources/AppleBooksCore/Export/HTMLExporter.swift",
+      "Sources/AppleBooksCore/Export/JSONExporter.swift",
+      "Sources/AppleBooksCore/Export/CSVExporter.swift",
+      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCLITests/AnnotationReadCommandTests.swift"
+      "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift",
+      "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift",
+      "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift",
+      "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift",
+      "Tests/AppleBooksCoreTests/Export/MarkdownParityTests.swift"
     ],
     "cliHelpArgs": [
       [
         "annotations",
         "get"
+      ],
+      [
+        "export",
+        "--format"
       ]
     ]
   },

@@ -277,7 +277,13 @@ public enum HTMLExporter {
                 body.append("<div class=\"record-text note\"><strong>Note:</strong> \(escapeText(note))</div>")
             }
             if let location = annotation.location?.rawCFI {
-                body.append("<p class=\"record-meta\"><strong>Location:</strong> \(escapeText(location))</p>")
+                if let url = annotation.appleBooksURL {
+                    body.append("<p class=\"record-meta\"><strong>Location:</strong> <a class=\"apple-books-link\" href=\"\(escapeText(url))\">\(escapeText(location))</a></p>")
+                } else {
+                    body.append("<p class=\"record-meta\"><strong>Location:</strong> \(escapeText(location))</p>")
+                }
+            } else if let url = annotation.appleBooksURL {
+                body.append("<p class=\"record-meta\"><strong>Apple Books:</strong> <a class=\"apple-books-link\" href=\"\(escapeText(url))\">Open book</a></p>")
             }
             if let date = annotation.modifiedAt ?? annotation.createdAt {
                 body.append("<p class=\"record-meta\"><strong>Date:</strong> \(formatDate(date))</p>")

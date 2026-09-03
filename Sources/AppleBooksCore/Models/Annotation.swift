@@ -23,4 +23,20 @@ public struct Annotation: Equatable, Sendable {
     public let physicalLocation: Int64?
     public let rangeStart: Int64?
     public let rangeEnd: Int64?
+
+    public var appleBooksURL: String? {
+        guard let assetID = rawAssetID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              assetID.isEmpty == false else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "ibooks"
+        components.host = "assetid"
+        components.path = "/\(assetID)"
+        if let cfi = location?.rawCFI.trimmingCharacters(in: .whitespacesAndNewlines), cfi.isEmpty == false {
+            components.fragment = cfi
+        }
+        return components.url?.absoluteString
+    }
 }

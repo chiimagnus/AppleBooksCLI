@@ -59,7 +59,7 @@
 | list all / group by book | 已实现（展示） | 全库 user annotations 按 creation newest-first 取数后按书分组；orphan 与 null-location rows 必须保留。机器 JSON 不复制文本 formatter，也不能因展示分组改变 canonical ordering/identity |
 | annotations by book | 已实现 | book asset ID / numeric PK 可筛选；user-only 视图优先按 EPUB ToC chapter order、章内 creation 排序；内容不可读时降级到 creation/local-PK 稳定顺序但不得丢 annotation；raw scope 还必须能包含 active type=3 |
 | get/describe annotation | 已实现 | UUID 优先；numeric PK 可兼容；返回 raw 字段和关联书籍信息 |
-| Apple Books annotation deep link | 已实现（展示） | annotation 结果提供 `appleBooksURL`；有 raw CFI 时定位到对应内容位置，无 CFI 时退化为书籍级链接；deep link 是展示层派生值，不替代 asset ID / annotation UUID / raw CFI |
+| Apple Books annotation deep link | 已实现（展示） | Core `Annotation` 从 raw asset ID + optional raw CFI 派生 `appleBooksURL`；annotation CLI 与全部 EPUB annotation export surface 复用同一值。HTML/Markdown 提供可点击的 `Open in Apple Books`，JSON/CSV 分别输出 `appleBooksURL` / `annotation_apple_books_url`；无 CFI 时退化为书籍级链接；deep link 不替代 asset ID / annotation UUID / raw CFI |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 作为独立原始状态保留 |
 | export/filter underline | 已实现 | `--colors ...underline` 的用户可见过滤能力不能丢 |
 | search highlighted text | 已实现 | case-insensitive partial search |
@@ -109,8 +109,8 @@
 | --- | --- | --- |
 | export output destination | 已实现 | 支持 caller 显式文件/目录输出；所有文件写盘统一经过受限 writer，默认 `.never` 不覆盖现存文件，derived filename/path traversal、symlink destination/parent 均 fail closed |
 | Markdown export | 已实现 | 支持 canonical bundle 与单书 renderer；plain/Obsidian-compatible profile 都只消费已选好的 records，不 direct SQL，不因展示分组改写 identity |
-| JSON export | 已实现 | schema-versioned、确定性 single-file / per-document bytes；保留 EPUB/PDF source-specific raw fields、warnings、statistics，PDF 不伪造 annotation UUID/CFI |
-| CSV export | 已实现 | 固定 UTF-8 BOM + CRLF schema；RFC4180 quoting；字符串 cell 在 quoting 前 neutralize spreadsheet formula trigger，typed negative number/date/bool 不误处理 |
+| JSON export | 已实现 | 当前 `schemaVersion=2`，确定性 single-file / per-document bytes；保留 EPUB/PDF source-specific raw fields、warnings、statistics，EPUB annotation DTO 包含共享派生的 `appleBooksURL`，PDF 不伪造 annotation UUID/CFI |
+| CSV export | 已实现 | 固定 UTF-8 BOM + CRLF schema；EPUB annotation 行包含 `annotation_apple_books_url`；RFC4180 quoting；字符串 cell 在 quoting 前 neutralize spreadsheet formula trigger，typed negative number/date/bool 不误处理 |
 | HTML export | 已实现 | self-contained HTML；CSS/JS 均内嵌，无 CDN/font/runtime network dependency；用户内容只进入 escaped text context，不进入 raw DOM identity/JS literal |
 | HTML 搜索 | 已实现 | client-side 以 DOM `textContent` 搜索 book title/author/annotation text/note，不把用户正文复制进脚本 |
 | HTML 单书折叠 + 全部折叠 | 已实现 | per-book collapse/expand + Collapse All/Expand All；只使用生成的 `book-N` token |

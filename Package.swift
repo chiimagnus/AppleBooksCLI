@@ -19,8 +19,18 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "AppleBooksCloudBridge",
+            path: "Sources/AppleBooksCloudBridge",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("CoreData"),
+                .linkedLibrary("sqlite3"),
+            ]
+        ),
+        .target(
             name: "AppleBooksCore",
             dependencies: [
+                "AppleBooksCloudBridge",
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
@@ -39,6 +49,7 @@ let package = Package(
         .testTarget(
             name: "AppleBooksCoreTests",
             dependencies: [
+                "AppleBooksCloudBridge",
                 "AppleBooksCore",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]

@@ -45,12 +45,14 @@ struct CollectionWriter {
     private static let defaultSortMode: Int64 = 6
 
     private let coordinator: MutationCoordinator
+    private let cloudProjector: CollectionCloudProjector?
 
     init(
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
-        booksApp: BooksAppController = .live
+        booksApp: BooksAppController = .live,
+        cloudProjector: CollectionCloudProjector? = nil
     ) {
         coordinator = MutationCoordinator(
             database: database,
@@ -58,11 +60,23 @@ struct CollectionWriter {
             keep: keep,
             booksApp: booksApp
         )
+        self.cloudProjector = cloudProjector
     }
 
     func createCollection(title: String, details: String? = nil) throws -> MutationResult {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
+
+        let cloudProjection: ((CreatedCollection) throws -> Void)? = cloudProjector.map { projector in
+            { created in
+                try projector.project(.init(
+                    collectionID: created.collectionID,
+                    title: created.title,
+                    sortOrder: created.sortKey,
+                    modificationDateReferenceSeconds: created.timestamp
+                ))
+            }
+        }
 
         return try coordinator.perform(
             preflight: { connection in
@@ -96,7 +110,9 @@ struct CollectionWriter {
                     localPK: allocation.localPK,
                     entityID: allocation.entityID,
                     collectionID: collectionID,
-                    title: normalizedTitle
+                    title: normalizedTitle,
+                    sortKey: sortKey,
+                    timestamp: timestamp
                 )
             },
             invariant: { handle, created in
@@ -110,6 +126,7 @@ struct CollectionWriter {
             domainData: {
                 MutationDomainData(localPK: $0.localPK, stableID: $0.collectionID, changed: true)
             },
+            cloudProjection: cloudProjection,
             readBack: { connection, created in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
                       collection.collectionID == created.collectionID,
@@ -998,6 +1015,8 @@ struct CollectionWriter {
         let entityID: Int64
         let collectionID: String
         let title: String
+        let sortKey: Int64
+        let timestamp: Double
     }
 
     private struct MembershipMutationResult {

@@ -38,6 +38,31 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
+    func createProjectsExactCommittedIdentitySortAndTimestamp() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var projected: CollectionCloudProjectionInput?
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
+            cloudProjector: CollectionCloudProjector { projected = $0 }
+        )
+
+        let result = try writer.createCollection(title: "  Cloud Shelf  ")
+        let pk = try #require(result.localPK)
+        let row = try collectionRow(fixture.database, pk: pk)
+        let projection = try #require(projected)
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(projection.collectionID == row.collectionID)
+        #expect(projection.title == row.title)
+        #expect(projection.sortOrder == row.sortKey)
+        #expect(projection.modificationDateReferenceSeconds == row.lastModification)
+    }
+
+    @Test
     func renamePreservesIdentityDetailsAndSortWhileTouchingOptAndTimestamps() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

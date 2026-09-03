@@ -35,11 +35,18 @@ public final class AppleBooks {
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
         let booksApp = manageBooksApplication ? BooksAppController.live : BooksAppController.detached
+        let collectionCloudProjector = manageBooksApplication
+            ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
+            : nil
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             configurationFile: configurationFile,
-            collectionWriter: CollectionWriter(database: libraryDB, booksApp: booksApp),
+            collectionWriter: CollectionWriter(
+                database: libraryDB,
+                booksApp: booksApp,
+                cloudProjector: collectionCloudProjector
+            ),
             annotationWriter: AnnotationWriter(database: annotationsDB, booksApp: booksApp),
             restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
             pdfWorkerClient: pdfWorkerURL.map {

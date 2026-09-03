@@ -86,7 +86,7 @@ struct CapabilityParityTests {
     }
 
     @Test
-    func renderersStayDatabaseFreeAndProductionRuntimeStaysSwiftOnly() throws {
+    func renderersStayDatabaseFreeAndOnlyCloudBridgeMayUseNonSwiftRuntime() throws {
         let root = repositoryRoot()
         let rendererPaths = [
             "Sources/AppleBooksCore/Export/JSONExporter.swift",
@@ -127,7 +127,13 @@ struct CapabilityParityTests {
                 nonSwiftFiles.append(file.path.replacingOccurrences(of: root.path + "/", with: ""))
             }
         }
-        #expect(nonSwiftFiles.isEmpty, "non-Swift production runtime files: \(nonSwiftFiles.sorted())")
+        #expect(
+            Set(nonSwiftFiles) == Set([
+                "Sources/AppleBooksCloudBridge/AppleBooksCloudBridge.m",
+                "Sources/AppleBooksCloudBridge/include/AppleBooksCloudBridge.h",
+            ]),
+            "unexpected non-Swift production runtime files: \(nonSwiftFiles.sorted())"
+        )
     }
 
     private func repositoryRoot() -> URL {

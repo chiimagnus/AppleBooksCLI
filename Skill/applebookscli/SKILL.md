@@ -1,6 +1,6 @@
 ---
 name: applebookscli
-description: 在 macOS 上通过 `applebookscli` 查询、定位、导出或受保护地修改 Apple Books 图书、阅读状态、EPUB/PDF、批注笔记与藏书，以及执行备份恢复或访问诊断时使用。
+description: 通过 `applebookscli` 查询、定位、导出或受保护地修改 Apple Books 图书、阅读状态、EPUB/PDF、批注笔记与藏书，以及执行备份恢复或访问诊断时使用。
 ---
 
 # AppleBooksCLI

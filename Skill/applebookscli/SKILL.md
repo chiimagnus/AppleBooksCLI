@@ -27,7 +27,7 @@ CLI 自身是命令契约。需要确认命令、参数或枚举值时，优先�
 
 用户问“最新笔记”时，只在 `note` 非空的 annotation 中比较；“最新”默认按创建时间，“最近修改”按修改时间。不要把普通高亮误报成笔记。
 
-展示一条具体 annotation 时，优先返回高亮文本、note 和必要时间；若结果包含 `appleBooksURL`，一并提供。字段缺失时不要自行拼接 `ibooks://`，也不要为了生成 deep link 调用 `content locate`。只有用户需要高亮前后正文时才使用 `content context`。
+展示一条具体 annotation 时，优先返回高亮文本、note、必要时间和 `appleBooksURL`。不要自行拼接 `ibooks://`，也不要为了生成 deep link 调用 `content locate`。只有用户需要高亮前后正文时才使用 `content context`。
 
 `annotations update-note` 的 `--note` 是**整段替换文本**。用户要求追加、补充或加评论时，先读取原 note，保留原文构造完整新 note，再用 exact UUID 和 `--json` 写回。`annotations delete` soft-delete 的是整条 annotation，不要用它代替“清空 note 文本”。
 

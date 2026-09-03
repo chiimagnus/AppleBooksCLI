@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 public enum BooksAppControllerError: Error, Equatable, Sendable {
@@ -14,6 +15,8 @@ struct BooksAppController {
     private let isRunningAction: () -> Bool
     private let terminateAction: () -> Bool
     private let launchAction: () throws -> Void
+    private let runningProcessIDsAction: () -> [pid_t]
+    private let isProcessAliveAction: (pid_t) -> Bool
     private let sleepAction: (TimeInterval) -> Void
     private let timeout: TimeInterval
     private let pollInterval: TimeInterval
@@ -22,6 +25,8 @@ struct BooksAppController {
         isRunning: @escaping () -> Bool,
         terminate: @escaping () -> Bool,
         launch: @escaping () throws -> Void,
+        runningProcessIDs: @escaping () -> [pid_t] = { [] },
+        isProcessAlive: @escaping (pid_t) -> Bool = { _ in false },
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
         // ponytail: Books may spend tens of seconds flushing state before it terminates; keep writes fail-closed for up to one minute. Increase only if measured shutdowns exceed this bound.
         timeout: TimeInterval = 60,
@@ -30,6 +35,8 @@ struct BooksAppController {
         isRunningAction = isRunning
         terminateAction = terminate
         launchAction = launch
+        runningProcessIDsAction = runningProcessIDs
+        isProcessAliveAction = isProcessAlive
         sleepAction = sleep
         self.timeout = timeout
         self.pollInterval = pollInterval
@@ -51,6 +58,13 @@ struct BooksAppController {
                 guard NSWorkspace.shared.open(url) else {
                     throw BooksAppControllerError.launchFailed
                 }
+            },
+            runningProcessIDs: {
+                NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).map(\.processIdentifier)
+            },
+            isProcessAlive: { pid in
+                errno = 0
+                return kill(pid, 0) == 0 || errno == EPERM
             }
         )
     }
@@ -69,10 +83,11 @@ struct BooksAppController {
 
     func terminateAndWait() throws {
         guard isRunning() else { return }
+        let processIDs = runningProcessIDsAction()
         guard terminateAction() else { throw BooksAppControllerError.terminateRejected }
 
         let deadline = Date().addingTimeInterval(timeout)
-        while isRunning() {
+        while isRunning() || processIDs.contains(where: isProcessAliveAction) {
             guard Date() < deadline else { throw BooksAppControllerError.terminateTimedOut }
             sleepAction(pollInterval)
         }

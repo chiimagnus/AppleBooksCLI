@@ -23,7 +23,8 @@ struct BooksAppController {
         terminate: @escaping () -> Bool,
         launch: @escaping () throws -> Void,
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
-        timeout: TimeInterval = 3,
+        // ponytail: Books may spend tens of seconds flushing state before it terminates; keep writes fail-closed for up to one minute. Increase only if measured shutdowns exceed this bound.
+        timeout: TimeInterval = 60,
         pollInterval: TimeInterval = 0.05
     ) {
         isRunningAction = isRunning

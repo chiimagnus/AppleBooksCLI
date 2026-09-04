@@ -461,12 +461,6 @@ struct OperationHistoryStore: Sendable {
         }
         if info.st_mode & mode_t(0o777) != Self.directoryMode {
             guard fchmod(fd, Self.directoryMode) == 0 else { throw OperationHistoryStoreError.unavailable }
-            var checked = stat()
-            guard fstat(fd, &checked) == 0,
-                  checked.st_mode & mode_t(0o777) == Self.directoryMode,
-                  checked.st_uid == geteuid() else {
-                throw OperationHistoryStoreError.unavailable
-            }
         }
     }
 
@@ -479,12 +473,6 @@ struct OperationHistoryStore: Sendable {
         }
         if info.st_mode & mode_t(0o777) != Self.fileMode {
             guard fchmod(fd, Self.fileMode) == 0 else { throw OperationHistoryStoreError.unavailable }
-            var checked = stat()
-            guard fstat(fd, &checked) == 0,
-                  checked.st_mode & mode_t(0o777) == Self.fileMode,
-                  checked.st_uid == geteuid() else {
-                throw OperationHistoryStoreError.unavailable
-            }
         }
     }
 

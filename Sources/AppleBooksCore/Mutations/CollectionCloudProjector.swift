@@ -26,7 +26,6 @@ struct CollectionCloudProjector {
     }
 
     func project(_ inputs: [CollectionCloudProjectionInput]) throws {
-        guard inputs.isEmpty == false else { return }
         try projectAction(inputs)
     }
 

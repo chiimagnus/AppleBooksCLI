@@ -35,7 +35,7 @@ struct AnnotationCloudProjectorTests {
             }
         ))
 
-        try projector.project(.init(localPK: 7))
+        try projector.project(localPK: 7)
         #expect(events == ["backup", "bridge"])
     }
 

@@ -18,6 +18,7 @@ struct RootCommandTests {
         #expect(stderr.isEmpty)
         #expect(stdout.contains("USAGE:"))
         #expect(stdout.contains("--version"))
+        #expect(stdout.contains("  skill ") == false)
     }
 
     @Test

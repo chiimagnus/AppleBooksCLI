@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import AppleBooksCLI
 
-@Suite("InstallationLayoutTests")
-struct InstallationLayoutTests {
+@Suite("InstalledPDFWorkerTests")
+struct InstalledPDFWorkerTests {
     @Test
     func symlinkedBinEntryResolvesRealInstallPrefixAndWorker() throws {
         let root = try temporaryDirectory()
@@ -24,11 +24,7 @@ struct InstallationLayoutTests {
         let linkedCLI = linkedBin.appendingPathComponent("applebookscli")
         try FileManager.default.createSymbolicLink(at: linkedCLI, withDestinationURL: realCLI)
 
-        let layout = try InstallationLayout(executableURL: linkedCLI)
-        #expect(layout.executableURL == realCLI.resolvingSymlinksInPath())
-        #expect(layout.prefixURL == keg.resolvingSymlinksInPath())
-        #expect(layout.pdfWorkerURL == worker.resolvingSymlinksInPath())
-        #expect(layout.pdfWorkerIsExecutable)
+        #expect(try installedPDFWorkerURL(executableURL: linkedCLI) == worker.resolvingSymlinksInPath())
     }
 
     @Test
@@ -37,8 +33,8 @@ struct InstallationLayoutTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("applebookscli")
         try Data().write(to: executable)
-        #expect(throws: InstallationLayoutError.invalidExecutableLocation) {
-            _ = try InstallationLayout(executableURL: executable)
+        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+            _ = try installedPDFWorkerURL(executableURL: executable)
         }
     }
 

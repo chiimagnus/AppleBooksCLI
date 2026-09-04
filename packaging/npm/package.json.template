@@ -17,16 +17,16 @@
   "cpu": [
     "arm64"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "bin": {
     "applebookscli": "bin/applebookscli"
+  },
+  "scripts": {
+    "postinstall": "node libexec/applebookscli/sync-installed-skill.mjs"
   },
   "files": [
     "bin/applebookscli",
     "libexec/applebookscli/applebookscli-pdf-worker",
-    "share/applebookscli/skill/applebookscli/SKILL.md",
+    "libexec/applebookscli/sync-installed-skill.mjs",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "ThirdPartyLicenses"

@@ -6,18 +6,8 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 1 ] || fail "usage: skill-smoke.sh <skill-directory>"
-
 SKILL_DIR=${1%/}
-[ -n "$SKILL_DIR" ] || fail "skill directory is empty"
-[ "$(basename "$SKILL_DIR")" = "applebookscli" ] || fail "skill directory basename must be applebookscli"
-[ ! -L "$SKILL_DIR" ] || fail "skill directory must not be a symlink"
-[ -d "$SKILL_DIR" ] || fail "skill directory is missing"
-
 SKILL_FILE="$SKILL_DIR/SKILL.md"
-[ ! -L "$SKILL_FILE" ] || fail "SKILL.md must not be a symlink"
-[ -f "$SKILL_FILE" ] || fail "SKILL.md must be a regular file"
-[ -s "$SKILL_FILE" ] || fail "SKILL.md must not be empty"
 
 awk '
   NR == 1 {

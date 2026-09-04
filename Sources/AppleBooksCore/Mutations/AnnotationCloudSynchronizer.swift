@@ -109,10 +109,8 @@ struct AnnotationCloudSynchronizer {
             FROM ZBCASSETANNOTATIONS
             WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0
             """)
-        guard try statement.step() else { throw AnnotationCloudSyncError.cloudRecordInvalid }
-        let row = try SQLiteRow(statement: statement)
-        guard let count = try row.int64("ZPENDINGCOUNT"), count >= 0, count <= Int64(Int.max),
-              try statement.step() == false else {
+        guard try statement.step(),
+              let count = try SQLiteRow(statement: statement).int64("ZPENDINGCOUNT") else {
             throw AnnotationCloudSyncError.cloudRecordInvalid
         }
         return Int(count)

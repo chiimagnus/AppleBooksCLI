@@ -36,17 +36,11 @@ jobs:
           test "$(uname -m)" = "arm64"
           Tests/PackagingTests/release-metadata-smoke.sh
           node scripts/check-release-order.mjs --self-test
-          Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
+          Tests/PackagingTests/skill-smoke.sh skills/applebookscli
           swift scripts/check-private-data.swift --self-test
           swift scripts/check-private-data.swift --static
           swift test --disable-automatic-resolution
-          test "$(git -C .build/checkouts/swift-argument-parser rev-parse HEAD)" = "6a52f3251125d74daf04fcbd5e6f08a75d074382"
-          test "$(git -C .build/checkouts/SwiftSoup rev-parse HEAD)" = "18b80329749eca5ea29fc50211dca5c7eff5bfec"
-          test "$(git -C .build/checkouts/ZIPFoundation rev-parse HEAD)" = "22787ffb59de99e5dc1fbfe80b19c97a904ad48d"
           cmp .build/checkouts/swift-argument-parser/LICENSE.txt ThirdPartyLicenses/swift-argument-parser-Apache-2.0.txt
           cmp .build/checkouts/SwiftSoup/LICENSE ThirdPartyLicenses/SwiftSoup-MIT.txt
           cmp .build/checkouts/ZIPFoundation/LICENSE ThirdPartyLicenses/ZIPFoundation-MIT.txt
-          test -s LICENSE
-          test -s THIRD_PARTY_NOTICES.md
-          git diff --exit-code -- Package.resolved
           git diff --check

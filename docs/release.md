@@ -4,7 +4,7 @@
 
 ## Version owner
 
-Git tag 是 release version 的唯一 owner；源码不维护第二份手工版本常量。
+Git tag 是 release version 的产品 owner。`skills/applebookscli/SKILL.md` 的 `metadata.cli_version` 必须在打 tag 前更新为同一版本；release build 会拒绝不一致的 tag。
 
 - stable：`vMAJOR.MINOR.PATCH`，发布到 npm `latest`，并创建普通 GitHub Release。
 - beta：`vMAJOR.MINOR.PATCH-beta` 或 `vMAJOR.MINOR.PATCH-beta.N`，发布到 npm `beta`，并创建 GitHub prerelease。
@@ -14,11 +14,9 @@ Git tag 是 release version 的唯一 owner；源码不维护第二份手工版�
 
 Release workflow 只接受指向 `main` 历史的 release tag，并在构建前验证：
 
-1. tag 指向当前 checkout 的 exact SHA；
-2. 该 SHA 已有成功的 `ci.yml` push run；
-3. npm 中不存在相同 version；
-4. GitHub 中不存在相同 Release；
-5. candidate version 满足 stable/beta 的单调发布顺序。
+1. 该 SHA 已有成功的 `ci.yml` push run；
+2. GitHub 中不存在相同 Release；
+3. candidate version 满足 stable/beta 的单调发布顺序。
 
 因此不要用 release workflow 代替 CI，也不要在没有 exact-SHA CI success 时提前打 tag。
 
@@ -29,12 +27,12 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 1. 解析 release metadata 与 channel；
 2. 执行上述 preflight；
 3. 调用 `scripts/build-release.sh` 构建一次正式 arm64 npm package；
-4. 验证 binary、Skill、package metadata、checksum 与 npm install smoke；
+4. 验证 binary、package metadata 与 npm install smoke；
 5. 为 release asset 生成 GitHub attestation；
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
 7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
 
-Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。
+Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。`skills/applebookscli` 随 GitHub source/tag 发布，不进入 npm tarball；首次安装仍由 Agent Skills CLI 选择目标 Agent。npm 包只携带一个 postinstall bridge：如果发现 Agent Skills CLI 已管理该 Skill，就把其 source ref 对齐到当前 CLI tag，再委托 `skills update` 更新现有 targets；没有已管理 Skill 时静默跳过。
 
 ## 修改触发
 

@@ -104,7 +104,7 @@ struct AnnotationWriter {
                 MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: true)
             },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.init(localPK: target.localPK)) }
+                { target in try projector.project(localPK: target.localPK) }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
@@ -137,7 +137,7 @@ struct AnnotationWriter {
                 MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: true)
             },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.init(localPK: target.localPK)) }
+                { target in try projector.project(localPK: target.localPK) }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
@@ -169,7 +169,6 @@ struct AnnotationWriter {
             required.insert("ZANNOTATIONUUID")
         }
         try WriteSchemaGuard.validateTable(.annotations, required: required, inserting: false, on: handle)
-        _ = try WriteSchemaGuard.entity(named: entityName, on: handle)
     }
 
     private static func resolve(_ selector: Selector, on handle: OpaquePointer) throws -> Target {
@@ -344,8 +343,7 @@ struct AnnotationWriter {
     }
 
     private func addingCloudSyncWarning(to result: MutationResult) -> MutationResult {
-        guard result.warnings.contains(.cloudSyncFailed) == false else { return result }
-        return MutationResult(
+        MutationResult(
             backupHandle: result.backupHandle,
             localPK: result.localPK,
             stableID: result.stableID,

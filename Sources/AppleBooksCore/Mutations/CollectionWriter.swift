@@ -656,7 +656,6 @@ struct CollectionWriter {
             inserting: true,
             on: handle
         )
-        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
     }
 
     private static let renameColumns: Set<String> = [
@@ -681,7 +680,6 @@ struct CollectionWriter {
 
     private static func validateRenameSchema(on handle: OpaquePointer) throws {
         try WriteSchemaGuard.validateTable(.collections, required: renameColumns, inserting: false, on: handle)
-        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
     }
 
     private static func validateDeleteSchema(on connection: SQLiteConnection) throws {
@@ -693,7 +691,6 @@ struct CollectionWriter {
     private static func validateDeleteSchema(on handle: OpaquePointer) throws {
         try WriteSchemaGuard.validateTable(.collections, required: deleteColumns, inserting: false, on: handle)
         try WriteSchemaGuard.validateTable(.members, required: ["ZCOLLECTION"], inserting: false, on: handle)
-        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
     }
 
     private static func validateMembershipSchema(inserting: Bool, on connection: SQLiteConnection) throws {
@@ -738,8 +735,6 @@ struct CollectionWriter {
             inserting: inserting,
             on: handle
         )
-        _ = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
-        _ = try WriteSchemaGuard.entity(named: memberEntityName, on: handle)
     }
 
     private static func maximumPositiveSortKey(on handle: OpaquePointer) throws -> Int64 {
@@ -1101,8 +1096,7 @@ struct CollectionWriter {
     }
 
     private func addingCloudSyncWarning(to result: MutationResult) -> MutationResult {
-        guard result.warnings.contains(.cloudSyncFailed) == false else { return result }
-        return MutationResult(
+        MutationResult(
             backupHandle: result.backupHandle,
             localPK: result.localPK,
             stableID: result.stableID,

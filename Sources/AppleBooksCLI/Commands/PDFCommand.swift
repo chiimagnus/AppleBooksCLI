@@ -68,9 +68,6 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
         }
 
         let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
-        guard FileManager.default.isExecutableFile(atPath: workerURL.path) else {
-            throw CLIError.unavailable("PDF worker is unavailable.")
-        }
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(

@@ -32,6 +32,7 @@ struct CLIContractTests {
         #expect(help.stdout.contains("USAGE:"))
         #expect(help.stdout.contains("export"))
         #expect(help.stdout.contains("backups"))
+        #expect(help.stdout.contains("history"))
 
         let version = try harness.run(["--version"])
         #expect(version.status == 0)
@@ -64,10 +65,44 @@ struct CLIContractTests {
             ["books", "list"],
             ["export", "--format", "json"],
             ["backups", "list"],
+            ["history", "list"],
+            ["history", "get", "00000000-0000-4000-8000-000000000000"],
         ] {
             let command = try AppleBooksCLI.parseAsRoot(arguments)
             #expect((command as? any OperationHistoryRecordable) == nil)
         }
+    }
+
+    @Test
+    func processHistoryReadsDefaultHomeWithoutAppleBooksDatabasesOrRecursiveRecording() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let store = OperationHistoryStore(root: harness.historyRoot)
+        let privateArgument = "process-private-note"
+        let token = try store.begin(
+            operation: "annotations.update-note",
+            arguments: ["annotations", "update-note", "uuid", "--note", privateArgument]
+        )
+        try store.complete(token, exitCode: 0, stdout: "{\"committed\":true}\n", stderr: "")
+
+        let list = try harness.run(["history", "list", "--json"])
+        #expect(list.status == 0)
+        #expect(list.stderr.isEmpty)
+        #expect(list.stdout.contains(privateArgument) == false)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let listResult = try decoder.decode(HistoryListResult.self, from: Data(list.stdout.utf8))
+        #expect(listResult.items.count == 1)
+        #expect(listResult.items[0].id == token.id)
+
+        let get = try harness.run(["history", "get", token.id, "--json"])
+        #expect(get.status == 0)
+        #expect(get.stderr.isEmpty)
+        let detail = try decoder.decode(HistoryDetailResult.self, from: Data(get.stdout.utf8))
+        #expect(detail.id == token.id)
+        #expect(detail.arguments.contains(privateArgument))
+        #expect(detail.stdout == "{\"committed\":true}\n")
+        #expect(try store.list().count == 1)
     }
 
     @Test

@@ -22,6 +22,7 @@
 | 写 schema fail-closed | 已实现 | 写前验证 table/column/entity/NOT NULL invariant；漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供可发现的 help 与 version |
 | 人类输出与机器输出分离 | 已实现 | stdout 可组合；查询命令提供结构化 JSON；diagnostic 走 stderr |
+| operation history | 已实现（强化） | 最近 24 小时保存目标写入/同步 CLI tool call；`history list` 只返回摘要，`history get` 才返回完整私有 argv/stdout/stderr；本地私有 store，不提供 undo |
 
 ## Books
 

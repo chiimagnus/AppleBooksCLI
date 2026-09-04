@@ -18,6 +18,7 @@ struct AppleBooksCLI: ParsableCommand {
             PDFCommand.self,
             ExportCommand.self,
             BackupsCommand.self,
+            HistoryCommand.self,
         ]
     )
 }

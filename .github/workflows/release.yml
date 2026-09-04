@@ -6,7 +6,6 @@ on:
       - "v*"
 
 permissions:
-  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -19,7 +18,7 @@ jobs:
   release:
     name: Publish tagged release
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -52,9 +51,6 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor HEAD origin/main || { echo "release tag must point at a commit on main" >&2; exit 1; }
 
-          CI_STATE=$(gh run list --workflow ci.yml --event push --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq 'if length == 0 then "" else "\(.[0].status):\(.[0].conclusion)" end')
-          test "$CI_STATE" = "completed:success" || { echo "exact-SHA CI must succeed before tagging; got: ${CI_STATE:-missing}" >&2; exit 1; }
-
           npm view @chiimagnus/applebookscli dist-tags --json > "$RUNNER_TEMP/npm-tags.json"
           LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.latest ?? "")' "$RUNNER_TEMP/npm-tags.json")
           BETA=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.beta ?? "")' "$RUNNER_TEMP/npm-tags.json")
@@ -63,6 +59,9 @@ jobs:
             exit 1
           fi
           node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
+
+      - name: Run release CI gates
+        run: scripts/ci-gates.sh
 
       - name: Build release package
         env:

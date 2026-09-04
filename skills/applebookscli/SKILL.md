@@ -1,6 +1,10 @@
 ---
 name: applebookscli
 description: 通过 `applebookscli` 实际查询、定位、导出或安全修改用户的 Apple Books 图书、阅读状态、EPUB/PDF、批注与藏书
+license: AGPL-3.0-only
+metadata:
+  cli_version: "0.1.6"
+  repository: "https://github.com/chiimagnus/AppleBooksCLI"
 ---
 
 # AppleBooksCLI

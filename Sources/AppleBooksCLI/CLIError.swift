@@ -153,6 +153,14 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if let cloudSyncError = error as? AppleBooksCloudSyncError {
+            switch cloudSyncError {
+            case .unavailable:
+                return .unavailable("Apple Books cloud sync is unavailable for the selected databases.")
+            case .acknowledgementFailed:
+                return .unavailable("Apple Books cloud sync did not reach acknowledgement.")
+            }
+        }
         if error is PDFHighlightFacadeError {
             return .unavailable("PDF worker is unavailable.")
         }

@@ -23,6 +23,34 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
+    func annotationMutationHelpExposesExplicitCloudSyncFlag() {
+        for subcommand in ["update-note", "delete"] {
+            var stdout = ""
+            var stderr = ""
+            let code = CLIEntrypoint.run(
+                arguments: ["annotations", subcommand, "--help"],
+                output: CLIOutput(stdout: { stdout += $0 }, stderr: { stderr += $0 })
+            )
+            #expect(code == CLIProcessExit.success.rawValue)
+            #expect(stderr.isEmpty)
+            #expect(stdout.contains("--sync"))
+            #expect(stdout.contains("CloudKit"))
+        }
+    }
+
+    @Test
+    func syncFlagPreservesCommittedAnnotationWhenLiveCloudRailIsUnavailable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let books = try fixture.books(controller: fixture.closedController())
+        let command = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "sync me", "--sync"])
+        let result = try command.execute(using: books)
+        #expect(result.committed)
+        #expect(result.warningCodes == ["cloud_sync_failed"])
+        #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "sync me")
+    }
+
+    @Test
     func updateNoteKeepsNumericUUIDSeparateFromExplicitPKAndDoesNotEchoNote() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -171,10 +199,11 @@ struct AnnotationWriteCommandTests {
                   ZANNOTATIONDELETED INTEGER,
                   ZANNOTATIONUUID TEXT,
                   ZANNOTATIONNOTE TEXT,
-                  ZANNOTATIONMODIFICATIONDATE REAL
+                  ZANNOTATIONMODIFICATIONDATE REAL,
+                  ZFUTUREPROOFING6 TEXT
                 );
-                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,'123','old note',1);
-                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,'other','other note',1);
+                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,'123','old note',1,'1');
+                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,'other','other note',1,'1');
                 """)
             try Data(#"{"historical_assets":{}}"#.utf8).write(to: config)
         }

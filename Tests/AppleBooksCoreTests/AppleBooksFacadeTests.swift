@@ -42,6 +42,107 @@ struct AppleBooksFacadeTests {
     }
 
     @Test
+    func pendingCloudSyncSnapshotsBothDomainsAndUsesOneLifecycle() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        var events: [String] = []
+        var running = false
+        var collectionPending = 2
+        var annotationPending = 1
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { events.append("terminate"); running = false; return true },
+            launch: { events.append("launch"); running = true },
+            sleep: { _ in }
+        )
+        let collectionSynchronizer = CollectionCloudSynchronizer(
+            booksApp: controller,
+            detailState: { _ in nil },
+            memberState: { _, _ in nil },
+            deletedMemberStates: { _ in [] },
+            pendingCount: { collectionPending },
+            recycleAction: {
+                events.append("recycle")
+                collectionPending = 0
+                annotationPending = 0
+            }
+        )
+        let annotationSynchronizer = AnnotationCloudSynchronizer(
+            booksApp: controller,
+            stateAction: { _ in nil },
+            pendingCount: { annotationPending }
+        )
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(
+                database: fixture.library,
+                booksApp: controller,
+                cloudSynchronizer: collectionSynchronizer
+            ),
+            annotationWriter: AnnotationWriter(
+                database: fixture.annotations,
+                booksApp: controller,
+                cloudSynchronizer: annotationSynchronizer
+            )
+        )
+
+        let summary = try books.syncPendingCloudChanges()
+
+        #expect(summary == CloudSyncSummary(collectionPendingBefore: 2, annotationPendingBefore: 1))
+        #expect(events == ["recycle", "launch"])
+    }
+
+    @Test
+    func annotationOnlyPendingCloudSyncRestartsRunningBooksOnce() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        var events: [String] = []
+        var running = true
+        var annotationPending = 1
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { events.append("terminate"); running = false; return true },
+            launch: { events.append("launch"); running = true; annotationPending = 0 },
+            sleep: { _ in }
+        )
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(
+                database: fixture.library,
+                booksApp: controller,
+                cloudSynchronizer: CollectionCloudSynchronizer(
+                    booksApp: controller,
+                    detailState: { _ in nil },
+                    memberState: { _, _ in nil },
+                    deletedMemberStates: { _ in [] },
+                    pendingCount: { 0 },
+                    recycleAction: { events.append("recycle") }
+                )
+            ),
+            annotationWriter: AnnotationWriter(
+                database: fixture.annotations,
+                booksApp: controller,
+                cloudSynchronizer: AnnotationCloudSynchronizer(
+                    booksApp: controller,
+                    stateAction: { _ in nil },
+                    pendingCount: { annotationPending }
+                )
+            )
+        )
+
+        let summary = try books.syncPendingCloudChanges()
+
+        #expect(summary == CloudSyncSummary(collectionPendingBefore: 0, annotationPendingBefore: 1))
+        #expect(events == ["terminate", "launch"])
+    }
+
+    @Test
     func currentLocationFailsClosedWhenBookAssetIdColumnIsMissing() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -35,6 +35,38 @@ struct BooksAppControllerTests {
     }
 
     @Test
+    func terminationWaitsForCapturedProcessAfterBundleInventoryDropsIt() throws {
+        var bundleRunning = true
+        var processAlive = true
+        var sleepCount = 0
+        let controller = BooksAppController(
+            isRunning: { bundleRunning },
+            terminate: { true },
+            launch: {},
+            runningProcessIDs: { [4242] },
+            isProcessAlive: { pid in
+                #expect(pid == 4242)
+                return processAlive
+            },
+            sleep: { _ in
+                sleepCount += 1
+                if sleepCount == 1 {
+                    bundleRunning = false
+                } else {
+                    processAlive = false
+                }
+            },
+            timeout: 3,
+            pollInterval: 0.01
+        )
+
+        try controller.terminateAndWait()
+        #expect(sleepCount == 2)
+        #expect(bundleRunning == false)
+        #expect(processAlive == false)
+    }
+
+    @Test
     func terminateFailureAndTimeoutAreStructured() throws {
         let rejected = BooksAppController(
             isRunning: { true },

@@ -33,6 +33,80 @@ struct MutationCoordinatorLifecycleTests {
     }
 
     @Test
+    func cloudProjectionRunsAfterReadBackBeforeRelaunch() throws {
+        let fixture = try fixture(running: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(8)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in fixture.state.events.append("cloudProjection") },
+            readBack: { _, _ in fixture.state.events.append("readBack") }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+    }
+
+    @Test
+    func cloudProjectionFailureIsCommittedWarningAndStillRelaunches() throws {
+        let fixture = try fixture(running: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(9)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in
+                fixture.state.events.append("cloudProjection")
+                throw TestFailure.cloudProjection
+            },
+            readBack: { _, _ in fixture.state.events.append("readBack") }
+        )
+
+        #expect(result.committed)
+        #expect(result.localPK == 9)
+        #expect(result.warnings == [.cloudProjectionFailed])
+        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+        #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
+    func readBackFailureSkipsCloudProjectionAndReportsBothWarnings() throws {
+        let fixture = try fixture(running: true)
+        defer { fixture.remove() }
+        var projectionCount = 0
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(10)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in projectionCount += 1 },
+            readBack: { _, _ in throw TestFailure.readBack }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings == [.readBackFailed, .cloudProjectionFailed])
+        #expect(projectionCount == 0)
+        #expect(fixture.state.running)
+        #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
     func originallyClosedNeverTerminatesOrLaunches() throws {
         let fixture = try fixture(running: false)
         defer { fixture.remove() }
@@ -328,6 +402,7 @@ struct MutationCoordinatorLifecycleTests {
         case backup
         case mutation
         case readBack
+        case cloudProjection
         case launch
     }
 }

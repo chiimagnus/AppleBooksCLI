@@ -14,21 +14,21 @@ enum AnnotationSelector: Equatable, Sendable {
         }
     }
 
-    func updateNote(_ note: String, in books: AppleBooks) throws -> MutationResult {
+    func updateNote(_ note: String, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
         switch self {
         case let .uuid(uuid):
-            try books.updateAnnotationNote(uuid: uuid, note: note)
+            try books.updateAnnotationNote(uuid: uuid, note: note, syncCloud: syncCloud)
         case let .localPK(localPK):
-            try books.updateAnnotationNote(localPK: localPK, note: note)
+            try books.updateAnnotationNote(localPK: localPK, note: note, syncCloud: syncCloud)
         }
     }
 
-    func delete(in books: AppleBooks) throws -> MutationResult {
+    func delete(in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
         switch self {
         case let .uuid(uuid):
-            try books.deleteAnnotation(uuid: uuid)
+            try books.deleteAnnotation(uuid: uuid, syncCloud: syncCloud)
         case let .localPK(localPK):
-            try books.deleteAnnotation(localPK: localPK)
+            try books.deleteAnnotation(localPK: localPK, syncCloud: syncCloud)
         }
     }
 }

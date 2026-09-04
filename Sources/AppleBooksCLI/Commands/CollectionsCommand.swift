@@ -163,6 +163,9 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, help: "Optional collection details.")
     var details: String?
 
+    @Flag(name: .long, help: "After local commit, recycle the Apple Books data service, launch Books, and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -175,7 +178,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try books.createCollection(title: title, details: details))
+            return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
         }
     }
 }
@@ -195,6 +198,9 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .customLong("title"), help: "Replacement collection title.")
     var title: String
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -208,7 +214,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.rename(to: title, in: books))
+            return MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
         }
     }
 }
@@ -225,6 +231,9 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -238,7 +247,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.delete(in: books))
+            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }
 }
@@ -261,6 +270,9 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -279,7 +291,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books))
+            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
         }
     }
 }
@@ -302,6 +314,9 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -320,7 +335,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books))
+            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
         }
     }
 }

@@ -10,7 +10,7 @@
 | [`capability-matrix.md`](capability-matrix.md) | 用户与维护者：**当前能力范围与明确不支持项的唯一 owner** | 新增、删除或改变用户可见 capability / safety boundary | `CapabilityParityTests`、`CLICapabilityReachabilityTests`、`capability-anchors.json` |
 | [`architecture.md`](architecture.md) | 维护者：跨模块数据流、identity、source、分层与非目标 | DB/source/identity、Core↔CLI↔worker、config、export ownership 变化 | `Sources/**` + 对应 executable tests |
 | [`cli-contract.md`](cli-contract.md) | CLI/自动化调用方：process exit、stdout/stderr、JSON error contract | exit code、JSON envelope、parse/help/version/completion 行为变化 | `CLIEntrypoint`、`CLIError`、output/contract tests |
-| [`write-safety.md`](write-safety.md) | 维护者与高风险调用方：mutation/backup/restore/lifecycle 的唯一安全顺序 owner | writable scope、schema guard、backup/restore、Books lifecycle、irreversible result 变化 | mutation/restore/lifecycle implementation + tests |
+| [`write-safety.md`](write-safety.md) | 维护者与高风险调用方：mutation/backup/restore/lifecycle/cloud-sync 的唯一安全顺序 owner | writable scope、schema guard、backup/restore、Books lifecycle、cloud rail、irreversible result 变化 | mutation/restore/cloud implementation + tests/live gates |
 | [`release.md`](release.md) | 维护者：release version、channel、tag preflight 与 publication pipeline 的唯一 owner | tag/version、channel、CI gate、npm/GitHub publication 或 release artifact 变化 | `.github/workflows/release.yml`、`scripts/build-release.sh`、release metadata/order tests |
 | [`macos-27-schema-baseline.md`](macos-27-schema-baseline.md) | 维护者：一个**带日期和系统版本作用域**的实机 schema/behavior 观测 | 需要建立新的 macOS baseline 时新增/更新明确的采样记录；不能因产品实现变化自动改写历史观测 | 只读实机 schema sampling；不是产品 contract |
 

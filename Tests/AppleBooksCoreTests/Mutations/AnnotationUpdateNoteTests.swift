@@ -24,6 +24,7 @@ struct AnnotationUpdateNoteTests {
         #expect(try text(fixture.database, "SELECT ZANNOTATIONSELECTEDTEXT FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-selected")
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
         #expect(try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") > 1)
+        #expect(try double(fixture.database, "SELECT ZFUTUREPROOFING6 FROM ZAEANNOTATION WHERE Z_PK=1") > 1)
         #expect(try integer(fixture.database, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 99)
     }
 
@@ -193,14 +194,15 @@ struct AnnotationUpdateNoteTests {
               ZANNOTATIONUUID TEXT COLLATE NOCASE,
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONMODIFICATIONDATE REAL,
-              ZANNOTATIONSELECTEDTEXT TEXT
+              ZANNOTATIONSELECTEDTEXT TEXT,
+              ZFUTUREPROOFING6 TEXT
             )
             """)
         let deletedSQL = deleted.map(String.init) ?? "NULL"
-        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(1,\(entityID),3,\(deletedSQL),'uuid-1','old-note',1,'keep-selected')")
-        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(3,17,1,0,'UUID-1','upper-note',1,'upper-selected')")
+        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(1,\(entityID),3,\(deletedSQL),'uuid-1','old-note',1,'keep-selected','1')")
+        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(3,17,1,0,'UUID-1','upper-note',1,'upper-selected','1')")
         if duplicateUUID {
-            try execute(database, "INSERT INTO ZAEANNOTATION VALUES(2,17,1,0,'uuid-1','other',1,'other-selected')")
+            try execute(database, "INSERT INTO ZAEANNOTATION VALUES(2,17,1,0,'uuid-1','other',1,'other-selected','1')")
         }
     }
 

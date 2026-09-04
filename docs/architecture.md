@@ -15,6 +15,10 @@
 Apple Books
 ├── BKLibrary SQLite
 ├── AEAnnotation SQLite
+├── BookDataStore cloud representations
+│   ├── BCCollectionDetail / BCCollectionMember
+│   └── BCAssetAnnotations
+├── Apple-owned CloudKit sync lifecycle
 ├── local / iCloud EPUB resources
 └── PDF files
           │
@@ -24,7 +28,8 @@ Apple Books
     ├── EPUB / CFI
     ├── PDF worker protocol
     ├── export
-    └── guarded mutation / restore
+    ├── guarded mutation / restore
+    └── cloud projection / acknowledgement flush
           │
           ▼
     applebookscli
@@ -49,12 +54,14 @@ Apple Books
 
 ## 两个 SQLite store 必须分开
 
-BKLibrary 与 AEAnnotation 是两个独立 store：
+BKLibrary 与 AEAnnotation 是两个独立业务 store：
 
 - 分别发现、分别允许 override、分别打开连接；
 - 普通读取使用 strict read-only SQLite connection；
 - annotation 生命周期不依赖 current BKLibrary row 存在；
 - current Book metadata 只是 annotation enrichment，不是 annotation existence 条件。
+
+写入后还存在独立的 Apple BookDataStore cloud representation：collection detail/member 与 annotation asset data 不能互相代替，也不能把业务 SQLite commit 直接当成 CloudKit change。AppleBooksCLI 只使用当前已验证的 Apple framework primitive 产生 dirty representation；真正的 CloudKit attach/upload 继续由 Apple-owned service/client lifecycle 完成，第三方 CLI 不伪造 Apple identity/entitlement 直接连接 Apple Books CloudKit container。
 
 读取与写入使用不同 schema 策略：
 
@@ -158,7 +165,7 @@ query/content/PDF source
 
 ## CLI 与下游边界
 
-CLI root 当前拥有 `doctor`、`books`、`reading`、`stats`、`content`、`annotations`、`collections`、`pdf`、`export`、`backups`、`skill`。完整参数不在文档手抄，使用：
+CLI root 当前拥有 `doctor`、`books`、`reading`、`stats`、`content`、`annotations`、`collections`、`sync`、`pdf`、`export`、`backups`、`skill`。完整参数不在文档手抄，使用：
 
 ```sh
 applebookscli <group> --help

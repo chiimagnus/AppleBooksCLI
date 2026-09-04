@@ -44,27 +44,41 @@ struct CollectionWriter {
     private static let sortKeyStep: Int64 = 10_000
     private static let defaultSortMode: Int64 = 6
 
+    private let database: URL
     private let coordinator: MutationCoordinator
+    private let cloudProjector: CollectionCloudProjector?
+    private let cloudSynchronizer: CollectionCloudSynchronizer?
 
     init(
         database: URL,
         backupRoot: URL = SQLiteBackup.defaultRoot(),
         keep: Int = SQLiteBackup.retentionCount,
-        booksApp: BooksAppController = .live
+        booksApp: BooksAppController = .live,
+        cloudProjector: CollectionCloudProjector? = nil,
+        cloudSynchronizer: CollectionCloudSynchronizer? = nil
     ) {
+        self.database = database
         coordinator = MutationCoordinator(
             database: database,
             backupRoot: backupRoot,
             keep: keep,
             booksApp: booksApp
         )
+        self.cloudProjector = cloudProjector
+        self.cloudSynchronizer = cloudSynchronizer
     }
 
-    func createCollection(title: String, details: String? = nil) throws -> MutationResult {
+    func createCollection(title: String, details: String? = nil, syncCloud: Bool = false) throws -> MutationResult {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        return try coordinator.perform(
+        let cloudProjection: ((CreatedCollection) throws -> Void)? = cloudProjector.map { projector in
+            { created in
+                try projector.project(.collection(localPK: created.localPK))
+            }
+        }
+
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateCreateSchema(on: connection)
             },
@@ -96,7 +110,9 @@ struct CollectionWriter {
                     localPK: allocation.localPK,
                     entityID: allocation.entityID,
                     collectionID: collectionID,
-                    title: normalizedTitle
+                    title: normalizedTitle,
+                    sortKey: sortKey,
+                    timestamp: timestamp
                 )
             },
             invariant: { handle, created in
@@ -110,6 +126,7 @@ struct CollectionWriter {
             domainData: {
                 MutationDomainData(localPK: $0.localPK, stableID: $0.collectionID, changed: true)
             },
+            cloudProjection: cloudProjection,
             readBack: { connection, created in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
                       collection.collectionID == created.collectionID,
@@ -118,61 +135,65 @@ struct CollectionWriter {
                 }
             }
         )
+        return syncIfRequested(syncCloud, result: result) { synchronizer in
+            guard let localPK = result.localPK else { throw CollectionCloudSyncError.cloudRecordMissing }
+            try synchronizer.syncCollection(localPK: localPK)
+        }
     }
 
-    func renameCollection(localPK: Int64, newTitle: String) throws -> MutationResult {
-        try renameCollection(.localPK(localPK), newTitle: newTitle)
+    func renameCollection(localPK: Int64, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
+        try renameCollection(.localPK(localPK), newTitle: newTitle, syncCloud: syncCloud)
     }
 
-    func renameCollection(collectionID: String, newTitle: String) throws -> MutationResult {
-        try renameCollection(.collectionID(collectionID), newTitle: newTitle)
+    func renameCollection(collectionID: String, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
+        try renameCollection(.collectionID(collectionID), newTitle: newTitle, syncCloud: syncCloud)
     }
 
-    func deleteCollection(localPK: Int64) throws -> MutationResult {
-        try deleteCollection(.localPK(localPK))
+    func deleteCollection(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try deleteCollection(.localPK(localPK), syncCloud: syncCloud)
     }
 
-    func deleteCollection(collectionID: String) throws -> MutationResult {
-        try deleteCollection(.collectionID(collectionID))
+    func deleteCollection(collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
+        try deleteCollection(.collectionID(collectionID), syncCloud: syncCloud)
     }
 
-    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
-        try addBook(.localPK(bookLocalPK), to: .localPK(collectionLocalPK))
+    func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try addBook(.localPK(bookLocalPK), to: .localPK(collectionLocalPK), syncCloud: syncCloud)
     }
 
-    func addBook(assetID: String, toCollectionID collectionID: String) throws -> MutationResult {
-        try addBook(.assetID(assetID), to: .collectionID(collectionID))
+    func addBook(assetID: String, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
+        try addBook(.assetID(assetID), to: .collectionID(collectionID), syncCloud: syncCloud)
     }
 
-    func addBook(bookLocalPK: Int64, toCollectionID collectionID: String) throws -> MutationResult {
-        try addBook(.localPK(bookLocalPK), to: .collectionID(collectionID))
+    func addBook(bookLocalPK: Int64, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
+        try addBook(.localPK(bookLocalPK), to: .collectionID(collectionID), syncCloud: syncCloud)
     }
 
-    func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
-        try addBook(.assetID(assetID), to: .localPK(collectionLocalPK))
+    func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try addBook(.assetID(assetID), to: .localPK(collectionLocalPK), syncCloud: syncCloud)
     }
 
-    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
-        try removeBook(.localPK(bookLocalPK), from: .localPK(collectionLocalPK))
+    func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try removeBook(.localPK(bookLocalPK), from: .localPK(collectionLocalPK), syncCloud: syncCloud)
     }
 
-    func removeBook(assetID: String, fromCollectionID collectionID: String) throws -> MutationResult {
-        try removeBook(.assetID(assetID), from: .collectionID(collectionID))
+    func removeBook(assetID: String, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
+        try removeBook(.assetID(assetID), from: .collectionID(collectionID), syncCloud: syncCloud)
     }
 
-    func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String) throws -> MutationResult {
-        try removeBook(.localPK(bookLocalPK), from: .collectionID(collectionID))
+    func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
+        try removeBook(.localPK(bookLocalPK), from: .collectionID(collectionID), syncCloud: syncCloud)
     }
 
-    func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64) throws -> MutationResult {
-        try removeBook(.assetID(assetID), from: .localPK(collectionLocalPK))
+    func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try removeBook(.assetID(assetID), from: .localPK(collectionLocalPK), syncCloud: syncCloud)
     }
 
-    private func renameCollection(_ selector: CollectionWriteSelector, newTitle: String) throws -> MutationResult {
+    private func renameCollection(_ selector: CollectionWriteSelector, newTitle: String, syncCloud: Bool) throws -> MutationResult {
         let normalizedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTitle.isEmpty == false else { throw CollectionWriteError.invalidTitle }
 
-        return try coordinator.perform(
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateRenameSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -201,6 +222,9 @@ struct CollectionWriter {
             domainData: {
                 MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
             },
+            cloudProjection: cloudProjector.map { projector in
+                { target in try projector.project(.collection(localPK: target.localPK)) }
+            },
             readBack: { connection, target in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(target.localPK),
                       collection.title == normalizedTitle else {
@@ -208,10 +232,14 @@ struct CollectionWriter {
                 }
             }
         )
+        return syncIfRequested(syncCloud, result: result) { synchronizer in
+            guard let localPK = result.localPK else { throw CollectionCloudSyncError.cloudRecordMissing }
+            try synchronizer.syncCollection(localPK: localPK)
+        }
     }
 
-    private func deleteCollection(_ selector: CollectionWriteSelector) throws -> MutationResult {
-        try coordinator.perform(
+    private func deleteCollection(_ selector: CollectionWriteSelector, syncCloud: Bool) throws -> MutationResult {
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateDeleteSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -244,6 +272,9 @@ struct CollectionWriter {
             domainData: {
                 MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
             },
+            cloudProjection: cloudProjector.map { projector in
+                { target in try projector.project(.collection(localPK: target.localPK)) }
+            },
             readBack: { connection, target in
                 guard let handle = connection.handle,
                       try Self.isDeleted(localPK: target.localPK, on: handle),
@@ -252,10 +283,14 @@ struct CollectionWriter {
                 }
             }
         )
+        return syncIfRequested(syncCloud, result: result) { synchronizer in
+            guard let localPK = result.localPK else { throw CollectionCloudSyncError.cloudRecordMissing }
+            try synchronizer.syncCollection(localPK: localPK, deleting: true)
+        }
     }
 
-    private func addBook(_ bookSelector: BookWriteSelector, to collectionSelector: CollectionWriteSelector) throws -> MutationResult {
-        try coordinator.perform(
+    private func addBook(_ bookSelector: BookWriteSelector, to collectionSelector: CollectionWriteSelector, syncCloud: Bool) throws -> MutationResult {
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: true, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -327,6 +362,15 @@ struct CollectionWriter {
                     changed: $0.changed
                 )
             },
+            cloudProjection: cloudProjector.map { projector in
+                { mutation in
+                    var inputs: [CollectionCloudProjectionInput] = [.collection(localPK: mutation.collection.localPK)]
+                    if let assetID = mutation.assetID {
+                        inputs.append(.member(collectionLocalPK: mutation.collection.localPK, assetID: assetID))
+                    }
+                    try projector.project(inputs)
+                }
+            },
             readBack: { connection, result in
                 guard let handle = connection.handle,
                       let assetID = result.assetID,
@@ -339,10 +383,19 @@ struct CollectionWriter {
                 }
             }
         )
+        return syncIfRequested(syncCloud, result: result) { synchronizer in
+            guard let localPK = result.localPK else { throw CollectionCloudSyncError.cloudRecordMissing }
+            let assetID = try assetID(for: bookSelector)
+            if let assetID {
+                try synchronizer.syncMembership(collectionLocalPK: localPK, assetID: assetID, deleting: false)
+            } else {
+                try synchronizer.syncCollection(localPK: localPK)
+            }
+        }
     }
 
-    private func removeBook(_ bookSelector: BookWriteSelector, from collectionSelector: CollectionWriteSelector) throws -> MutationResult {
-        try coordinator.perform(
+    private func removeBook(_ bookSelector: BookWriteSelector, from collectionSelector: CollectionWriteSelector, syncCloud: Bool) throws -> MutationResult {
+        let result = try coordinator.perform(
             preflight: { connection in
                 try Self.validateMembershipSchema(inserting: false, on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
@@ -404,6 +457,15 @@ struct CollectionWriter {
                     changed: $0.changed
                 )
             },
+            cloudProjection: cloudProjector.map { projector in
+                { mutation in
+                    var inputs: [CollectionCloudProjectionInput] = [.collection(localPK: mutation.collection.localPK)]
+                    if let assetID = mutation.assetID {
+                        inputs.append(.member(collectionLocalPK: mutation.collection.localPK, assetID: assetID))
+                    }
+                    try projector.project(inputs)
+                }
+            },
             readBack: { connection, result in
                 if let assetID = result.assetID {
                     guard let handle = connection.handle,
@@ -417,6 +479,15 @@ struct CollectionWriter {
                 }
             }
         )
+        return syncIfRequested(syncCloud, result: result) { synchronizer in
+            guard let localPK = result.localPK else { throw CollectionCloudSyncError.cloudRecordMissing }
+            let assetID = try assetID(for: bookSelector)
+            if let assetID {
+                try synchronizer.syncMembership(collectionLocalPK: localPK, assetID: assetID, deleting: true)
+            } else {
+                try synchronizer.syncCollection(localPK: localPK)
+            }
+        }
     }
 
     private static func resolveCollection(
@@ -993,11 +1064,60 @@ struct CollectionWriter {
         return bind(value, to: statement, index: index)
     }
 
+    func pendingCloudChangeCount() throws -> Int {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        return try cloudSynchronizer.pendingCount()
+    }
+
+    func syncPendingCloudChanges() throws {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        try cloudSynchronizer.syncPending()
+    }
+
+    private func syncIfRequested(
+        _ requested: Bool,
+        result: MutationResult,
+        action: (CollectionCloudSynchronizer) throws -> Void
+    ) -> MutationResult {
+        guard requested else { return result }
+        guard cloudProjector != nil,
+              result.warnings.contains(.cloudProjectionFailed) == false,
+              let cloudSynchronizer else {
+            return addingCloudSyncWarning(to: result)
+        }
+        do {
+            try action(cloudSynchronizer)
+            return result
+        } catch {
+            return addingCloudSyncWarning(to: result)
+        }
+    }
+
+    private func assetID(for selector: BookWriteSelector) throws -> String? {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        guard let handle = connection.handle else { throw CollectionWriteError.bookMissing }
+        return try Self.resolveBook(selector, requireAssetID: false, on: handle).assetID
+    }
+
+    private func addingCloudSyncWarning(to result: MutationResult) -> MutationResult {
+        guard result.warnings.contains(.cloudSyncFailed) == false else { return result }
+        return MutationResult(
+            backupHandle: result.backupHandle,
+            localPK: result.localPK,
+            stableID: result.stableID,
+            changed: result.changed,
+            warnings: result.warnings + [.cloudSyncFailed]
+        )
+    }
+
     private struct CreatedCollection {
         let localPK: Int64
         let entityID: Int64
         let collectionID: String
         let title: String
+        let sortKey: Int64
+        let timestamp: Double
     }
 
     private struct MembershipMutationResult {

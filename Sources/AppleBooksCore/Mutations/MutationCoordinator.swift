@@ -38,6 +38,7 @@ struct MutationCoordinator {
         mutation: (OpaquePointer) throws -> T,
         invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
         domainData: (T) -> MutationDomainData,
+        cloudProjection: ((T) throws -> Void)? = nil,
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> MutationResult {
         let preflightConnection: SQLiteConnection
@@ -190,17 +191,31 @@ struct MutationCoordinator {
             writableOpen = false
         }
 
+        var readBackSucceeded = false
         do {
             let readBackConnection = try SQLiteConnection.readOnly(path: database.path)
             do {
                 try readBack(readBackConnection, payload)
                 try readBackConnection.close()
+                readBackSucceeded = true
             } catch {
                 try? readBackConnection.close()
                 warnings.append(.readBackFailed)
             }
         } catch {
             warnings.append(.readBackFailed)
+        }
+
+        if let cloudProjection {
+            if readBackSucceeded {
+                do {
+                    try cloudProjection(payload)
+                } catch {
+                    warnings.append(.cloudProjectionFailed)
+                }
+            } else {
+                warnings.append(.cloudProjectionFailed)
+            }
         }
 
         if wasRunning {

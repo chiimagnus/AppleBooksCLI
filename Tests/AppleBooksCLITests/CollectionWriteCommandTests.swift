@@ -23,6 +23,48 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
+    func collectionMutationHelpExposesExplicitCloudSyncFlag() {
+        for subcommand in ["create", "rename", "delete", "add-book", "remove-book"] {
+            var stdout = ""
+            var stderr = ""
+            let code = CLIEntrypoint.run(
+                arguments: ["collections", subcommand, "--help"],
+                output: CLIOutput(stdout: { stdout += $0 }, stderr: { stderr += $0 })
+            )
+            #expect(code == CLIProcessExit.success.rawValue)
+            #expect(stderr.isEmpty)
+            #expect(stdout.contains("--sync"))
+            #expect(stdout.contains("CloudKit"))
+        }
+    }
+
+    @Test
+    func createSyncFlagPreservesCommittedMutationAndSurfacesMissingLiveSyncAsWarning() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let command = try CollectionsCreateCommand.parse(["Synced Shelf", "--sync"])
+
+        let result = try command.execute(using: fixture.books())
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.warningCodes == ["cloud_sync_failed"])
+    }
+
+    @Test
+    func renameSyncFlagPreservesCommittedMutationWhenLiveCloudRailIsUnavailable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let command = try CollectionsRenameCommand.parse([
+            "550E8400-E29B-41D4-A716-446655440000", "--title", "Synced Rename", "--sync",
+        ])
+        let result = try command.execute(using: fixture.books())
+        #expect(result.committed)
+        #expect(result.warningCodes == ["cloud_sync_failed"])
+        #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Synced Rename")
+    }
+
+    @Test
     func createAndRenameUseCoreMutationRailAndStableRenamePreservesIdentity() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

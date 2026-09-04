@@ -6,7 +6,7 @@
 
 | 文档 | Audience / Job | Edit trigger | 主要 evidence / consumer |
 | --- | --- | --- | --- |
-| [`../README.md`](../README.md) | 最终用户入口：产品用途、安装、快速开始、常见任务、Skill、可选配置、平台限制与 license | 安装方式、用户入口、常见任务或顶层产品定位变化 | installed CLI / npm package |
+| [`../README.md`](../README.md) / [`../README.zh.md`](../README.zh.md) | 最终用户英文/中文入口：产品用途、安装、快速开始、常见任务、Skill、可选配置、平台限制与 license | 安装方式、用户入口、常见任务、语言版本或顶层产品定位变化；两份 README 的产品事实应保持一致 | installed CLI / npm package |
 | [`capability-matrix.md`](capability-matrix.md) | 用户与维护者：**当前能力范围与明确不支持项的唯一 owner** | 新增、删除或改变用户可见 capability / safety boundary | `CapabilityParityTests`、`CLICapabilityReachabilityTests`、`capability-anchors.json` |
 | [`architecture.md`](architecture.md) | 维护者：跨模块数据流、identity、source、分层与非目标 | DB/source/identity、Core↔CLI↔worker、config、export ownership 变化 | `Sources/**` + 对应 executable tests |
 | [`cli-contract.md`](cli-contract.md) | CLI/自动化调用方：process exit、stdout/stderr、JSON error contract | exit code、JSON envelope、parse/help/version/completion 行为变化 | `CLIEntrypoint`、`CLIError`、output/contract tests |
@@ -20,7 +20,7 @@
 
 | 文件 | Owner / consumer | Edit trigger |
 | --- | --- | --- |
-| [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) | 仓库发布的标准 Agent Skill；安装与 Agent 路径由 Agent Skills CLI 负责 | CLI workflow、安全边界或 Skill 内容变化；修改后必须跑 canonical Skill validator/packaging smoke |
+| [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) / [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md) | 仓库发布的英文/中文 Agent Skill；首次安装按 macOS 首选语言选择一个，Agent 路径由 Agent Skills CLI 负责 | CLI workflow、安全边界、语言版本或 Skill 内容变化；两份 Skill 的 CLI 契约与版本必须保持一致，并分别跑 canonical validator/packaging smoke |
 | [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | release archive / license provenance | `Package.swift` / `Package.resolved` 的实际 dependency/version/revision/license 变化 |
 
 ## 事实归属规则
@@ -29,7 +29,7 @@
 - **命令怎么拼**：以 `--help` 为准；长期文档只记录跨命令仍需稳定的语义。
 - **mutation / restore 顺序**：只改 `write-safety.md`；architecture 只链接，不复制 ceremony。
 - **稳定 identity / source / export 分层**：由 `architecture.md` 拥有。
-- **当前用户安装入口**：由 README 拥有；**release version/channel/tag preflight/publication pipeline** 由 `release.md` 拥有。Git tag 仍是 release version 的唯一执行 owner，具体历史不复制进 docs。
+- **当前用户安装入口**：由 `README.md` / `README.zh.md` 共同拥有并保持产品事实一致；**release version/channel/tag preflight/publication pipeline** 由 `release.md` 拥有。Git tag 仍是 release version 的唯一执行 owner，具体历史不复制进 docs。
 - **一次机器上的 schema 事实**：放 dated baseline，并明确 evidence scope；不能把 observed shape 自动升级为跨版本保证。
 - **机械验证命令**：由 tests、scripts、workflows 拥有；文档只说明何种变化应触发哪类验证，不复制整套 CI。
 

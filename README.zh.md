@@ -23,22 +23,13 @@
 ## 安装
 
 ```sh
-# 安装 CLI
 npm install --global @chiimagnus/applebookscli@latest
-
-# 按 macOS 首选语言安装对应 Skill；zh* 使用中文，其它语言默认英文
-CLI_VERSION="$(applebookscli --version)"
-PREFERRED_LANGUAGE="$(defaults read -g AppleLanguages 2>/dev/null | awk 'NR == 2 { gsub(/[",]/, ""); print $1 }')"
-case "${PREFERRED_LANGUAGE:-${LANG:-en}}" in
-  zh*) SKILL_NAME="applebookscli-zh" ;;
-  *) SKILL_NAME="applebookscli" ;;
-esac
-npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill "$SKILL_NAME" --global
+npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli-zh --global
 ```
 
-需要显式指定语言时，英文 Skill 使用 `--skill applebookscli`，中文 Skill 使用 `--skill applebookscli-zh`。
+英文 Skill 把第二条命令里的 `applebookscli-zh` 改成 `applebookscli` 即可。
 
-之后通过 npm 升级 CLI 时，若所选 Skill 仍由 Agent Skills CLI 管理，npm `postinstall` 会把已安装的语言版本自动切到相同的 `v<CLI版本>` tag 并调用官方 updater；没有安装 Skill 的用户不会受到影响。使用 `--ignore-scripts` 会显式关闭这条自动联动。此前手工复制的 Skill 没有 source tracking，只需按上面的标准命令重新安装一次即可接入后续自动更新。
+以后通过 npm 升级 CLI 时，由 Agent Skills CLI 管理的 Skill 会自动跟随到相同的 CLI release tag。使用 `--ignore-scripts` 会关闭这项自动更新。
 
 ## 获取帮助
 

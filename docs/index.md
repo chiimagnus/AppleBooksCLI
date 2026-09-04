@@ -20,7 +20,7 @@
 
 | 文件 | Owner / consumer | Edit trigger |
 | --- | --- | --- |
-| [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) / [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md) | 仓库发布的英文/中文 Agent Skill；首次安装按 macOS 首选语言选择一个，Agent 路径由 Agent Skills CLI 负责 | CLI workflow、安全边界、语言版本或 Skill 内容变化；两份 Skill 的 CLI 契约与版本必须保持一致，并分别跑 canonical validator/packaging smoke |
+| [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) / [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md) | 仓库发布的英文/中文 Agent Skill；英文 README 默认英文 Skill、中文 README 默认中文 Skill，Agent 路径由 Agent Skills CLI 负责 | CLI workflow、安全边界、语言版本或 Skill 内容变化；两份 Skill 的 CLI 契约与版本必须保持一致，并分别跑 canonical validator/packaging smoke |
 | [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | release archive / license provenance | `Package.swift` / `Package.resolved` 的实际 dependency/version/revision/license 变化 |
 
 ## 事实归属规则

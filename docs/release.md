@@ -32,7 +32,7 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
 7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
 
-Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。英文 `skills/applebookscli` 与中文 `skills/applebookscli-zh` 随 GitHub source/tag 发布，不进入 npm tarball；首次安装按 macOS 首选语言选择一个 Skill，目标 Agent 仍由 Agent Skills CLI 负责。npm 包只携带一个 postinstall bridge：如果发现 Agent Skills CLI 已管理其中任一语言版本，就把已安装版本的 source ref 对齐到当前 CLI tag，再委托 `skills update` 更新现有 targets；没有已管理 Skill 时静默跳过。
+Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。英文 `skills/applebookscli` 与中文 `skills/applebookscli-zh` 随 GitHub source/tag 发布，不进入 npm tarball；README 分别提供对应语言的最短安装命令，目标 Agent 仍由 Agent Skills CLI 负责。npm 包只携带一个 postinstall bridge：如果发现 Agent Skills CLI 已管理其中任一语言版本，就把已安装版本的 source ref 对齐到当前 CLI tag，再委托 `skills update` 更新现有 targets；没有已管理 Skill 时静默跳过。
 
 ## 修改触发
 

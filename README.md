@@ -23,22 +23,13 @@ English | [简体中文](README.zh.md)
 ## Install
 
 ```sh
-# Install the CLI
 npm install --global @chiimagnus/applebookscli@latest
-
-# Install the matching Skill from the macOS preferred language; zh* selects Chinese, everything else defaults to English
-CLI_VERSION="$(applebookscli --version)"
-PREFERRED_LANGUAGE="$(defaults read -g AppleLanguages 2>/dev/null | awk 'NR == 2 { gsub(/[",]/, ""); print $1 }')"
-case "${PREFERRED_LANGUAGE:-${LANG:-en}}" in
-  zh*) SKILL_NAME="applebookscli-zh" ;;
-  *) SKILL_NAME="applebookscli" ;;
-esac
-npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill "$SKILL_NAME" --global
+npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-To override language selection explicitly, use `--skill applebookscli` for English or `--skill applebookscli-zh` for Chinese.
+For the Chinese Skill, replace `applebookscli` with `applebookscli-zh` in the second command.
 
-When the CLI is later upgraded through npm, its `postinstall` hook keeps the already managed language variant on the same `v<CLI version>` tag and delegates the actual update to Agent Skills CLI. Users who have not installed a Skill are unaffected. `--ignore-scripts` explicitly disables this automatic link. A Skill that was copied manually has no source tracking; reinstall it once with the standard command above to join the update path.
+Future npm upgrades keep an Agent Skills CLI-managed Skill on the same CLI release tag automatically. `--ignore-scripts` disables that automatic update.
 
 ## Help
 

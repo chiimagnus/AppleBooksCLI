@@ -46,6 +46,7 @@ npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill appl
 | 导出 JSON、CSV、Markdown、HTML 或完整笔记归档 | `export` |
 | 查看或恢复 CLI 创建的书库备份 | `backups list/restore` |
 | 刷新待同步的本地 cloud records | `sync` |
+| 恢复最近 AppleBooksCLI 写入/同步 tool calls 的上下文 | `history list/get` |
 | 排查权限、数据库发现或能力不可用 | `doctor` |
 
 ## Identity 与查询
@@ -76,6 +77,12 @@ npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill appl
 - 单条 mutation 只有在用户要求立即等待上传确认时才加 `--sync`。连续多条写入先逐条提交，最后运行一次 `applebookscli sync --json`。
 - `--sync` 或 `sync` 成功只证明当前 Mac 上待处理的 Apple Books cloud records 获得 CloudKit acknowledgement；没有第二台设备的证据时，不声称其它设备已经显示。
 - post-commit 同步失败属于已提交后的警告，不能自动重放 mutation。`backups restore` 替换的是 BKLibrary snapshot，也不等同于产生可逐条 flush 的 cloud mutation。
+
+## 操作历史
+
+- 当用户询问 AppleBooksCLI 刚才做过什么、当前 session 缺少近期 mutation 上下文，或用户希望基于近期 CLI 修改继续处理时，先运行 `applebookscli history list --json`；只有找到相关候选后才运行 `history get <id> --json`。
+- History 只是证据，不等于授权执行新的 mutation。用户确实要求改回、删除或继续修改时，仍按正常 stable identity 与 write-safety 规则执行新命令。
+- `incomplete` 表示结果未知，不能盲目重放此前 mutation；先做能够确认当前状态的最窄只读检查。
 
 ## 失败处理
 

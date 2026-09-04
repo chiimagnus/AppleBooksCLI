@@ -36,13 +36,14 @@ Apple Books
     ├── human stdout
     ├── stable JSON
     ├── exported files
-    └── explicit mutation commands
+    ├── explicit mutation commands
+    └── local operation history
           │
           ▼
     downstream consumers
 ```
 
-下游消费者只消费 CLI 的稳定输出或产物，不应重新 query Apple Books SQLite、复制 Core Data schema、重新实现 CFI/EPUB resolver、扫描 PDF internals，或绕过 guarded mutation rail。
+下游消费者只消费 CLI 的稳定输出或产物，不应重新 query Apple Books SQLite、复制 Core Data schema、重新实现 CFI/EPUB resolver、扫描 PDF internals，或绕过 guarded mutation rail。Agent 需要近期 AppleBooksCLI 操作上下文时只通过 `history list/get` 读取，不直接解析 Application Support 中的 JSONL。
 
 ## Runtime 与依赖边界
 
@@ -165,13 +166,13 @@ query/content/PDF source
 
 ## CLI 与下游边界
 
-CLI root 当前拥有 `doctor`、`books`、`reading`、`stats`、`content`、`annotations`、`collections`、`sync`、`pdf`、`export`、`backups`、`skill`。完整参数不在文档手抄，使用：
+CLI root 当前拥有 `doctor`、`books`、`reading`、`stats`、`content`、`annotations`、`collections`、`sync`、`pdf`、`export`、`backups`、`history`。完整参数不在文档手抄，使用：
 
 ```sh
 applebookscli <group> --help
 ```
 
-machine/human process contract 由 [`cli-contract.md`](cli-contract.md) 拥有。Notion、MCP 或其它消费者不得要求 AppleBooksCore 为特定 transport/UI 复制一套业务逻辑。
+operation history 由 CLI process 层拥有，AppleBooksCore 不依赖它；它记录近期 tool-call context，不是 backup、transaction journal、CloudKit log 或 undo engine。machine/human process contract 由 [`cli-contract.md`](cli-contract.md) 拥有。Notion、MCP 或其它消费者不得要求 AppleBooksCore 为特定 transport/UI 复制一套业务逻辑。
 
 ## 架构非目标
 

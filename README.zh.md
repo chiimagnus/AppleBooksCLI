@@ -13,6 +13,7 @@
 - 提取 PDF 划线与笔记。
 - 导出 JSON、CSV、Markdown 或 HTML。
 - **安全修改笔记、管理藏书，并在写入前自动备份。**
+- 通过本地 operation history 查看最近 24 小时的 AppleBooksCLI 写入/同步 tool calls。
 - 提供标准 `applebookscli` Agent Skill，并提供英文/中文两个版本。
 
 ## 系统要求
@@ -141,6 +142,17 @@ applebookscli sync --json
 ```
 
 `sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
+
+## 操作历史
+
+AppleBooksCLI 会在本机私有保存最近 24 小时的笔记/藏书 mutation、backup restore 与显式 `sync` 调用。`history list` 只返回摘要；只有显式 `history get` 才返回完整记录，其中可能包含原始 note/title/details/selector 以及捕获的 stdout/stderr。
+
+```sh
+applebookscli history list --json
+applebookscli history get <history-id> --json
+```
+
+History 只存放在当前用户的 AppleBooksCLI Application Support 目录中；AppleBooksCLI 不把它作为 telemetry 上传，也不跨设备同步。它只是既往 tool call 的证据，不是 undo engine。
 
 ## 可选配置
 

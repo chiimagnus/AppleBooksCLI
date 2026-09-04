@@ -1064,6 +1064,16 @@ struct CollectionWriter {
         return bind(value, to: statement, index: index)
     }
 
+    func pendingCloudChangeCount() throws -> Int {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        return try cloudSynchronizer.pendingCount()
+    }
+
+    func syncPendingCloudChanges() throws {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        try cloudSynchronizer.syncPending()
+    }
+
     private func syncIfRequested(
         _ requested: Bool,
         result: MutationResult,

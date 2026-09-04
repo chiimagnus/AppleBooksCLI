@@ -100,7 +100,7 @@ applebookscli pdf list
 applebookscli pdf highlights --help
 ```
 
-AppleBooksCLI 只读取本机当前可访问的内容；不会为了检查内容而主动触发 iCloud 下载，也不会绕过 DRM。
+EPUB 在读取正文前会先检查本地 materialization 状态，不主动触发 iCloud hydration，也不会绕过 DRM。PDF 只处理当前可解析为可读本地文件的 source；对 iCloud placeholder 的 non-hydrating 行为尚未建立等价保证。
 
 ## 导出
 
@@ -112,7 +112,7 @@ applebookscli export --format markdown --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
 ```
 
-还支持 CSV、HTML、按书分组、筛选划线/笔记、Obsidian 格式、封面与完整笔记归档等选项。HTML 与 Markdown 中的 EPUB 批注会附带可点击的 `Open in Apple Books`；JSON 与 CSV 也会保留对应 deep link，方便其它工具继续使用：
+还支持 CSV、HTML、按书分组、筛选划线/笔记、Obsidian 格式、封面与完整笔记归档等选项。有 CFI 的 EPUB 批注在 HTML/Markdown 中会把 `Location` 本身做成 Apple Books deep link；无 CFI 时退化为书籍级链接。JSON/CSV 保留对应 `appleBooksURL`：
 
 ```sh
 applebookscli export --help
@@ -128,13 +128,21 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
-创建藏书时可以显式要求等待 Apple Books 的 CloudKit acknowledgement：
+单条 collection / annotation mutation 可加 `--sync`，在本地 commit + cloud projection 后等待当前 Mac 的 CloudKit acknowledgement：
 
 ```sh
 applebookscli collections create "My Shelf" --sync --json
 ```
 
-`--sync` 只用于 collection create：本地提交后会受控重建 Apple Books 数据服务、启动 Books，并等待该 collection 的 cloud row 获得 acknowledgement。它会产生应用/系统服务生命周期副作用，因此不会默认启用。成功确认的是当前 Mac 已把该 collection 上传到 Apple Books 的 iCloud CloudKit；是否已经在另一台设备显示，仍需在对应设备上单独确认。其它 collection/annotation mutation 目前不能由本地 `committed=true` 外推为已同步到 iCloud。
+连续多条写入时，优先正常提交各 mutation，最后只 flush 一次：
+
+```sh
+applebookscli collections create "Shelf A" --json
+applebookscli annotations update-note <annotation-uuid> --note "New note" --json
+applebookscli sync --json
+```
+
+`sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
 
 ## 安装 AppleBooksCLI Skill
 

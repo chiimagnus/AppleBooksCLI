@@ -24,12 +24,14 @@ struct CollectionCloudSynchronizer {
     typealias DetailStateAction = (Int64) throws -> CollectionCloudSyncState?
     typealias MemberStateAction = (Int64, String) throws -> CollectionCloudSyncState?
     typealias DeletedMemberStatesAction = (Int64) throws -> [CollectionCloudSyncState]
+    typealias PendingCountAction = () throws -> Int
     typealias RecycleAction = () throws -> Void
 
     private let booksApp: BooksAppController
     private let detailStateAction: DetailStateAction
     private let memberStateAction: MemberStateAction
     private let deletedMemberStatesAction: DeletedMemberStatesAction
+    private let pendingCountAction: PendingCountAction
     private let recycleAction: RecycleAction
     private let sleepAction: (TimeInterval) -> Void
     private let pollInterval: TimeInterval
@@ -40,6 +42,7 @@ struct CollectionCloudSynchronizer {
         detailState: @escaping DetailStateAction,
         memberState: @escaping MemberStateAction,
         deletedMemberStates: @escaping DeletedMemberStatesAction,
+        pendingCount: @escaping PendingCountAction = { 0 },
         recycleAction: @escaping RecycleAction,
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
         pollInterval: TimeInterval = 0.1,
@@ -49,6 +52,7 @@ struct CollectionCloudSynchronizer {
         detailStateAction = detailState
         memberStateAction = memberState
         deletedMemberStatesAction = deletedMemberStates
+        pendingCountAction = pendingCount
         self.recycleAction = recycleAction
         sleepAction = sleep
         self.pollInterval = pollInterval
@@ -67,6 +71,16 @@ struct CollectionCloudSynchronizer {
         try waitUntil {
             try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting)
         }
+    }
+
+    func pendingCount() throws -> Int {
+        try pendingCountAction()
+    }
+
+    func syncPending() throws {
+        guard try pendingCountAction() > 0 else { return }
+        try triggerSync()
+        try waitUntil { try pendingCountAction() == 0 }
     }
 
     static func live(
@@ -94,6 +108,7 @@ struct CollectionCloudSynchronizer {
                 let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: localPK)
                 return try readMemberStates(database: location.database, collectionID: collectionID)
             },
+            pendingCount: { try readPendingCount(database: location.database) },
             recycleAction: liveRecycle
         )
     }
@@ -178,6 +193,27 @@ struct CollectionCloudSynchronizer {
             states.append(try state(from: SQLiteRow(statement: statement)))
         }
         return states
+    }
+
+    private static func readPendingCount(database: URL) throws -> Int {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare("""
+            SELECT
+              (SELECT COUNT(*) FROM ZBCCOLLECTIONDETAIL
+               WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0)
+              +
+              (SELECT COUNT(*) FROM ZBCCOLLECTIONMEMBER
+               WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0)
+              AS ZPENDINGCOUNT
+            """)
+        guard try statement.step() else { throw CollectionCloudSyncError.cloudRecordInvalid }
+        let row = try SQLiteRow(statement: statement)
+        guard let count = try row.int64("ZPENDINGCOUNT"), count >= 0, count <= Int64(Int.max),
+              try statement.step() == false else {
+            throw CollectionCloudSyncError.cloudRecordInvalid
+        }
+        return Int(count)
     }
 
     private static func state(from row: SQLiteRow) throws -> CollectionCloudSyncState {

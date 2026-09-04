@@ -73,6 +73,57 @@ struct AnnotationCloudSynchronizerTests {
     }
 
     @Test
+    func pendingBatchWithNoChangesSkipsBooksLifecycle() throws {
+        let events = Events()
+        let synchronizer = AnnotationCloudSynchronizer(
+            booksApp: controller(events: events, running: false),
+            stateAction: { _ in nil },
+            pendingCount: { 0 }
+        )
+        #expect(try synchronizer.pendingCount() == 0)
+        try synchronizer.syncPending()
+        #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func annotationOnlyPendingBatchRestartsAlreadyRunningBooksOnce() throws {
+        let events = Events()
+        var reads = 0
+        let synchronizer = AnnotationCloudSynchronizer(
+            booksApp: controller(events: events, running: true),
+            stateAction: { _ in nil },
+            pendingCount: {
+                defer { reads += 1 }
+                return reads < 2 ? 1 : 0
+            },
+            sleep: { _ in events.values.append("sleep") },
+            maxPollCount: 3
+        )
+        try synchronizer.syncPending(restartRunningBooks: true)
+        #expect(events.values == ["terminate", "launch", "sleep"])
+        #expect(reads == 3)
+    }
+
+    @Test
+    func pendingBatchLaunchesBooksOnceAndWaitsForAllAssets() throws {
+        let events = Events()
+        var reads = 0
+        let synchronizer = AnnotationCloudSynchronizer(
+            booksApp: controller(events: events, running: false),
+            stateAction: { _ in nil },
+            pendingCount: {
+                defer { reads += 1 }
+                return reads < 2 ? 2 : 0
+            },
+            sleep: { _ in events.values.append("sleep") },
+            maxPollCount: 3
+        )
+        try synchronizer.syncPending()
+        #expect(events.values == ["launch", "sleep"])
+        #expect(reads == 3)
+    }
+
+    @Test
     func dirtyAssetTimesOutWithoutPretendingAck() throws {
         let events = Events()
         let synchronizer = AnnotationCloudSynchronizer(

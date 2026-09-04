@@ -112,6 +112,37 @@ struct CollectionCloudSynchronizerTests {
     }
 
     @Test
+    func pendingBatchWithNoChangesSkipsLifecycle() throws {
+        let events = Events()
+        let synchronizer = makeSynchronizer(
+            events: events,
+            detail: { _ in nil },
+            pending: { 0 }
+        )
+        #expect(try synchronizer.pendingCount() == 0)
+        try synchronizer.syncPending()
+        #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func pendingBatchTriggersOneLifecycleAndWaitsForAllRows() throws {
+        let events = Events()
+        var reads = 0
+        let synchronizer = makeSynchronizer(
+            events: events,
+            detail: { _ in nil },
+            pending: {
+                defer { reads += 1 }
+                return reads < 2 ? 3 : 0
+            },
+            maxPollCount: 3
+        )
+        try synchronizer.syncPending()
+        #expect(events.values == ["recycle", "launch", "sleep"])
+        #expect(reads == 3)
+    }
+
+    @Test
     func dirtyRecordTimesOutWithoutPretendingAck() throws {
         let events = Events()
         let dirty = state(edit: 1, sync: 0, fields: 0)
@@ -128,6 +159,7 @@ struct CollectionCloudSynchronizerTests {
         detail: @escaping CollectionCloudSynchronizer.DetailStateAction,
         member: @escaping CollectionCloudSynchronizer.MemberStateAction = { _, _ in nil },
         deletedMembers: @escaping CollectionCloudSynchronizer.DeletedMemberStatesAction = { _ in [] },
+        pending: @escaping CollectionCloudSynchronizer.PendingCountAction = { 0 },
         maxPollCount: Int = 1
     ) -> CollectionCloudSynchronizer {
         var running = runningInitially
@@ -141,6 +173,7 @@ struct CollectionCloudSynchronizerTests {
             detailState: detail,
             memberState: member,
             deletedMemberStates: deletedMembers,
+            pendingCount: pending,
             recycleAction: { events.values.append("recycle") },
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: maxPollCount

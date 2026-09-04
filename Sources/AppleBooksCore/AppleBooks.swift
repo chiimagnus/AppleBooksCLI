@@ -10,6 +10,21 @@ public enum PDFHighlightFacadeError: Error, Equatable, Sendable {
     case workerUnavailable
 }
 
+public enum AppleBooksCloudSyncError: Error, Equatable, Sendable {
+    case unavailable
+    case acknowledgementFailed
+}
+
+public struct CloudSyncSummary: Equatable, Sendable {
+    public let collectionPendingBefore: Int
+    public let annotationPendingBefore: Int
+
+    public init(collectionPendingBefore: Int, annotationPendingBefore: Int) {
+        self.collectionPendingBefore = collectionPendingBefore
+        self.annotationPendingBefore = annotationPendingBefore
+    }
+}
+
 public final class AppleBooks {
     public static let defaultPDFWorkerTimeout: TimeInterval = PDFWorkerClient.defaultTimeout
 
@@ -202,6 +217,27 @@ public final class AppleBooks {
 
     public func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
         try collectionWriter.removeBook(assetID: assetID, fromCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+    }
+
+    public func syncPendingCloudChanges() throws -> CloudSyncSummary {
+        let collectionPending = try collectionWriter.pendingCloudChangeCount()
+        let annotationPending = try annotationWriter.pendingCloudChangeCount()
+        do {
+            if collectionPending > 0 {
+                try collectionWriter.syncPendingCloudChanges()
+            }
+            if annotationPending > 0 {
+                try annotationWriter.syncPendingCloudChanges(restartRunningBooks: collectionPending == 0)
+            }
+        } catch is AppleBooksCloudSyncError {
+            throw AppleBooksCloudSyncError.unavailable
+        } catch {
+            throw AppleBooksCloudSyncError.acknowledgementFailed
+        }
+        return CloudSyncSummary(
+            collectionPendingBefore: collectionPending,
+            annotationPendingBefore: annotationPending
+        )
     }
 
     public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {

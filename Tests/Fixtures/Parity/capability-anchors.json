@@ -50,6 +50,24 @@
       ]
     ]
   },
+  "批量 CloudKit flush": {
+    "owner": "core",
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Mutations/CollectionCloudSynchronizer.swift",
+      "Sources/AppleBooksCore/Mutations/AnnotationCloudSynchronizer.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/AppleBooksFacadeTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/CollectionCloudSynchronizerTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/AnnotationCloudSynchronizerTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "sync"
+      ]
+    ]
+  },
   "CFI chapter hint": {
     "owner": "core",
     "implementationPaths": [

@@ -59,7 +59,7 @@
 | list all / group by book | 已实现（展示） | 全库 user annotations 按 creation newest-first 取数后按书分组；orphan 与 null-location rows 必须保留。机器 JSON 不复制文本 formatter，也不能因展示分组改变 canonical ordering/identity |
 | annotations by book | 已实现 | book asset ID / numeric PK 可筛选；user-only 视图优先按 EPUB ToC chapter order、章内 creation 排序；内容不可读时降级到 creation/local-PK 稳定顺序但不得丢 annotation；raw scope 还必须能包含 active type=3 |
 | get/describe annotation | 已实现 | UUID 优先；numeric PK 可兼容；返回 raw 字段和关联书籍信息 |
-| Apple Books annotation deep link | 已实现（展示） | Core `Annotation` 从 raw asset ID + optional raw CFI 派生 `appleBooksURL`；annotation CLI 与全部 EPUB annotation export surface 复用同一值。HTML/Markdown 提供可点击的 `Open in Apple Books`，JSON/CSV 分别输出 `appleBooksURL` / `annotation_apple_books_url`；无 CFI 时退化为书籍级链接；deep link 不替代 asset ID / annotation UUID / raw CFI |
+| Apple Books annotation deep link | 已实现（展示） | Core `Annotation` 从 raw asset ID + optional raw CFI 派生 `appleBooksURL`；annotation CLI 与 EPUB export 复用同一值。HTML/Markdown 有 CFI 时让 `Location` 本身可点击，无 CFI 时退化为书籍级链接；JSON/CSV 分别输出 `appleBooksURL` / `annotation_apple_books_url`。deep link 不替代 asset ID / annotation UUID / raw CFI |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 作为独立原始状态保留 |
 | export/filter underline | 已实现 | `--colors ...underline` 的用户可见过滤能力不能丢 |
 | search highlighted text | 已实现 | case-insensitive partial search |
@@ -153,11 +153,12 @@
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback；domain mutation 不掌握事务边界 |
 | 写前 backup | 已实现 | SQLite online backup + integrity；本机已验证 read-only source 可用 |
 | backup list/retention | 已实现 | public backup list/restore surface 当前覆盖 BKLibrary；annotation mutation 同样创建内部 safety backup，但不公开第二套 annotation backup catalog |
-| restore | 已实现 | public restore 覆盖 BKLibrary：先校验并打开所选 restore source，记录/必要时 clean quit Books，再在 quiet state 对 live DB 创建 fresh safety backup，之后 SQLite-level apply、verify/retention 与条件 relaunch；post-apply failure 不能冒充未恢复 |
-| Books.app lifecycle | 已实现（强化） | 非变异前置检查先完成；若 Books 原先运行则 clean quit，COMMIT 后恢复运行；launch 失败为 success + warning |
+| restore | 已实现 | public restore 覆盖 BKLibrary：先校验并打开所选 restore source，记录/必要时 clean quit Books，再在 quiet state 对 live DB 创建 fresh safety backup，之后 SQLite-level apply、verify/retention 与条件 relaunch；post-apply failure 不能冒充未恢复。restore 是快照替换，不自动投影成一组 cloud mutation，也不属于 pending-cloud flush contract |
+| Books.app lifecycle | 已实现（强化） | 非变异前置检查先完成；若 Books 原先运行则 clean quit，COMMIT 后恢复运行；launch 失败为 success + warning。显式 CloudKit ack/flush 另有受控 lifecycle |
+| 批量 CloudKit flush | 已实现（强化） | 普通 collection/annotation mutation 在 commit 后生成 Apple-native dirty cloud representation；多次写入可不逐条 `--sync`，最后用根命令 `sync` 一次触发并等待所有 pending `BCCollectionDetail` / `BCCollectionMember` / `BCAssetAnnotations` acknowledgement。pending=0 时不触发生命周期；restore snapshot 不在此范围 |
 | sanitised errors | 已实现 | 默认错误不 dump 用户全文/SQLite row；明确 mutation 是否已 commit、backup 在哪里 |
 | 输入边界校验 | 已实现 | selector/search/name/note 等写前校验必须存在；不要求复制同一参数名或完全相同上限，但不能让显式边界保护在 CLI 化时消失 |
-| collection iCloud caveat | 当前限制 | 真实 iCloud collection 行为未完成多设备验收前不得承诺跨设备同步 |
+| iCloud acknowledgement 边界 | 当前限制 | 单条 mutation 的 `--sync` 或批量 `sync` 成功证明当前 Mac 对相应 cloud representation 获得 Apple Books CloudKit acknowledgement；仍不能单凭该证据声称另一台设备已经 render。annotation soft-delete 尚无用户真实数据 destructive live gate |
 
 ## 配置与历史数据边界
 

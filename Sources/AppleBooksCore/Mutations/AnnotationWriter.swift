@@ -317,6 +317,16 @@ struct AnnotationWriter {
         }
     }
 
+    func pendingCloudChangeCount() throws -> Int {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        return try cloudSynchronizer.pendingCount()
+    }
+
+    func syncPendingCloudChanges(restartRunningBooks: Bool = false) throws {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        try cloudSynchronizer.syncPending(restartRunningBooks: restartRunningBooks)
+    }
+
     private func syncIfRequested(_ requested: Bool, result: MutationResult) -> MutationResult {
         guard requested else { return result }
         guard cloudProjector != nil,

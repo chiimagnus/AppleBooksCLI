@@ -21,20 +21,16 @@ BUILD_ROOT="$DIST_ROOT/build/arm64-$VERSION"
 BUILD_INFO_PLIST="$BUILD_ROOT/applebookscli-Info.plist"
 PACKAGE_PARENT="$DIST_ROOT/npm"
 EXTRACT_ROOT="$DIST_ROOT/extracted/npm"
-SKILL_SOURCE="$REPO_ROOT/Skill/applebookscli"
-SKILL_SMOKE="$REPO_ROOT/Tests/PackagingTests/skill-smoke.sh"
 NPM_SMOKE="$REPO_ROOT/Tests/PackagingTests/npm-smoke.sh"
 PACKAGE_TEMPLATE="$REPO_ROOT/packaging/npm/package.json.template"
 
 cd "$REPO_ROOT"
 [ -f Package.resolved ] || fail "Package.resolved is required for release builds."
-[ -x "$SKILL_SMOKE" ] || fail "Skill packaging smoke is missing or not executable."
 [ -x "$NPM_SMOKE" ] || fail "npm install smoke is missing or not executable."
 [ -f "$PACKAGE_TEMPLATE" ] || fail "npm package template is missing."
 command -v npm >/dev/null 2>&1 || fail "npm is required for release packaging."
 command -v node >/dev/null 2>&1 || fail "node is required for release packaging."
 
-"$SKILL_SMOKE" "$SKILL_SOURCE"
 mkdir -p "$BUILD_ROOT"
 cat > "$BUILD_INFO_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -115,7 +111,6 @@ rm -f -- "$PACKAGE_TGZ" "$CHECKSUM"
 mkdir -p \
   "$PACKAGE_ROOT/bin" \
   "$PACKAGE_ROOT/libexec/applebookscli" \
-  "$PACKAGE_ROOT/share/applebookscli/skill/applebookscli" \
   "$EXTRACT_ROOT"
 
 cp "$BUILT_CLI" "$PACKAGE_ROOT/bin/applebookscli"
@@ -126,7 +121,6 @@ codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf
 codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/bin/applebookscli"
 codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 
-cp "$SKILL_SOURCE/SKILL.md" "$PACKAGE_ROOT/share/applebookscli/skill/applebookscli/SKILL.md"
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
 cp "$REPO_ROOT/LICENSE" "$PACKAGE_ROOT/LICENSE"
 cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$PACKAGE_ROOT/THIRD_PARTY_NOTICES.md"
@@ -159,15 +153,12 @@ tar -xzf "$PACKAGE_TGZ" -C "$EXTRACT_ROOT"
 EXTRACTED="$EXTRACT_ROOT/package"
 EXTRACTED_CLI="$EXTRACTED/bin/applebookscli"
 EXTRACTED_WORKER="$EXTRACTED/libexec/applebookscli/applebookscli-pdf-worker"
-EXTRACTED_SKILL="$EXTRACTED/share/applebookscli/skill/applebookscli"
 [ -x "$EXTRACTED_CLI" ] || fail "extracted npm CLI is missing or not executable."
 [ -x "$EXTRACTED_WORKER" ] || fail "extracted npm PDF worker is missing or not executable."
 [ "$(xcrun lipo -archs "$EXTRACTED_CLI")" = "arm64" ] || fail "extracted npm CLI is not arm64-only."
 [ "$(xcrun lipo -archs "$EXTRACTED_WORKER")" = "arm64" ] || fail "extracted npm worker is not arm64-only."
 codesign --verify --strict --verbose=2 "$EXTRACTED_CLI"
 codesign --verify --strict --verbose=2 "$EXTRACTED_WORKER"
-"$SKILL_SMOKE" "$EXTRACTED_SKILL"
-cmp "$SKILL_SOURCE/SKILL.md" "$EXTRACTED_SKILL/SKILL.md"
 [ "$(cd / && "$EXTRACTED_CLI" --version)" = "$VERSION" ] || fail "extracted npm CLI version mismatch."
 (cd / && "$EXTRACTED_CLI" --help >/dev/null)
 
@@ -177,7 +168,6 @@ for required in \
   package/package.json \
   package/bin/applebookscli \
   package/libexec/applebookscli/applebookscli-pdf-worker \
-  package/share/applebookscli/skill/applebookscli/SKILL.md \
   package/LICENSE \
   package/THIRD_PARTY_NOTICES.md; do
   grep -Fx "$required" "$ARCHIVE_LIST" >/dev/null || fail "npm package is missing required entry: $required"

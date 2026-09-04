@@ -36,7 +36,7 @@ jobs:
           test "$(uname -m)" = "arm64"
           Tests/PackagingTests/release-metadata-smoke.sh
           node scripts/check-release-order.mjs --self-test
-          Tests/PackagingTests/skill-smoke.sh Skill/applebookscli
+          Tests/PackagingTests/skill-smoke.sh skills/applebookscli
           swift scripts/check-private-data.swift --self-test
           swift scripts/check-private-data.swift --static
           swift test --disable-automatic-resolution

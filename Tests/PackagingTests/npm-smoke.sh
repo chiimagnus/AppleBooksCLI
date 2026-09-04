@@ -16,9 +16,7 @@ command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required for the npm inst
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-SKILL_SMOKE="$SCRIPT_DIR/skill-smoke.sh"
 PDF_FIXTURE="$REPO_ROOT/Tests/Fixtures/PDF/corrupt.pdf"
-[ -x "$SKILL_SMOKE" ] || fail "Skill smoke is missing or not executable."
 [ -f "$PDF_FIXTURE" ] || fail "synthetic PDF fixture is missing."
 
 SMOKE_ROOT=$(mktemp -d /private/tmp/applebookscli-npm-smoke.XXXXXX)
@@ -32,7 +30,6 @@ trap cleanup EXIT HUP INT TERM
 
 PREFIX="$SMOKE_ROOT/prefix"
 HOME_ROOT="$SMOKE_ROOT/home"
-CODEX_HOME_ROOT="$SMOKE_ROOT/codex-home"
 LIBRARY_DB="$SMOKE_ROOT/library.sqlite"
 ANNOTATIONS_DB="$SMOKE_ROOT/annotations.sqlite"
 mkdir -p "$PREFIX" "$HOME_ROOT"
@@ -73,9 +70,7 @@ CLI="$PREFIX/bin/applebookscli"
 
 PACKAGE_ROOT="$PREFIX/lib/node_modules/@chiimagnus/applebookscli"
 WORKER="$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-SKILL="$PACKAGE_ROOT/share/applebookscli/skill/applebookscli"
 [ -x "$WORKER" ] || fail "npm-installed PDF worker is missing or not executable."
-"$SKILL_SMOKE" "$SKILL"
 
 sqlite3 "$LIBRARY_DB" 'CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZCONTENTTYPE INTEGER);'
 sqlite3 "$ANNOTATIONS_DB" 'CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);'
@@ -91,11 +86,5 @@ HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" \
 grep -F '"attemptedCount":1' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null || fail "npm-installed CLI did not invoke the PDF worker."
 grep -F '"failedCount":1' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null || fail "npm-installed CLI returned an unexpected PDF result."
 grep -F '"reason":"unreadableDocument"' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null || fail "npm-installed worker error contract drifted."
-
-HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" CODEX_HOME="$CODEX_HOME_ROOT" \
-  "$CLI" skill install --json > "$SMOKE_ROOT/skill.stdout.json" 2> "$SMOKE_ROOT/skill.stderr.txt"
-[ ! -s "$SMOKE_ROOT/skill.stderr.txt" ] || fail "npm-installed Skill install wrote unexpected diagnostics."
-grep -F '"installed":true' "$SMOKE_ROOT/skill.stdout.json" >/dev/null || fail "npm-installed CLI did not install the packaged Skill."
-"$SKILL_SMOKE" "$CODEX_HOME_ROOT/skills/applebookscli"
 
 printf 'npm install smoke OK: %s (%s)\n' "$PACKAGE" "$EXPECTED_VERSION"

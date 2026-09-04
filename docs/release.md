@@ -29,12 +29,12 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 1. 解析 release metadata 与 channel；
 2. 执行上述 preflight；
 3. 调用 `scripts/build-release.sh` 构建一次正式 arm64 npm package；
-4. 验证 binary、Skill、package metadata、checksum 与 npm install smoke；
+4. 验证 binary、package metadata、checksum 与 npm install smoke；
 5. 为 release asset 生成 GitHub attestation；
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
 7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
 
-Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。
+Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。`skills/applebookscli` 随 GitHub source/tag 发布，不进入 npm tarball；Agent 安装与更新由通用 Agent Skills CLI 负责。
 
 ## 修改触发
 

@@ -20,7 +20,7 @@
 
 | 文件 | Owner / consumer | Edit trigger |
 | --- | --- | --- |
-| [`../Skill/applebookscli/SKILL.md`](../Skill/applebookscli/SKILL.md) | 随 npm/GitHub release 分发并由 Codex 读取的 runtime Skill | CLI workflow、安全边界或 Skill installation behavior 变化；修改后必须跑 canonical Skill validator/packaging smoke |
+| [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) | 仓库发布的标准 Agent Skill；安装与 Agent 路径由 Agent Skills CLI 负责 | CLI workflow、安全边界或 Skill 内容变化；修改后必须跑 canonical Skill validator/packaging smoke |
 | [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | release archive / license provenance | `Package.swift` / `Package.resolved` 的实际 dependency/version/revision/license 变化 |
 
 ## 事实归属规则

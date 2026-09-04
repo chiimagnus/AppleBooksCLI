@@ -26,7 +26,6 @@
   "files": [
     "bin/applebookscli",
     "libexec/applebookscli/applebookscli-pdf-worker",
-    "share/applebookscli/skill/applebookscli/SKILL.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "ThirdPartyLicenses"

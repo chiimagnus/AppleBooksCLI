@@ -1,6 +1,6 @@
 # AppleBooksCLI
 
-AppleBooksCLI 是一个用于 macOS Apple Books 的命令行工具。你可以直接查询自己的书库、阅读状态、划线与笔记，读取可用的 EPUB/PDF 内容，导出笔记，并在需要时安全地修改笔记或藏书。
+[AppleBooksCLI](https://github.com/chiimagnus/AppleBooksCLI) 是一个用于 macOS Apple Books 的命令行工具。你可以直接查询自己的书库、阅读状态、划线与笔记，读取可用的 EPUB/PDF 内容，导出笔记，并在需要时安全地修改笔记或藏书。
 
 ## 主要功能
 
@@ -10,35 +10,33 @@ AppleBooksCLI 是一个用于 macOS Apple Books 的命令行工具。你可以�
 - 读取可用 EPUB 的目录、章节、元数据与批注上下文。
 - 提取 PDF 划线与笔记。
 - 导出 JSON、CSV、Markdown 或 HTML。
-- 安全修改笔记、管理藏书，并在写入前自动备份。
-- 安装随 CLI 一起分发的 `applebookscli` Skill，供 Codex/AI 直接使用。
+- **安全修改笔记、管理藏书，并在写入前自动备份。**
+- 提供标准 `applebookscli` Agent Skill。
 
 ## 系统要求
 
-- macOS 12 或更高版本。
-- npm 发布的预编译版本目前支持 Apple Silicon（arm64）。
 - 读取 Apple Books 数据时，macOS 可能要求为终端或调用进程授予 Full Disk Access。
 - 未下载的 EPUB、DRM 内容或当前系统无法读取的内容会明确提示不可用或能力受限；AppleBooksCLI 不绕过系统保护。
 
 ## 安装
 
-安装稳定版：
-
 ```sh
-npm install --global @chiimagnus/applebookscli
-applebookscli --version
-```
-
-如果需要试用 beta：
-
-```sh
-npm install --global @chiimagnus/applebookscli@beta
-```
-
-更新到最新稳定版：
-
-```sh
+# 安装 CLI
 npm install --global @chiimagnus/applebookscli@latest
+
+# 安装 SKILL.md
+npx skills add chiimagnus/AppleBooksCLI --skill applebookscli --global
+
+```
+
+## 获取帮助
+
+CLI 自带完整帮助，具体命令与参数以当前安装版本为准：
+
+```sh
+applebookscli --help
+applebookscli <group> --help
+applebookscli <group> <subcommand> --help
 ```
 
 ## 快速开始
@@ -144,35 +142,11 @@ applebookscli sync --json
 
 `sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
 
-## 安装 AppleBooksCLI Skill
-
-npm 包中包含配套的 `applebookscli` Skill：
-
-```sh
-applebookscli skill install
-```
-
-它会安装到 `${CODEX_HOME:-~/.codex}/skills/applebookscli`。如果目标已经存在，CLI 默认不会覆盖；需要明确替换时使用：
-
-```sh
-applebookscli skill install --force
-```
-
 ## 可选配置
 
 大多数用户不需要配置文件。只有需要指定额外的 EPUB 目录，或给历史批注补充书名/作者信息时，才需要 `~/.config/applebookscli/config.json`。
 
 示例见 [`Config/applebookscli.example.json`](Config/applebookscli.example.json)。
-
-## 获取帮助
-
-CLI 自带完整帮助，具体命令与参数以当前安装版本为准：
-
-```sh
-applebookscli --help
-applebookscli <group> --help
-applebookscli <group> <subcommand> --help
-```
 
 ## 开发与维护
 
@@ -180,4 +154,5 @@ applebookscli <group> <subcommand> --help
 
 ## License
 
-AppleBooksCLI 使用 GNU Affero General Public License v3（AGPLv3）。第三方 notice 与许可证文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`ThirdPartyLicenses/`](ThirdPartyLicenses/)。
+AppleBooksCLI 使用 [AGPLv3 LICENSE](LICENSE) 。
+第三方 notice 与许可证文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`ThirdPartyLicenses/`](ThirdPartyLicenses/)。

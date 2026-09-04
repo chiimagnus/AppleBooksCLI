@@ -145,7 +145,7 @@ applebookscli sync --json
 
 ## Operation history
 
-AppleBooksCLI keeps a private local history of the last 24 hours of its note/collection mutations, backup restores, and explicit `sync` calls. `history list` returns only summaries; `history get` is the explicit full-detail read and may contain the original note/title/details/selectors plus captured stdout/stderr.
+AppleBooksCLI keeps a private local history of the last 24 hours of its annotation/collection mutations, backup restores, and explicit `sync` calls. `history list` returns only summaries; `history get` is the explicit full-detail read and may contain the original note/title/details/selectors plus captured stdout/stderr.
 
 ```sh
 applebookscli history list --json

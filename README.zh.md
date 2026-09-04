@@ -145,7 +145,7 @@ applebookscli sync --json
 
 ## 操作历史
 
-AppleBooksCLI 会在本机私有保存最近 24 小时的笔记/藏书 mutation、backup restore 与显式 `sync` 调用。`history list` 只返回摘要；只有显式 `history get` 才返回完整记录，其中可能包含原始 note/title/details/selector 以及捕获的 stdout/stderr。
+AppleBooksCLI 会在本机私有保存最近 24 小时的批注/藏书 mutation、backup restore 与显式 `sync` 调用。`history list` 只返回摘要；只有显式 `history get` 才返回完整记录，其中可能包含原始 note/title/details/selector 以及捕获的 stdout/stderr。
 
 ```sh
 applebookscli history list --json

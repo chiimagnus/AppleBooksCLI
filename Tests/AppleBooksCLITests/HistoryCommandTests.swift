@@ -9,6 +9,10 @@ struct HistoryCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let fixed = fixture.date("2026-09-04T10:00:00Z")
+        let olderStore = fixture.store(now: fixed.addingTimeInterval(-60))
+        let older = try olderStore.begin(operation: "sync", arguments: ["sync"])
+        try olderStore.complete(older, exitCode: 0, stdout: "older", stderr: "")
+
         let store = fixture.store(now: fixed)
         let first = try store.begin(operation: "collections.create", arguments: ["collections", "create", "private title"])
         try store.complete(first, exitCode: 0, stdout: "first", stderr: "")
@@ -19,7 +23,7 @@ struct HistoryCommandTests {
         let capture = Capture()
         try command.run(output: capture.output, store: store)
         let result = try JSONDecoder.history.decode(HistoryListResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.items.map(\.id) == [first.id, second.id].sorted())
+        #expect(result.items.map(\.id) == [first.id, second.id].sorted() + [older.id])
         #expect(capture.stdout.contains("private title") == false)
         #expect(capture.stdout.contains("private note") == false)
         #expect(capture.stdout.contains("private-error-secret") == false)

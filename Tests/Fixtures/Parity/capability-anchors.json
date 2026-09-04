@@ -1797,6 +1797,28 @@
       ]
     ]
   },
+  "operation history": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/OperationHistory.swift",
+      "Sources/AppleBooksCLI/Commands/HistoryCommand.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/OperationHistoryTests.swift",
+      "Tests/AppleBooksCLITests/HistoryCommandTests.swift",
+      "Tests/AppleBooksCLITests/CLIContractTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "history",
+        "list"
+      ],
+      [
+        "history",
+        "get"
+      ]
+    ]
+  },
   "list all / group by book": {
     "owner": "cli",
     "implementationPaths": [

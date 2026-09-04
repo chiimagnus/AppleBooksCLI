@@ -13,6 +13,7 @@ English | [简体中文](README.zh.md)
 - Extract PDF highlights and notes.
 - Export JSON, CSV, Markdown, or HTML.
 - **Safely update notes and manage collections, with an automatic backup before writes.**
+- Review the last 24 hours of AppleBooksCLI write/sync tool calls through local operation history.
 - Provide a standard `applebookscli` Agent Skill in English and Chinese.
 
 ## Requirements
@@ -141,6 +142,17 @@ applebookscli sync --json
 ```
 
 `sync` only processes already pending collection/member/annotation cloud records and does not trigger the lifecycle when none are pending. Acknowledgement proves only that **this Mac** completed the Apple Books CloudKit upload; it does not prove that another device already displays the change. A post-commit `cloud_sync_failed` must not cause an automatic mutation retry, and restoring a BKLibrary snapshot is not equivalent to replaying individually flushable cloud mutations.
+
+## Operation history
+
+AppleBooksCLI keeps a private local history of the last 24 hours of its annotation/collection mutations, backup restores, and explicit `sync` calls. `history list` returns only summaries; `history get` is the explicit full-detail read and may contain the original note/title/details/selectors plus captured stdout/stderr.
+
+```sh
+applebookscli history list --json
+applebookscli history get <history-id> --json
+```
+
+History is stored only for the current user under AppleBooksCLI's Application Support directory. AppleBooksCLI does not send it as telemetry or sync it between devices, and history is evidence of prior tool calls rather than an undo engine.
 
 ## Optional configuration
 

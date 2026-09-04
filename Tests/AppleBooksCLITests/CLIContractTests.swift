@@ -32,11 +32,77 @@ struct CLIContractTests {
         #expect(help.stdout.contains("USAGE:"))
         #expect(help.stdout.contains("export"))
         #expect(help.stdout.contains("backups"))
+        #expect(help.stdout.contains("history"))
 
         let version = try harness.run(["--version"])
         #expect(version.status == 0)
         #expect(version.stderr.isEmpty)
         #expect(version.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "dev")
+        #expect(FileManager.default.fileExists(atPath: harness.historyRoot.path) == false)
+    }
+
+    @Test
+    func recordableCommandWhitelistIsExact() throws {
+        let cases: [([String], String)] = [
+            (["annotations", "update-note", "annotation-id", "--note", "note"], "annotations.update-note"),
+            (["annotations", "delete", "annotation-id"], "annotations.delete"),
+            (["collections", "create", "Shelf"], "collections.create"),
+            (["collections", "rename", "collection-id", "--title", "Renamed"], "collections.rename"),
+            (["collections", "delete", "collection-id"], "collections.delete"),
+            (["collections", "add-book", "collection-id", "asset-id"], "collections.add-book"),
+            (["collections", "remove-book", "collection-id", "asset-id"], "collections.remove-book"),
+            (["backups", "restore", "library__20000101T000000Z__00000000-0000-4000-8000-000000000000.sqlite"], "backups.restore"),
+            (["sync"], "sync"),
+        ]
+
+        for (arguments, operation) in cases {
+            let command = try AppleBooksCLI.parseAsRoot(arguments)
+            let recordable = try #require(command as? any OperationHistoryRecordable)
+            #expect(recordable.historyOperation == operation)
+        }
+
+        for arguments in [
+            ["books", "list"],
+            ["export", "--format", "json"],
+            ["backups", "list"],
+            ["history", "list"],
+            ["history", "get", "00000000-0000-4000-8000-000000000000"],
+        ] {
+            let command = try AppleBooksCLI.parseAsRoot(arguments)
+            #expect((command as? any OperationHistoryRecordable) == nil)
+        }
+    }
+
+    @Test
+    func processHistoryReadsDefaultHomeWithoutAppleBooksDatabasesOrRecursiveRecording() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let store = OperationHistoryStore(root: harness.historyRoot)
+        let privateArgument = "process-private-note"
+        let token = try store.begin(
+            operation: "annotations.update-note",
+            arguments: ["annotations", "update-note", "uuid", "--note", privateArgument]
+        )
+        try store.complete(token, exitCode: 0, stdout: "{\"committed\":true}\n", stderr: "")
+
+        let list = try harness.run(["history", "list", "--json"])
+        #expect(list.status == 0)
+        #expect(list.stderr.isEmpty)
+        #expect(list.stdout.contains(privateArgument) == false)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let listResult = try decoder.decode(HistoryListResult.self, from: Data(list.stdout.utf8))
+        #expect(listResult.items.count == 1)
+        #expect(listResult.items[0].id == token.id)
+
+        let get = try harness.run(["history", "get", token.id, "--json"])
+        #expect(get.status == 0)
+        #expect(get.stderr.isEmpty)
+        let detail = try decoder.decode(HistoryDetailResult.self, from: Data(get.stdout.utf8))
+        #expect(detail.id == token.id)
+        #expect(detail.arguments.contains(privateArgument))
+        #expect(detail.stdout == "{\"committed\":true}\n")
+        #expect(try store.list().count == 1)
     }
 
     @Test
@@ -180,6 +246,158 @@ struct CLIContractTests {
     }
 
     @Test
+    func processRecordableCommandsPersistArgumentsAndPresentedResults() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+
+        let createArguments = ["collections", "create", "History Shelf"] + fixture.globals + ["--json"]
+        let create = try fixture.run(createArguments)
+        #expect(create.status == 0)
+        #expect(create.stderr.isEmpty)
+        #expect(try dictionary(create.stdout)["committed"] as? Bool == true)
+
+        let privateNote = "history private note"
+        let updateArguments = [
+            "annotations", "update-note", "uuid-update", "--note", privateNote,
+        ] + fixture.globals + ["--json"]
+        let update = try fixture.run(updateArguments)
+        #expect(update.status == 0)
+        #expect(update.stderr.isEmpty)
+        #expect(update.stdout.contains(privateNote) == false)
+        #expect(try fixture.scalarText(
+            "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'",
+            database: fixture.annotations
+        ) == privateNote)
+
+        let noOpArguments = [
+            "collections", "add-book", ProcessFixture.shelfID, "asset-a",
+        ] + fixture.globals + ["--json"]
+        let noOp = try fixture.run(noOpArguments)
+        #expect(noOp.status == 0)
+        #expect(try dictionary(noOp.stdout)["changed"] as? Bool == false)
+
+        let jsonFailureArguments = [
+            "collections", "rename", "missing-collection", "--title", "Nope",
+        ] + fixture.globals + ["--json"]
+        let jsonFailure = try fixture.run(jsonFailureArguments)
+        #expect(jsonFailure.status == CLIProcessExit.notFound.rawValue)
+        #expect(jsonFailure.stderr.isEmpty)
+        let jsonEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(jsonFailure.stdout.utf8))
+        #expect(jsonEnvelope.error.code == .notFound)
+
+        let humanFailureArguments = [
+            "collections", "delete", "missing-collection",
+        ] + fixture.globals
+        let humanFailure = try fixture.run(humanFailureArguments)
+        #expect(humanFailure.status == CLIProcessExit.notFound.rawValue)
+        #expect(humanFailure.stdout.isEmpty)
+        #expect(humanFailure.stderr.hasPrefix("Error:"))
+
+        let history = try fixture.harness.historyRecords()
+        #expect(history.count == 5)
+
+        let createRecord = try #require(history.first { $0.operation == "collections.create" })
+        #expect(createRecord.status == .success)
+        #expect(createRecord.arguments == createArguments)
+        #expect(createRecord.stdout == create.stdout)
+        #expect(createRecord.stderr == create.stderr)
+
+        let updateRecord = try #require(history.first { $0.operation == "annotations.update-note" })
+        #expect(updateRecord.status == .success)
+        #expect(updateRecord.arguments == updateArguments)
+        #expect(updateRecord.arguments.contains(privateNote))
+        #expect(updateRecord.stdout == update.stdout)
+
+        let noOpRecord = try #require(history.first { $0.operation == "collections.add-book" })
+        #expect(noOpRecord.status == .success)
+        #expect(noOpRecord.arguments == noOpArguments)
+        #expect(noOpRecord.stdout == noOp.stdout)
+
+        let jsonFailureRecord = try #require(history.first { $0.operation == "collections.rename" })
+        #expect(jsonFailureRecord.status == .failure)
+        #expect(jsonFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
+        #expect(jsonFailureRecord.stdout == jsonFailure.stdout)
+        #expect(jsonFailureRecord.stderr == "")
+
+        let humanFailureRecord = try #require(history.first { $0.operation == "collections.delete" })
+        #expect(humanFailureRecord.status == .failure)
+        #expect(humanFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
+        #expect(humanFailureRecord.stdout == "")
+        #expect(humanFailureRecord.stderr == humanFailure.stderr)
+    }
+
+    @Test
+    func historyBeginFailureBlocksRecordableCommandBeforeDatabaseDiscovery() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        try FileManager.default.createDirectory(
+            at: harness.historyRoot.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("not a directory".utf8).write(to: harness.historyRoot)
+
+        let invocation = try harness.run(["sync", "--json"])
+        #expect(invocation.status == CLIProcessExit.unavailable.rawValue)
+        #expect(invocation.stderr.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stdout.utf8))
+        #expect(envelope.error.code == .unavailable)
+        #expect(envelope.error.message == "Operation history is unavailable.")
+    }
+
+    @Test
+    func historyCompletionFailurePreservesOriginalJsonOutcomeAndLeavesIncompleteEvidence() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("applebookscli-history-completion-\(UUID().uuidString)", isDirectory: true)
+            .resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("history", isDirectory: true)
+        let fixed = try #require(ISO8601DateFormatter().date(from: "2026-09-04T10:00:00Z"))
+        let store = OperationHistoryStore(
+            root: root,
+            now: { fixed },
+            timeZone: { TimeZone(secondsFromGMT: 0)! }
+        )
+
+        var stdout = ""
+        var stderr = ""
+        var sabotageError: Error?
+        var sabotaged = false
+        let output = CLIOutput(
+            stdout: { text in
+                stdout += text
+                guard sabotaged == false else { return }
+                sabotaged = true
+                do {
+                    let lock = root.appendingPathComponent(".lock")
+                    try FileManager.default.removeItem(at: lock)
+                    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
+                } catch {
+                    sabotageError = error
+                }
+            },
+            stderr: { text in stderr += text }
+        )
+
+        let code = CLIEntrypoint.run(
+            arguments: ["collections", "rename", "--title", "Nope", "--json"],
+            output: output,
+            historyStore: store
+        )
+        #expect(sabotageError == nil)
+        #expect(code == CLIProcessExit.usageInvalid.rawValue)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(stdout.utf8))
+        #expect(envelope.error.code == .usageInvalid)
+        #expect(stderr == "Warning: Operation history completion was not recorded.")
+
+        let lock = root.appendingPathComponent(".lock")
+        try FileManager.default.removeItem(at: lock)
+        let records = try store.list()
+        #expect(records.count == 1)
+        #expect(records[0].operation == "collections.rename")
+        #expect(records[0].status == .incomplete)
+    }
+
+    @Test
     func processPDFInventoryAndHighlightsUseRelativeInstalledWorker() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
@@ -253,6 +471,10 @@ private final class ProcessHarness {
     let cwd: URL
     let executable: URL
 
+    var historyRoot: URL {
+        home.appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
+    }
+
     init() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("applebookscli-contract-\(UUID().uuidString)", isDirectory: true)
@@ -308,6 +530,10 @@ private final class ProcessHarness {
             stdout: String(decoding: out, as: UTF8.self),
             stderr: String(decoding: err, as: UTF8.self)
         )
+    }
+
+    func historyRecords() throws -> [OperationHistoryRecord] {
+        try OperationHistoryStore(root: historyRoot).list()
     }
 
     func remove() {

@@ -5,9 +5,9 @@
 ## 文档职责
 
 - **Audience**：修改 collection / annotation write、backup/restore、Books lifecycle、cloud projection/sync 或 write result 的维护者。
-- **Job**：固定不可丢失的顺序、不可逆边界、恢复语义与 cloud evidence boundary。
-- **Edit trigger**：writable scope、mutation/restore 顺序、backup primitive、schema guard、Books lifecycle、cloud rail 或 public result/warning 变化。
-- **Evidence**：`MutationCoordinator`、domain writers、`SQLiteBackup`、`BooksAppController`、cloud projector/synchronizer 及对应 tests/live gates。
+- **Job**：固定不可丢失的顺序、不可逆边界、恢复语义、state-changing CLI recorder 边界与 cloud evidence boundary。
+- **Edit trigger**：writable scope、mutation/restore 顺序、backup primitive、schema guard、Books lifecycle、state-changing CLI recorder、cloud rail 或 public result/warning 变化。
+- **Evidence**：`MutationCoordinator`、domain writers、`SQLiteBackup`、`BooksAppController`、`CLIEntrypoint`、`OperationHistoryStore`、cloud projector/synchronizer 及对应 tests/live gates。
 
 ## 总原则
 
@@ -91,6 +91,8 @@ Guarded mutation 当前覆盖：
 
 不提供 create highlight/annotation、修改 selected text/CFI range、任意写 current reading position。稳定 identity 优先 collection ID / book asset ID / annotation UUID；local PK 只属于本机显式 selector。
 
+这些目标写入命令、`backups restore` 与根 `sync` 还经过 CLI 外层 operation-history recorder：argv parse 成功后必须先持久化 started，之后才进入具体 command dispatch。这个 guard 不改变 Core mutation ceremony；未来新增 Apple Books state-changing / sync CLI surface 时也必须进入同一 recordable contract，不能形成绕过 history 的第二写入口。completion 持久化失败发生在原 command outcome 之后，不能把已 committed/applied 操作改写成未发生，也不能据此自动重试。
+
 ## Cloud projection 与 acknowledgement
 
 正常 collection/annotation mutation 在本地 read-back 后通过已验证的 Apple BookDataStore primitive生成 dirty cloud representation；AppleBooksCLI 不手工伪造 Core Data history token，也不伪造 Apple identity/entitlement 直接 attach Apple Books CloudKit container。
@@ -108,6 +110,6 @@ ack criterion 由当前 cloud synchronizer/tests 拥有，核心语义是 `syncG
 
 ## 隐私与维护验证
 
-错误/diagnostic 默认不 dump 用户正文、完整 SQLite row 或私有绝对路径。机器/人类 process contract 见 [`cli-contract.md`](cli-contract.md)。
+错误/diagnostic 默认不 dump 用户正文、完整 SQLite row 或私有绝对路径。显式 `history get` 是本地 tool-history 的有意完整读取面，可能包含此前 argv/stdout/stderr；其 detail/sanitization/process contract 由 [`cli-contract.md`](cli-contract.md) 拥有，普通 mutation output/error 不因此放宽。
 
 修改 write rail 时至少证明：happy path + read-back、pre/post-COMMIT failure boundary、schema drift fail closed、backup/WAL/restore、Books originally-running/closed、cloud projection/sync failure，以及 batch pending=0 / mixed-domain single-lifecycle contract。平台行为不能由 fixture 证明时保留 scoped live evidence；skip 不能写成 live pass。

@@ -35,3 +35,11 @@ A parse failure can happen before `GlobalOptions` exists. For this one case, App
 ## Help, version, and completion
 
 ArgumentParser clean exits remain its native plain-text protocol on stdout with exit `0`, including help, version, completion, and the `help` command. They are never converted to the operational JSON error envelope merely because raw argv also contains `--json`.
+
+## Local operation history
+
+`history list/get --json` follows the same exactly-one-JSON-value stdout contract as other operational commands. `list` exposes only non-sensitive summary fields; `get` is the explicit full-record read and can return the original argv plus captured stdout/stderr. Completed empty streams remain empty strings, while an incomplete operation has no completed timestamp, exit code, stdout, or stderr.
+
+Human `history get` must escape control characters in stored argv/stdout/stderr instead of replaying raw terminal control bytes. A missing or expired history ID maps to `not_found`; a corrupt, unsafe, or unavailable history store maps to `unavailable`, without reflecting private path/decoding/payload details.
+
+For recordable write/sync commands, failure to persist the started event happens before command dispatch and can block execution with `unavailable`. Failure to persist completion happens after the original command outcome: it may emit a fixed stderr warning, but must not alter the original exit code or machine stdout and therefore must not imply that a committed/applied operation is safe to retry.

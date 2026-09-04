@@ -36,7 +36,7 @@ struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
     }
 }
 
-struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "restore",
         abstract: "Restore a library backup by its safe backup handle."
@@ -46,6 +46,8 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     var handle: String
 
     @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "backups.restore" }
 
     mutating func run() throws { try run(output: .standard) }
 

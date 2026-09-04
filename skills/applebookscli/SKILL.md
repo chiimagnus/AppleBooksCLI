@@ -3,7 +3,7 @@ name: applebookscli
 description: Use `applebookscli` to actually query, locate, export, or safely modify the user's Apple Books library, reading state, EPUB/PDF content, annotations, and collections
 license: AGPL-3.0-only
 metadata:
-  cli_version: "0.2.1"
+  cli_version: "0.3.0"
   repository: "https://github.com/chiimagnus/AppleBooksCLI"
   language: "en"
 ---
@@ -46,6 +46,7 @@ Turn requests about the user's Apple Books data into actual command results rath
 | Export JSON, CSV, Markdown, HTML, or a complete-notes archive | `export` |
 | List or restore CLI-created library backups | `backups list/restore` |
 | Flush pending local cloud records | `sync` |
+| Recover context about recent AppleBooksCLI write/sync tool calls | `history list/get` |
 | Diagnose permissions, database discovery, or unavailable capabilities | `doctor` |
 
 ## Identity and queries
@@ -76,6 +77,12 @@ Turn requests about the user's Apple Books data into actual command results rath
 - Add `--sync` to one mutation only when the user wants to wait immediately for upload acknowledgement. For several writes, commit them normally and run `applebookscli sync --json` once at the end.
 - Successful `--sync` or `sync` proves only that pending Apple Books cloud records on the current Mac received CloudKit acknowledgement. Without evidence from a second device, do not claim that another device already displays the change.
 - A post-commit sync failure is a warning after the write is committed and must not replay the mutation automatically. `backups restore` replaces a BKLibrary snapshot and does not by itself create individually flushable cloud mutations.
+
+## Operation history
+
+- When the user asks what AppleBooksCLI just did, the current session lacks recent mutation context, or the user wants to continue from a recent CLI change, run `applebookscli history list --json` first and use `history get <id> --json` only for a relevant candidate.
+- History is evidence, not authorization for another mutation. If the user actually wants to change/delete/revert something, follow the normal stable-identity and write-safety rules before issuing a new command.
+- Treat `incomplete` as unknown outcome. Do not replay the prior mutation; first perform the narrowest read-only check that can establish current state.
 
 ## Failure handling
 

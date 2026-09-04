@@ -1,6 +1,6 @@
 ---
 name: applebookscli
-description: 通过 `applebookscli` 实际查询、定位、导出或安全修改用户的 Apple Books 图书、阅读状态、EPUB/PDF、批注与藏书，以及处理访问诊断、备份恢复和 CloudKit 同步时使用；不用于绕过 DRM 或直接改写数据库。
+description: 通过 `applebookscli` 实际查询、定位、导出或安全修改用户的 Apple Books 图书、阅读状态、EPUB/PDF、批注与藏书
 ---
 
 # AppleBooksCLI

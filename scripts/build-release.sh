@@ -24,8 +24,10 @@ SKILL_SYNC="$REPO_ROOT/packaging/npm/sync-installed-skill.mjs"
 
 cd "$REPO_ROOT"
 
-SKILL_VERSION=$(sed -n 's/^  cli_version: "\([^"]*\)"$/\1/p' skills/applebookscli/SKILL.md)
-[ "$SKILL_VERSION" = "$VERSION" ] || fail "SKILL.md cli_version must match the release tag."
+for skill_dir in skills/applebookscli skills/applebookscli-zh; do
+  SKILL_VERSION=$(sed -n 's/^  cli_version: "\([^"]*\)"$/\1/p' "$skill_dir/SKILL.md")
+  [ "$SKILL_VERSION" = "$VERSION" ] || fail "$skill_dir/SKILL.md cli_version must match the release tag."
+done
 
 mkdir -p "$BUILD_ROOT"
 cat > "$BUILD_INFO_PLIST" <<EOF
@@ -108,6 +110,7 @@ cp "$SKILL_SYNC" "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
 codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
 codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
+cp "$REPO_ROOT/README.zh.md" "$PACKAGE_ROOT/README.zh.md"
 cp "$REPO_ROOT/LICENSE" "$PACKAGE_ROOT/LICENSE"
 cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$PACKAGE_ROOT/THIRD_PARTY_NOTICES.md"
 cp -R "$REPO_ROOT/ThirdPartyLicenses" "$PACKAGE_ROOT/ThirdPartyLicenses"

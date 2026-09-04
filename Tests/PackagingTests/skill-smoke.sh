@@ -8,8 +8,9 @@ fail() {
 
 SKILL_DIR=${1%/}
 SKILL_FILE="$SKILL_DIR/SKILL.md"
+SKILL_NAME=${SKILL_DIR##*/}
 
-awk '
+awk -v expected_name="$SKILL_NAME" '
   NR == 1 {
     if ($0 != "---") exit 2
     frontmatter = 1
@@ -21,7 +22,7 @@ awk '
     next
   }
   frontmatter {
-    if ($0 ~ /^name:[[:space:]]*applebookscli[[:space:]]*$/) name = 1
+    if ($0 == "name: " expected_name) name = 1
     if ($0 ~ /^description:[[:space:]]*[^[:space:]].*$/) description = 1
     next
   }

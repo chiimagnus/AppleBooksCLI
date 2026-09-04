@@ -3,16 +3,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
-const skillName = "applebookscli";
+const skillNames = ["applebookscli", "applebookscli-zh"];
 const source = "chiimagnus/AppleBooksCLI";
 const sourceURL = "https://github.com/chiimagnus/AppleBooksCLI.git";
 const skillsVersion = "1.5.23";
 
-async function runUpdater() {
+async function runUpdater(names) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "npx",
-      ["-y", `skills@${skillsVersion}`, "update", skillName, "-g", "-y"],
+      ["-y", `skills@${skillsVersion}`, "update", ...names, "-g", "-y"],
       {
         stdio: "ignore",
         env: { ...process.env, DISABLE_TELEMETRY: "1" },
@@ -40,25 +40,24 @@ async function main() {
   }
 
   const lock = JSON.parse(rawLock);
-  const entry = lock.skills?.[skillName];
-  if (
-    !entry ||
-    entry.sourceType !== "github" ||
-    (entry.source !== source && entry.sourceUrl !== sourceURL)
-  ) {
-    return;
-  }
+  const managed = skillNames.filter((name) => {
+    const entry = lock.skills?.[name];
+    return entry?.sourceType === "github" &&
+      (entry.source === source || entry.sourceUrl === sourceURL);
+  });
+  if (managed.length === 0) return;
 
   const targetRef = `v${packageJSON.version}`;
-  if (entry.ref !== targetRef) {
+  const changed = managed.some((name) => lock.skills[name].ref !== targetRef);
+  if (changed) {
     const mode = (await stat(lockPath)).mode & 0o777;
     const temporary = `${lockPath}.${process.pid}.tmp`;
-    entry.ref = targetRef;
+    for (const name of managed) lock.skills[name].ref = targetRef;
     await writeFile(temporary, `${JSON.stringify(lock, null, 2)}\n`, { mode });
     await rename(temporary, lockPath);
   }
 
-  const code = await runUpdater();
+  const code = await runUpdater(managed);
   if (code !== 0) {
     console.warn(
       `applebookscli: Skill update to ${targetRef} did not complete; Agent Skills CLI can retry later.`,

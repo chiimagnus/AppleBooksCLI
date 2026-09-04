@@ -419,6 +419,9 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .long, help: "Replacement note text.")
     var note: String
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws {
@@ -438,7 +441,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.updateNote(note, in: books))
+            return MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
         }
     }
 }
@@ -455,6 +458,9 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
+    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    var sync = false
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws {
@@ -474,7 +480,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.delete(in: books))
+            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }
 }

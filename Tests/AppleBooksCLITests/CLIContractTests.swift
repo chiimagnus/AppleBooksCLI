@@ -570,13 +570,14 @@ private final class ProcessFixture {
       ZPLABSOLUTEPHYSICALLOCATION INTEGER,
       ZPLLOCATIONRANGESTART INTEGER,
       ZPLLOCATIONRANGEEND INTEGER,
-      ZFUTUREPROOFING5 TEXT
+      ZFUTUREPROOFING5 TEXT,
+      ZFUTUREPROOFING6 TEXT
     );
     INSERT INTO ZAEANNOTATION VALUES
-      (1,11,1,'uuid-a','asset-a',0,0,1,1,100,200,'First & 😀','First representative','note alpha','epubcfi(/6/2[shared]!/4/2,:0,:9)',1,2,3,'shared'),
-      (2,11,1,'uuid-bookmark','asset-a',0,0,1,3,110,300,NULL,NULL,NULL,'epubcfi(/6/2[shared]!/4/2,:0,:0)',NULL,NULL,NULL,'shared'),
-      (3,11,1,'uuid-b','asset-b',0,0,2,1,120,220,'Second section','Second representative','note beta','epubcfi(/6/2[shared]!/4/2,:0,:14)',4,5,6,'shared'),
-      (4,11,1,'uuid-update','asset-a',0,0,3,1,130,230,'Update quote','Update representative','old note','epubcfi(/6/2[shared]!/4/2,:0,:6)',7,8,9,'shared');
+      (1,11,1,'uuid-a','asset-a',0,0,1,1,100,200,'First & 😀','First representative','note alpha','epubcfi(/6/2[shared]!/4/2,:0,:9)',1,2,3,'shared','200'),
+      (2,11,1,'uuid-bookmark','asset-a',0,0,1,3,110,300,NULL,NULL,NULL,'epubcfi(/6/2[shared]!/4/2,:0,:0)',NULL,NULL,NULL,'shared','300'),
+      (3,11,1,'uuid-b','asset-b',0,0,2,1,120,220,'Second section','Second representative','note beta','epubcfi(/6/2[shared]!/4/2,:0,:14)',4,5,6,'shared','220'),
+      (4,11,1,'uuid-update','asset-a',0,0,3,1,130,230,'Update quote','Update representative','old note','epubcfi(/6/2[shared]!/4/2,:0,:6)',7,8,9,'shared','230');
     """
 }
 

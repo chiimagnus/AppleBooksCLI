@@ -10,6 +10,7 @@ enum CollectionCloudSyncError: Error, Equatable {
 }
 
 struct CollectionCloudSyncState: Equatable {
+    let deleted: Bool
     let editGeneration: Int64
     let syncGeneration: Int64
     let systemFieldsBytes: Int64
@@ -20,11 +21,15 @@ struct CollectionCloudSyncState: Equatable {
 }
 
 struct CollectionCloudSynchronizer {
-    typealias StateAction = (String) throws -> CollectionCloudSyncState?
+    typealias DetailStateAction = (Int64) throws -> CollectionCloudSyncState?
+    typealias MemberStateAction = (Int64, String) throws -> CollectionCloudSyncState?
+    typealias DeletedMemberStatesAction = (Int64) throws -> [CollectionCloudSyncState]
     typealias RecycleAction = () throws -> Void
 
     private let booksApp: BooksAppController
-    private let stateAction: StateAction
+    private let detailStateAction: DetailStateAction
+    private let memberStateAction: MemberStateAction
+    private let deletedMemberStatesAction: DeletedMemberStatesAction
     private let recycleAction: RecycleAction
     private let sleepAction: (TimeInterval) -> Void
     private let pollInterval: TimeInterval
@@ -32,41 +37,36 @@ struct CollectionCloudSynchronizer {
 
     init(
         booksApp: BooksAppController,
-        stateAction: @escaping StateAction,
+        detailState: @escaping DetailStateAction,
+        memberState: @escaping MemberStateAction,
+        deletedMemberStates: @escaping DeletedMemberStatesAction,
         recycleAction: @escaping RecycleAction,
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
         pollInterval: TimeInterval = 0.1,
         maxPollCount: Int = 600
     ) {
         self.booksApp = booksApp
-        self.stateAction = stateAction
+        detailStateAction = detailState
+        memberStateAction = memberState
+        deletedMemberStatesAction = deletedMemberStates
         self.recycleAction = recycleAction
         sleepAction = sleep
         self.pollInterval = pollInterval
         self.maxPollCount = maxPollCount
     }
 
-    func sync(collectionID: String) throws {
-        guard let initial = try stateAction(collectionID) else {
-            throw CollectionCloudSyncError.cloudRecordMissing
-        }
-        if initial.isAcknowledged { return }
+    func syncCollection(localPK: Int64, deleting: Bool = false) throws {
+        if try collectionSatisfied(localPK: localPK, deleting: deleting) { return }
+        try triggerSync()
+        try waitUntil { try collectionSatisfied(localPK: localPK, deleting: deleting) }
+    }
 
-        if booksApp.isRunning() {
-            try booksApp.terminateAndWait()
+    func syncMembership(collectionLocalPK: Int64, assetID: String, deleting: Bool) throws {
+        if try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting) { return }
+        try triggerSync()
+        try waitUntil {
+            try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting)
         }
-        try recycleAction()
-        try booksApp.launch()
-
-        // ponytail: 当前实机 ack 约 13 秒；最多等待 60 秒，若长期超过该上限再改为可配置策略。
-        for _ in 0..<maxPollCount {
-            guard let state = try stateAction(collectionID) else {
-                throw CollectionCloudSyncError.cloudRecordMissing
-            }
-            if state.isAcknowledged { return }
-            sleepAction(pollInterval)
-        }
-        throw CollectionCloudSyncError.acknowledgementTimedOut
     }
 
     static func live(
@@ -82,36 +82,116 @@ struct CollectionCloudSynchronizer {
         }
         return CollectionCloudSynchronizer(
             booksApp: booksApp,
-            stateAction: { try readState(database: location.database, collectionID: $0) },
+            detailState: {
+                let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: $0)
+                return try readState(database: location.database, table: "ZBCCOLLECTIONDETAIL", identityColumn: "ZCOLLECTIONID", identity: collectionID)
+            },
+            memberState: { localPK, assetID in
+                let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: localPK)
+                return try readState(database: location.database, table: "ZBCCOLLECTIONMEMBER", identityColumn: "ZCOLLECTIONMEMBERID", identity: "\(collectionID)|\(assetID)")
+            },
+            deletedMemberStates: { localPK in
+                let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: localPK)
+                return try readMemberStates(database: location.database, collectionID: collectionID)
+            },
             recycleAction: liveRecycle
         )
     }
 
-    private static func readState(database: URL, collectionID: String) throws -> CollectionCloudSyncState? {
+    private func collectionSatisfied(localPK: Int64, deleting: Bool) throws -> Bool {
+        let detail = try detailStateAction(localPK)
+        if deleting {
+            guard detail == nil || (detail?.deleted == true && detail?.isAcknowledged == true) else { return false }
+            return try deletedMemberStatesAction(localPK).allSatisfy { $0.deleted && $0.isAcknowledged }
+        }
+        guard let detail else { throw CollectionCloudSyncError.cloudRecordMissing }
+        return detail.deleted == false && detail.isAcknowledged
+    }
+
+    private func membershipSatisfied(collectionLocalPK: Int64, assetID: String, deleting: Bool) throws -> Bool {
+        guard let detail = try detailStateAction(collectionLocalPK) else {
+            throw CollectionCloudSyncError.cloudRecordMissing
+        }
+        guard detail.deleted == false, detail.isAcknowledged else { return false }
+        let member = try memberStateAction(collectionLocalPK, assetID)
+        if deleting {
+            return member == nil || (member?.deleted == true && member?.isAcknowledged == true)
+        }
+        guard let member else { throw CollectionCloudSyncError.cloudRecordMissing }
+        return member.deleted == false && member.isAcknowledged
+    }
+
+    private func triggerSync() throws {
+        if booksApp.isRunning() {
+            try booksApp.terminateAndWait()
+        }
+        try recycleAction()
+        try booksApp.launch()
+    }
+
+    private func waitUntil(_ condition: () throws -> Bool) throws {
+        // ponytail: 当前实机 collection ack 最慢约十余秒；保留 60 秒上限，超出时失败关闭。
+        for _ in 0..<maxPollCount {
+            if try condition() { return }
+            sleepAction(pollInterval)
+        }
+        throw CollectionCloudSyncError.acknowledgementTimedOut
+    }
+
+    private static func readState(
+        database: URL,
+        table: String,
+        identityColumn: String,
+        identity: String
+    ) throws -> CollectionCloudSyncState? {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
-            SELECT ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
-            FROM ZBCCOLLECTIONDETAIL
-            WHERE ZCOLLECTIONID=? COLLATE BINARY
+            SELECT ZDELETEDFLAG, ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
+            FROM \(table)
+            WHERE \(identityColumn)=? COLLATE BINARY
             ORDER BY Z_PK
             """)
-        try statement.bind(collectionID, at: 1)
+        try statement.bind(identity, at: 1)
         guard try statement.step() else { return nil }
-        let row = try SQLiteRow(statement: statement)
-        guard let editGeneration = try row.int64("ZEDITGENERATION"),
+        let state = try state(from: SQLiteRow(statement: statement))
+        guard try statement.step() == false else { throw CollectionCloudSyncError.cloudRecordAmbiguous }
+        return state
+    }
+
+    private static func readMemberStates(database: URL, collectionID: String) throws -> [CollectionCloudSyncState] {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare("""
+            SELECT ZDELETEDFLAG, ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
+            FROM ZBCCOLLECTIONMEMBER
+            WHERE ZCOLLECTIONMEMBERID LIKE ? ESCAPE '\\'
+            ORDER BY Z_PK
+            """)
+        let escaped = collectionID
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        try statement.bind("\(escaped)|%", at: 1)
+        var states: [CollectionCloudSyncState] = []
+        while try statement.step() {
+            states.append(try state(from: SQLiteRow(statement: statement)))
+        }
+        return states
+    }
+
+    private static func state(from row: SQLiteRow) throws -> CollectionCloudSyncState {
+        guard let deleted = try row.int64("ZDELETEDFLAG"),
+              let editGeneration = try row.int64("ZEDITGENERATION"),
               let syncGeneration = try row.int64("ZSYNCGENERATION") else {
             throw CollectionCloudSyncError.cloudRecordInvalid
         }
-        let state = CollectionCloudSyncState(
+        return CollectionCloudSyncState(
+            deleted: deleted != 0,
             editGeneration: editGeneration,
             syncGeneration: syncGeneration,
             systemFieldsBytes: try row.int64("ZSYSTEMFIELDSBYTES") ?? 0
         )
-        guard try statement.step() == false else {
-            throw CollectionCloudSyncError.cloudRecordAmbiguous
-        }
-        return state
     }
 
     private static func liveRecycle() throws {

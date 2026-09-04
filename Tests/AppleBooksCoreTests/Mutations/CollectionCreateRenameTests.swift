@@ -38,10 +38,10 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
-    func createProjectsExactCommittedIdentitySortAndTimestamp() throws {
+    func createProjectsCommittedCollectionByLocalIdentity() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        var projected: CollectionCloudProjectionInput?
+        var projected: [CollectionCloudProjectionInput] = []
         let writer = CollectionWriter(
             database: fixture.database,
             backupRoot: fixture.backupRoot,
@@ -51,15 +51,10 @@ struct CollectionCreateRenameTests {
 
         let result = try writer.createCollection(title: "  Cloud Shelf  ")
         let pk = try #require(result.localPK)
-        let row = try collectionRow(fixture.database, pk: pk)
-        let projection = try #require(projected)
 
         #expect(result.committed)
         #expect(result.warnings.isEmpty)
-        #expect(projection.collectionID == row.collectionID)
-        #expect(projection.title == row.title)
-        #expect(projection.sortOrder == row.sortKey)
-        #expect(projection.modificationDateReferenceSeconds == row.lastModification)
+        #expect(projected == [.collection(localPK: pk)])
     }
 
     @Test
@@ -79,29 +74,33 @@ struct CollectionCreateRenameTests {
     func requestedCloudSyncRunsAfterSuccessfulProjection() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        var projectedID: String?
-        var syncedID: String?
+        var projectedPK: Int64?
+        var syncedPK: Int64?
         let synchronizer = CollectionCloudSynchronizer(
             booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
-            stateAction: { collectionID in
-                syncedID = collectionID
-                return .init(editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+            detailState: { localPK in
+                syncedPK = localPK
+                return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
             },
+            memberState: { _, _ in nil },
+            deletedMemberStates: { _ in [] },
             recycleAction: {}
         )
         let writer = CollectionWriter(
             database: fixture.database,
             backupRoot: fixture.backupRoot,
             booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
-            cloudProjector: CollectionCloudProjector { projectedID = $0.collectionID },
+            cloudProjector: CollectionCloudProjector { inputs in
+                if case let .collection(localPK)? = inputs.first { projectedPK = localPK }
+            },
             cloudSynchronizer: synchronizer
         )
 
         let result = try writer.createCollection(title: "Synced Shelf", syncCloud: true)
 
         #expect(result.warnings.isEmpty)
-        #expect(projectedID == result.stableID)
-        #expect(syncedID == result.stableID)
+        #expect(projectedPK == result.localPK)
+        #expect(syncedPK == result.localPK)
     }
 
     @Test
@@ -115,7 +114,9 @@ struct CollectionCreateRenameTests {
             cloudProjector: CollectionCloudProjector { _ in throw CollectionCloudSyncError.cloudRecordMissing },
             cloudSynchronizer: CollectionCloudSynchronizer(
                 booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
-                stateAction: { _ in .init(editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1) },
+                detailState: { _ in .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1) },
+                memberState: { _, _ in nil },
+                deletedMemberStates: { _ in [] },
                 recycleAction: {}
             )
         )
@@ -123,7 +124,7 @@ struct CollectionCreateRenameTests {
         let result = try writer.createCollection(title: "Projection Failed", syncCloud: true)
 
         #expect(result.committed)
-        #expect(result.warnings == [.cloudProjectionFailed, .cloudSyncFailed])
+        #expect(result.warnings == [MutationWarning.cloudProjectionFailed, MutationWarning.cloudSyncFailed])
     }
 
     @Test

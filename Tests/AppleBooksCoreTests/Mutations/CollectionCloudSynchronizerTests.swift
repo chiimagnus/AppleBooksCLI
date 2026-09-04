@@ -5,123 +5,163 @@ import Testing
 @Suite("CollectionCloudSynchronizerTests")
 struct CollectionCloudSynchronizerTests {
     @Test
-    func acknowledgedRecordSkipsBooksAndServiceLifecycle() throws {
-        var events: [String] = []
-        let synchronizer = CollectionCloudSynchronizer(
-            booksApp: BooksAppController(
-                isRunning: { events.append("isRunning"); return true },
-                terminate: { events.append("terminate"); return true },
-                launch: { events.append("launch") }
-            ),
-            stateAction: { _ in .init(editGeneration: 2, syncGeneration: 2, systemFieldsBytes: 10) },
-            recycleAction: { events.append("recycle") },
-            sleep: { _ in events.append("sleep") },
-            maxPollCount: 1
-        )
-
-        try synchronizer.sync(collectionID: "COLLECTION-ID")
-
-        #expect(events.isEmpty)
+    func acknowledgedCollectionSkipsLifecycle() throws {
+        let events = Events()
+        let acked = state(edit: 2, sync: 2)
+        let synchronizer = makeSynchronizer(events: events, detail: { _ in acked })
+        try synchronizer.syncCollection(localPK: 7)
+        #expect(events.values.isEmpty)
     }
 
     @Test
-    func dirtyRecordRecyclesServiceLaunchesBooksAndWaitsForExactAck() throws {
-        var events: [String] = []
-        var running = true
-        var stateReads = 0
-        let synchronizer = CollectionCloudSynchronizer(
-            booksApp: BooksAppController(
-                isRunning: { running },
-                terminate: { events.append("terminate"); running = false; return true },
-                launch: { events.append("launch"); running = true },
-                sleep: { _ in }
-            ),
-            stateAction: { collectionID in
-                #expect(collectionID == "COLLECTION-ID")
-                defer { stateReads += 1 }
-                switch stateReads {
-                case 0, 1:
-                    return .init(editGeneration: 1, syncGeneration: 0, systemFieldsBytes: 0)
-                default:
-                    return .init(editGeneration: 2, syncGeneration: 2, systemFieldsBytes: 2473)
-                }
+    func dirtyCollectionRecyclesServiceAndWaitsForAck() throws {
+        let events = Events()
+        let dirty = state(edit: 2, sync: 1)
+        let acked = state(edit: 2, sync: 2)
+        var reads = 0
+        let synchronizer = makeSynchronizer(
+            events: events,
+            runningInitially: true,
+            detail: { localPK in
+                #expect(localPK == 7)
+                defer { reads += 1 }
+                return reads < 2 ? dirty : acked
             },
-            recycleAction: { events.append("recycle") },
-            sleep: { _ in events.append("sleep") },
             maxPollCount: 3
         )
-
-        try synchronizer.sync(collectionID: "COLLECTION-ID")
-
-        #expect(events == ["terminate", "recycle", "launch", "sleep"])
-        #expect(stateReads == 3)
+        try synchronizer.syncCollection(localPK: 7)
+        #expect(events.values == ["terminate", "recycle", "launch", "sleep"])
+        #expect(reads == 3)
     }
 
     @Test
-    func missingRecordFailsBeforeAnyLifecycleMutation() throws {
-        var events: [String] = []
-        let synchronizer = CollectionCloudSynchronizer(
-            booksApp: BooksAppController(
-                isRunning: { events.append("isRunning"); return true },
-                terminate: { events.append("terminate"); return true },
-                launch: { events.append("launch") }
-            ),
-            stateAction: { _ in nil },
-            recycleAction: { events.append("recycle") },
-            sleep: { _ in events.append("sleep") },
-            maxPollCount: 1
-        )
-
-        #expect(throws: CollectionCloudSyncError.cloudRecordMissing) {
-            try synchronizer.sync(collectionID: "COLLECTION-ID")
-        }
-        #expect(events.isEmpty)
-    }
-
-    @Test
-    func recycleFailureStopsBeforeLaunchingBooks() throws {
-        var events: [String] = []
-        let dirty = CollectionCloudSyncState(editGeneration: 1, syncGeneration: 0, systemFieldsBytes: 0)
-        let synchronizer = CollectionCloudSynchronizer(
-            booksApp: BooksAppController(
-                isRunning: { false },
-                terminate: { events.append("terminate"); return true },
-                launch: { events.append("launch") }
-            ),
-            stateAction: { _ in dirty },
-            recycleAction: {
-                events.append("recycle")
-                throw CollectionCloudSyncError.serviceRecycleFailed
+    func membershipRequiresParentAndMemberAck() throws {
+        let events = Events()
+        let acked = state(edit: 2, sync: 2)
+        let dirty = state(edit: 2, sync: 1)
+        var memberReads = 0
+        let synchronizer = makeSynchronizer(
+            events: events,
+            detail: { _ in acked },
+            member: { localPK, assetID in
+                #expect(localPK == 7)
+                #expect(assetID == "ASSET")
+                defer { memberReads += 1 }
+                return memberReads == 0 ? dirty : acked
             },
-            sleep: { _ in events.append("sleep") },
+            maxPollCount: 2
+        )
+        try synchronizer.syncMembership(collectionLocalPK: 7, assetID: "ASSET", deleting: false)
+        #expect(events.values == ["recycle", "launch"])
+        #expect(memberReads == 2)
+    }
+
+    @Test
+    func collectionDeleteAcceptsPhysicalRemovalAndAckedMemberTombstones() throws {
+        let events = Events()
+        let deletedAck = state(deleted: true, edit: 3, sync: 3)
+        let synchronizer = makeSynchronizer(
+            events: events,
+            detail: { _ in nil },
+            deletedMembers: { _ in [deletedAck] }
+        )
+        try synchronizer.syncCollection(localPK: 7, deleting: true)
+        #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func removeMembershipAcceptsPhysicalRemoval() throws {
+        let events = Events()
+        let acked = state(edit: 2, sync: 2)
+        let synchronizer = makeSynchronizer(
+            events: events,
+            detail: { _ in acked },
+            member: { _, _ in nil }
+        )
+        try synchronizer.syncMembership(collectionLocalPK: 7, assetID: "ASSET", deleting: true)
+        #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func missingRequiredUpsertRecordFailsBeforeLifecycle() throws {
+        let events = Events()
+        let synchronizer = makeSynchronizer(events: events, detail: { _ in nil })
+        #expect(throws: CollectionCloudSyncError.cloudRecordMissing) {
+            try synchronizer.syncCollection(localPK: 7)
+        }
+        #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func recycleFailureStopsBeforeLaunch() throws {
+        let events = Events()
+        let dirty = state(edit: 1, sync: 0, fields: 0)
+        let synchronizer = CollectionCloudSynchronizer(
+            booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: { events.values.append("launch") }),
+            detailState: { _ in dirty },
+            memberState: { _, _ in nil },
+            deletedMemberStates: { _ in [] },
+            recycleAction: { events.values.append("recycle"); throw CollectionCloudSyncError.serviceRecycleFailed },
+            sleep: { _ in events.values.append("sleep") },
             maxPollCount: 1
         )
-
         #expect(throws: CollectionCloudSyncError.serviceRecycleFailed) {
-            try synchronizer.sync(collectionID: "COLLECTION-ID")
+            try synchronizer.syncCollection(localPK: 7)
         }
-        #expect(events == ["recycle"])
+        #expect(events.values == ["recycle"])
     }
 
     @Test
     func dirtyRecordTimesOutWithoutPretendingAck() throws {
-        var events: [String] = []
-        let dirty = CollectionCloudSyncState(editGeneration: 1, syncGeneration: 0, systemFieldsBytes: 0)
-        let synchronizer = CollectionCloudSynchronizer(
-            booksApp: BooksAppController(
-                isRunning: { false },
-                terminate: { events.append("terminate"); return true },
-                launch: { events.append("launch") }
-            ),
-            stateAction: { _ in dirty },
-            recycleAction: { events.append("recycle") },
-            sleep: { _ in events.append("sleep") },
-            maxPollCount: 2
-        )
-
+        let events = Events()
+        let dirty = state(edit: 1, sync: 0, fields: 0)
+        let synchronizer = makeSynchronizer(events: events, detail: { _ in dirty }, maxPollCount: 2)
         #expect(throws: CollectionCloudSyncError.acknowledgementTimedOut) {
-            try synchronizer.sync(collectionID: "COLLECTION-ID")
+            try synchronizer.syncCollection(localPK: 7)
         }
-        #expect(events == ["recycle", "launch", "sleep", "sleep"])
+        #expect(events.values == ["recycle", "launch", "sleep", "sleep"])
+    }
+
+    private func makeSynchronizer(
+        events: Events,
+        runningInitially: Bool = false,
+        detail: @escaping CollectionCloudSynchronizer.DetailStateAction,
+        member: @escaping CollectionCloudSynchronizer.MemberStateAction = { _, _ in nil },
+        deletedMembers: @escaping CollectionCloudSynchronizer.DeletedMemberStatesAction = { _ in [] },
+        maxPollCount: Int = 1
+    ) -> CollectionCloudSynchronizer {
+        var running = runningInitially
+        return CollectionCloudSynchronizer(
+            booksApp: BooksAppController(
+                isRunning: { running },
+                terminate: { events.values.append("terminate"); running = false; return true },
+                launch: { events.values.append("launch"); running = true },
+                sleep: { _ in }
+            ),
+            detailState: detail,
+            memberState: member,
+            deletedMemberStates: deletedMembers,
+            recycleAction: { events.values.append("recycle") },
+            sleep: { _ in events.values.append("sleep") },
+            maxPollCount: maxPollCount
+        )
+    }
+
+    private func state(
+        deleted: Bool = false,
+        edit: Int64,
+        sync: Int64,
+        fields: Int64 = 10
+    ) -> CollectionCloudSyncState {
+        CollectionCloudSyncState(
+            deleted: deleted,
+            editGeneration: edit,
+            syncGeneration: sync,
+            systemFieldsBytes: fields
+        )
+    }
+
+    private final class Events {
+        var values: [String] = []
     }
 }

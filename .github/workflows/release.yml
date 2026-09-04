@@ -76,6 +76,22 @@ jobs:
       - name: Publish npm package
         run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG"
 
+      - name: Verify npm publication
+        run: |
+          attempt=1
+          while [ "$attempt" -le 12 ]; do
+            PUBLISHED_VERSION=$(npm view "@chiimagnus/applebookscli@$RELEASE_VERSION" version 2>/dev/null || true)
+            DIST_TAG_VERSION=$(npm view @chiimagnus/applebookscli "dist-tags.$NPM_DIST_TAG" 2>/dev/null || true)
+            if [ "$PUBLISHED_VERSION" = "$RELEASE_VERSION" ] && [ "$DIST_TAG_VERSION" = "$RELEASE_VERSION" ]; then
+              echo "npm publication visible: $RELEASE_VERSION ($NPM_DIST_TAG)"
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then sleep 5; fi
+            attempt=$((attempt + 1))
+          done
+          echo "npm publication is not visible after bounded verification: version=$PUBLISHED_VERSION dist-tag=$DIST_TAG_VERSION" >&2
+          exit 1
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

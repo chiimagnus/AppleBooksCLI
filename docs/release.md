@@ -30,7 +30,10 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 4. 验证 binary、package metadata 与 npm install smoke；
 5. 为 release asset 生成 GitHub attestation；
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
-7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
+7. 在有上限的重试窗口内确认该精确 npm version 已可查询，且目标 `latest` / `beta` dist-tag 已指向该版本；
+8. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
+
+`npm publish` 返回成功只表示 registry 已接受该 publication；新版本和 dist-tag 可能仍有短暂传播/处理窗口。因此 workflow 必须在创建 GitHub Release 前读回 npm registry，并同时确认精确 version 与本次 channel 对应的 dist-tag。超过有上限的验证窗口仍不可见时，workflow fail closed，不创建一个 npm 尚不可验证的 GitHub Release。
 
 英文 `skills/applebookscli` 与中文 `skills/applebookscli-zh` 随 GitHub source/tag 发布，不进入 npm tarball；README 分别提供对应语言的最短安装命令，目标 Agent 仍由 Agent Skills CLI 负责。npm 包只携带一个 postinstall bridge：如果发现 Agent Skills CLI 已管理其中任一语言版本，就把已安装版本的 source ref 对齐到当前 CLI tag，再委托 `skills update` 更新现有 targets；没有已管理 Skill 时静默跳过。
 

@@ -151,7 +151,7 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     }
 }
 
-struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "create",
         abstract: "Create a collection through the guarded mutation rail."
@@ -168,6 +168,8 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     @OptionGroup var global: GlobalOptions
 
+    var historyOperation: String { "collections.create" }
+
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
@@ -183,7 +185,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "rename",
         abstract: "Rename one collection by exact ID or explicit local primary key."
@@ -203,6 +205,8 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     @OptionGroup var global: GlobalOptions
 
+    var historyOperation: String { "collections.rename" }
+
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
@@ -219,7 +223,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
         abstract: "Delete one editable collection by exact ID or explicit local primary key."
@@ -235,6 +239,8 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     var sync = false
 
     @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "collections.delete" }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -252,7 +258,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "add-book",
         abstract: "Add one exact book to one exact collection through the guarded mutation rail."
@@ -275,6 +281,8 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 
     @OptionGroup var global: GlobalOptions
 
+    var historyOperation: String { "collections.add-book" }
+
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
@@ -296,7 +304,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     }
 }
 
-struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "remove-book",
         abstract: "Remove one exact book from one exact collection through the guarded mutation rail."
@@ -318,6 +326,8 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
     var sync = false
 
     @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "collections.remove-book" }
 
     mutating func run() throws { try run(output: .standard) }
 

@@ -404,7 +404,7 @@ struct AnnotationsRangeCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     }
 }
 
-struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "update-note",
         abstract: "Update one annotation note through the guarded mutation rail."
@@ -423,6 +423,8 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     var sync = false
 
     @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.update-note" }
 
     mutating func run() throws {
         try run(output: .standard)
@@ -446,7 +448,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     }
 }
 
-struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
         abstract: "Soft-delete one annotation through the guarded mutation rail."
@@ -462,6 +464,8 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     var sync = false
 
     @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.delete" }
 
     mutating func run() throws {
         try run(output: .standard)

@@ -7,7 +7,7 @@
 - **Audience**：修改 collection / annotation write、backup/restore、Books lifecycle、cloud projection/sync 或 write result 的维护者。
 - **Job**：固定不可丢失的顺序、不可逆边界、恢复语义、state-changing CLI recorder 边界与 cloud evidence boundary。
 - **Edit trigger**：writable scope、mutation/restore 顺序、backup primitive、schema guard、Books lifecycle、state-changing CLI recorder、cloud rail 或 public result/warning 变化。
-- **Evidence**：`MutationCoordinator`、domain writers、`SQLiteBackup`、`BooksAppController`、cloud projector/synchronizer 及对应 tests/live gates。
+- **Evidence**：`MutationCoordinator`、domain writers、`SQLiteBackup`、`BooksAppController`、`CLIEntrypoint`、`OperationHistoryStore`、cloud projector/synchronizer 及对应 tests/live gates。
 
 ## 总原则
 

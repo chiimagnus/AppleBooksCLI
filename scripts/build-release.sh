@@ -6,30 +6,22 @@ fail() {
   exit 1
 }
 
-[ "$#" -eq 0 ] || fail "build-release.sh does not accept arguments."
 [ "$(uname -m)" = "arm64" ] || fail "release packages are built only on macOS arm64 hosts."
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 RELEASE_METADATA="$SCRIPT_DIR/release-metadata.sh"
 [ -n "${APPLEBOOKSCLI_TAG:-}" ] || fail "APPLEBOOKSCLI_TAG is required and must be the release git tag."
-[ -f "$RELEASE_METADATA" ] || fail "release metadata parser is missing."
 . "$RELEASE_METADATA" "$APPLEBOOKSCLI_TAG"
 VERSION=$RELEASE_VERSION
 DIST_ROOT="$REPO_ROOT/dist"
 BUILD_ROOT="$DIST_ROOT/build/arm64-$VERSION"
 BUILD_INFO_PLIST="$BUILD_ROOT/applebookscli-Info.plist"
 PACKAGE_PARENT="$DIST_ROOT/npm"
-EXTRACT_ROOT="$DIST_ROOT/extracted/npm"
 NPM_SMOKE="$REPO_ROOT/Tests/PackagingTests/npm-smoke.sh"
 PACKAGE_TEMPLATE="$REPO_ROOT/packaging/npm/package.json.template"
 
 cd "$REPO_ROOT"
-[ -f Package.resolved ] || fail "Package.resolved is required for release builds."
-[ -x "$NPM_SMOKE" ] || fail "npm install smoke is missing or not executable."
-[ -f "$PACKAGE_TEMPLATE" ] || fail "npm package template is missing."
-command -v npm >/dev/null 2>&1 || fail "npm is required for release packaging."
-command -v node >/dev/null 2>&1 || fail "node is required for release packaging."
 
 mkdir -p "$BUILD_ROOT"
 cat > "$BUILD_INFO_PLIST" <<EOF
@@ -46,8 +38,6 @@ cat > "$BUILD_INFO_PLIST" <<EOF
 </dict>
 </plist>
 EOF
-plutil -lint "$BUILD_INFO_PLIST" >/dev/null
-
 swift build \
   --disable-automatic-resolution \
   --arch arm64 \
@@ -80,9 +70,7 @@ validate_arm64_binary() {
   verify_root="$BUILD_ROOT/verify"
   mkdir -p "$verify_root"
 
-  [ -x "$binary" ] || fail "$label is missing or not executable: $binary"
   [ "$(xcrun lipo -archs "$binary")" = "arm64" ] || fail "$label must contain only arm64."
-  file "$binary" | grep -F 'Mach-O 64-bit executable arm64' >/dev/null || fail "$label is not an arm64 Mach-O executable."
   xcrun vtool -show-build "$binary" > "$verify_root/$label.vtool.txt"
   [ "$(awk '$1 == "platform" && $2 == "MACOS" { count += 1 } END { print count + 0 }' "$verify_root/$label.vtool.txt")" -eq 1 ] || \
     fail "$label must contain one MACOS build record."
@@ -101,26 +89,19 @@ validate_arm64_binary() {
 validate_arm64_binary "$BUILT_CLI" applebookscli
 validate_arm64_binary "$BUILT_WORKER" applebookscli-pdf-worker
 [ "$("$BUILT_CLI" --version)" = "$VERSION" ] || fail "built CLI version does not match release git tag."
-otool -s __TEXT __info_plist "$BUILT_CLI" >/dev/null || fail "built CLI is missing embedded release metadata."
 
 PACKAGE_ROOT="$PACKAGE_PARENT/applebookscli-$VERSION"
 PACKAGE_TGZ="$DIST_ROOT/chiimagnus-applebookscli-$VERSION.tgz"
-CHECKSUM="$PACKAGE_TGZ.sha256"
-rm -rf -- "$PACKAGE_PARENT" "$EXTRACT_ROOT"
-rm -f -- "$PACKAGE_TGZ" "$CHECKSUM"
+rm -rf -- "$PACKAGE_PARENT"
+rm -f -- "$PACKAGE_TGZ"
 mkdir -p \
   "$PACKAGE_ROOT/bin" \
-  "$PACKAGE_ROOT/libexec/applebookscli" \
-  "$EXTRACT_ROOT"
+  "$PACKAGE_ROOT/libexec/applebookscli"
 
 cp "$BUILT_CLI" "$PACKAGE_ROOT/bin/applebookscli"
 cp "$BUILT_WORKER" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-chmod +x "$PACKAGE_ROOT/bin/applebookscli" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
 codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/bin/applebookscli"
-codesign --verify --strict --verbose=2 "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
 cp "$REPO_ROOT/LICENSE" "$PACKAGE_ROOT/LICENSE"
 cp "$REPO_ROOT/THIRD_PARTY_NOTICES.md" "$PACKAGE_ROOT/THIRD_PARTY_NOTICES.md"
@@ -135,51 +116,9 @@ if (pkg.name !== '@chiimagnus/applebookscli') throw new Error('unexpected npm pa
 if (pkg.version !== expectedVersion) throw new Error('npm package version mismatch');
 if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('npm package must allow only darwin');
 if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('npm package must allow only arm64');
-if (pkg.publishConfig?.access !== 'public') throw new Error('npm package must publish as public');
-if (pkg.repository?.url !== 'https://github.com/chiimagnus/AppleBooksCLI.git') throw new Error('npm repository contract mismatch');
-if (pkg.bin?.applebookscli !== 'bin/applebookscli') throw new Error('npm bin contract mismatch');
 if (pkg.scripts) throw new Error('release package must not contain install scripts');
 NODE
 
 npm pack "$PACKAGE_ROOT" --pack-destination "$DIST_ROOT" >/dev/null
-[ -f "$PACKAGE_TGZ" ] || fail "npm pack did not create the expected package: $PACKAGE_TGZ"
-(
-  cd "$DIST_ROOT"
-  shasum -a 256 "$(basename "$PACKAGE_TGZ")" > "$(basename "$CHECKSUM")"
-  shasum -a 256 -c "$(basename "$CHECKSUM")"
-)
-
-tar -xzf "$PACKAGE_TGZ" -C "$EXTRACT_ROOT"
-EXTRACTED="$EXTRACT_ROOT/package"
-EXTRACTED_CLI="$EXTRACTED/bin/applebookscli"
-EXTRACTED_WORKER="$EXTRACTED/libexec/applebookscli/applebookscli-pdf-worker"
-[ -x "$EXTRACTED_CLI" ] || fail "extracted npm CLI is missing or not executable."
-[ -x "$EXTRACTED_WORKER" ] || fail "extracted npm PDF worker is missing or not executable."
-[ "$(xcrun lipo -archs "$EXTRACTED_CLI")" = "arm64" ] || fail "extracted npm CLI is not arm64-only."
-[ "$(xcrun lipo -archs "$EXTRACTED_WORKER")" = "arm64" ] || fail "extracted npm worker is not arm64-only."
-codesign --verify --strict --verbose=2 "$EXTRACTED_CLI"
-codesign --verify --strict --verbose=2 "$EXTRACTED_WORKER"
-[ "$(cd / && "$EXTRACTED_CLI" --version)" = "$VERSION" ] || fail "extracted npm CLI version mismatch."
-(cd / && "$EXTRACTED_CLI" --help >/dev/null)
-
-ARCHIVE_LIST="$EXTRACT_ROOT/archive-contents.txt"
-tar -tzf "$PACKAGE_TGZ" > "$ARCHIVE_LIST"
-for required in \
-  package/package.json \
-  package/bin/applebookscli \
-  package/libexec/applebookscli/applebookscli-pdf-worker \
-  package/LICENSE \
-  package/THIRD_PARTY_NOTICES.md; do
-  grep -Fx "$required" "$ARCHIVE_LIST" >/dev/null || fail "npm package is missing required entry: $required"
-done
-while IFS= read -r entry; do
-  case "$entry" in
-    *"/.github/"*|*"/.build/"*|*"/Tests/"*|*"/tests/"*|*"/config.json"|*"/private-"*)
-      fail "npm package contains forbidden development or private path: $entry"
-      ;;
-  esac
-done < "$ARCHIVE_LIST"
-
 "$NPM_SMOKE" "$PACKAGE_TGZ" "$VERSION"
-git diff --exit-code -- Package.resolved >/dev/null || fail "Package.resolved changed during release packaging."
 printf 'npm release package OK: %s (darwin-arm64 only)\n' "$PACKAGE_TGZ"

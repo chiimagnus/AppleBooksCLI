@@ -1,10 +1,6 @@
 import AppleBooksCloudBridge
 import Foundation
 
-struct AnnotationCloudProjectionInput: Equatable {
-    let localPK: Int64
-}
-
 enum AnnotationCloudProjectionError: Error, Equatable {
     case identityUnavailable
     case bridgeRejected(Int32)
@@ -19,14 +15,14 @@ struct AnnotationCloudProjector {
     typealias BackupAction = (URL, URL) throws -> Void
     typealias BridgeAction = (URL, URL, URL, AnnotationCloudIdentity) -> Int32
 
-    private let projectAction: (AnnotationCloudProjectionInput) throws -> Void
+    private let projectAction: (Int64) throws -> Void
 
-    init(projectAction: @escaping (AnnotationCloudProjectionInput) throws -> Void) {
+    init(projectAction: @escaping (Int64) throws -> Void) {
         self.projectAction = projectAction
     }
 
-    func project(_ input: AnnotationCloudProjectionInput) throws {
-        try projectAction(input)
+    func project(localPK: Int64) throws {
+        try projectAction(localPK)
     }
 
     static func live(
@@ -44,8 +40,8 @@ struct AnnotationCloudProjector {
         ) else {
             return nil
         }
-        return AnnotationCloudProjector { input in
-            let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: input.localPK)
+        return AnnotationCloudProjector { localPK in
+            let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: localPK)
             try backupAction(location.database, backupRoot)
             let status = bridgeAction(location.root, location.database, annotationsDatabase, identity)
             guard status == 0 else { throw AnnotationCloudProjectionError.bridgeRejected(status) }

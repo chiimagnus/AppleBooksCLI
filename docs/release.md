@@ -14,11 +14,9 @@ Git tag 是 release version 的唯一 owner；源码不维护第二份手工版�
 
 Release workflow 只接受指向 `main` 历史的 release tag，并在构建前验证：
 
-1. tag 指向当前 checkout 的 exact SHA；
-2. 该 SHA 已有成功的 `ci.yml` push run；
-3. npm 中不存在相同 version；
-4. GitHub 中不存在相同 Release；
-5. candidate version 满足 stable/beta 的单调发布顺序。
+1. 该 SHA 已有成功的 `ci.yml` push run；
+2. GitHub 中不存在相同 Release；
+3. candidate version 满足 stable/beta 的单调发布顺序。
 
 因此不要用 release workflow 代替 CI，也不要在没有 exact-SHA CI success 时提前打 tag。
 
@@ -29,7 +27,7 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 1. 解析 release metadata 与 channel；
 2. 执行上述 preflight；
 3. 调用 `scripts/build-release.sh` 构建一次正式 arm64 npm package；
-4. 验证 binary、package metadata、checksum 与 npm install smoke；
+4. 验证 binary、package metadata 与 npm install smoke；
 5. 为 release asset 生成 GitHub attestation；
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
 7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。

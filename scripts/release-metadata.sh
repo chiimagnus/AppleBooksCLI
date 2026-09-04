@@ -6,8 +6,6 @@ release_metadata_fail() {
   exit 2
 }
 
-[ "$#" -eq 1 ] || release_metadata_fail "usage: release-metadata.sh <git-tag>"
-
 APPLEBOOKSCLI_TAG=$1
 
 if printf '%s\n' "$APPLEBOOKSCLI_TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then

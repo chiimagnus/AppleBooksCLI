@@ -15,7 +15,7 @@ struct DoctorCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     }
 
     func run(output: CLIOutput) throws {
-        let workerReady = (try? InstallationLayout.current().pdfWorkerIsExecutable) ?? false
+        let workerReady = (try? installedPDFWorkerURL()) != nil
         try execute(output: output, installedPDFWorkerReady: workerReady)
     }
 

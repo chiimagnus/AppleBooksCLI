@@ -20,9 +20,13 @@
   "bin": {
     "applebookscli": "bin/applebookscli"
   },
+  "scripts": {
+    "postinstall": "node libexec/applebookscli/sync-installed-skill.mjs"
+  },
   "files": [
     "bin/applebookscli",
     "libexec/applebookscli/applebookscli-pdf-worker",
+    "libexec/applebookscli/sync-installed-skill.mjs",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "ThirdPartyLicenses"

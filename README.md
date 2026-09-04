@@ -24,10 +24,13 @@
 # 安装 CLI
 npm install --global @chiimagnus/applebookscli@latest
 
-# 安装 SKILL.md
-npx skills add chiimagnus/AppleBooksCLI --skill applebookscli --global
+# 安装 SKILL.md；首次安装时由 Agent Skills CLI 选择目标 Agent
+CLI_VERSION="$(applebookscli --version)"
+npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebookscli --global
 
 ```
+
+之后通过 npm 升级 CLI 时，若该 Skill 仍由 Agent Skills CLI 管理，npm `postinstall` 会把它自动切到相同的 `v<CLI版本>` tag 并调用官方 updater；没有安装 Skill 的用户不会受到影响。使用 `--ignore-scripts` 会显式关闭这条自动联动。此前手工复制的 Skill 没有 source tracking，只需按上面的标准命令重新安装一次即可接入后续自动更新。
 
 ## 获取帮助
 

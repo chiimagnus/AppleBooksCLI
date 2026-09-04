@@ -15,8 +15,11 @@ metadata:
 
 ```sh
 npm install --global @chiimagnus/applebookscli
-npx skills add chiimagnus/AppleBooksCLI --skill applebookscli --global
+CLI_VERSION="$(applebookscli --version)"
+npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebookscli --global
 ```
+
+由 Agent Skills CLI 管理的已安装 Skill 会在后续 npm CLI 升级时自动对齐到相同 release tag；`metadata.cli_version` 必须与当前 CLI `--version` 一致。若用户禁用了 npm lifecycle scripts，这个自动联动也会被禁用。
 
 ## 目标
 

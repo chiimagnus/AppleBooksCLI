@@ -4,7 +4,7 @@
 
 ## Version owner
 
-Git tag 是 release version 的唯一 owner；源码不维护第二份手工版本常量。
+Git tag 是 release version 的产品 owner。`skills/applebookscli/SKILL.md` 的 `metadata.cli_version` 必须在打 tag 前更新为同一版本；release build 会拒绝不一致的 tag。
 
 - stable：`vMAJOR.MINOR.PATCH`，发布到 npm `latest`，并创建普通 GitHub Release。
 - beta：`vMAJOR.MINOR.PATCH-beta` 或 `vMAJOR.MINOR.PATCH-beta.N`，发布到 npm `beta`，并创建 GitHub prerelease。
@@ -32,7 +32,7 @@ Release workflow 只接受指向 `main` 历史的 release tag，并在构建前�
 6. 按 channel 发布 `@chiimagnus/applebookscli` 到 npm；
 7. 创建对应 GitHub Release，并上传同一个 `.tgz` asset。
 
-Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。`skills/applebookscli` 随 GitHub source/tag 发布，不进入 npm tarball；Agent 安装与更新由通用 Agent Skills CLI 负责。
+Release workflow 不重复执行完整测试套件；完整测试属于 tag 所指 exact SHA 的 CI gate。`skills/applebookscli` 随 GitHub source/tag 发布，不进入 npm tarball；首次安装仍由 Agent Skills CLI 选择目标 Agent。npm 包只携带一个 postinstall bridge：如果发现 Agent Skills CLI 已管理该 Skill，就把其 source ref 对齐到当前 CLI tag，再委托 `skills update` 更新现有 targets；没有已管理 Skill 时静默跳过。
 
 ## 修改触发
 

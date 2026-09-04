@@ -20,8 +20,12 @@ BUILD_INFO_PLIST="$BUILD_ROOT/applebookscli-Info.plist"
 PACKAGE_PARENT="$DIST_ROOT/npm"
 NPM_SMOKE="$REPO_ROOT/Tests/PackagingTests/npm-smoke.sh"
 PACKAGE_TEMPLATE="$REPO_ROOT/packaging/npm/package.json.template"
+SKILL_SYNC="$REPO_ROOT/packaging/npm/sync-installed-skill.mjs"
 
 cd "$REPO_ROOT"
+
+SKILL_VERSION=$(sed -n 's/^  cli_version: "\([^"]*\)"$/\1/p' skills/applebookscli/SKILL.md)
+[ "$SKILL_VERSION" = "$VERSION" ] || fail "SKILL.md cli_version must match the release tag."
 
 mkdir -p "$BUILD_ROOT"
 cat > "$BUILD_INFO_PLIST" <<EOF
@@ -100,6 +104,7 @@ mkdir -p \
 
 cp "$BUILT_CLI" "$PACKAGE_ROOT/bin/applebookscli"
 cp "$BUILT_WORKER" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+cp "$SKILL_SYNC" "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
 codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
 codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
@@ -116,7 +121,7 @@ if (pkg.name !== '@chiimagnus/applebookscli') throw new Error('unexpected npm pa
 if (pkg.version !== expectedVersion) throw new Error('npm package version mismatch');
 if (JSON.stringify(pkg.os) !== JSON.stringify(['darwin'])) throw new Error('npm package must allow only darwin');
 if (JSON.stringify(pkg.cpu) !== JSON.stringify(['arm64'])) throw new Error('npm package must allow only arm64');
-if (pkg.scripts) throw new Error('release package must not contain install scripts');
+if (pkg.scripts?.postinstall !== 'node libexec/applebookscli/sync-installed-skill.mjs') throw new Error('unexpected npm postinstall contract');
 NODE
 
 npm pack "$PACKAGE_ROOT" --pack-destination "$DIST_ROOT" >/dev/null

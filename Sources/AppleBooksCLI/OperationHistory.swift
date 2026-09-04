@@ -170,7 +170,7 @@ struct OperationHistoryStore: Sendable {
     }
 
     private func load(rootFD: Int32) throws -> LoadedHistory {
-        let names = try directoryNames().filter(Self.isDateFileName).sorted()
+        let names = try directoryNames(rootFD: rootFD).filter(Self.isDateFileName).sorted()
         var lines: [StoredLine] = []
         for name in names {
             lines.append(contentsOf: try readAndRepair(name, rootFD: rootFD))
@@ -249,7 +249,10 @@ struct OperationHistoryStore: Sendable {
         var data = try Self.encoder().encode(event)
         data.append(0x0A)
         try Self.writeAll(data, to: fd)
-        guard fsync(fd) == 0 else { throw OperationHistoryStoreError.unavailable }
+        guard fsync(fd) == 0,
+              fsync(rootFD) == 0 else {
+            throw OperationHistoryStoreError.unavailable
+        }
     }
 
     private func readAndRepair(_ fileName: String, rootFD: Int32) throws -> [StoredLine] {
@@ -290,7 +293,7 @@ struct OperationHistoryStore: Sendable {
     }
 
     private func cleanupStaleTemporaryFiles(rootFD: Int32) throws {
-        for name in try directoryNames().filter(Self.isTemporaryFileName).sorted() {
+        for name in try directoryNames(rootFD: rootFD).filter(Self.isTemporaryFileName).sorted() {
             let fd = openat(rootFD, name, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
             guard fd >= 0 else { throw OperationHistoryStoreError.unavailable }
             do {
@@ -355,12 +358,28 @@ struct OperationHistoryStore: Sendable {
         temporaryExists = false
     }
 
-    private func directoryNames() throws -> [String] {
-        do {
-            return try FileManager.default.contentsOfDirectory(atPath: root.path)
-        } catch {
+    private func directoryNames(rootFD: Int32) throws -> [String] {
+        let directoryFD = openat(rootFD, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard directoryFD >= 0 else { throw OperationHistoryStoreError.unavailable }
+        guard let directory = fdopendir(directoryFD) else {
+            Darwin.close(directoryFD)
             throw OperationHistoryStoreError.unavailable
         }
+        defer { closedir(directory) }
+
+        errno = 0
+        var names: [String] = []
+        while let pointer = readdir(directory) {
+            var entry = pointer.pointee
+            let name = withUnsafePointer(to: &entry.d_name) { value in
+                value.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
+                    String(cString: $0)
+                }
+            }
+            if name != ".", name != ".." { names.append(name) }
+        }
+        guard errno == 0 else { throw OperationHistoryStoreError.unavailable }
+        return names
     }
 
     private func withLockedRoot<Value>(
@@ -381,7 +400,9 @@ struct OperationHistoryStore: Sendable {
         guard lockFD >= 0 else { throw OperationHistoryStoreError.unavailable }
         defer { Darwin.close(lockFD) }
         try secureRegularFile(lockFD)
-        return .value(try body(rootFD))
+        let value = try body(rootFD)
+        try validateRootIdentity(rootFD)
+        return .value(value)
     }
 
     private func openRoot(createIfMissing: Bool) throws -> Int32? {
@@ -410,10 +431,24 @@ struct OperationHistoryStore: Sendable {
         guard fd >= 0 else { throw OperationHistoryStoreError.unavailable }
         do {
             try secureDirectory(fd)
+            try validateRootIdentity(fd)
             return fd
         } catch {
             Darwin.close(fd)
             throw error
+        }
+    }
+
+    private func validateRootIdentity(_ fd: Int32) throws {
+        var opened = stat()
+        var current = stat()
+        guard fstat(fd, &opened) == 0,
+              lstat(root.path, &current) == 0,
+              current.st_mode & S_IFMT == S_IFDIR,
+              current.st_uid == geteuid(),
+              opened.st_dev == current.st_dev,
+              opened.st_ino == current.st_ino else {
+            throw OperationHistoryStoreError.unavailable
         }
     }
 
@@ -537,7 +572,9 @@ struct OperationHistoryStore: Sendable {
         guard name.hasPrefix(temporaryPrefix), name.hasSuffix(temporarySuffix) else { return false }
         let start = name.index(name.startIndex, offsetBy: temporaryPrefix.count)
         let end = name.index(name.endIndex, offsetBy: -temporarySuffix.count)
-        return UUID(uuidString: String(name[start..<end])) != nil
+        let rawID = String(name[start..<end])
+        guard let uuid = UUID(uuidString: rawID) else { return false }
+        return rawID == uuid.uuidString.lowercased()
     }
 
     private static func encoder() -> JSONEncoder {

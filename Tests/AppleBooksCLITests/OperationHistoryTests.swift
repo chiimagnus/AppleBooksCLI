@@ -89,11 +89,16 @@ struct OperationHistoryTests {
         let staleTemp = fixture.root.appendingPathComponent(".operation-history-\(UUID().uuidString.lowercased()).tmp")
         try Data("private stale data".utf8).write(to: staleTemp)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: staleTemp.path)
+        let unknownTempLike = fixture.root.appendingPathComponent(
+            ".operation-history-550E8400-E29B-41D4-A716-446655440000.tmp"
+        )
+        try Data("user temp-like file".utf8).write(to: unknownTempLike)
 
         let records = try fixture.store(at: reference).list()
         #expect(records.map(\.id) == [retained.id])
         #expect(try fixture.store(at: reference).get(id: expired.id) == nil)
         #expect(FileManager.default.fileExists(atPath: staleTemp.path) == false)
+        #expect(FileManager.default.fileExists(atPath: unknownTempLike.path))
         #expect(FileManager.default.fileExists(atPath: unknown.path))
         let lines = try fixture.jsonLines()
         #expect(lines.count == 2)
@@ -118,6 +123,27 @@ struct OperationHistoryTests {
         let records = try fixture.store(at: reference).list()
         #expect(records.map(\.id) == [retained.id])
         #expect(try fixture.store(at: reference).get(id: expired.id) == nil)
+    }
+
+    @Test
+    func rootReplacementDuringBeginFailsClosedBeforeCallerCanProceed() throws {
+        let fixture = try Fixture(createRoot: true)
+        defer { fixture.cleanup() }
+        let moved = fixture.parent.appendingPathComponent("history-moved", isDirectory: true)
+        let replacer = RootReplacementBox(root: fixture.root, moved: moved)
+        let fixed = date("2026-09-04T10:00:00Z")
+        let store = OperationHistoryStore(
+            root: fixture.root,
+            now: { fixed },
+            timeZone: { replacer.replaceAndReturnUTC() }
+        )
+
+        #expect(throws: OperationHistoryStoreError.unavailable) {
+            _ = try store.begin(operation: "sync", arguments: ["sync"])
+        }
+        #expect(replacer.failure == nil)
+        #expect(FileManager.default.fileExists(atPath: moved.path))
+        #expect(FileManager.default.fileExists(atPath: fixture.root.path))
     }
 
     @Test
@@ -275,6 +301,33 @@ struct OperationHistoryTests {
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
+    }
+
+    private final class RootReplacementBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private let root: URL
+        private let moved: URL
+        private var replaced = false
+        private(set) var failure: String?
+
+        init(root: URL, moved: URL) {
+            self.root = root
+            self.moved = moved
+        }
+
+        func replaceAndReturnUTC() -> TimeZone {
+            lock.lock()
+            defer { lock.unlock() }
+            guard replaced == false else { return TimeZone(secondsFromGMT: 0)! }
+            replaced = true
+            do {
+                try FileManager.default.moveItem(at: root, to: moved)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            } catch {
+                failure = String(describing: error)
+            }
+            return TimeZone(secondsFromGMT: 0)!
+        }
     }
 
     private final class FailureBox: @unchecked Sendable {

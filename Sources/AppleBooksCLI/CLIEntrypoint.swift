@@ -26,13 +26,13 @@ enum CLIEntrypoint {
     }
 
     static func run(arguments: [String], output: CLIOutput) -> Int32 {
-        run(arguments: arguments, output: output, historyStore: OperationHistoryStore())
+        run(arguments: arguments, output: output, historyStore: nil)
     }
 
     static func run(
         arguments: [String],
         output: CLIOutput,
-        historyStore: OperationHistoryStore
+        historyStore: OperationHistoryStore?
     ) -> Int32 {
         let command: any ParsableCommand
         do {
@@ -46,9 +46,10 @@ enum CLIEntrypoint {
             return dispatch(command, jsonRequested: jsonRequested, output: output)
         }
 
+        let activeHistoryStore = historyStore ?? OperationHistoryStore()
         let token: OperationHistoryToken
         do {
-            token = try historyStore.begin(operation: recordable.historyOperation, arguments: arguments)
+            token = try activeHistoryStore.begin(operation: recordable.historyOperation, arguments: arguments)
         } catch {
             return presentRunError(
                 CLIError.unavailable("Operation history is unavailable."),
@@ -71,7 +72,7 @@ enum CLIEntrypoint {
         )
         let exitCode = dispatch(command, jsonRequested: jsonRequested, output: historyOutput)
         do {
-            try historyStore.complete(
+            try activeHistoryStore.complete(
                 token,
                 exitCode: exitCode,
                 stdout: capturedStdout,

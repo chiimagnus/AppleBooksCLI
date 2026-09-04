@@ -27,8 +27,6 @@ npm install --global @chiimagnus/applebookscli@latest
 npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-For the Chinese Skill, replace `applebookscli` with `applebookscli-zh` in the second command.
-
 Future npm upgrades keep an Agent Skills CLI-managed Skill on the same CLI release tag automatically. `--ignore-scripts` disables that automatic update.
 
 ## Help

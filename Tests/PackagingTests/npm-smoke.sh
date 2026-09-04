@@ -41,6 +41,14 @@ cat > "$SKILL_LOCK" <<'JSON'
       "ref": "v0.0.0",
       "skillPath": "skills/applebookscli",
       "skillFolderHash": "fixture"
+    },
+    "applebookscli-zh": {
+      "source": "chiimagnus/AppleBooksCLI",
+      "sourceUrl": "https://github.com/chiimagnus/AppleBooksCLI.git",
+      "sourceType": "github",
+      "ref": "v0.0.0",
+      "skillPath": "skills/applebookscli-zh",
+      "skillFolderHash": "fixture"
     }
   }
 }
@@ -53,10 +61,15 @@ chmod +x "$FAKE_BIN/npx"
 
 HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" PATH="$FAKE_BIN:$PATH" \
   npm install --global --prefix "$PREFIX" "$PACKAGE" >/dev/null
-[ "$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.skills.applebookscli.ref)' "$SKILL_LOCK")" = "v$EXPECTED_VERSION" ] || \
-  fail "npm postinstall did not align the managed Skill ref with the CLI version."
-grep -Fx -- "-y skills@1.5.23 update applebookscli -g -y" "$NPX_CALL" >/dev/null || \
-  fail "npm postinstall did not delegate the managed Skill update to Agent Skills CLI."
+node - "$SKILL_LOCK" "v$EXPECTED_VERSION" <<'NODE' || fail "npm postinstall did not align managed Skill refs with the CLI version."
+const [path, expected] = process.argv.slice(2);
+const value = require(path);
+for (const name of ["applebookscli", "applebookscli-zh"]) {
+  if (value.skills[name].ref !== expected) process.exit(1);
+}
+NODE
+grep -Fx -- "-y skills@1.5.23 update applebookscli applebookscli-zh -g -y" "$NPX_CALL" >/dev/null || \
+  fail "npm postinstall did not delegate managed Skill updates to Agent Skills CLI."
 CLI="$PREFIX/bin/applebookscli"
 [ "$(cd / && "$CLI" --version)" = "$EXPECTED_VERSION" ] || fail "npm-installed CLI version mismatch."
 (cd / && "$CLI" --help >/dev/null)

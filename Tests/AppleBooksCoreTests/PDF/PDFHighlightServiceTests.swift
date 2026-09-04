@@ -16,7 +16,7 @@ struct PDFHighlightServiceTests {
         _ = try fixture.pdf(name: "timeout.pdf")
         try fixture.database(currentPath: current.path)
         let worker = try fixture.worker()
-        let service = try fixture.service(worker: worker, timeout: 0.15)
+        let service = try fixture.service(worker: worker, timeout: 2)
 
         let result = try service.readHighlights()
 

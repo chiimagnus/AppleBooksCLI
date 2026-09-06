@@ -29,7 +29,7 @@ Apple Books
     ├── PDF worker protocol
     ├── export
     ├── guarded mutation / restore
-    └── cloud projection / acknowledgement flush
+    └── cloud projection / automatic acknowledgement + pending flush
           │
           ▼
     applebookscli
@@ -63,6 +63,8 @@ BKLibrary 与 AEAnnotation 是两个独立业务 store：
 - current Book metadata 只是 annotation enrichment，不是 annotation existence 条件。
 
 写入后还存在独立的 Apple BookDataStore cloud representation：collection detail/member 与 annotation asset data 不能互相代替，也不能把业务 SQLite commit 直接当成 CloudKit change。AppleBooksCLI 只使用当前已验证的 Apple framework primitive 产生 dirty representation；真正的 CloudKit attach/upload 继续由 Apple-owned service/client lifecycle 完成，第三方 CLI 不伪造 Apple identity/entitlement 直接连接 Apple Books CloudKit container。
+
+canonical live annotation/collection mutation 的 cloud ownership 由 Core domain policy 决定：本地 COMMIT/read-back 后完成 projection，并默认等待当前 Mac acknowledgement；调用方不再逐条传递 `syncCloud`，CLI mutation 也没有 `--sync` 开关。根 `applebookscli sync` 是另一条明确的 pending-recovery/flush surface，只消费已经存在的 pending cloud records，不是正常 mutation 的必需收尾。CLI 对单侧 DB override 按 domain 使用 detached Books lifecycle；公开 `AppleBooksCore` 仍允许调用方显式选择 lifecycle 管理。具体 quiet/backup/transaction/ack/final-restore 顺序只由 [`write-safety.md`](write-safety.md) 拥有，本文不复制状态机 ceremony。
 
 读取与写入使用不同 schema 策略：
 

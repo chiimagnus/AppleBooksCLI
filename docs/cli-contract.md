@@ -20,6 +20,12 @@ Commands throw typed `CLIError` or ArgumentParser `ValidationError`; command imp
 
 Operational `--json` success writes exactly one compact Codable JSON value to stdout. Human-readable success output is also stdout. Warnings, progress, verbose diagnostics, and other non-result information must not be mixed into machine stdout; they belong on stderr or in an explicitly documented JSON result field.
 
+### Mutation success output
+
+Annotation/collection mutation 的 human stdout 是稳定的最小 result contract：`changed=true` 第一行是 `Mutation committed.`，`changed=false` 第一行是 `No change.`；有 post-commit warning 时追加一行 `warnings: <comma-separated warningCodes>`；annotation result 有 `appleBooksURL` 时，raw URL 必须作为最后一行。human mutation output 不显示 backup handle、local PK、stable ID，也不回显 note/details 正文。
+
+Mutation `--json` 仍只输出一个 JSON value，并保留 `committed`、`changed`、`backupHandle`、`localPK`、`stableID`、`warningCodes`；annotation mutation 可额外包含 optional `appleBooksURL`，nil 时无需强制编码 `null`。逐条 mutation 不再提供 `--sync`；canonical live mutation 的 acknowledgement 属于 Core automatic policy，显式 pending recovery/flush 使用根 `sync` 命令。
+
 Human operational errors are written to stderr. Machine operational errors are written as exactly one JSON value on stdout:
 
 ```json

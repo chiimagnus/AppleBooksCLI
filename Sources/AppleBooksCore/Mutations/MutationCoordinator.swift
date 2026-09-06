@@ -40,7 +40,7 @@ struct MutationCoordinator {
         domainData: (T) -> MutationDomainData,
         cloudProjection: ((T) throws -> Void)? = nil,
         acknowledgementRequested: Bool = false,
-        acknowledgement: ((T) throws -> Void)? = nil,
+        acknowledgement: ((T, () -> Void) throws -> Void)? = nil,
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> MutationResult {
         let preflightConnection: SQLiteConnection
@@ -223,18 +223,16 @@ struct MutationCoordinator {
             }
         }
 
-        var temporaryBooksLaunchObserved = false
+        var ownsTemporaryBooksLaunch = false
         if domain.changed, acknowledgementRequested {
             if projectionSucceeded, let acknowledgement {
-                let booksWasRunningBeforeAcknowledgement = booksApp.isRunning()
                 do {
-                    try acknowledgement(payload)
+                    try acknowledgement(payload) {
+                        ownsTemporaryBooksLaunch = true
+                    }
                 } catch {
                     warnings.append(.cloudSyncFailed)
                 }
-                temporaryBooksLaunchObserved = initialBooksState == .closed
-                    && booksWasRunningBeforeAcknowledgement == false
-                    && booksApp.isRunning()
             } else {
                 warnings.append(.cloudSyncFailed)
             }
@@ -242,7 +240,7 @@ struct MutationCoordinator {
 
         switch initialBooksState {
         case .closed:
-            if temporaryBooksLaunchObserved {
+            if ownsTemporaryBooksLaunch, booksApp.state() != .frontmost {
                 do {
                     try booksApp.restore(.closed)
                 } catch {

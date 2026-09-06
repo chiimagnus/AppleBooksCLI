@@ -127,7 +127,12 @@ struct CollectionWriter {
             cloudProjection: cloudProjection,
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { created in try synchronizer.syncCollection(localPK: created.localPK) }
+                { created, onTemporaryBooksLaunch in
+                    try synchronizer.syncCollection(
+                        localPK: created.localPK,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
+                    )
+                }
             },
             readBack: { connection, created in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
@@ -225,7 +230,12 @@ struct CollectionWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target in try synchronizer.syncCollection(localPK: target.localPK) }
+                { target, onTemporaryBooksLaunch in
+                    try synchronizer.syncCollection(
+                        localPK: target.localPK,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
+                    )
+                }
             },
             readBack: { connection, target in
                 guard let collection = try CollectionQueries(connection: connection).getByLocalPK(target.localPK),
@@ -275,7 +285,13 @@ struct CollectionWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target in try synchronizer.syncCollection(localPK: target.localPK, deleting: true) }
+                { target, onTemporaryBooksLaunch in
+                    try synchronizer.syncCollection(
+                        localPK: target.localPK,
+                        deleting: true,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
+                    )
+                }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle,
@@ -371,12 +387,13 @@ struct CollectionWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { mutation in
+                { mutation, onTemporaryBooksLaunch in
                     guard let assetID = mutation.assetID else { throw CollectionCloudSyncError.cloudRecordMissing }
                     try synchronizer.syncMembership(
                         collectionLocalPK: mutation.collection.localPK,
                         assetID: assetID,
-                        deleting: false
+                        deleting: false,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },
@@ -468,12 +485,13 @@ struct CollectionWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { mutation in
+                { mutation, onTemporaryBooksLaunch in
                     guard let assetID = mutation.assetID else { throw CollectionCloudSyncError.cloudRecordMissing }
                     try synchronizer.syncMembership(
                         collectionLocalPK: mutation.collection.localPK,
                         assetID: assetID,
-                        deleting: true
+                        deleting: true,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },

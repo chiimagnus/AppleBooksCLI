@@ -13,7 +13,10 @@ struct AnnotationCloudSynchronizerTests {
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: 1
         )
-        try synchronizer.sync(localPK: 7)
+        try synchronizer.sync(
+            localPK: 7,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
         #expect(events.values.isEmpty)
     }
 
@@ -33,8 +36,11 @@ struct AnnotationCloudSynchronizerTests {
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: 3
         )
-        try synchronizer.sync(localPK: 7)
-        #expect(events.values == ["launchWithoutActivation", "sleep"])
+        try synchronizer.sync(
+            localPK: 7,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
+        #expect(events.values == ["launchWithoutActivation", "temporaryLaunch", "sleep"])
         #expect(reads == 3)
     }
 
@@ -53,7 +59,10 @@ struct AnnotationCloudSynchronizerTests {
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: 2
         )
-        try synchronizer.sync(localPK: 7)
+        try synchronizer.sync(
+            localPK: 7,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
         #expect(events.values.isEmpty)
         #expect(reads == 2)
     }
@@ -67,7 +76,10 @@ struct AnnotationCloudSynchronizerTests {
             maxPollCount: 1
         )
         #expect(throws: AnnotationCloudSyncError.cloudRecordMissing) {
-            try synchronizer.sync(localPK: 7)
+            try synchronizer.sync(
+                localPK: 7,
+                onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+            )
         }
         #expect(events.values.isEmpty)
     }
@@ -133,9 +145,12 @@ struct AnnotationCloudSynchronizerTests {
             maxPollCount: 2
         )
         #expect(throws: AnnotationCloudSyncError.acknowledgementTimedOut) {
-            try synchronizer.sync(localPK: 7)
+            try synchronizer.sync(
+                localPK: 7,
+                onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+            )
         }
-        #expect(events.values == ["launchWithoutActivation", "sleep", "sleep"])
+        #expect(events.values == ["launchWithoutActivation", "temporaryLaunch", "sleep", "sleep"])
     }
 
     private func controller(events: Events, running initial: Bool) -> BooksAppController {

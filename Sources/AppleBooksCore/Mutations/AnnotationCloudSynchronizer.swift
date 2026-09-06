@@ -44,11 +44,12 @@ struct AnnotationCloudSynchronizer {
         self.maxPollCount = maxPollCount
     }
 
-    func sync(localPK: Int64) throws {
+    func sync(localPK: Int64, onTemporaryBooksLaunch: () -> Void) throws {
         guard let initial = try stateAction(localPK) else { throw AnnotationCloudSyncError.cloudRecordMissing }
         if initial.isAcknowledged { return }
         if booksApp.isRunning() == false {
             try booksApp.launchWithoutActivationAndWait()
+            onTemporaryBooksLaunch()
         }
         // ponytail: annotation projection 已发生在 Books relaunch 之前；只等待 client-side CloudKit ack，不重启系统 daemon。
         try waitUntil {

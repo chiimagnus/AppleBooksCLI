@@ -121,7 +121,7 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { MutationDomainData(localPK: $0, changed: true) },
             cloudProjection: { _ in fixture.state.events.append("cloudProjection") },
             acknowledgementRequested: true,
-            acknowledgement: { _ in fixture.state.events.append("acknowledgement") },
+            acknowledgement: { _, _ in fixture.state.events.append("acknowledgement") },
             readBack: { _, _ in fixture.state.events.append("readBack") }
         )
 
@@ -149,7 +149,7 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { MutationDomainData(localPK: $0, changed: true) },
             cloudProjection: { _ in projectionCount += 1 },
             acknowledgementRequested: true,
-            acknowledgement: { _ in acknowledgementCount += 1 },
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
             readBack: { _, _ in throw TestFailure.readBack }
         )
 
@@ -172,7 +172,7 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { _ in MutationDomainData(changed: false) },
             cloudProjection: { _ in projectionCount += 1 },
             acknowledgementRequested: true,
-            acknowledgement: { _ in acknowledgementCount += 1 },
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
             readBack: { _, _ in }
         )
 
@@ -198,9 +198,10 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { MutationDomainData(localPK: $0, changed: true) },
             cloudProjection: { _ in },
             acknowledgementRequested: true,
-            acknowledgement: { _ in
+            acknowledgement: { _, markTemporaryLaunch in
                 fixture.state.events.append("temporaryLaunch")
                 fixture.state.running = true
+                markTemporaryLaunch()
             },
             readBack: { _, _ in }
         )
@@ -208,6 +209,33 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.warnings.isEmpty)
         #expect(fixture.state.running == false)
         try assertOrdered(["temporaryLaunch", "terminate"], in: fixture.state.events)
+    }
+
+    @Test
+    func unownedBooksLaunchDuringAcknowledgementIsNeverClosed() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(15)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in
+                fixture.state.events.append("userLaunch")
+                fixture.state.running = true
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.events.contains("terminate") == false)
     }
 
     @Test
@@ -488,9 +516,10 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { MutationDomainData(localPK: $0, changed: true) },
             cloudProjection: { _ in },
             acknowledgementRequested: true,
-            acknowledgement: { _ in
+            acknowledgement: { _, markTemporaryLaunch in
                 fixture.state.events.append("temporaryLaunch")
                 fixture.state.running = true
+                markTemporaryLaunch()
                 throw TestFailure.cloudSync
             },
             readBack: { _, _ in }
@@ -517,7 +546,10 @@ struct MutationCoordinatorLifecycleTests {
             domainData: { MutationDomainData(localPK: $0, changed: true) },
             cloudProjection: { _ in },
             acknowledgementRequested: true,
-            acknowledgement: { _ in fixture.state.running = true },
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.running = true
+                markTemporaryLaunch()
+            },
             readBack: { _, _ in }
         )
 
@@ -525,6 +557,35 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.warnings == [.booksStateRestoreFailed])
         #expect(fixture.state.running)
         #expect(fixture.state.events.contains("terminate"))
+    }
+
+    @Test
+    func frontmostUserClaimPreventsClosingOwnedTemporaryLaunch() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(17)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.running = true
+                markTemporaryLaunch()
+                fixture.state.frontmost = true
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        #expect(fixture.state.events.contains("terminate") == false)
     }
 
     @Test

@@ -59,15 +59,24 @@ struct CollectionCloudSynchronizer {
         self.maxPollCount = maxPollCount
     }
 
-    func syncCollection(localPK: Int64, deleting: Bool = false) throws {
+    func syncCollection(
+        localPK: Int64,
+        deleting: Bool = false,
+        onTemporaryBooksLaunch: () -> Void
+    ) throws {
         if try collectionSatisfied(localPK: localPK, deleting: deleting) { return }
-        try triggerSync(activating: false)
+        try triggerSingleRecordSync(onTemporaryBooksLaunch: onTemporaryBooksLaunch)
         try waitUntil { try collectionSatisfied(localPK: localPK, deleting: deleting) }
     }
 
-    func syncMembership(collectionLocalPK: Int64, assetID: String, deleting: Bool) throws {
+    func syncMembership(
+        collectionLocalPK: Int64,
+        assetID: String,
+        deleting: Bool,
+        onTemporaryBooksLaunch: () -> Void
+    ) throws {
         if try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting) { return }
-        try triggerSync(activating: false)
+        try triggerSingleRecordSync(onTemporaryBooksLaunch: onTemporaryBooksLaunch)
         try waitUntil {
             try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting)
         }
@@ -79,7 +88,7 @@ struct CollectionCloudSynchronizer {
 
     func syncPending() throws {
         guard try pendingCountAction() > 0 else { return }
-        try triggerSync(activating: true)
+        try triggerPendingBatchSync()
         try waitUntil { try pendingCountAction() == 0 }
     }
 
@@ -136,16 +145,20 @@ struct CollectionCloudSynchronizer {
         return member.deleted == false && member.isAcknowledged
     }
 
-    private func triggerSync(activating: Bool) throws {
-        if activating, booksApp.isRunning() {
+    private func triggerSingleRecordSync(onTemporaryBooksLaunch: () -> Void) throws {
+        try recycleAction()
+        if booksApp.isRunning() == false {
+            try booksApp.launchWithoutActivationAndWait()
+            onTemporaryBooksLaunch()
+        }
+    }
+
+    private func triggerPendingBatchSync() throws {
+        if booksApp.isRunning() {
             try booksApp.terminateAndWait()
         }
         try recycleAction()
-        if activating {
-            try booksApp.launch()
-        } else if booksApp.isRunning() == false {
-            try booksApp.launchWithoutActivationAndWait()
-        }
+        try booksApp.launch()
     }
 
     private func waitUntil(_ condition: () throws -> Bool) throws {

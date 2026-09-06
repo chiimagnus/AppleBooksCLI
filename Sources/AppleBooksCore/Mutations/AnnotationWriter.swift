@@ -139,7 +139,12 @@ struct AnnotationWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target in try synchronizer.sync(localPK: target.localPK) }
+                { target, onTemporaryBooksLaunch in
+                    try synchronizer.sync(
+                        localPK: target.localPK,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
+                    )
+                }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
@@ -184,7 +189,12 @@ struct AnnotationWriter {
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target in try synchronizer.sync(localPK: target.localPK) }
+                { target, onTemporaryBooksLaunch in
+                    try synchronizer.sync(
+                        localPK: target.localPK,
+                        onTemporaryBooksLaunch: onTemporaryBooksLaunch
+                    )
+                }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }

@@ -106,7 +106,7 @@ query/content/PDF
 
 CLI 负责 transport/presentation 与 operation history，AppleBooksCore 不依赖 CLI。process contract 见 [`cli-contract.md`](cli-contract.md)。完整命令树不在文档复制，以 `applebookscli --help` 为准。
 
-不为 MCP、Notion 或其它 UI/transport 建第二套 Apple Books 业务逻辑；不引入第二套 SQLite runtime 或 ORM-style manager。
+新增 transport / UI 集成时继续复用 `AppleBooksCore` 的公开业务路径；不要在下游建立第二套 Apple Books 数据、content、mutation 或 cloud 逻辑，也不要引入第二套 SQLite runtime / ORM-style manager。
 
 ## Edit trigger / evidence
 

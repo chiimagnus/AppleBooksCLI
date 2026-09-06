@@ -171,4 +171,3 @@
 - 创建新的 Apple Books highlight / annotation。
 - 修改 selected text / CFI range。
 - 任意写 current reading position。
-- Notion projection/import（属于下游，不是 AppleBooksCLI 本体）。

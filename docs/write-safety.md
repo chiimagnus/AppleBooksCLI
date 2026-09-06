@@ -92,9 +92,9 @@ restore apply 后同样跨过不可逆边界；后续 verification/retention/rel
 
 ack criterion 由 synchronizer/tests 拥有。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
 
-## Operation history 与隐私
+## Operation history 交叉边界
 
-目标 mutation、restore 与 root sync 在 CLI dispatch 前记录 started；completion 记录失败不能改变原 command outcome。普通 result/error 不回显用户正文或私有 SQLite payload；显式 `history get` 是有意的完整本地读取面，细节见 [`cli-contract.md`](cli-contract.md)。
+CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `started` 才能 dispatch；completion 写入发生在 command outcome 之后，失败只能追加 warning。完整 stdout/stderr/JSON、history persistence/read 与隐私 contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
 
 ## Edit trigger / evidence
 

@@ -1,0 +1,65 @@
+name: Bug report
+description: Report reproducible AppleBooksCLI behavior that is not working as expected
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: checkboxes
+    id: existing-search
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched open and closed issues and did not find this already reported
+          required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what you expected and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Affected command
+      description: Command or subcommand if known. Redact private selectors and content.
+      placeholder: applebookscli annotations ...
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: AppleBooksCLI version or commit
+      placeholder: 0.3.0 or commit SHA
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include macOS version and whether this is an npm release or source checkout. Add Apple Books details only when relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Optional logs, screenshots, or output. Redact real book titles, asset IDs, annotation UUID/CFI values, note text, private paths, credentials, tokens, and other personal data before posting.
+    validations:
+      required: false

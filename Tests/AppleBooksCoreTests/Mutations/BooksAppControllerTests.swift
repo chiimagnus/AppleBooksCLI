@@ -103,4 +103,103 @@ struct BooksAppControllerTests {
         #expect(calls == ["launch"])
         #expect(BooksAppController.bundleIdentifier == "com.apple.iBooksX")
     }
+
+    @Test
+    func stateDistinguishesClosedBackgroundAndFrontmost() {
+        var running = false
+        var frontmost = false
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { true },
+            launch: {},
+            isFrontmost: { frontmost }
+        )
+
+        #expect(controller.state() == .closed)
+        running = true
+        #expect(controller.state() == .background)
+        frontmost = true
+        #expect(controller.state() == .frontmost)
+    }
+
+    @Test
+    func backgroundRestoreUsesNonActivatingLaunchAndWaitsForRunningState() throws {
+        var running = false
+        var frontmost = false
+        var calls: [String] = []
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { true },
+            launch: {
+                calls.append("launch")
+                running = true
+                frontmost = true
+            },
+            isFrontmost: { frontmost },
+            launchWithoutActivation: {
+                calls.append("launchWithoutActivation")
+                running = true
+            },
+            activate: {
+                calls.append("activate")
+                frontmost = true
+            }
+        )
+
+        try controller.restore(.background)
+        #expect(calls == ["launchWithoutActivation"])
+        #expect(controller.state() == .background)
+    }
+
+    @Test
+    func frontmostRestoreLaunchesThenActivatesAndVerifiesFrontmostState() throws {
+        var running = false
+        var frontmost = false
+        var calls: [String] = []
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { true },
+            launch: {
+                calls.append("launch")
+                running = true
+            },
+            isFrontmost: { frontmost },
+            activate: {
+                calls.append("activate")
+                frontmost = true
+            }
+        )
+
+        try controller.restore(.frontmost)
+        #expect(calls == ["launch", "activate"])
+        #expect(controller.state() == .frontmost)
+    }
+
+    @Test
+    func nonActivatingLaunchAndFrontmostVerificationAreBounded() throws {
+        let launchTimedOut = BooksAppController(
+            isRunning: { false },
+            terminate: { true },
+            launch: {},
+            launchWithoutActivation: {},
+            sleep: { _ in },
+            timeout: 0
+        )
+        #expect(throws: BooksAppControllerError.launchFailed) {
+            try launchTimedOut.launchWithoutActivationAndWait()
+        }
+
+        let activationTimedOut = BooksAppController(
+            isRunning: { true },
+            terminate: { true },
+            launch: {},
+            isFrontmost: { false },
+            activate: {},
+            sleep: { _ in },
+            timeout: 0
+        )
+        #expect(throws: BooksAppControllerError.launchFailed) {
+            try activationTimedOut.restore(.frontmost)
+        }
+    }
 }

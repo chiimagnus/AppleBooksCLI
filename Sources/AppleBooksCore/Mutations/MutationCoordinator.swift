@@ -68,8 +68,8 @@ struct MutationCoordinator {
             throw error
         }
 
-        let wasRunning = booksApp.isRunning()
-        if wasRunning {
+        let initialBooksState = booksApp.state()
+        if initialBooksState != .closed {
             do {
                 try booksApp.terminateAndWait()
             } catch {
@@ -90,7 +90,7 @@ struct MutationCoordinator {
                 error,
                 code: .backupFailed,
                 backupHandle: nil,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
         let backupHandle = backup.lastPathComponent
@@ -104,7 +104,7 @@ struct MutationCoordinator {
                 openError,
                 code: .databaseOpenFailed,
                 backupHandle: backupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
 
@@ -128,7 +128,7 @@ struct MutationCoordinator {
                 busyError,
                 code: .busyTimeoutFailed,
                 backupHandle: backupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
 
@@ -141,7 +141,7 @@ struct MutationCoordinator {
                 beginError,
                 code: .beginFailed,
                 backupHandle: backupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
         transactionOpen = true
@@ -150,7 +150,7 @@ struct MutationCoordinator {
             try revalidate(handle)
         } catch {
             rollbackAndClose(handle, transactionOpen: &transactionOpen, writableOpen: &writableOpen)
-            throw failure(error, code: .revalidateFailed, backupHandle: backupHandle, restoreBooks: wasRunning)
+            throw failure(error, code: .revalidateFailed, backupHandle: backupHandle, restoreBooks: initialBooksState)
         }
 
         let payload: T
@@ -158,14 +158,14 @@ struct MutationCoordinator {
             payload = try mutation(handle)
         } catch {
             rollbackAndClose(handle, transactionOpen: &transactionOpen, writableOpen: &writableOpen)
-            throw failure(error, code: .mutationFailed, backupHandle: backupHandle, restoreBooks: wasRunning)
+            throw failure(error, code: .mutationFailed, backupHandle: backupHandle, restoreBooks: initialBooksState)
         }
 
         do {
             try invariant(handle, payload)
         } catch {
             rollbackAndClose(handle, transactionOpen: &transactionOpen, writableOpen: &writableOpen)
-            throw failure(error, code: .invariantFailed, backupHandle: backupHandle, restoreBooks: wasRunning)
+            throw failure(error, code: .invariantFailed, backupHandle: backupHandle, restoreBooks: initialBooksState)
         }
 
         let commit = sqlite3_exec(handle, "COMMIT", nil, nil, nil)
@@ -176,7 +176,7 @@ struct MutationCoordinator {
                 commitError,
                 code: .commitFailed,
                 backupHandle: backupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
         transactionOpen = false
@@ -218,9 +218,9 @@ struct MutationCoordinator {
             }
         }
 
-        if wasRunning {
+        if initialBooksState != .closed {
             do {
-                try booksApp.launch()
+                try booksApp.restore(initialBooksState)
             } catch {
                 warnings.append(.relaunchFailed)
             }
@@ -345,12 +345,12 @@ struct MutationCoordinator {
         _ underlying: any Error,
         code: MutationFailureCode,
         backupHandle: String?,
-        restoreBooks: Bool
+        restoreBooks: BooksAppState
     ) -> MutationFailure {
         var warnings: [MutationWarning] = []
-        if restoreBooks {
+        if restoreBooks != .closed {
             do {
-                try booksApp.launch()
+                try booksApp.restore(restoreBooks)
             } catch {
                 warnings.append(.relaunchFailed)
             }

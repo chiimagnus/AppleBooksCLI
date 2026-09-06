@@ -26,7 +26,7 @@ collection 与 annotation mutation 的固定顺序：
 
 ```text
 read-only preflight
-→ 记录 Books 原运行状态；需要时 clean quit
+→ 记录 Books 原状态（closed / background / frontmost）；原本运行时 clean quit
 → quiet-state fresh SQLite backup
 → short-lived RW connection + bounded busy timeout
 → BEGIN IMMEDIATE
@@ -36,7 +36,7 @@ read-only preflight
 → close writable handle
 → fresh read-only read-back
 → Apple-native cloud projection
-→ 若 Books 原先运行则恢复
+→ 恢复原 Books 状态：background 不激活，frontmost 恢复前台，closed 不主动启动
 → optional explicit CloudKit acknowledgement
 ```
 
@@ -48,7 +48,7 @@ cloud projection 发生在 **COMMIT + read-back 成功之后**。projection 失�
 
 `COMMIT` 是普通 mutation 的 public irreversible boundary。
 
-COMMIT 前失败：rollback、关闭 writable handle，并尽力恢复原 Books 运行状态。COMMIT 后 close/read-back/relaunch/projection/sync 失败都不能把结果改写为“未提交”。structured result 继续保留 `committed=true`、`changed`、backup handle、可用 identity 与 warning。
+COMMIT 前失败：rollback、关闭 writable handle；一旦已经成功进入 quiet state，则尽力恢复原 Books background/frontmost 状态。Books clean quit 本身 reject/timeout 时仍 fail closed，不猜测性 relaunch。COMMIT 后 close/read-back/relaunch/projection/sync 失败都不能把结果改写为“未提交”。structured result 继续保留 `committed=true`、`changed`、backup handle、可用 identity 与 warning。
 
 调用方看到 committed success + warning 时应重新读取需要确认的状态，**不能自动重试同一个 mutation**。`changed=false` 是成功 no-op，不是失败。
 
@@ -74,7 +74,7 @@ public `backups list/restore` 当前只覆盖 BKLibrary。annotation mutation �
 
 ## Books lifecycle 与 schema guard
 
-Books.app 的运行状态属于 write protocol；`BKAgentService` / `bookassetd` 等 helper daemon 不等同于 Books running gate。safety backup 是 fresh quiet-app snapshot，但不是与所有 Apple helper daemon 写入原子锁定的数学意义 pre-state。
+Books.app 的 `closed / background / frontmost` 状态属于 normal mutation write protocol；`MutationCoordinator` 捕获一次初始状态并拥有最终恢复。background 恢复必须使用 non-activating launch，frontmost 恢复必须在 bounded verification 后才视为成功；`BKAgentService` / `bookassetd` 等 helper daemon 不等同于 Books running gate。safety backup 是 fresh quiet-app snapshot，但不是与所有 Apple helper daemon 写入原子锁定的数学意义 pre-state。`backups restore` 仍保留其既有 running/closed restore contract，本阶段不借机改变其产品语义。
 
 读取允许 optional schema degradation；写入必须验证目标 table/required columns、未知 required/NOT NULL 字段、Core Data entity metadata、`Z_PRIMARYKEY` 与目标 row 状态。Apple 私有 schema 没有公开稳定 contract，因此 guard 只能 fail closed on known drift，不能证明未来语义永久兼容。
 

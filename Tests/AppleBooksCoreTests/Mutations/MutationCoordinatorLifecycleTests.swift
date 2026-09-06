@@ -27,7 +27,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.warnings.isEmpty)
         #expect(fixture.state.running)
         try assertOrdered(
-            ["preflight", "terminate", "backup", "revalidate", "mutation", "invariant", "readBack", "launch"],
+            ["preflight", "terminate", "backup", "revalidate", "mutation", "invariant", "readBack", "launchWithoutActivation"],
             in: fixture.state.events
         )
     }
@@ -51,7 +51,7 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.warnings.isEmpty)
-        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "cloudProjection", "launchWithoutActivation"], in: fixture.state.events)
     }
 
     @Test
@@ -77,7 +77,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.committed)
         #expect(result.localPK == 9)
         #expect(result.warnings == [.cloudProjectionFailed])
-        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "cloudProjection", "launchWithoutActivation"], in: fixture.state.events)
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
@@ -178,7 +178,7 @@ struct MutationCoordinatorLifecycleTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        try assertOrdered(["terminate", "backup", "launch"], in: fixture.state.events)
+        try assertOrdered(["terminate", "backup", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(revalidateCount == 0)
         #expect(try readValue(at: fixture.database) == "before")
@@ -208,7 +208,7 @@ struct MutationCoordinatorLifecycleTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        try assertOrdered(["backup", "revalidate", "mutation", "launch"], in: fixture.state.events)
+        try assertOrdered(["backup", "revalidate", "mutation", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(try readValue(at: fixture.database) == "before")
     }
@@ -232,7 +232,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.committed)
         #expect(result.localPK == 9)
         #expect(result.warnings == [.relaunchFailed])
-        try assertOrdered(["backup", "readBack", "launch"], in: fixture.state.events)
+        try assertOrdered(["backup", "readBack", "launchWithoutActivation"], in: fixture.state.events)
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
@@ -257,9 +257,32 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.warnings == [.readBackFailed])
-        try assertOrdered(["readBack", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
+    func frontmostStateIsRestoredOnlyAfterReadBackAndActivation() throws {
+        let fixture = try fixture(running: true, frontmost: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(11)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            readBack: { _, _ in fixture.state.events.append("readBack") }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["terminate", "readBack", "launch", "activate"], in: fixture.state.events)
     }
 
     @Test
@@ -284,6 +307,7 @@ struct MutationCoordinatorLifecycleTests {
 
     private func fixture(
         running: Bool,
+        frontmost: Bool = false,
         terminateSucceeds: Bool = true,
         backupFails: Bool = false,
         launchFails: Bool = false
@@ -294,6 +318,7 @@ struct MutationCoordinatorLifecycleTests {
         try createDatabase(database)
         let state = LifecycleState(
             running: running,
+            frontmost: frontmost,
             terminateSucceeds: terminateSucceeds,
             launchFails: launchFails
         )
@@ -366,12 +391,14 @@ struct MutationCoordinatorLifecycleTests {
 
     private final class LifecycleState {
         var running: Bool
+        var frontmost: Bool
         var events: [String] = []
         let terminateSucceeds: Bool
         let launchFails: Bool
 
-        init(running: Bool, terminateSucceeds: Bool, launchFails: Bool) {
+        init(running: Bool, frontmost: Bool, terminateSucceeds: Bool, launchFails: Bool) {
             self.running = running
+            self.frontmost = frontmost
             self.terminateSucceeds = terminateSucceeds
             self.launchFails = launchFails
         }
@@ -386,12 +413,28 @@ struct MutationCoordinatorLifecycleTests {
                     events.append("terminate")
                     guard terminateSucceeds else { return false }
                     running = false
+                    frontmost = false
                     return true
                 },
                 launch: { [self] in
                     events.append("launch")
                     if launchFails { throw TestFailure.launch }
                     running = true
+                },
+                isFrontmost: { [self] in
+                    events.append("isFrontmost")
+                    return frontmost
+                },
+                launchWithoutActivation: { [self] in
+                    events.append("launchWithoutActivation")
+                    if launchFails { throw TestFailure.launch }
+                    running = true
+                    frontmost = false
+                },
+                activate: { [self] in
+                    events.append("activate")
+                    if launchFails { throw TestFailure.launch }
+                    frontmost = true
                 }
             )
         }

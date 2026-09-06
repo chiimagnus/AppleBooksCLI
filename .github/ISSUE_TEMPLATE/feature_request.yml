@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a focused AppleBooksCLI capability or workflow improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should AppleBooksCLI do?
+      description: Describe the user-visible capability or workflow before proposing implementation details.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does it belong in AppleBooksCLI?
+      description: Explain the user problem and why this should be part of this project rather than only a downstream integration or one-off workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example workflow
+      description: Optional example of how you would expect to use the capability.
+    validations:
+      required: false

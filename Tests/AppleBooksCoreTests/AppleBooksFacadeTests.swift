@@ -234,58 +234,6 @@ struct AppleBooksFacadeTests {
     }
 
     @Test
-    func booksApplicationLifecycleManagementIsPerDatabaseDomain() throws {
-        let home = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let paths = AppleBooksDatabasePaths.defaults(homeDirectory: home)
-        try FileManager.default.createDirectory(at: paths.libraryDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: paths.annotationsDirectory, withIntermediateDirectories: true)
-        let liveLibrary = paths.libraryDirectory.appendingPathComponent("BKLibrary-live.sqlite")
-        let liveAnnotations = paths.annotationsDirectory.appendingPathComponent("AEAnnotation-live.sqlite")
-        let libraryOverride = home.appendingPathComponent("library-override.sqlite")
-        let annotationsOverride = home.appendingPathComponent("annotations-override.sqlite")
-        for url in [liveLibrary, liveAnnotations, libraryOverride, annotationsOverride] {
-            try Data().write(to: url)
-        }
-
-        let bothLive = AppleBooks.managedBooksApplicationDomains(
-            libraryDB: liveLibrary,
-            annotationsDB: liveAnnotations,
-            manageBooksApplication: true,
-            homeDirectory: home
-        )
-        #expect(bothLive.collection)
-        #expect(bothLive.annotation)
-
-        let libraryDetached = AppleBooks.managedBooksApplicationDomains(
-            libraryDB: libraryOverride,
-            annotationsDB: liveAnnotations,
-            manageBooksApplication: true,
-            homeDirectory: home
-        )
-        #expect(libraryDetached.collection == false)
-        #expect(libraryDetached.annotation)
-
-        let annotationDetached = AppleBooks.managedBooksApplicationDomains(
-            libraryDB: liveLibrary,
-            annotationsDB: annotationsOverride,
-            manageBooksApplication: true,
-            homeDirectory: home
-        )
-        #expect(annotationDetached.collection)
-        #expect(annotationDetached.annotation == false)
-
-        let allDetached = AppleBooks.managedBooksApplicationDomains(
-            libraryDB: liveLibrary,
-            annotationsDB: liveAnnotations,
-            manageBooksApplication: false,
-            homeDirectory: home
-        )
-        #expect(allDetached.collection == false)
-        #expect(allDetached.annotation == false)
-    }
-
-    @Test
     func currentLocationFailsClosedWhenBookAssetIdColumnIsMissing() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -2,24 +2,7 @@
 
 English | [简体中文](README.zh.md)
 
-[AppleBooksCLI](https://github.com/chiimagnus/AppleBooksCLI) is a command-line tool for Apple Books on macOS. It can query your library, reading state, highlights, and notes; read available EPUB/PDF content; export notes; and safely update existing notes or collections when requested.
-
-## Features
-
-- Browse and search the Apple Books library and reading state.
-- Query highlights, notes, and recent annotations, with book- and time-based filtering.
-- Open a single annotation back at its Apple Books location when a deep link is available.
-- Read available EPUB tables of contents, chapters, metadata, and annotation context.
-- Extract PDF highlights and notes.
-- Export JSON, CSV, Markdown, or HTML.
-- **Safely update notes and manage collections, with an automatic backup before writes.**
-- Review the last 24 hours of AppleBooksCLI write/sync tool calls through local operation history.
-- Provide a standard `applebookscli` Agent Skill in English and Chinese.
-
-## Requirements
-
-- macOS may require Full Disk Access for the terminal or calling process before Apple Books data can be read.
-- Undownloaded EPUBs, DRM-protected content, or content the current system cannot read are reported as unavailable or capability-limited. AppleBooksCLI does not bypass system protections.
+[AppleBooksCLI](https://github.com/chiimagnus/AppleBooksCLI) is a macOS CLI for reading and safely managing Apple Books data: library records, reading state, annotations, EPUB/PDF content, exports, notes, and collections.
 
 ## Install
 
@@ -28,11 +11,30 @@ npm install --global @chiimagnus/applebookscli@latest
 npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-Future npm upgrades keep an Agent Skills CLI-managed Skill on the same CLI release tag automatically. `--ignore-scripts` disables that automatic update.
+The npm install provides the CLI. The second command installs the matching Agent Skill. npm upgrades keep an Agent Skills CLI-managed Skill on the same CLI release tag unless lifecycle scripts are disabled.
 
-## Help
+## Requirements
 
-The installed CLI is the source of truth for current commands and arguments:
+- macOS. Reading Apple Books data may require Full Disk Access for the calling terminal or process.
+- AppleBooksCLI does not bypass DRM or intentionally hydrate unavailable iCloud content.
+
+## Start here
+
+```sh
+applebookscli books list
+applebookscli reading in-progress
+applebookscli annotations recent
+applebookscli stats
+```
+
+Use `--json` for structured command results where supported:
+
+```sh
+applebookscli books list --json
+applebookscli annotations recent --json
+```
+
+The installed CLI is the source of truth for commands and arguments:
 
 ```sh
 applebookscli --help
@@ -40,100 +42,35 @@ applebookscli <group> --help
 applebookscli <group> <subcommand> --help
 ```
 
-## Quick start
+## Common tasks
+
+| Goal | Command family |
+| --- | --- |
+| Browse/search books and reading state | `books`, `reading`, `stats` |
+| Read/search annotations and notes | `annotations` |
+| Read EPUB content or annotation context | `content` |
+| Inspect PDFs and PDF highlights | `pdf` |
+| Export JSON/CSV/Markdown/HTML | `export` |
+| Manage collections | `collections` |
+| Inspect/restore guarded backups | `backups` |
+| Inspect recent write/sync history | `history` |
+| Diagnose access or schema readiness | `doctor` |
+
+A single annotation result may include `appleBooksURL`, which can reopen the corresponding book or highlight location in Apple Books.
+
+For the complete current capability boundary, see [`docs/capability-matrix.md`](docs/capability-matrix.md).
+
+## Writes and iCloud sync
+
+Writes use the guarded mutation rail: preflight, Books lifecycle handling, safety backup, transaction, read-back, and cloud projection. Ordinary reads never enter that rail.
+
+For one change that should be acknowledged immediately by iCloud, add `--sync`:
 
 ```sh
-# Browse the library
-applebookscli books list
-
-# Show books currently in progress
-applebookscli reading in-progress
-
-# Show recently created annotations
-applebookscli annotations recent
-
-# Show library statistics
-applebookscli stats
+applebookscli annotations update-note <annotation-uuid> --note "New note" --sync --json
 ```
 
-Most query commands support `--json` when structured output is needed:
-
-```sh
-applebookscli books list --json
-applebookscli annotations recent --json
-```
-
-## Notes, highlights, and locations
-
-Find an annotation first, then inspect it by UUID:
-
-```sh
-applebookscli annotations recent --json
-applebookscli annotations get <annotation-uuid>
-```
-
-A single-annotation result includes an `appleBooksURL` when available so you can jump back to the book or highlight location in Apple Books.
-
-To read text around a highlight:
-
-```sh
-applebookscli content context <annotation-uuid>
-```
-
-Use the current help for search, book filters, colors, and time ranges:
-
-```sh
-applebookscli annotations --help
-```
-
-## EPUB and PDF
-
-```sh
-# EPUB content commands
-applebookscli content --help
-
-# List PDF inventory
-applebookscli pdf list
-
-# Extract highlights from a PDF
-applebookscli pdf highlights --help
-```
-
-Before reading EPUB text, AppleBooksCLI checks local materialization state without intentionally triggering iCloud hydration and does not bypass DRM. PDF commands only operate on sources that currently resolve to readable local files; equivalent non-hydrating behavior for iCloud placeholders has not been established.
-
-## Export
-
-```sh
-# Markdown
-applebookscli export --format markdown --output ~/Desktop/apple-books.md
-
-# JSON
-applebookscli export --format json --output ~/Desktop/apple-books.json
-```
-
-CSV, HTML, grouping by book, highlight/note filtering, Obsidian formatting, covers, and complete-notes archives are also available. EPUB annotations with a CFI make the `Location` text itself an Apple Books deep link in HTML/Markdown; without a CFI, the link falls back to the book level. JSON/CSV preserve the corresponding `appleBooksURL`:
-
-```sh
-applebookscli export --help
-```
-
-## Safe writes
-
-AppleBooksCLI can update existing notes and manage collections. It creates a backup before writing and verifies the result afterward. Ordinary queries do not implicitly modify Apple Books data.
-
-```sh
-applebookscli annotations update-note --help
-applebookscli collections --help
-applebookscli backups --help
-```
-
-A single collection or annotation mutation can add `--sync` to wait for current-Mac CloudKit acknowledgement after the local commit and cloud projection:
-
-```sh
-applebookscli collections create "My Shelf" --sync --json
-```
-
-For several writes, commit the normal mutations first and flush once at the end:
+For several changes, avoid reopening/syncing Books after each mutation. Commit the batch first, then flush pending changes once:
 
 ```sh
 applebookscli collections create "Shelf A" --json
@@ -141,32 +78,27 @@ applebookscli annotations update-note <annotation-uuid> --note "New note" --json
 applebookscli sync --json
 ```
 
-Without `--json`, a mutation prints only `Mutation committed.` or `No change.`, any warning codes, and—when an annotation target has one—the raw Apple Books deep link as the final line. JSON keeps the machine metadata (`committed`, `changed`, backup/identity fields, `warningCodes`) and adds optional `appleBooksURL` for annotation mutations; note/details text is not echoed in mutation output.
+A successful `--sync` or root `sync` confirms acknowledgement on the **current Mac** only; it does not prove another device has already rendered the change. A post-commit warning must not trigger an automatic replay of the mutation.
 
-`sync` only processes already pending collection/member/annotation cloud records and does not trigger the lifecycle when none are pending. Acknowledgement proves only that **this Mac** completed the Apple Books CloudKit upload; it does not prove that another device already displays the change. A post-commit `cloud_sync_failed` must not cause an automatic mutation retry, and restoring a BKLibrary snapshot is not equivalent to replaying individually flushable cloud mutations.
+Detailed write, restore, lifecycle, and CloudKit invariants live in [`docs/write-safety.md`](docs/write-safety.md).
 
-## Operation history
-
-AppleBooksCLI keeps a private local history of the last 24 hours of its annotation/collection mutations, backup restores, and explicit `sync` calls. `history list` returns only summaries; `history get` is the explicit full-detail read and may contain the original note/title/details/selectors plus captured stdout/stderr.
+## Export and local content
 
 ```sh
-applebookscli history list --json
-applebookscli history get <history-id> --json
+applebookscli export --format markdown --output ~/Desktop/apple-books.md
+applebookscli export --format json --output ~/Desktop/apple-books.json
 ```
 
-History is stored only for the current user under AppleBooksCLI's Application Support directory. AppleBooksCLI does not send it as telemetry or sync it between devices, and history is evidence of prior tool calls rather than an undo engine.
+Use `applebookscli export --help`, `content --help`, and `pdf --help` for current options. EPUB/PDF availability depends on local materialization, DRM, and readable local sources.
 
-## Optional configuration
+## Configuration
 
-Most users do not need a configuration file. `~/.config/applebookscli/config.json` is only needed for an additional EPUB directory or to supplement title/author metadata for historical annotations.
+Most users do not need a configuration file. `~/.config/applebookscli/config.json` is only for optional supplemental EPUB lookup or historical annotation metadata. See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
 
-See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
+## Maintainers
 
-## Development and maintenance
-
-Start with [`docs/index.md`](docs/index.md) for architecture, CLI contract, write safety, release workflow, and other maintainer documentation.
+Start with [`docs/index.md`](docs/index.md). It identifies the canonical owner for architecture, capabilities, process contracts, write safety, schema baselines, and release behavior.
 
 ## License
 
-AppleBooksCLI is licensed under the [AGPLv3 LICENSE](LICENSE).
-Third-party notices and license texts are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`ThirdPartyLicenses/`](ThirdPartyLicenses/).
+AppleBooksCLI is licensed under the [AGPLv3 LICENSE](LICENSE). Third-party notices are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

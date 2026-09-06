@@ -49,18 +49,39 @@ public final class AppleBooks {
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
-        let booksApp = manageBooksApplication ? BooksAppController.live : BooksAppController.detached
-        let collectionCloudProjector = manageBooksApplication
+        try self.init(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            configurationFile: configurationFile,
+            manageCollectionBooksApplication: manageBooksApplication,
+            manageAnnotationBooksApplication: manageBooksApplication,
+            pdfWorkerURL: pdfWorkerURL,
+            pdfWorkerTimeout: pdfWorkerTimeout
+        )
+    }
+
+    public convenience init(
+        libraryDB: URL,
+        annotationsDB: URL,
+        configurationFile: URL? = nil,
+        manageCollectionBooksApplication: Bool,
+        manageAnnotationBooksApplication: Bool,
+        pdfWorkerURL: URL? = nil,
+        pdfWorkerTimeout: TimeInterval? = nil
+    ) throws {
+        let collectionBooksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+        let annotationBooksApp = manageAnnotationBooksApplication ? BooksAppController.live : BooksAppController.detached
+        let collectionCloudProjector = manageCollectionBooksApplication
             ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
             : nil
-        let collectionCloudSynchronizer = manageBooksApplication
-            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: booksApp)
+        let collectionCloudSynchronizer = manageCollectionBooksApplication
+            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: collectionBooksApp)
             : nil
-        let annotationCloudProjector = manageBooksApplication
+        let annotationCloudProjector = manageAnnotationBooksApplication
             ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB)
             : nil
-        let annotationCloudSynchronizer = manageBooksApplication
-            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: booksApp)
+        let annotationCloudSynchronizer = manageAnnotationBooksApplication
+            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: annotationBooksApp)
             : nil
         try self.init(
             libraryDB: libraryDB,
@@ -68,17 +89,17 @@ public final class AppleBooks {
             configurationFile: configurationFile,
             collectionWriter: CollectionWriter(
                 database: libraryDB,
-                booksApp: booksApp,
+                booksApp: collectionBooksApp,
                 cloudProjector: collectionCloudProjector,
                 cloudSynchronizer: collectionCloudSynchronizer
             ),
             annotationWriter: AnnotationWriter(
                 database: annotationsDB,
-                booksApp: booksApp,
+                booksApp: annotationBooksApp,
                 cloudProjector: annotationCloudProjector,
                 cloudSynchronizer: annotationCloudSynchronizer
             ),
-            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
+            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: collectionBooksApp),
             pdfWorkerClient: pdfWorkerURL.map {
                 PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
             }
@@ -168,55 +189,105 @@ public final class AppleBooks {
         details: String? = nil,
         syncCloud: Bool = false
     ) throws -> MutationResult {
-        try collectionWriter.createCollection(title: title, details: details, syncCloud: syncCloud)
+        try collectionWriter.createCollection(
+            title: title,
+            details: details,
+            syncCloud: syncCloud
+        )
     }
 
     public func renameCollection(localPK: Int64, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.renameCollection(localPK: localPK, newTitle: newTitle, syncCloud: syncCloud)
+        try collectionWriter.renameCollection(
+            localPK: localPK,
+            newTitle: newTitle,
+            syncCloud: syncCloud
+        )
     }
 
     public func renameCollection(collectionID: String, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.renameCollection(collectionID: collectionID, newTitle: newTitle, syncCloud: syncCloud)
+        try collectionWriter.renameCollection(
+            collectionID: collectionID,
+            newTitle: newTitle,
+            syncCloud: syncCloud
+        )
     }
 
     public func deleteCollection(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.deleteCollection(localPK: localPK, syncCloud: syncCloud)
+        try collectionWriter.deleteCollection(
+            localPK: localPK,
+            syncCloud: syncCloud
+        )
     }
 
     public func deleteCollection(collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.deleteCollection(collectionID: collectionID, syncCloud: syncCloud)
+        try collectionWriter.deleteCollection(
+            collectionID: collectionID,
+            syncCloud: syncCloud
+        )
     }
 
     public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+        try collectionWriter.addBook(
+            bookLocalPK: bookLocalPK,
+            toCollectionLocalPK: collectionLocalPK,
+            syncCloud: syncCloud
+        )
     }
 
     public func addBook(assetID: String, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(assetID: assetID, toCollectionID: collectionID, syncCloud: syncCloud)
+        try collectionWriter.addBook(
+            assetID: assetID,
+            toCollectionID: collectionID,
+            syncCloud: syncCloud
+        )
     }
 
     public func addBook(bookLocalPK: Int64, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(bookLocalPK: bookLocalPK, toCollectionID: collectionID, syncCloud: syncCloud)
+        try collectionWriter.addBook(
+            bookLocalPK: bookLocalPK,
+            toCollectionID: collectionID,
+            syncCloud: syncCloud
+        )
     }
 
     public func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(assetID: assetID, toCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+        try collectionWriter.addBook(
+            assetID: assetID,
+            toCollectionLocalPK: collectionLocalPK,
+            syncCloud: syncCloud
+        )
     }
 
     public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+        try collectionWriter.removeBook(
+            bookLocalPK: bookLocalPK,
+            fromCollectionLocalPK: collectionLocalPK,
+            syncCloud: syncCloud
+        )
     }
 
     public func removeBook(assetID: String, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(assetID: assetID, fromCollectionID: collectionID, syncCloud: syncCloud)
+        try collectionWriter.removeBook(
+            assetID: assetID,
+            fromCollectionID: collectionID,
+            syncCloud: syncCloud
+        )
     }
 
     public func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(bookLocalPK: bookLocalPK, fromCollectionID: collectionID, syncCloud: syncCloud)
+        try collectionWriter.removeBook(
+            bookLocalPK: bookLocalPK,
+            fromCollectionID: collectionID,
+            syncCloud: syncCloud
+        )
     }
 
     public func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(assetID: assetID, fromCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+        try collectionWriter.removeBook(
+            assetID: assetID,
+            fromCollectionLocalPK: collectionLocalPK,
+            syncCloud: syncCloud
+        )
     }
 
     public func syncPendingCloudChanges() throws -> CloudSyncSummary {
@@ -452,19 +523,41 @@ public final class AppleBooks {
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.updateNote(localPK: localPK, note: note, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.updateNote(
+            localPK: localPK,
+            note: note,
+            syncCloud: syncCloud,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func updateAnnotationNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.updateNote(uuid: uuid, note: note, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.updateNote(
+            uuid: uuid,
+            note: note,
+            syncCloud: syncCloud,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func deleteAnnotation(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.delete(localPK: localPK, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.delete(
+            localPK: localPK,
+            syncCloud: syncCloud,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func deleteAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.delete(uuid: uuid, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.delete(
+            uuid: uuid,
+            syncCloud: syncCloud,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {

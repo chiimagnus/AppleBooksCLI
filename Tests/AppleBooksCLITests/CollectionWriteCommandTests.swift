@@ -34,7 +34,10 @@ struct CollectionWriteCommandTests {
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("CloudKit"))
+            #expect(stdout.contains("After local commit"))
+            #expect(stdout.contains("current-Mac CloudKit"))
+            #expect(stdout.contains("Omit for local-only writes"))
+            #expect(stdout.contains("pending changes later."))
         }
     }
 
@@ -49,6 +52,7 @@ struct CollectionWriteCommandTests {
         #expect(result.committed)
         #expect(result.changed)
         #expect(result.warningCodes == ["cloud_sync_failed"])
+        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
     }
 
     @Test
@@ -76,7 +80,12 @@ struct CollectionWriteCommandTests {
         #expect(created.changed)
         #expect(created.localPK == 41)
         #expect(created.stableID != nil)
+        #expect(created.appleBooksURL == nil)
+        #expect(created.humanDescription == "Mutation committed.")
         #expect(created.humanDescription.contains("private details") == false)
+        let createdJSON = String(decoding: try JSONEncoder().encode(created), as: UTF8.self)
+        #expect(createdJSON.contains("private details") == false)
+        #expect(createdJSON.contains("appleBooksURL") == false)
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=41") == "New Shelf")
         #expect(try fixture.integer("SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
 
@@ -121,16 +130,26 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
         let add = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
         ])
-        #expect(try add.execute(using: books).changed)
-        #expect(try add.execute(using: books).changed == false)
+        let firstAdd = try add.execute(using: books)
+        #expect(firstAdd.changed)
+        #expect(firstAdd.warningCodes == ["cloud_sync_failed"])
+        let duplicateAdd = try add.execute(using: books)
+        #expect(duplicateAdd.changed == false)
+        #expect(duplicateAdd.warningCodes.isEmpty)
+        #expect(duplicateAdd.humanDescription == "No change.")
 
         let remove = try CollectionsRemoveBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
         ])
-        #expect(try remove.execute(using: books).changed)
-        #expect(try remove.execute(using: books).changed == false)
+        let firstRemove = try remove.execute(using: books)
+        #expect(firstRemove.changed)
+        #expect(firstRemove.warningCodes == ["cloud_sync_failed"])
+        let missingRemove = try remove.execute(using: books)
+        #expect(missingRemove.changed == false)
+        #expect(missingRemove.warningCodes.isEmpty)
+        #expect(missingRemove.humanDescription == "No change.")
     }
 
     @Test

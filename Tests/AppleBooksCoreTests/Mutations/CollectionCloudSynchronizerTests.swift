@@ -9,12 +9,15 @@ struct CollectionCloudSynchronizerTests {
         let events = Events()
         let acked = state(edit: 2, sync: 2)
         let synchronizer = makeSynchronizer(events: events, detail: { _ in acked })
-        try synchronizer.syncCollection(localPK: 7)
+        try synchronizer.syncCollection(
+            localPK: 7,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
         #expect(events.values.isEmpty)
     }
 
     @Test
-    func dirtyCollectionRecyclesServiceAndWaitsForAck() throws {
+    func runningSingleRecordRecyclesWithoutTakingBooksLifecycleOwnership() throws {
         let events = Events()
         let dirty = state(edit: 2, sync: 1)
         let acked = state(edit: 2, sync: 2)
@@ -29,8 +32,11 @@ struct CollectionCloudSynchronizerTests {
             },
             maxPollCount: 3
         )
-        try synchronizer.syncCollection(localPK: 7)
-        #expect(events.values == ["terminate", "recycle", "launch", "sleep"])
+        try synchronizer.syncCollection(
+            localPK: 7,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
+        #expect(events.values == ["recycle", "sleep"])
         #expect(reads == 3)
     }
 
@@ -51,8 +57,13 @@ struct CollectionCloudSynchronizerTests {
             },
             maxPollCount: 2
         )
-        try synchronizer.syncMembership(collectionLocalPK: 7, assetID: "ASSET", deleting: false)
-        #expect(events.values == ["recycle", "launch"])
+        try synchronizer.syncMembership(
+            collectionLocalPK: 7,
+            assetID: "ASSET",
+            deleting: false,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
+        #expect(events.values == ["recycle", "launchWithoutActivation", "temporaryLaunch"])
         #expect(memberReads == 2)
     }
 
@@ -65,7 +76,11 @@ struct CollectionCloudSynchronizerTests {
             detail: { _ in nil },
             deletedMembers: { _ in [deletedAck] }
         )
-        try synchronizer.syncCollection(localPK: 7, deleting: true)
+        try synchronizer.syncCollection(
+            localPK: 7,
+            deleting: true,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
         #expect(events.values.isEmpty)
     }
 
@@ -78,7 +93,12 @@ struct CollectionCloudSynchronizerTests {
             detail: { _ in acked },
             member: { _, _ in nil }
         )
-        try synchronizer.syncMembership(collectionLocalPK: 7, assetID: "ASSET", deleting: true)
+        try synchronizer.syncMembership(
+            collectionLocalPK: 7,
+            assetID: "ASSET",
+            deleting: true,
+            onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+        )
         #expect(events.values.isEmpty)
     }
 
@@ -87,7 +107,10 @@ struct CollectionCloudSynchronizerTests {
         let events = Events()
         let synchronizer = makeSynchronizer(events: events, detail: { _ in nil })
         #expect(throws: CollectionCloudSyncError.cloudRecordMissing) {
-            try synchronizer.syncCollection(localPK: 7)
+            try synchronizer.syncCollection(
+                localPK: 7,
+                onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+            )
         }
         #expect(events.values.isEmpty)
     }
@@ -106,7 +129,10 @@ struct CollectionCloudSynchronizerTests {
             maxPollCount: 1
         )
         #expect(throws: CollectionCloudSyncError.serviceRecycleFailed) {
-            try synchronizer.syncCollection(localPK: 7)
+            try synchronizer.syncCollection(
+                localPK: 7,
+                onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+            )
         }
         #expect(events.values == ["recycle"])
     }
@@ -148,9 +174,12 @@ struct CollectionCloudSynchronizerTests {
         let dirty = state(edit: 1, sync: 0, fields: 0)
         let synchronizer = makeSynchronizer(events: events, detail: { _ in dirty }, maxPollCount: 2)
         #expect(throws: CollectionCloudSyncError.acknowledgementTimedOut) {
-            try synchronizer.syncCollection(localPK: 7)
+            try synchronizer.syncCollection(
+                localPK: 7,
+                onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
+            )
         }
-        #expect(events.values == ["recycle", "launch", "sleep", "sleep"])
+        #expect(events.values == ["recycle", "launchWithoutActivation", "temporaryLaunch", "sleep", "sleep"])
     }
 
     private func makeSynchronizer(
@@ -168,6 +197,7 @@ struct CollectionCloudSynchronizerTests {
                 isRunning: { running },
                 terminate: { events.values.append("terminate"); running = false; return true },
                 launch: { events.values.append("launch"); running = true },
+                launchWithoutActivation: { events.values.append("launchWithoutActivation"); running = true },
                 sleep: { _ in }
             ),
             detailState: detail,

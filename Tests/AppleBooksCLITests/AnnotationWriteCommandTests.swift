@@ -34,7 +34,10 @@ struct AnnotationWriteCommandTests {
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("CloudKit"))
+            #expect(stdout.contains("After local commit"))
+            #expect(stdout.contains("current-Mac CloudKit"))
+            #expect(stdout.contains("Omit for local-only writes"))
+            #expect(stdout.contains("pending changes later."))
         }
     }
 
@@ -47,6 +50,7 @@ struct AnnotationWriteCommandTests {
         let result = try command.execute(using: books)
         #expect(result.committed)
         #expect(result.warningCodes == ["cloud_sync_failed"])
+        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "sync me")
     }
 
@@ -64,16 +68,50 @@ struct AnnotationWriteCommandTests {
         #expect(uuidResult.localPK == 1)
         #expect(uuidResult.stableID == "123")
         #expect(uuidResult.warningCodes.isEmpty)
+        #expect(uuidResult.humanDescription == "Mutation committed.")
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == privateNote)
         #expect(uuidResult.humanDescription.contains(privateNote) == false)
         let encoded = String(decoding: try JSONEncoder().encode(uuidResult), as: UTF8.self)
         #expect(encoded.contains(privateNote) == false)
+        #expect(encoded.contains("appleBooksURL") == false)
 
         let pkCommand = try AnnotationsUpdateNoteCommand.parse(["--pk", "123", "--note", "pk replacement"])
         let pkResult = try pkCommand.execute(using: books)
         #expect(pkResult.localPK == 123)
         #expect(pkResult.stableID == nil)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=123") == "pk replacement")
+    }
+
+    @Test
+    func sharedMutationPresentationKeepsMetadataInJSONAndDeeplinkAsLastHumanLine() throws {
+        let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
+        let result = MutationCommandResult(
+            MutationResult(
+                backupHandle: "annotations__backup.sqlite",
+                localPK: 7,
+                stableID: "uuid-7",
+                changed: true,
+                warnings: [.cloudSyncFailed],
+                appleBooksURL: deeplink
+            )
+        )
+
+        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed\n\(deeplink)")
+        #expect(result.humanDescription.split(separator: "\n").last == Substring(deeplink))
+        #expect(result.humanDescription.contains("backup") == false)
+        #expect(result.humanDescription.contains("local PK") == false)
+        #expect(result.humanDescription.contains("uuid-7") == false)
+
+        let data = try JSONEncoder().encode(result)
+        let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: data)
+        #expect(decoded == result)
+        #expect(decoded.committed)
+        #expect(decoded.changed)
+        #expect(decoded.backupHandle == "annotations__backup.sqlite")
+        #expect(decoded.localPK == 7)
+        #expect(decoded.stableID == "uuid-7")
+        #expect(decoded.warningCodes == ["cloud_sync_failed"])
+        #expect(decoded.appleBooksURL == deeplink)
     }
 
     @Test
@@ -138,6 +176,16 @@ struct AnnotationWriteCommandTests {
             _ = try deleted.execute(using: books)
         }
         #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
+
+        try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=0,ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: CLIError.writeSafety("Annotation is not writable.")) {
+            _ = try deleted.execute(using: books)
+        }
+        try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=NULL WHERE Z_PK=1")
+        #expect(throws: CLIError.writeSafety("Annotation is not writable.")) {
+            _ = try deleted.execute(using: books)
+        }
+        #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
     }
 
     @Test
@@ -197,13 +245,14 @@ struct AnnotationWriteCommandTests {
                   Z_ENT INTEGER,
                   Z_OPT INTEGER,
                   ZANNOTATIONDELETED INTEGER,
+                  ZANNOTATIONTYPE INTEGER,
                   ZANNOTATIONUUID TEXT,
                   ZANNOTATIONNOTE TEXT,
                   ZANNOTATIONMODIFICATIONDATE REAL,
                   ZFUTUREPROOFING6 TEXT
                 );
-                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,'123','old note',1,'1');
-                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,'other','other note',1,'1');
+                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,2,'123','old note',1,'1');
+                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,2,'other','other note',1,'1');
                 """)
             try Data(#"{"historical_assets":{}}"#.utf8).write(to: config)
         }

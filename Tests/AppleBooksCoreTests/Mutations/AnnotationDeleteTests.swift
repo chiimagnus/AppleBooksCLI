@@ -71,6 +71,32 @@ struct AnnotationDeleteTests {
     }
 
     @Test
+    func nonUserAnnotationTypesFailClosedBeforeBackup() throws {
+        let systemBookmark = try fixture()
+        defer { systemBookmark.remove() }
+        try execute(systemBookmark.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try systemBookmark.writer.delete(localPK: 1)
+        }
+        #expect(FileManager.default.fileExists(atPath: systemBookmark.backupRoot.path) == false)
+
+        let nullType = try fixture()
+        defer { nullType.remove() }
+        try execute(nullType.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=NULL WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try nullType.writer.delete(localPK: 1)
+        }
+        #expect(FileManager.default.fileExists(atPath: nullType.backupRoot.path) == false)
+
+        let missingColumn = try fixture(includeTypeColumn: false)
+        defer { missingColumn.remove() }
+        #expect(throws: WriteSchemaGuardError.self) {
+            _ = try missingColumn.writer.delete(localPK: 1)
+        }
+        #expect(FileManager.default.fileExists(atPath: missingColumn.backupRoot.path) == false)
+    }
+
+    @Test
     func failedDeleteUpdateRollsBackAndKeepsRestorePoint() throws {
         let fixture = try fixture(blockDeleteUpdate: true)
         defer { fixture.remove() }
@@ -117,7 +143,8 @@ struct AnnotationDeleteTests {
     private func fixture(
         deleted: Int64? = 0,
         duplicateUUID: Bool = false,
-        blockDeleteUpdate: Bool = false
+        blockDeleteUpdate: Bool = false,
+        includeTypeColumn: Bool = true
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -130,6 +157,7 @@ struct AnnotationDeleteTests {
               Z_ENT INTEGER,
               Z_OPT INTEGER,
               ZANNOTATIONDELETED INTEGER,
+              \(includeTypeColumn ? "ZANNOTATIONTYPE INTEGER," : "")
               ZANNOTATIONUUID TEXT,
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONMODIFICATIONDATE REAL,
@@ -138,9 +166,12 @@ struct AnnotationDeleteTests {
             )
             """)
         let deletedSQL = deleted.map(String.init) ?? "NULL"
-        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(1,17,3,\(deletedSQL),'uuid-1','keep-note',1,'keep-selected','1')")
+        let typeColumn = includeTypeColumn ? ",ZANNOTATIONTYPE" : ""
+        let typeValue = includeTypeColumn ? ",2" : ""
+        let columns = "Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED\(typeColumn),ZANNOTATIONUUID,ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZFUTUREPROOFING6"
+        try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(1,17,3,\(deletedSQL)\(typeValue),'uuid-1','keep-note',1,'keep-selected','1')")
         if duplicateUUID {
-            try execute(database, "INSERT INTO ZAEANNOTATION VALUES(2,17,1,0,'uuid-1','other',1,'other-selected','1')")
+            try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(2,17,1,0\(typeValue),'uuid-1','other',1,'other-selected','1')")
         }
         if blockDeleteUpdate {
             try execute(database, """

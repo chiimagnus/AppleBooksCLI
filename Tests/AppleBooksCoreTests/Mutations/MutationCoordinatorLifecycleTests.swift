@@ -27,7 +27,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.warnings.isEmpty)
         #expect(fixture.state.running)
         try assertOrdered(
-            ["preflight", "terminate", "backup", "revalidate", "mutation", "invariant", "readBack", "launch"],
+            ["preflight", "terminate", "backup", "revalidate", "mutation", "invariant", "readBack", "launchWithoutActivation"],
             in: fixture.state.events
         )
     }
@@ -51,7 +51,7 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.warnings.isEmpty)
-        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "cloudProjection", "launchWithoutActivation"], in: fixture.state.events)
     }
 
     @Test
@@ -77,7 +77,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.committed)
         #expect(result.localPK == 9)
         #expect(result.warnings == [.cloudProjectionFailed])
-        try assertOrdered(["readBack", "cloudProjection", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "cloudProjection", "launchWithoutActivation"], in: fixture.state.events)
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
@@ -104,6 +104,138 @@ struct MutationCoordinatorLifecycleTests {
         #expect(projectionCount == 0)
         #expect(fixture.state.running)
         #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
+    func acknowledgementRunsAfterProjectionBeforeFinalRestore() throws {
+        let fixture = try fixture(running: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(12)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in fixture.state.events.append("cloudProjection") },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in fixture.state.events.append("acknowledgement") },
+            readBack: { _, _ in fixture.state.events.append("readBack") }
+        )
+
+        #expect(result.warnings.isEmpty)
+        try assertOrdered(
+            ["readBack", "cloudProjection", "acknowledgement", "launchWithoutActivation"],
+            in: fixture.state.events
+        )
+    }
+
+    @Test
+    func requestedAcknowledgementAfterReadBackFailureReportsEachEvidenceLayerOnce() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+        var projectionCount = 0
+        var acknowledgementCount = 0
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(13)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in projectionCount += 1 },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
+            readBack: { _, _ in throw TestFailure.readBack }
+        )
+
+        #expect(result.warnings == [.readBackFailed, .cloudProjectionFailed, .cloudSyncFailed])
+        #expect(projectionCount == 0)
+        #expect(acknowledgementCount == 0)
+    }
+
+    @Test
+    func changedFalseSkipsProjectionAndRequestedAcknowledgement() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+        var projectionCount = 0
+        var acknowledgementCount = 0
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { _ in () },
+            domainData: { _ in MutationDomainData(changed: false) },
+            cloudProjection: { _ in projectionCount += 1 },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.changed == false)
+        #expect(result.warnings.isEmpty)
+        #expect(projectionCount == 0)
+        #expect(acknowledgementCount == 0)
+        #expect(fixture.state.events.contains("terminate") == false)
+    }
+
+    @Test
+    func requestedAcknowledgementRestoresOriginallyClosedBooksAfterTemporaryLaunch() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(14)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.events.append("temporaryLaunch")
+                fixture.state.running = true
+                markTemporaryLaunch()
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running == false)
+        try assertOrdered(["temporaryLaunch", "terminate"], in: fixture.state.events)
+    }
+
+    @Test
+    func unownedBooksLaunchDuringAcknowledgementIsNeverClosed() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(15)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in
+                fixture.state.events.append("userLaunch")
+                fixture.state.running = true
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.events.contains("terminate") == false)
     }
 
     @Test
@@ -178,7 +310,7 @@ struct MutationCoordinatorLifecycleTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        try assertOrdered(["terminate", "backup", "launch"], in: fixture.state.events)
+        try assertOrdered(["terminate", "backup", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(revalidateCount == 0)
         #expect(try readValue(at: fixture.database) == "before")
@@ -208,9 +340,38 @@ struct MutationCoordinatorLifecycleTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        try assertOrdered(["backup", "revalidate", "mutation", "launch"], in: fixture.state.events)
+        try assertOrdered(["backup", "revalidate", "mutation", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(try readValue(at: fixture.database) == "before")
+    }
+
+    @Test
+    func preCommitFailureRestoresOriginalFrontmostState() throws {
+        let fixture = try fixture(running: true, frontmost: true)
+        defer { fixture.remove() }
+
+        do {
+            _ = try fixture.coordinator.perform(
+                preflight: { _ in },
+                revalidate: { _ in },
+                mutation: { handle in
+                    fixture.state.events.append("mutation")
+                    try self.setValue(handle, "partial")
+                    throw TestFailure.mutation
+                },
+                domainData: { (_: Void) in MutationDomainData(changed: true) },
+                readBack: { _, _ in Issue.record("read-back must not run") }
+            )
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.warnings.isEmpty)
+        }
+
+        #expect(try readValue(at: fixture.database) == "before")
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["mutation", "launch", "activate"], in: fixture.state.events)
     }
 
     @Test
@@ -232,7 +393,7 @@ struct MutationCoordinatorLifecycleTests {
         #expect(result.committed)
         #expect(result.localPK == 9)
         #expect(result.warnings == [.relaunchFailed])
-        try assertOrdered(["backup", "readBack", "launch"], in: fixture.state.events)
+        try assertOrdered(["backup", "readBack", "launchWithoutActivation"], in: fixture.state.events)
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
@@ -257,9 +418,174 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.warnings == [.readBackFailed])
-        try assertOrdered(["readBack", "launch"], in: fixture.state.events)
+        try assertOrdered(["readBack", "launchWithoutActivation"], in: fixture.state.events)
         #expect(fixture.state.running)
         #expect(try readValue(at: fixture.database) == "committed")
+    }
+
+    @Test
+    func frontmostStateIsRestoredOnlyAfterReadBackAndActivation() throws {
+        let fixture = try fixture(running: true, frontmost: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(11)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            readBack: { _, _ in fixture.state.events.append("readBack") }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["terminate", "readBack", "launch", "activate"], in: fixture.state.events)
+    }
+
+    @Test
+    func successfulDeeplinkOpenPrecedesFinalFrontmostRestore() throws {
+        let fixture = try fixture(running: true, frontmost: true, openURLSucceeds: true)
+        defer { fixture.remove() }
+        let deeplink = "ibooks://assetid/sample#epubcfi(/6/2)"
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(14)
+            },
+            domainData: {
+                MutationDomainData(localPK: $0, changed: true, appleBooksURL: deeplink)
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(result.appleBooksURL == deeplink)
+        #expect(fixture.state.openedURLs == [deeplink])
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["openURL", "launch", "activate"], in: fixture.state.events)
+    }
+
+    @Test
+    func deeplinkOpenFailureWarnsAndStillRestoresFrontmostState() throws {
+        let fixture = try fixture(running: true, frontmost: true, openURLSucceeds: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(15)
+            },
+            domainData: {
+                MutationDomainData(
+                    localPK: $0,
+                    changed: true,
+                    appleBooksURL: "ibooks://assetid/sample#epubcfi(/6/2)"
+                )
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings == [.deeplinkOpenFailed])
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["openURL", "launch", "activate"], in: fixture.state.events)
+    }
+
+    @Test
+    func acknowledgementFailureAfterTemporaryLaunchStillRestoresOriginallyClosedBooks() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(16)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.events.append("temporaryLaunch")
+                fixture.state.running = true
+                markTemporaryLaunch()
+                throw TestFailure.cloudSync
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings == [.cloudSyncFailed])
+        #expect(fixture.state.running == false)
+        try assertOrdered(["temporaryLaunch", "terminate"], in: fixture.state.events)
+    }
+
+    @Test
+    func closedCleanupFailureIsCommittedStateRestoreWarning() throws {
+        let fixture = try fixture(running: false, terminateSucceeds: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(16)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.running = true
+                markTemporaryLaunch()
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.committed)
+        #expect(result.warnings == [.booksStateRestoreFailed])
+        #expect(fixture.state.running)
+        #expect(fixture.state.events.contains("terminate"))
+    }
+
+    @Test
+    func frontmostUserClaimPreventsClosingOwnedTemporaryLaunch() throws {
+        let fixture = try fixture(running: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "committed")
+                return Int64(17)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in },
+            acknowledgementRequested: true,
+            acknowledgement: { _, markTemporaryLaunch in
+                fixture.state.running = true
+                markTemporaryLaunch()
+                fixture.state.frontmost = true
+            },
+            readBack: { _, _ in }
+        )
+
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        #expect(fixture.state.events.contains("terminate") == false)
     }
 
     @Test
@@ -284,9 +610,11 @@ struct MutationCoordinatorLifecycleTests {
 
     private func fixture(
         running: Bool,
+        frontmost: Bool = false,
         terminateSucceeds: Bool = true,
         backupFails: Bool = false,
-        launchFails: Bool = false
+        launchFails: Bool = false,
+        openURLSucceeds: Bool = true
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -294,8 +622,10 @@ struct MutationCoordinatorLifecycleTests {
         try createDatabase(database)
         let state = LifecycleState(
             running: running,
+            frontmost: frontmost,
             terminateSucceeds: terminateSucceeds,
-            launchFails: launchFails
+            launchFails: launchFails,
+            openURLSucceeds: openURLSucceeds
         )
         let backupURL = root.appendingPathComponent("library-test-backup.sqlite")
         let coordinator = MutationCoordinator(
@@ -366,14 +696,25 @@ struct MutationCoordinatorLifecycleTests {
 
     private final class LifecycleState {
         var running: Bool
+        var frontmost: Bool
         var events: [String] = []
+        var openedURLs: [String] = []
         let terminateSucceeds: Bool
         let launchFails: Bool
+        let openURLSucceeds: Bool
 
-        init(running: Bool, terminateSucceeds: Bool, launchFails: Bool) {
+        init(
+            running: Bool,
+            frontmost: Bool,
+            terminateSucceeds: Bool,
+            launchFails: Bool,
+            openURLSucceeds: Bool
+        ) {
             self.running = running
+            self.frontmost = frontmost
             self.terminateSucceeds = terminateSucceeds
             self.launchFails = launchFails
+            self.openURLSucceeds = openURLSucceeds
         }
 
         func controller() -> BooksAppController {
@@ -386,12 +727,33 @@ struct MutationCoordinatorLifecycleTests {
                     events.append("terminate")
                     guard terminateSucceeds else { return false }
                     running = false
+                    frontmost = false
                     return true
                 },
                 launch: { [self] in
                     events.append("launch")
                     if launchFails { throw TestFailure.launch }
                     running = true
+                },
+                isFrontmost: { [self] in
+                    events.append("isFrontmost")
+                    return frontmost
+                },
+                launchWithoutActivation: { [self] in
+                    events.append("launchWithoutActivation")
+                    if launchFails { throw TestFailure.launch }
+                    running = true
+                    frontmost = false
+                },
+                activate: { [self] in
+                    events.append("activate")
+                    if launchFails { throw TestFailure.launch }
+                    frontmost = true
+                },
+                openURL: { [self] url in
+                    events.append("openURL")
+                    openedURLs.append(url.absoluteString)
+                    return openURLSucceeds
                 }
             )
         }
@@ -403,6 +765,7 @@ struct MutationCoordinatorLifecycleTests {
         case mutation
         case readBack
         case cloudProjection
+        case cloudSync
         case launch
     }
 }

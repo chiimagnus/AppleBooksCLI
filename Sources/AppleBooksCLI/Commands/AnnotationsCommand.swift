@@ -419,7 +419,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .long, help: "Replacement note text.")
     var note: String
 
-    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -460,7 +460,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -486,37 +486,6 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
             return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
-    }
-}
-
-struct MutationCommandResult: Codable, Equatable, Sendable {
-    let committed: Bool
-    let changed: Bool
-    let backupHandle: String
-    let localPK: Int64?
-    let stableID: String?
-    let warningCodes: [String]
-
-    init(_ result: MutationResult) {
-        committed = result.committed
-        changed = result.changed
-        backupHandle = result.backupHandle
-        localPK = result.localPK
-        stableID = result.stableID
-        warningCodes = result.warnings.map(\.rawValue)
-    }
-
-    var humanDescription: String {
-        var lines = [
-            "committed: \(committed)",
-            "changed: \(changed)",
-            "backup: \(backupHandle)",
-            "local PK: \(localPK.map(String.init) ?? "-")",
-        ]
-        if warningCodes.isEmpty == false {
-            lines.append("warnings: \(warningCodes.joined(separator: ","))")
-        }
-        return lines.joined(separator: "\n")
     }
 }
 

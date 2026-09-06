@@ -39,6 +39,36 @@ struct CollectionLifecycleRegressionTests {
     }
 
     @Test
+    func singleRecordSyncRestoresBackgroundWithoutActivation() throws {
+        let fixture = try makeFixture(running: false)
+        defer { fixture.remove() }
+        let state = CloudLifecycleState(frontmost: false)
+        let writer = syncingWriter(fixture: fixture, state: state)
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Background Sync", syncCloud: true)
+
+        #expect(result.warnings.isEmpty)
+        #expect(state.running)
+        #expect(state.frontmost == false)
+        #expect(state.events == ["terminate", "project", "recycle", "launchWithoutActivation"])
+    }
+
+    @Test
+    func singleRecordSyncRestoresFrontmostOnlyAfterAcknowledgement() throws {
+        let fixture = try makeFixture(running: false)
+        defer { fixture.remove() }
+        let state = CloudLifecycleState(frontmost: true)
+        let writer = syncingWriter(fixture: fixture, state: state)
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Frontmost Sync", syncCloud: true)
+
+        #expect(result.warnings.isEmpty)
+        #expect(state.running)
+        #expect(state.frontmost)
+        #expect(state.events == ["terminate", "project", "recycle", "launchWithoutActivation", "activate"])
+    }
+
+    @Test
     func stablePreflightAmbiguityDoesNotTouchLifecycleOrBackup() throws {
         let fixture = try makeFixture(running: true)
         defer { fixture.remove() }
@@ -116,6 +146,33 @@ struct CollectionLifecycleRegressionTests {
         )
     }
 
+    private func syncingWriter(fixture: Fixture, state: CloudLifecycleState) -> CollectionWriter {
+        let controller = state.controller()
+        return CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: controller,
+            cloudProjector: CollectionCloudProjector { _ in state.events.append("project") },
+            cloudSynchronizer: CollectionCloudSynchronizer(
+                booksApp: controller,
+                detailState: { _ in
+                    .init(
+                        deleted: false,
+                        editGeneration: 2,
+                        syncGeneration: state.acknowledged ? 2 : 1,
+                        systemFieldsBytes: 1
+                    )
+                },
+                memberState: { _, _ in nil },
+                deletedMemberStates: { _ in [] },
+                recycleAction: {
+                    state.events.append("recycle")
+                    state.acknowledged = true
+                }
+            )
+        )
+    }
+
     private func fixtureSQL() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -162,6 +219,44 @@ struct CollectionLifecycleRegressionTests {
 
         func remove() {
             try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private final class CloudLifecycleState {
+        var running = true
+        var frontmost: Bool
+        var acknowledged = false
+        var events: [String] = []
+
+        init(frontmost: Bool) {
+            self.frontmost = frontmost
+        }
+
+        func controller() -> BooksAppController {
+            BooksAppController(
+                isRunning: { [self] in running },
+                terminate: { [self] in
+                    events.append("terminate")
+                    running = false
+                    frontmost = false
+                    return true
+                },
+                launch: { [self] in
+                    events.append("launch")
+                    running = true
+                    frontmost = true
+                },
+                isFrontmost: { [self] in frontmost },
+                launchWithoutActivation: { [self] in
+                    events.append("launchWithoutActivation")
+                    running = true
+                    frontmost = false
+                },
+                activate: { [self] in
+                    events.append("activate")
+                    frontmost = true
+                }
+            )
         }
     }
 }

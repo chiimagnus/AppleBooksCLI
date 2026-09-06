@@ -42,36 +42,18 @@ struct AppleBooksFacadeTests {
     }
 
     @Test
-    func pendingCloudSyncSnapshotsBothDomainsAndUsesOneLifecycle() throws {
+    func repeatedLocalAnnotationMutationsStayPendingUntilOneExplicitRootSync() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         var events: [String] = []
         var running = false
-        var collectionPending = 2
-        var annotationPending = 1
+        var annotationPending = 0
         let controller = BooksAppController(
             isRunning: { running },
             terminate: { events.append("terminate"); running = false; return true },
-            launch: { events.append("launch"); running = true },
+            launch: { events.append("launch"); running = true; annotationPending = 0 },
             sleep: { _ in }
-        )
-        let collectionSynchronizer = CollectionCloudSynchronizer(
-            booksApp: controller,
-            detailState: { _ in nil },
-            memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
-            pendingCount: { collectionPending },
-            recycleAction: {
-                events.append("recycle")
-                collectionPending = 0
-                annotationPending = 0
-            }
-        )
-        let annotationSynchronizer = AnnotationCloudSynchronizer(
-            booksApp: controller,
-            stateAction: { _ in nil },
-            pendingCount: { annotationPending }
         )
         let books = try AppleBooks(
             libraryDB: fixture.library,
@@ -80,19 +62,41 @@ struct AppleBooksFacadeTests {
             collectionWriter: CollectionWriter(
                 database: fixture.library,
                 booksApp: controller,
-                cloudSynchronizer: collectionSynchronizer
+                cloudSynchronizer: CollectionCloudSynchronizer(
+                    booksApp: controller,
+                    detailState: { _ in nil },
+                    memberState: { _, _ in nil },
+                    deletedMemberStates: { _ in [] },
+                    pendingCount: { 0 },
+                    recycleAction: { events.append("recycle") }
+                )
             ),
             annotationWriter: AnnotationWriter(
                 database: fixture.annotations,
                 booksApp: controller,
-                cloudSynchronizer: annotationSynchronizer
+                cloudProjector: AnnotationCloudProjector { _ in
+                    events.append("projectAnnotation")
+                    annotationPending = 1
+                },
+                cloudSynchronizer: AnnotationCloudSynchronizer(
+                    booksApp: controller,
+                    stateAction: { _ in nil },
+                    pendingCount: { annotationPending }
+                )
             )
         )
 
+        let first = try books.updateAnnotationNote(uuid: "uuid-user", note: "batch one")
+        let second = try books.updateAnnotationNote(uuid: "uuid-user", note: "batch two")
+        #expect(first.warnings.isEmpty)
+        #expect(second.warnings.isEmpty)
+        #expect(running == false)
+        #expect(events == ["projectAnnotation", "projectAnnotation"])
+
         let summary = try books.syncPendingCloudChanges()
 
-        #expect(summary == CloudSyncSummary(collectionPendingBefore: 2, annotationPendingBefore: 1))
-        #expect(events == ["recycle", "launch"])
+        #expect(summary == CloudSyncSummary(collectionPendingBefore: 0, annotationPendingBefore: 1))
+        #expect(events == ["projectAnnotation", "projectAnnotation", "launch"])
     }
 
     @Test
@@ -140,6 +144,96 @@ struct AppleBooksFacadeTests {
 
         #expect(summary == CloudSyncSummary(collectionPendingBefore: 0, annotationPendingBefore: 1))
         #expect(events == ["terminate", "launch"])
+    }
+
+    @Test
+    func explicitAnnotationSyncUsesDeeplinkAndRestoresOriginallyClosedBooks() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.annotations, "UPDATE ZAEANNOTATION SET ZANNOTATIONLOCATION='epubcfi(/6/8[ch]!/4/2,:1,:2)' WHERE Z_PK=10")
+
+        var running = false
+        var events: [String] = []
+        var stateReads = 0
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { events.append("terminate"); running = false; return true },
+            launch: { events.append("launch"); running = true },
+            launchWithoutActivation: { events.append("launchWithoutActivation"); running = true },
+            sleep: { _ in }
+        )
+        let writer = AnnotationWriter(
+            database: fixture.annotations,
+            backupRoot: fixture.root.appendingPathComponent("annotation-backups"),
+            booksApp: controller,
+            cloudProjector: AnnotationCloudProjector { localPK in
+                #expect(localPK == 10)
+                events.append("project")
+            },
+            cloudSynchronizer: AnnotationCloudSynchronizer(
+                booksApp: controller,
+                stateAction: { localPK in
+                    #expect(localPK == 10)
+                    defer { stateReads += 1 }
+                    return stateReads == 0
+                        ? .init(editGeneration: 2, syncGeneration: 1, systemFieldsBytes: 10)
+                        : .init(editGeneration: 2, syncGeneration: 2, systemFieldsBytes: 10)
+                },
+                maxPollCount: 2
+            )
+        )
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(database: fixture.library, booksApp: controller),
+            annotationWriter: writer
+        )
+
+        let result = try books.updateAnnotationNote(uuid: "uuid-user", note: "explicit sync", syncCloud: true)
+
+        #expect(result.warnings.isEmpty)
+        #expect(result.appleBooksURL?.hasPrefix("ibooks://assetid/asset-a#epubcfi") == true)
+        #expect(events == ["project", "launchWithoutActivation", "terminate"])
+        #expect(running == false)
+    }
+
+    @Test
+    func annotationMutationWithoutExplicitSyncOnlyProjectsLocally() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        var events: [String] = []
+        let controller = BooksAppController(
+            isRunning: { false },
+            terminate: { events.append("terminate"); return true },
+            launch: { events.append("launch") },
+            launchWithoutActivation: { events.append("launchWithoutActivation") },
+            sleep: { _ in }
+        )
+        let writer = AnnotationWriter(
+            database: fixture.annotations,
+            backupRoot: fixture.root.appendingPathComponent("annotation-backups"),
+            booksApp: controller,
+            cloudProjector: AnnotationCloudProjector { _ in events.append("project") },
+            cloudSynchronizer: AnnotationCloudSynchronizer(
+                booksApp: controller,
+                stateAction: { _ in .init(editGeneration: 2, syncGeneration: 1, systemFieldsBytes: 10) },
+                maxPollCount: 1
+            )
+        )
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(database: fixture.library, booksApp: controller),
+            annotationWriter: writer
+        )
+
+        let result = try books.updateAnnotationNote(localPK: 10, note: "offline-default")
+
+        #expect(result.warnings.isEmpty)
+        #expect(events == ["project"])
     }
 
     @Test
@@ -195,8 +289,12 @@ struct AppleBooksFacadeTests {
         INSERT INTO ZBKCOLLECTION VALUES (1,'Shelf',0),(2,'Deleted',1);
         """)
         let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
+        CREATE TABLE Z_PRIMARYKEY(Z_NAME TEXT,Z_ENT INTEGER,Z_MAX INTEGER);
+        INSERT INTO Z_PRIMARYKEY VALUES('AEAnnotation',17,99);
         CREATE TABLE ZAEANNOTATION(
           Z_PK INTEGER PRIMARY KEY,
+          Z_ENT INTEGER DEFAULT 17,
+          Z_OPT INTEGER DEFAULT 1,
           ZANNOTATIONUUID TEXT,
           ZANNOTATIONASSETID TEXT,
           ZANNOTATIONDELETED INTEGER,
@@ -207,9 +305,14 @@ struct AppleBooksFacadeTests {
           ZANNOTATIONSELECTEDTEXT TEXT,
           ZANNOTATIONREPRESENTATIVETEXT TEXT,
           ZANNOTATIONNOTE TEXT,
-          ZANNOTATIONLOCATION TEXT
+          ZANNOTATIONLOCATION TEXT,
+          ZFUTUREPROOFING6 TEXT DEFAULT '1'
         );
-        INSERT INTO ZAEANNOTATION VALUES
+        INSERT INTO ZAEANNOTATION(
+          Z_PK,ZANNOTATIONUUID,ZANNOTATIONASSETID,ZANNOTATIONDELETED,ZANNOTATIONTYPE,
+          ZANNOTATIONSTYLE,ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,
+          ZANNOTATIONSELECTEDTEXT,ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONNOTE,ZANNOTATIONLOCATION
+        ) VALUES
           (10,'uuid-user','asset-a',0,1,3,100,150,'quote','representative','note',NULL),
           (11,'uuid-position','asset-a',0,3,0,110,160,'','','','epubcfi(/6/8[current]!/4/2,:1,:1)'),
           (12,'uuid-deleted','asset-a',1,1,3,120,170,'deleted','','',NULL);
@@ -223,6 +326,19 @@ struct AppleBooksFacadeTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func execute(_ databaseURL: URL, _ sql: String) throws {
+        var database: OpaquePointer?
+        let open = sqlite3_open(databaseURL.path, &database)
+        guard open == SQLITE_OK, let database else {
+            throw SQLiteError.current(operation: .open, code: open, handle: database)
+        }
+        defer { sqlite3_close(database) }
+        let result = sqlite3_exec(database, sql, nil, nil, nil)
+        guard result == SQLITE_OK else {
+            throw SQLiteError.current(operation: .step, code: result, handle: database)
+        }
     }
 
     private func database(at url: URL, sql: String) throws -> URL {

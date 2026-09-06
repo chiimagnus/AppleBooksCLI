@@ -74,8 +74,10 @@ Turn requests about the user's Apple Books data into actual command results rath
 
 ## CloudKit sync
 
-- Add `--sync` to one mutation only when the user wants to wait immediately for upload acknowledgement. For several writes, commit them normally and run `applebookscli sync --json` once at the end.
-- Successful `--sync` or `sync` proves only that pending Apple Books cloud records on the current Mac received CloudKit acknowledgement. Without evidence from a second device, do not claim that another device already displays the change.
+- Treat all Apple Books mutations needed to complete one user request as one write batch. If that batch contains exactly one real mutation, add `--sync` to that mutation by default. If it contains multiple mutations, omit `--sync` on the intermediate writes and, after all local mutations have committed, run `applebookscli sync --json` exactly once.
+- A write batch with at least one `changed=true` mutation is not complete until its current-Mac CloudKit acknowledgement has been attempted. Do not ask for separate confirmation before this sync step; it is the default completion behavior for an authorized write task. If every mutation in the batch is `changed=false`, do not run root `sync` merely for ceremony, because that could flush unrelated older pending changes.
+- Only leave a changed batch unsynced when the user explicitly requested local-only behavior or acknowledgement cannot be executed. In that case, state clearly that the local mutation committed but iCloud acknowledgement has not been confirmed. Never describe such a result as fully synced.
+- Successful `--sync` or root `sync` proves only that pending Apple Books cloud records on the current Mac received CloudKit acknowledgement. Without evidence from a second device, do not claim that another device already displays the change.
 - A post-commit sync failure is a warning after the write is committed and must not replay the mutation automatically. `backups restore` replaces a BKLibrary snapshot and does not by itself create individually flushable cloud mutations.
 
 ## Operation history

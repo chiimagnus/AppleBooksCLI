@@ -74,8 +74,10 @@ npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill appl
 
 ## CloudKit 同步
 
-- 单条 mutation 只有在用户要求立即等待上传确认时才加 `--sync`。连续多条写入先逐条提交，最后运行一次 `applebookscli sync --json`。
-- `--sync` 或 `sync` 成功只证明当前 Mac 上待处理的 Apple Books cloud records 获得 CloudKit acknowledgement；没有第二台设备的证据时，不声称其它设备已经显示。
+- 把完成同一个用户请求所需的全部 Apple Books mutation 视为一个写入批次。该批次只有一条真实 mutation 时，默认直接给这条 mutation 加 `--sync`；同一任务需要多条 mutation 时，中间写入不加 `--sync`，全部本地提交完成后只运行一次 `applebookscli sync --json`。
+- 只要本批至少有一条 `changed=true`，就必须在结束任务前尝试完成当前 Mac 的 CloudKit acknowledgement。这是已获授权写任务的默认收尾动作，不需要为同步再单独询问。若本批所有 mutation 都是 `changed=false`，不要为了形式上“同步一次”调用根 `sync`，因为那可能顺带 flush 与本任务无关的旧 pending changes。
+- 只有用户明确要求仅本地修改，或当前环境确实无法执行 acknowledgement 时，才允许带着本批真实 change 结束而不同步；这时必须明确告诉用户：本地 mutation 已提交，但 iCloud acknowledgement 尚未确认，不能把结果描述为“已同步完成”。
+- `--sync` 或根 `sync` 成功只证明当前 Mac 上待处理的 Apple Books cloud records 获得 CloudKit acknowledgement；没有第二台设备的证据时，不声称其它设备已经显示。
 - post-commit 同步失败属于已提交后的警告，不能自动重放 mutation。`backups restore` 替换的是 BKLibrary snapshot，也不等同于产生可逐条 flush 的 cloud mutation。
 
 ## 操作历史

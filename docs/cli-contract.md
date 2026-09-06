@@ -34,7 +34,7 @@ Human mutation output is intentionally small:
 2. optional `warnings: code1,code2`
 3. optional annotation `appleBooksURL` as the final line
 
-It does not print backup handle, local PK, stable ID, note, or details.
+It does not print backup handle, local primary key (PK), stable ID, note, or details.
 
 Mutation JSON keeps `committed`, `changed`, `backupHandle`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. `--sync` changes acknowledgement behavior, not this result shape.
 

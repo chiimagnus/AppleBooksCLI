@@ -57,7 +57,7 @@ CLI 的单侧 DB override 对应 domain 使用 detached Books lifecycle；公开
 - annotation 只允许已有 user annotation 的 note update / soft-delete；type=3 current-reading bookmark、deleted/system row 不进入该 writable scope；
 - collection mutation 必须拒绝 system collection；
 - delete 保持当前 soft-delete 语义；
-- local PK 只作显式本机 selector，stable identity 优先 UUID / collection ID / asset ID。
+- local primary key（PK，即当前 Core Data SQLite 行的 `Z_PK`）只作显式本机 selector；stable identity 优先 UUID / collection ID / asset ID。
 
 具体列与 SQL 由 writer/tests 拥有，不在本文复制。
 

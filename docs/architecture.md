@@ -48,7 +48,7 @@ CLI 的单侧 DB override 只让对应 domain 使用 detached Books lifecycle；
 
 ### Book
 
-- stable identity 优先 Apple Books asset ID；local PK 只属于当前本机 DB。
+- stable identity 优先 Apple Books asset ID；local primary key（PK，Core Data SQLite 行的 `Z_PK`）只属于当前本机 DB。
 - title/author/genre 是 search/display，不是唯一 identity。
 - raw metadata 与 derived normalization 分开；derived 值不得反写 source identity。
 

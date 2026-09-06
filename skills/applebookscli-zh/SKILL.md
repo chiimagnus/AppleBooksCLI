@@ -44,7 +44,7 @@ npx -y skills add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebooksc
 
 ## 查询边界
 
-- 只有用户明确提供 local PK，或确实没有 stable identity 时才用 PK selector；数字形式的 stable ID 不能被猜成 PK。
+- local primary key（PK）指当前 Core Data SQLite 行的 `Z_PK`，不是跨设备稳定 identity。只有用户明确提供 PK，或确实没有 stable identity 时才用 PK selector；数字形式的 stable ID 不能被猜成 PK。
 - 多个候选都合理时展示候选，不静默选第一项。
 - “最新批注”按创建时间；“最近修改”按修改时间；“最新笔记”只统计 `note` 非空的批注。
 - 单条批注可能包含 `appleBooksURL`；只有需要前后正文时才调用 `content context`。

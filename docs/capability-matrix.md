@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | list books | 已实现 | 支持分页与显式全量 |
 | list books with annotations | 已实现 | annotated-only view + annotation count |
-| get/describe book | 已实现 | asset ID / local PK 精确定位并返回当前可用 metadata |
+| get/describe book | 已实现 | asset ID / local primary key（PK，本机数据库行号）精确定位并返回当前可用 metadata |
 | title search | 已实现 | substring search；多结果不猜第一项 |
 | title/author/genre 综合搜索 | 已实现 | case-insensitive partial match |
 | genre 查询 | 已实现 | 独立 genre filter |

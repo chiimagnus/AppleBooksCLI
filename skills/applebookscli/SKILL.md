@@ -44,7 +44,7 @@ npx -y skills add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebooksc
 
 ## Query boundaries
 
-- Use local PK selectors only when the user supplied one explicitly or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
+- A local primary key (PK) is the current Core Data SQLite row identifier (`Z_PK`), not a stable cross-device identity. Use a PK selector only when the user supplied it explicitly or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
 - If several matches remain plausible, show candidates instead of choosing silently.
 - “Latest annotations” means creation time; “recently modified” means modification time. “Latest note” means the newest annotation with a non-empty `note`.
 - A single annotation may include `appleBooksURL`; request `content context` only when surrounding text is needed.

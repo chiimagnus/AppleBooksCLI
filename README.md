@@ -12,7 +12,7 @@ English | [简体中文](README.zh.md)
 - Read available EPUB tables of contents, chapters, metadata, and annotation context.
 - Extract PDF highlights and notes.
 - Export JSON, CSV, Markdown, or HTML.
-- **Safely update notes and manage collections, with an automatic backup before writes.**
+- **Safely update notes and manage collections, with an automatic backup before writes and synchronized to iCloud after modification.**
 - Review the last 24 hours of AppleBooksCLI write/sync tool calls through local operation history.
 - Provide a standard `applebookscli` Agent Skill in English and Chinese.
 

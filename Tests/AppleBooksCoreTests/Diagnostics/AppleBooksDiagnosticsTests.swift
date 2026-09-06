@@ -80,6 +80,26 @@ struct AppleBooksDiagnosticsTests {
     }
 
     @Test
+    func missingAnnotationTypeColumnDegradesAnnotationWriteReadiness() throws {
+        let fixture = try Fixture(
+            annotationsSQL: Self.annotationSQL.replacingOccurrences(of: "  ZANNOTATIONTYPE INTEGER,\n", with: "")
+        )
+        defer { fixture.remove() }
+
+        let report = AppleBooksDiagnostics.inspect(
+            libraryOverride: fixture.library,
+            annotationsOverride: fixture.annotations,
+            configurationFile: fixture.emptyConfig,
+            databaseDiscovery: fixture.discovery,
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
+            booksApp: fixture.booksApp
+        )
+
+        #expect(report.writeSchemaReady == false)
+        #expect(report.issues.contains(.init(code: .annotationsWriteSchemaIncompatible, state: .degraded)))
+    }
+
+    @Test
     func invalidConfigurationIsFatalAndUnavailableSupplementalRootIsDegraded() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -226,12 +246,15 @@ struct AppleBooksDiagnosticsTests {
         let discovery: DatabaseDiscovery
         let booksApp: BooksAppController
 
-        init(librarySQL: String = AppleBooksDiagnosticsTests.librarySQL) throws {
+        init(
+            librarySQL: String = AppleBooksDiagnosticsTests.librarySQL,
+            annotationsSQL: String = AppleBooksDiagnosticsTests.annotationSQL
+        ) throws {
             root = AppleBooksDiagnosticsTests().temporaryDirectory()
             library = root.appendingPathComponent("library.sqlite")
             annotations = root.appendingPathComponent("annotations.sqlite")
             try AppleBooksDiagnosticsTests().createDatabase(library, sql: librarySQL)
-            try AppleBooksDiagnosticsTests().createDatabase(annotations, sql: AppleBooksDiagnosticsTests.annotationSQL)
+            try AppleBooksDiagnosticsTests().createDatabase(annotations, sql: annotationsSQL)
             emptyConfig = root.appendingPathComponent("config.json")
             try Data("{\"historical_assets\":{}}".utf8).write(to: emptyConfig)
             discovery = DatabaseDiscovery(

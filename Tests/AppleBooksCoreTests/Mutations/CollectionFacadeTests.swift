@@ -49,8 +49,102 @@ struct CollectionFacadeTests {
         #expect(result.warnings.isEmpty)
         #expect(state.running)
         #expect(state.events.contains("terminate"))
-        #expect(state.events.last == "launch")
+        let terminateIndex = try #require(state.events.firstIndex(of: "terminate"))
+        let launchIndex = try #require(state.events.firstIndex(of: "launch"))
+        #expect(terminateIndex < launchIndex)
         #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path))
+    }
+
+    @Test
+    func explicitCollectionSyncAcknowledgesAndRestoresClosedBooks() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var events: [String] = []
+        var running = false
+        var acknowledged = false
+        var projectedPK: Int64?
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { events.append("terminate"); running = false; return true },
+            launch: { events.append("launch"); running = true },
+            launchWithoutActivation: { events.append("launchWithoutActivation"); running = true },
+            sleep: { _ in }
+        )
+        let synchronizer = CollectionCloudSynchronizer(
+            booksApp: controller,
+            detailState: { localPK in
+                #expect(localPK == projectedPK)
+                return .init(
+                    deleted: false,
+                    editGeneration: 2,
+                    syncGeneration: acknowledged ? 2 : 1,
+                    systemFieldsBytes: 1
+                )
+            },
+            memberState: { _, _ in nil },
+            deletedMemberStates: { _ in [] },
+            recycleAction: { events.append("recycle"); acknowledged = true }
+        )
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(
+                database: fixture.library,
+                backupRoot: fixture.backupRoot,
+                booksApp: controller,
+                cloudProjector: CollectionCloudProjector { inputs in
+                    guard case let .collection(localPK)? = inputs.first else {
+                        Issue.record("expected collection projection")
+                        return
+                    }
+                    projectedPK = localPK
+                    events.append("project")
+                },
+                cloudSynchronizer: synchronizer
+            )
+        )
+
+        let result = try books.createCollection(title: "Explicit Sync", syncCloud: true)
+
+        #expect(result.committed)
+        #expect(result.warnings.isEmpty)
+        #expect(running == false)
+        #expect(events == ["project", "recycle", "launchWithoutActivation", "terminate"])
+    }
+
+    @Test
+    func collectionMutationWithoutExplicitSyncOnlyProjectsLocally() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var events: [String] = []
+        let controller = closedBooksApp()
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(
+                database: fixture.library,
+                backupRoot: fixture.backupRoot,
+                booksApp: controller,
+                cloudProjector: CollectionCloudProjector { _ in events.append("project") },
+                cloudSynchronizer: CollectionCloudSynchronizer(
+                    booksApp: controller,
+                    detailState: { _ in
+                        events.append("sync")
+                        return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+                    },
+                    memberState: { _, _ in nil },
+                    deletedMemberStates: { _ in [] },
+                    recycleAction: { events.append("recycle") }
+                )
+            )
+        )
+
+        let result = try books.createCollection(title: "Offline Default")
+
+        #expect(result.warnings.isEmpty)
+        #expect(events == ["project"])
     }
 
     @Test

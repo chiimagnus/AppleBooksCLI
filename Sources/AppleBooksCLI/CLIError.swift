@@ -116,7 +116,7 @@ enum CLIOperation {
                 return .usageInvalid("Annotation note length is invalid.")
             case .annotationMissing:
                 return .notFound("Annotation not found.")
-            case .annotationDeletedOrUnknown:
+            case .annotationDeletedOrUnknown, .annotationNotWritable:
                 return .writeSafety("Annotation is not writable.")
             case .writeFailed:
                 return .writeSafety("Annotation mutation failed safely.")

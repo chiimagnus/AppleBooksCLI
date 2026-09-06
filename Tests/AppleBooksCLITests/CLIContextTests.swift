@@ -51,21 +51,21 @@ struct CLIContextTests {
 
         var libraryOnly = try GlobalOptions.parse([])
         libraryOnly.libraryDB = fixture.libraryOverride.path
-        let libraryResolved = try CLIContext(
-            global: libraryOnly,
-            databaseDiscovery: fixture.discovery
-        ).databases()
+        let libraryContext = CLIContext(global: libraryOnly, databaseDiscovery: fixture.discovery)
+        let libraryResolved = try libraryContext.databases()
         #expect(libraryResolved.libraryDB == fixture.libraryOverride.resolvingSymlinksInPath())
         #expect(libraryResolved.annotationsDB == fixture.defaultAnnotations.resolvingSymlinksInPath())
+        #expect(libraryContext.managesCollectionBooksApplication == false)
+        #expect(libraryContext.managesAnnotationBooksApplication)
 
         var annotationsOnly = try GlobalOptions.parse([])
         annotationsOnly.annotationsDB = fixture.annotationsOverride.path
-        let annotationsResolved = try CLIContext(
-            global: annotationsOnly,
-            databaseDiscovery: fixture.discovery
-        ).databases()
+        let annotationsContext = CLIContext(global: annotationsOnly, databaseDiscovery: fixture.discovery)
+        let annotationsResolved = try annotationsContext.databases()
         #expect(annotationsResolved.libraryDB == fixture.defaultLibrary.resolvingSymlinksInPath())
         #expect(annotationsResolved.annotationsDB == fixture.annotationsOverride.resolvingSymlinksInPath())
+        #expect(annotationsContext.managesCollectionBooksApplication)
+        #expect(annotationsContext.managesAnnotationBooksApplication == false)
     }
 
     @Test

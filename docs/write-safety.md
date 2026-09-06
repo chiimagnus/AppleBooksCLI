@@ -35,14 +35,15 @@ read-only preflight
 → COMMIT / rollback
 → close writable handle
 → fresh read-only read-back
-→ Apple-native cloud projection
-→ 恢复原 Books 状态：background 不激活，frontmost 恢复前台，closed 不主动启动
-→ optional explicit CloudKit acknowledgement
+→ 计算 domain result（identity / changed / optional annotation deeplink）
+→ changed=true 时执行 Apple-native cloud projection
+→ 仅当本 mutation 显式请求 `--sync` 时，在最终 UI 恢复前等待 current-Mac CloudKit acknowledgement
+→ 恢复原 Books 状态：background 不激活，frontmost 恢复前台；annotation 有 canonical deeplink 时先尝试导航；closed 只清理本次显式同步明确标记为自己临时启动且未被用户切到前台的 Books
 ```
 
-无效 selector/schema 应在关闭 Books 前失败。backup 必须位于 Books quiet state；transaction 内仍要 revalidate，因为 preflight 与 `BEGIN IMMEDIATE` 之间状态可能变化。domain writer 不自行拥有事务边界。
+无效 selector/schema 应在关闭 Books 前失败。CLI 默认按 domain 管理 Books：单侧 `--library-db` / `--annotations-db` override 的对应 writer 使用 detached lifecycle，不应因为另一个 domain 仍 live 而退出真实 Books。`AppleBooksCore` 的公开 `manageBooksApplication` 仍保留调用方显式 lifecycle 管理语义。backup 必须位于 Books quiet state；transaction 内仍要 revalidate，因为 preflight 与 `BEGIN IMMEDIATE` 之间状态可能变化。domain writer 不自行拥有事务边界。
 
-cloud projection 发生在 **COMMIT + read-back 成功之后**。projection 失败是 committed warning，而不是回滚本地事务。
+cloud projection 发生在 **COMMIT + read-back 成功之后**。projection 失败是 committed warning，而不是回滚本地事务。不传 `--sync` 时 mutation 到 projection 后即进入最终 App 恢复，不触发 acknowledgement lifecycle；因此原本 closed 的 Books 不会仅因普通本地 mutation 被同步路径启动。
 
 ## 不可逆边界与结果
 
@@ -99,8 +100,10 @@ Guarded mutation 当前覆盖：
 
 两种显式 acknowledgement 模式：
 
-- **单条 `--sync`**：本 mutation projection 成功后立即触发必要 Apple lifecycle，并等待对应 cloud record ack；
-- **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。
+- **单条 `--sync`**：本 mutation projection 成功后立即触发必要 Apple lifecycle，并等待对应 cloud record ack；临时启动 Books 使用 non-activating launch，最终 closed/background/frontmost 恢复仍由 `MutationCoordinator` 唯一负责；
+- **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。连续多条 mutation 的推荐路径是不逐条 `--sync`，最后只运行一次根 `sync`。
+
+`changed=false` 的成功 no-op 不执行 projection、acknowledgement、service recycle 或同步所需的临时 Books launch；它仍保留必要的 preflight/backup/transaction/read-back 安全 rail。
 
 ack criterion 由当前 cloud synchronizer/tests 拥有，核心语义是 `syncGeneration` 已追上 `editGeneration` 且存在 CloudKit system fields；合法 delete/remove 可表现为 Apple cloud store 的物理移除。
 

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import Testing
 @testable import AppleBooksCLI
+@testable import AppleBooksCore
 
 @Suite("OutputContractTests")
 struct OutputContractTests {
@@ -162,6 +163,33 @@ struct OutputContractTests {
         let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(machine.stdout.utf8))
         #expect(envelope.error.code == .internal)
         #expect(envelope.error.message == "Internal error.")
+    }
+
+    @Test
+    func mutationJsonWriterEmitsExactlyOneMachineValueIncludingOptionalDeeplink() throws {
+        let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
+        let result = MutationCommandResult(
+            MutationResult(
+                backupHandle: "annotations__backup.sqlite",
+                localPK: 7,
+                stableID: "uuid-7",
+                changed: true,
+                warnings: [.cloudSyncFailed],
+                appleBooksURL: deeplink
+            )
+        )
+        let capture = Capture()
+
+        try capture.output.writeJSON(result)
+
+        #expect(capture.stderr.isEmpty)
+        #expect(capture.stdout.first == "{")
+        #expect(capture.stdout.last == "}")
+        #expect(capture.stdout.contains("Mutation committed.") == false)
+        #expect(capture.stdout.contains("warnings:") == false)
+        let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: Data(capture.stdout.utf8))
+        #expect(decoded == result)
+        #expect(decoded.appleBooksURL == deeplink)
     }
 
     @Test

@@ -67,6 +67,39 @@ struct CollectionMembershipTests {
     }
 
     @Test
+    func idempotentMembershipNoOpsSkipProjectionSyncAndLifecycleEvenWhenRequested() throws {
+        let duplicate = try fixture(existingTargetMemberships: 1)
+        defer { try? FileManager.default.removeItem(at: duplicate.root) }
+        let duplicateEvents = CloudEvents()
+        let duplicateWriter = instrumentedWriter(fixture: duplicate, events: duplicateEvents)
+
+        let duplicateResult = try duplicateWriter.addBook(
+            bookLocalPK: 1,
+            toCollectionLocalPK: 10,
+            syncCloud: true
+        )
+
+        #expect(duplicateResult.changed == false)
+        #expect(duplicateResult.warnings.isEmpty)
+        #expect(duplicateEvents.values.isEmpty)
+
+        let missing = try fixture()
+        defer { try? FileManager.default.removeItem(at: missing.root) }
+        let missingEvents = CloudEvents()
+        let missingWriter = instrumentedWriter(fixture: missing, events: missingEvents)
+
+        let missingResult = try missingWriter.removeBook(
+            bookLocalPK: 1,
+            fromCollectionLocalPK: 10,
+            syncCloud: true
+        )
+
+        #expect(missingResult.changed == false)
+        #expect(missingResult.warnings.isEmpty)
+        #expect(missingEvents.values.isEmpty)
+    }
+
+    @Test
     func missingBookFailsBeforeBackupAndWantToReadAllowsMembership() throws {
         let missing = try fixture()
         defer { try? FileManager.default.removeItem(at: missing.root) }
@@ -133,6 +166,36 @@ struct CollectionMembershipTests {
                 database: database,
                 backupRoot: backupRoot,
                 booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {})
+            )
+        )
+    }
+
+    private func instrumentedWriter(fixture: Fixture, events: CloudEvents) -> CollectionWriter {
+        var running = false
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: { events.values.append("terminate"); running = false; return true },
+            launch: { events.values.append("launch"); running = true },
+            launchWithoutActivation: { events.values.append("launchWithoutActivation"); running = true },
+            sleep: { _ in }
+        )
+        return CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: controller,
+            cloudProjector: CollectionCloudProjector { _ in events.values.append("project") },
+            cloudSynchronizer: CollectionCloudSynchronizer(
+                booksApp: controller,
+                detailState: { _ in
+                    events.values.append("detailState")
+                    return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+                },
+                memberState: { _, _ in
+                    events.values.append("memberState")
+                    return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+                },
+                deletedMemberStates: { _ in [] },
+                recycleAction: { events.values.append("recycle") }
             )
         )
     }
@@ -212,5 +275,9 @@ struct CollectionMembershipTests {
         let opt: Int64
         let lastModification: Double
         let localModification: Double
+    }
+
+    private final class CloudEvents {
+        var values: [String] = []
     }
 }

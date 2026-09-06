@@ -69,7 +69,7 @@ npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill appl
 - 只有用户明确要求修改或恢复时才执行 `annotations update-note/delete`、`collections create/rename/delete/add-book/remove-book` 或 `backups restore`。
 - 不直接读写 Apple Books SQLite，也不额外手工退出或启动 Books。CLI 的 guarded mutation rail 已负责 preflight、Books lifecycle、备份、事务、约束检查、read-back 和 cloud projection。
 - `annotations update-note --note` 会整段替换 note。用户要求追加时，先读取原 note，再提交拼接后的完整文本。`annotations delete` 是删除整条批注，不是清空 note。
-- 读取 mutation JSON 中的 `committed`、`changed`、`backupHandle` 和 `warningCodes`。`committed=true` 后即使有 warning 也不能自动重试；先做最窄的只读确认，避免重复写入。
+- 读取 mutation JSON 中的 `committed`、`changed`、`backupHandle` 和 `warningCodes`；annotation mutation 还可能包含直接复制自 Core canonical deep link 的 `appleBooksURL`。human mutation output 会刻意保持精简，有链接时 raw URL 位于最后一行。`committed=true` 后即使有 warning 也不能自动重试；先做最窄的只读确认，避免重复写入。
 - 恢复前先用 `backups list --json` 取得精确 handle。恢复会先创建 safety backup；以 `verified`、`status` 和 warning 判断结果，不把“已应用但未验证”说成完整成功。
 
 ## CloudKit 同步

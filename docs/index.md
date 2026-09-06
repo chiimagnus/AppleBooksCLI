@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | [`../README.md`](../README.md) / [`../README.zh.md`](../README.zh.md) | 最终用户英文/中文入口：产品用途、安装、快速开始、常见任务、Skill、可选配置、平台限制与 license | 安装方式、用户入口、常见任务、语言版本或顶层产品定位变化；两份 README 的产品事实应保持一致 | installed CLI / npm package |
 | [`capability-matrix.md`](capability-matrix.md) | 用户与维护者：**当前能力范围与明确不支持项的唯一 owner** | 新增、删除或改变用户可见 capability / safety boundary | `CapabilityParityTests`、`CLICapabilityReachabilityTests`、`capability-anchors.json` |
-| [`architecture.md`](architecture.md) | 维护者：跨模块数据流、identity、source、分层与非目标 | DB/source/identity、Core↔CLI↔worker、config、export ownership 变化 | `Sources/**` + 对应 executable tests |
+| [`architecture.md`](architecture.md) | 维护者：跨模块数据流、identity、source、分层与非目标 | DB/source/identity、cloud ownership、Core↔CLI↔worker、config、export ownership 变化 | `Sources/**` + 对应 executable tests |
 | [`cli-contract.md`](cli-contract.md) | CLI/自动化调用方：process exit、stdout/stderr、JSON error 与 local operation-history read/process contract | exit code、JSON envelope、parse/help/version/completion、history read/error/persistence 行为变化 | `CLIEntrypoint`、`CLIError`、history/output/contract tests |
 | [`write-safety.md`](write-safety.md) | 维护者与高风险调用方：mutation/backup/restore/lifecycle/state-changing CLI recorder/cloud-sync 的唯一安全顺序 owner | writable scope、schema guard、backup/restore、Books lifecycle、state-changing CLI recorder、cloud rail、irreversible result 变化 | mutation/restore/history/cloud implementation + tests/live gates |
 | [`release.md`](release.md) | 维护者：release version、channel、tag preflight 与 publication pipeline 的唯一 owner | tag/version、channel、CI gate、npm/GitHub publication 或 release artifact 变化 | `.github/workflows/release.yml`、`scripts/build-release.sh`、release metadata/order tests |
@@ -28,7 +28,7 @@
 - **能力有没有**：只改 `capability-matrix.md`，不要在 index/architecture 再维护第二份 checklist。
 - **命令怎么拼**：以 `--help` 为准；长期文档只记录跨命令仍需稳定的语义。
 - **mutation / restore 顺序**：只改 `write-safety.md`；architecture 只链接，不复制 ceremony。
-- **稳定 identity / source / export 分层**：由 `architecture.md` 拥有。
+- **稳定 identity / source / cloud ownership / export 分层**：由 `architecture.md` 拥有。
 - **当前用户安装入口**：由 `README.md` / `README.zh.md` 共同拥有并保持产品事实一致；**release version/channel/tag preflight/publication pipeline** 由 `release.md` 拥有。Git tag 仍是 release version 的唯一执行 owner，具体历史不复制进 docs。
 - **一次机器上的 schema 事实**：放 dated baseline，并明确 evidence scope；不能把 observed shape 自动升级为跨版本保证。
 - **机械验证命令**：由 tests、scripts、workflows 拥有；文档只说明何种变化应触发哪类验证，不复制整套 CI。

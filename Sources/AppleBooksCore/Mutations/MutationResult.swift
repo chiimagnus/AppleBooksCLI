@@ -5,7 +5,9 @@ public enum MutationWarning: String, Equatable, Sendable {
     case readBackFailed = "read_back_failed"
     case cloudProjectionFailed = "cloud_projection_failed"
     case cloudSyncFailed = "cloud_sync_failed"
+    case deeplinkOpenFailed = "deeplink_open_failed"
     case relaunchFailed = "relaunch_failed"
+    case booksStateRestoreFailed = "books_state_restore_failed"
 }
 
 public enum MutationFailureCode: String, Equatable, Sendable {
@@ -90,13 +92,15 @@ public struct MutationResult: Equatable, Sendable {
     public let stableID: String?
     public let changed: Bool
     public let warnings: [MutationWarning]
+    public let appleBooksURL: String?
 
     init(
         backupHandle: String,
         localPK: Int64?,
         stableID: String?,
         changed: Bool,
-        warnings: [MutationWarning]
+        warnings: [MutationWarning],
+        appleBooksURL: String? = nil
     ) {
         committed = true
         self.backupHandle = backupHandle
@@ -104,6 +108,7 @@ public struct MutationResult: Equatable, Sendable {
         self.stableID = stableID
         self.changed = changed
         self.warnings = warnings
+        self.appleBooksURL = appleBooksURL
     }
 }
 
@@ -139,10 +144,17 @@ struct MutationDomainData: Equatable, Sendable {
     let localPK: Int64?
     let stableID: String?
     let changed: Bool
+    let appleBooksURL: String?
 
-    init(localPK: Int64? = nil, stableID: String? = nil, changed: Bool = true) {
+    init(
+        localPK: Int64? = nil,
+        stableID: String? = nil,
+        changed: Bool = true,
+        appleBooksURL: String? = nil
+    ) {
         self.localPK = localPK
         self.stableID = stableID
         self.changed = changed
+        self.appleBooksURL = appleBooksURL
     }
 }

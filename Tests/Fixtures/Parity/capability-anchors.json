@@ -3,6 +3,8 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Models/Annotation.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Mutations/MutationResult.swift",
       "Sources/AppleBooksCore/Export/HTMLExporter.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift",
       "Sources/AppleBooksCore/Export/CSVExporter.swift",
@@ -10,6 +12,7 @@
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift",
+      "Tests/AppleBooksCoreTests/AppleBooksFacadeTests.swift",
       "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift",
       "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift",
       "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift",
@@ -19,6 +22,14 @@
       [
         "annotations",
         "get"
+      ],
+      [
+        "annotations",
+        "update-note"
+      ],
+      [
+        "annotations",
+        "delete"
       ],
       [
         "export",

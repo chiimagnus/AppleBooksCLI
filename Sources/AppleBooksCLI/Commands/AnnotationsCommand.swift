@@ -489,37 +489,6 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct MutationCommandResult: Codable, Equatable, Sendable {
-    let committed: Bool
-    let changed: Bool
-    let backupHandle: String
-    let localPK: Int64?
-    let stableID: String?
-    let warningCodes: [String]
-
-    init(_ result: MutationResult) {
-        committed = result.committed
-        changed = result.changed
-        backupHandle = result.backupHandle
-        localPK = result.localPK
-        stableID = result.stableID
-        warningCodes = result.warnings.map(\.rawValue)
-    }
-
-    var humanDescription: String {
-        var lines = [
-            "committed: \(committed)",
-            "changed: \(changed)",
-            "backup: \(backupHandle)",
-            "local PK: \(localPK.map(String.init) ?? "-")",
-        ]
-        if warningCodes.isEmpty == false {
-            lines.append("warnings: \(warningCodes.joined(separator: ","))")
-        }
-        return lines.joined(separator: "\n")
-    }
-}
-
 struct AnnotationDateRange: Equatable, Sendable {
     let lowerInclusive: Date?
     let upperExclusive: Date?

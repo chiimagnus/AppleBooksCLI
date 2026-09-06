@@ -134,6 +134,8 @@ applebookscli annotations update-note <annotation-uuid> --note "New note" --json
 applebookscli collections create "My Shelf" --json
 ```
 
+不加 `--json` 时，mutation 只输出 `Mutation committed.` 或 `No change.`、必要 warning code，以及 annotation 有目标链接时位于最后一行的原始 Apple Books deep link。JSON 保留 `committed`、`changed`、backup/identity、`warningCodes` 等机器 metadata，并为 annotation mutation 增加 optional `appleBooksURL`；mutation output 不回显 note/details 正文。
+
 `sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。它仍用于显式 pending recovery/flush，而不是正常 live mutation 之后必须执行的收尾步骤。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
 
 ## 操作历史

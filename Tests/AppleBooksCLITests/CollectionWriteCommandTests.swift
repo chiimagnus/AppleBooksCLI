@@ -51,6 +51,7 @@ struct CollectionWriteCommandTests {
         #expect(result.committed)
         #expect(result.changed)
         #expect(result.warningCodes == ["cloud_sync_failed"])
+        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
     }
 
     @Test
@@ -78,7 +79,12 @@ struct CollectionWriteCommandTests {
         #expect(created.changed)
         #expect(created.localPK == 41)
         #expect(created.stableID != nil)
+        #expect(created.appleBooksURL == nil)
+        #expect(created.humanDescription == "Mutation committed.")
         #expect(created.humanDescription.contains("private details") == false)
+        let createdJSON = String(decoding: try JSONEncoder().encode(created), as: UTF8.self)
+        #expect(createdJSON.contains("private details") == false)
+        #expect(createdJSON.contains("appleBooksURL") == false)
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=41") == "New Shelf")
         #expect(try fixture.integer("SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
 
@@ -131,6 +137,7 @@ struct CollectionWriteCommandTests {
         let duplicateAdd = try add.execute(using: books)
         #expect(duplicateAdd.changed == false)
         #expect(duplicateAdd.warningCodes.isEmpty)
+        #expect(duplicateAdd.humanDescription == "No change.")
 
         let remove = try CollectionsRemoveBookCommand.parse([
             "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
@@ -141,6 +148,7 @@ struct CollectionWriteCommandTests {
         let missingRemove = try remove.execute(using: books)
         #expect(missingRemove.changed == false)
         #expect(missingRemove.warningCodes.isEmpty)
+        #expect(missingRemove.humanDescription == "No change.")
     }
 
     @Test

@@ -69,7 +69,7 @@ Turn requests about the user's Apple Books data into actual command results rath
 - Run `annotations update-note/delete`, `collections create/rename/delete/add-book/remove-book`, or `backups restore` only when the user explicitly asked for a modification or restore.
 - Do not directly read/write the Apple Books SQLite stores and do not manually quit or launch Books around a mutation. The CLI guarded mutation rail owns preflight, Books lifecycle, backup, transaction, invariant checks, read-back, and cloud projection.
 - `annotations update-note --note` replaces the whole note. For an append request, read the existing note first and submit the complete concatenated text. `annotations delete` deletes the annotation itself; it does not merely clear the note.
-- Read `committed`, `changed`, `backupHandle`, and `warningCodes` from mutation JSON. Once `committed=true`, a warning must not trigger an automatic retry; perform the narrowest read-only confirmation first to avoid duplicate writes.
+- Read `committed`, `changed`, `backupHandle`, and `warningCodes` from mutation JSON; annotation mutations may also include `appleBooksURL`, copied from the canonical Core annotation deep link. Human mutation output is intentionally minimal and puts that raw URL last when present. Once `committed=true`, a warning must not trigger an automatic retry; perform the narrowest read-only confirmation first to avoid duplicate writes.
 - Before restore, get the exact handle from `backups list --json`. Restore creates a safety backup first. Judge the result from `verified`, `status`, and warnings; do not describe “applied but unverified” as complete success.
 
 ## CloudKit sync

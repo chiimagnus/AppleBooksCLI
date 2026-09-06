@@ -220,6 +220,9 @@ struct CLIContractTests {
             "annotations", "update-note", "uuid-update", "--note", note,
         ])
         #expect(update["committed"] as? Bool == true)
+        let annotationURL = try #require(update["appleBooksURL"] as? String)
+        #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
+        #expect(annotationURL.contains("%5Bshared%5D"))
         #expect(try fixture.scalarText("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == note)
         let annotationHandle = try #require(update["backupHandle"] as? String)
         #expect(annotationHandle.hasPrefix("annotations__"))
@@ -243,6 +246,37 @@ struct CLIContractTests {
         // the executable still traverses the mutation coordinator instead of implementing direct CLI SQLite writes.
         #expect(fixture.harness.home.path.hasPrefix(fixture.harness.root.path + "/"))
         #expect(fixture.backupRoot.path.hasPrefix(fixture.harness.home.path))
+    }
+
+    @Test
+    func processHumanMutationOutputIsMinimalAndAnnotationDeeplinkIsLastLine() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+
+        let privateNote = "human private note"
+        let annotation = try fixture.run([
+            "annotations", "update-note", "uuid-update", "--note", privateNote,
+        ] + fixture.globals)
+
+        #expect(annotation.status == 0)
+        #expect(annotation.stderr.isEmpty)
+        #expect(annotation.stdout.contains(privateNote) == false)
+        #expect(annotation.stdout.contains("backup") == false)
+        #expect(annotation.stdout.contains("local PK") == false)
+        let annotationLines = annotation.stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+        #expect(annotationLines.first == "Mutation committed.")
+        let annotationURL = try #require(annotationLines.last)
+        #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
+        #expect(annotationURL.contains("%5Bshared%5D"))
+
+        let noOp = try fixture.run([
+            "collections", "add-book", ProcessFixture.shelfID, "asset-a",
+        ] + fixture.globals)
+        #expect(noOp.status == 0)
+        #expect(noOp.stderr.isEmpty)
+        #expect(noOp.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "No change.")
     }
 
     @Test

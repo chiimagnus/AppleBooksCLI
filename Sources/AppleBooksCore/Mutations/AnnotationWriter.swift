@@ -67,41 +67,41 @@ struct AnnotationWriter {
     func updateNote(
         localPK: Int64,
         note: String,
-        syncCloud: Bool = false,
+        acknowledgementRequested: Bool = false,
         appleBooksURL: String? = nil
     ) throws -> MutationResult {
-        try updateNote(.localPK(localPK), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try updateNote(.localPK(localPK), note: note, acknowledgementRequested: acknowledgementRequested, appleBooksURL: appleBooksURL)
     }
 
     func updateNote(
         uuid: String,
         note: String,
-        syncCloud: Bool = false,
+        acknowledgementRequested: Bool = false,
         appleBooksURL: String? = nil
     ) throws -> MutationResult {
-        try updateNote(.uuid(uuid), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try updateNote(.uuid(uuid), note: note, acknowledgementRequested: acknowledgementRequested, appleBooksURL: appleBooksURL)
     }
 
     func delete(
         localPK: Int64,
-        syncCloud: Bool = false,
+        acknowledgementRequested: Bool = false,
         appleBooksURL: String? = nil
     ) throws -> MutationResult {
-        try delete(.localPK(localPK), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try delete(.localPK(localPK), acknowledgementRequested: acknowledgementRequested, appleBooksURL: appleBooksURL)
     }
 
     func delete(
         uuid: String,
-        syncCloud: Bool = false,
+        acknowledgementRequested: Bool = false,
         appleBooksURL: String? = nil
     ) throws -> MutationResult {
-        try delete(.uuid(uuid), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try delete(.uuid(uuid), acknowledgementRequested: acknowledgementRequested, appleBooksURL: appleBooksURL)
     }
 
     private func updateNote(
         _ selector: Selector,
         note: String,
-        syncCloud: Bool,
+        acknowledgementRequested: Bool,
         appleBooksURL: String?
     ) throws -> MutationResult {
         guard note.isEmpty == false, note.count <= 10_000 else {
@@ -137,7 +137,7 @@ struct AnnotationWriter {
             cloudProjection: cloudProjector.map { projector in
                 { target in try projector.project(localPK: target.localPK) }
             },
-            acknowledgementRequested: syncCloud,
+            acknowledgementRequested: acknowledgementRequested,
             acknowledgement: cloudSynchronizer.map { synchronizer in
                 { target, onTemporaryBooksLaunch in
                     try synchronizer.sync(
@@ -155,7 +155,7 @@ struct AnnotationWriter {
 
     private func delete(
         _ selector: Selector,
-        syncCloud: Bool,
+        acknowledgementRequested: Bool,
         appleBooksURL: String?
     ) throws -> MutationResult {
         return try coordinator.perform(
@@ -187,7 +187,7 @@ struct AnnotationWriter {
             cloudProjection: cloudProjector.map { projector in
                 { target in try projector.project(localPK: target.localPK) }
             },
-            acknowledgementRequested: syncCloud,
+            acknowledgementRequested: acknowledgementRequested,
             acknowledgement: cloudSynchronizer.map { synchronizer in
                 { target, onTemporaryBooksLaunch in
                     try synchronizer.sync(

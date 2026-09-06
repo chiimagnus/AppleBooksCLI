@@ -127,7 +127,7 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
-Canonical live annotation and collection mutations wait for current-Mac CloudKit acknowledgement automatically. `--sync` remains accepted as a compatibility/explicit-intent flag, but normal live writes no longer require it:
+Canonical live annotation and collection mutations wait for current-Mac CloudKit acknowledgement automatically. Per-mutation `--sync` is no longer part of the mutation surface; use the root `sync` command only to recover or explicitly flush already-pending cloud changes:
 
 ```sh
 applebookscli annotations update-note <annotation-uuid> --note "New note" --json

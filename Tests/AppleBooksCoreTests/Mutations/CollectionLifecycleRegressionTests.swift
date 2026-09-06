@@ -45,7 +45,7 @@ struct CollectionLifecycleRegressionTests {
         let state = CloudLifecycleState(frontmost: false)
         let writer = syncingWriter(fixture: fixture, state: state)
 
-        let result = try writer.renameCollection(localPK: 10, newTitle: "Background Sync", syncCloud: true)
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Background Sync", acknowledgementRequested: true)
 
         #expect(result.warnings.isEmpty)
         #expect(state.running)
@@ -60,7 +60,7 @@ struct CollectionLifecycleRegressionTests {
         let state = CloudLifecycleState(frontmost: true)
         let writer = syncingWriter(fixture: fixture, state: state)
 
-        let result = try writer.renameCollection(localPK: 10, newTitle: "Frontmost Sync", syncCloud: true)
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Frontmost Sync", acknowledgementRequested: true)
 
         #expect(result.warnings.isEmpty)
         #expect(state.running)

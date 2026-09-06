@@ -163,9 +163,6 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, help: "Optional collection details.")
     var details: String?
 
-    @Flag(name: .long, help: "Compatibility flag; live collection mutations already wait for current-Mac CloudKit acknowledgement.")
-    var sync = false
-
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.create" }
@@ -180,7 +177,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
+            return MutationCommandResult(try books.createCollection(title: title, details: details))
         }
     }
 }
@@ -200,9 +197,6 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .customLong("title"), help: "Replacement collection title.")
     var title: String
 
-    @Flag(name: .long, help: "Compatibility flag; live collection mutations already wait for current-Mac CloudKit acknowledgement.")
-    var sync = false
-
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.rename" }
@@ -218,7 +212,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
+            return MutationCommandResult(try selector.rename(to: title, in: books))
         }
     }
 }
@@ -235,9 +229,6 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "Compatibility flag; live collection mutations already wait for current-Mac CloudKit acknowledgement.")
-    var sync = false
-
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.delete" }
@@ -253,7 +244,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            return MutationCommandResult(try selector.delete(in: books))
         }
     }
 }
@@ -276,9 +267,6 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "Compatibility flag; live collection mutations already wait for current-Mac CloudKit acknowledgement.")
-    var sync = false
-
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.add-book" }
@@ -299,7 +287,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
+            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books))
         }
     }
 }
@@ -322,9 +310,6 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "Compatibility flag; live collection mutations already wait for current-Mac CloudKit acknowledgement.")
-    var sync = false
-
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.remove-book" }
@@ -345,7 +330,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
+            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books))
         }
     }
 }

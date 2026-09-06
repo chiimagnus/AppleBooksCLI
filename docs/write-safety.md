@@ -99,7 +99,7 @@ Guarded mutation 当前覆盖：
 
 当前 acknowledgement 模式：
 
-- **normal canonical live mutation**：annotation 与 collection mutation 都在 projection 成功后默认等待对应 cloud record ack；`--sync` 继续兼容，但不再是正常 live 写入获得 acknowledgement 的必要条件。single-record sync 需要临时启动 Books 时使用 non-activating launch，并显式把该 launch 的 ownership 交给 coordinator；collection 仍可在该 rail 中 recycle `bookdatastored`，但不会再次 terminate 已运行的 Books，最终 closed/background/frontmost 状态只由 `MutationCoordinator` 恢复；
+- **normal canonical live mutation**：annotation 与 collection mutation 都在 projection 成功后默认等待对应 cloud record ack；mutation surface 不再保留逐条 `--sync` 兼容开关。single-record sync 需要临时启动 Books 时使用 non-activating launch，并显式把该 launch 的 ownership 交给 coordinator；collection 仍可在该 rail 中 recycle `bookdatastored`，但不会再次 terminate 已运行的 Books，最终 closed/background/frontmost 状态只由 `MutationCoordinator` 恢复；
 - **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。它是显式 pending recovery/flush 工具，不是正常 mutation 必须追加的收尾步骤。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。
 
 ack criterion 由当前 cloud synchronizer/tests 拥有，核心语义是 `syncGeneration` 已追上 `editGeneration` 且存在 CloudKit system fields；合法 delete/remove 可表现为 Apple cloud store 的物理移除。

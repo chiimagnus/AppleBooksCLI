@@ -23,47 +23,47 @@ enum CollectionSelector: Equatable, Sendable {
         }
     }
 
-    func rename(to title: String, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func rename(to title: String, in books: AppleBooks) throws -> MutationResult {
         switch self {
         case let .collectionID(collectionID):
-            try books.renameCollection(collectionID: collectionID, newTitle: title, syncCloud: syncCloud)
+            try books.renameCollection(collectionID: collectionID, newTitle: title)
         case let .localPK(localPK):
-            try books.renameCollection(localPK: localPK, newTitle: title, syncCloud: syncCloud)
+            try books.renameCollection(localPK: localPK, newTitle: title)
         }
     }
 
-    func delete(in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func delete(in books: AppleBooks) throws -> MutationResult {
         switch self {
         case let .collectionID(collectionID):
-            try books.deleteCollection(collectionID: collectionID, syncCloud: syncCloud)
+            try books.deleteCollection(collectionID: collectionID)
         case let .localPK(localPK):
-            try books.deleteCollection(localPK: localPK, syncCloud: syncCloud)
+            try books.deleteCollection(localPK: localPK)
         }
     }
 
-    func add(_ book: BookSelector, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func add(_ book: BookSelector, in books: AppleBooks) throws -> MutationResult {
         switch (self, book) {
         case let (.collectionID(collectionID), .assetID(assetID)):
-            try books.addBook(assetID: assetID, toCollectionID: collectionID, syncCloud: syncCloud)
+            try books.addBook(assetID: assetID, toCollectionID: collectionID)
         case let (.collectionID(collectionID), .localPK(bookLocalPK)):
-            try books.addBook(bookLocalPK: bookLocalPK, toCollectionID: collectionID, syncCloud: syncCloud)
+            try books.addBook(bookLocalPK: bookLocalPK, toCollectionID: collectionID)
         case let (.localPK(collectionLocalPK), .assetID(assetID)):
-            try books.addBook(assetID: assetID, toCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+            try books.addBook(assetID: assetID, toCollectionLocalPK: collectionLocalPK)
         case let (.localPK(collectionLocalPK), .localPK(bookLocalPK)):
-            try books.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+            try books.addBook(bookLocalPK: bookLocalPK, toCollectionLocalPK: collectionLocalPK)
         }
     }
 
-    func remove(_ book: BookSelector, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func remove(_ book: BookSelector, in books: AppleBooks) throws -> MutationResult {
         switch (self, book) {
         case let (.collectionID(collectionID), .assetID(assetID)):
-            try books.removeBook(assetID: assetID, fromCollectionID: collectionID, syncCloud: syncCloud)
+            try books.removeBook(assetID: assetID, fromCollectionID: collectionID)
         case let (.collectionID(collectionID), .localPK(bookLocalPK)):
-            try books.removeBook(bookLocalPK: bookLocalPK, fromCollectionID: collectionID, syncCloud: syncCloud)
+            try books.removeBook(bookLocalPK: bookLocalPK, fromCollectionID: collectionID)
         case let (.localPK(collectionLocalPK), .assetID(assetID)):
-            try books.removeBook(assetID: assetID, fromCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+            try books.removeBook(assetID: assetID, fromCollectionLocalPK: collectionLocalPK)
         case let (.localPK(collectionLocalPK), .localPK(bookLocalPK)):
-            try books.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK, syncCloud: syncCloud)
+            try books.removeBook(bookLocalPK: bookLocalPK, fromCollectionLocalPK: collectionLocalPK)
         }
     }
 }

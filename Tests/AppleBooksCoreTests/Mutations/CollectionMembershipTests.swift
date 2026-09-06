@@ -76,7 +76,7 @@ struct CollectionMembershipTests {
         let duplicateResult = try duplicateWriter.addBook(
             bookLocalPK: 1,
             toCollectionLocalPK: 10,
-            syncCloud: true
+            acknowledgementRequested: true
         )
 
         #expect(duplicateResult.changed == false)
@@ -91,7 +91,7 @@ struct CollectionMembershipTests {
         let missingResult = try missingWriter.removeBook(
             bookLocalPK: 1,
             fromCollectionLocalPK: 10,
-            syncCloud: true
+            acknowledgementRequested: true
         )
 
         #expect(missingResult.changed == false)

@@ -159,7 +159,7 @@
 | 批量 CloudKit flush | 已实现（强化） | 根命令 `sync` 显式 flush 已存在的 pending `BCCollectionDetail` / `BCCollectionMember` / `BCAssetAnnotations`；pending=0 时不触发生命周期。canonical live annotation/collection mutation 已默认等待单条 acknowledgement，因此根 `sync` 是 pending recovery/显式 flush，而不是正常多次写入后必须追加的收尾步骤；restore snapshot 不在此范围 |
 | sanitised errors | 已实现 | 默认错误不 dump 用户全文/SQLite row；明确 mutation 是否已 commit、backup 在哪里 |
 | 输入边界校验 | 已实现 | selector/search/name/note 等写前校验必须存在；不要求复制同一参数名或完全相同上限，但不能让显式边界保护在 CLI 化时消失 |
-| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | canonical live annotation 与 collection mutation 都默认等待当前 Mac 对对应 cloud representation 的 Apple Books CloudKit acknowledgement；`--sync` 仍兼容。ack failure 是 local commit 后 warning，不能自动重放 mutation。任何 acknowledgement 都不能单凭当前 Mac 证据声称另一台设备已经 render；annotation soft-delete 尚无用户真实数据 destructive live gate |
+| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | canonical live annotation 与 collection mutation 都默认等待当前 Mac 对对应 cloud representation 的 Apple Books CloudKit acknowledgement；mutation surface 不再保留逐条 `--sync`，显式 pending recovery/flush 使用根 `sync`。ack failure 是 local commit 后 warning，不能自动重放 mutation。任何 acknowledgement 都不能单凭当前 Mac 证据声称另一台设备已经 render；annotation soft-delete 尚无用户真实数据 destructive live gate |
 
 ## 配置与历史数据边界
 

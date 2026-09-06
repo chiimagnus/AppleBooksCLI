@@ -23,7 +23,7 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
-    func collectionMutationHelpExposesExplicitCloudSyncFlag() {
+    func collectionMutationHelpHasNoLegacySyncFlag() {
         for subcommand in ["create", "rename", "delete", "add-book", "remove-book"] {
             var stdout = ""
             var stderr = ""
@@ -33,38 +33,34 @@ struct CollectionWriteCommandTests {
             )
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
-            #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("Compatibility flag"))
-            #expect(stdout.contains("live collection mutations already"))
-            #expect(stdout.contains("wait for current-Mac CloudKit acknowledgement"))
+            #expect(stdout.contains("--sync") == false)
+            #expect(stdout.contains("Compatibility flag") == false)
         }
     }
 
     @Test
-    func createSyncFlagPreservesCommittedMutationAndSurfacesMissingLiveSyncAsWarning() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let command = try CollectionsCreateCommand.parse(["Synced Shelf", "--sync"])
-
-        let result = try command.execute(using: fixture.books())
-
-        #expect(result.committed)
-        #expect(result.changed)
-        #expect(result.warningCodes == ["cloud_sync_failed"])
-        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
-    }
-
-    @Test
-    func renameSyncFlagPreservesCommittedMutationWhenLiveCloudRailIsUnavailable() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let command = try CollectionsRenameCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "--title", "Synced Rename", "--sync",
-        ])
-        let result = try command.execute(using: fixture.books())
-        #expect(result.committed)
-        #expect(result.warningCodes == ["cloud_sync_failed"])
-        #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Synced Rename")
+    func legacySyncFlagIsRejectedAcrossCollectionMutations() {
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsCreateCommand.parse(["Synced Shelf", "--sync"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsRenameCommand.parse([
+                "550E8400-E29B-41D4-A716-446655440000", "--title", "Synced Rename", "--sync",
+            ])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsDeleteCommand.parse(["550E8400-E29B-41D4-A716-446655440000", "--sync"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsAddBookCommand.parse([
+                "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            ])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsRemoveBookCommand.parse([
+                "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            ])
+        }
     }
 
     @Test
@@ -129,22 +125,22 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
         let add = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
         ])
         let firstAdd = try add.execute(using: books)
         #expect(firstAdd.changed)
-        #expect(firstAdd.warningCodes == ["cloud_sync_failed"])
+        #expect(firstAdd.warningCodes.isEmpty)
         let duplicateAdd = try add.execute(using: books)
         #expect(duplicateAdd.changed == false)
         #expect(duplicateAdd.warningCodes.isEmpty)
         #expect(duplicateAdd.humanDescription == "No change.")
 
         let remove = try CollectionsRemoveBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
         ])
         let firstRemove = try remove.execute(using: books)
         #expect(firstRemove.changed)
-        #expect(firstRemove.warningCodes == ["cloud_sync_failed"])
+        #expect(firstRemove.warningCodes.isEmpty)
         let missingRemove = try remove.execute(using: books)
         #expect(missingRemove.changed == false)
         #expect(missingRemove.warningCodes.isEmpty)

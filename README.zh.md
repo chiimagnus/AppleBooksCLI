@@ -127,7 +127,7 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
-canonical live annotation 与 collection mutation 现在都会默认等待当前 Mac 的 CloudKit acknowledgement。`--sync` 继续作为兼容/显式意图参数保留，但正常 live 写入已经不依赖它：
+canonical live annotation 与 collection mutation 现在都会默认等待当前 Mac 的 CloudKit acknowledgement。mutation 不再提供逐条 `--sync`；只有需要恢复或显式 flush 已存在的 pending cloud changes 时才使用根 `sync` 命令：
 
 ```sh
 applebookscli annotations update-note <annotation-uuid> --note "New note" --json

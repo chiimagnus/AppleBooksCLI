@@ -62,7 +62,7 @@ struct CollectionCreateRenameTests {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let result = try fixture.writer.createCollection(title: "Sync Shelf", syncCloud: true)
+        let result = try fixture.writer.createCollection(title: "Sync Shelf", acknowledgementRequested: true)
 
         #expect(result.committed)
         #expect(result.changed)
@@ -96,7 +96,7 @@ struct CollectionCreateRenameTests {
             cloudSynchronizer: synchronizer
         )
 
-        let result = try writer.createCollection(title: "Synced Shelf", syncCloud: true)
+        let result = try writer.createCollection(title: "Synced Shelf", acknowledgementRequested: true)
 
         #expect(result.warnings.isEmpty)
         #expect(projectedPK == result.localPK)
@@ -121,7 +121,7 @@ struct CollectionCreateRenameTests {
             )
         )
 
-        let result = try writer.createCollection(title: "Projection Failed", syncCloud: true)
+        let result = try writer.createCollection(title: "Projection Failed", acknowledgementRequested: true)
 
         #expect(result.committed)
         #expect(result.warnings == [MutationWarning.cloudProjectionFailed, MutationWarning.cloudSyncFailed])

@@ -23,7 +23,7 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
-    func annotationMutationHelpExposesExplicitCloudSyncFlag() {
+    func annotationMutationHelpHasNoLegacySyncFlag() {
         for subcommand in ["update-note", "delete"] {
             var stdout = ""
             var stderr = ""
@@ -33,24 +33,19 @@ struct AnnotationWriteCommandTests {
             )
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
-            #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("Compatibility flag"))
-            #expect(stdout.contains("live annotation mutations already"))
-            #expect(stdout.contains("wait for current-Mac CloudKit acknowledgement"))
+            #expect(stdout.contains("--sync") == false)
+            #expect(stdout.contains("Compatibility flag") == false)
         }
     }
 
     @Test
-    func syncFlagPreservesCommittedAnnotationWhenLiveCloudRailIsUnavailable() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let books = try fixture.books(controller: fixture.closedController())
-        let command = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "sync me", "--sync"])
-        let result = try command.execute(using: books)
-        #expect(result.committed)
-        #expect(result.warningCodes == ["cloud_sync_failed"])
-        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
-        #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "sync me")
+    func legacySyncFlagIsRejected() {
+        #expect(throws: (any Error).self) {
+            _ = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "sync me", "--sync"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try AnnotationsDeleteCommand.parse(["123", "--sync"])
+        }
     }
 
     @Test

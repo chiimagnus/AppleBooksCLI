@@ -16,6 +16,7 @@
 
 ## Runtime / release Markdown
 
+- [`../AGENTS.md`](../AGENTS.md)：仓库级行动前 guardrail；全仓 posture、不可破坏边界、canonical owner 路由或验证入口变化时更新。
 - [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) 与 [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md)：Agent 实际执行规则；CLI workflow/safety/batch-sync 变化时双语同步并跑 validator + packaging smoke。
 - [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)：依赖许可证 provenance；只随实际 dependency/license 变化更新。
 

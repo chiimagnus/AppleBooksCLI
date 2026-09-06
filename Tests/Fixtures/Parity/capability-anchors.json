@@ -68,6 +68,33 @@
       ]
     ]
   },
+  "iCloud acknowledgement 边界": {
+    "owner": "core",
+    "implementationPaths": [
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Mutations/MutationCoordinator.swift",
+      "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift",
+      "Sources/AppleBooksCore/Mutations/CollectionWriter.swift",
+      "Sources/AppleBooksCore/Mutations/AnnotationCloudSynchronizer.swift",
+      "Sources/AppleBooksCore/Mutations/CollectionCloudSynchronizer.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/AppleBooksFacadeTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/CollectionFacadeTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/MutationCoordinatorLifecycleTests.swift",
+      "Tests/AppleBooksCoreTests/Mutations/CollectionLifecycleRegressionTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "update-note"
+      ],
+      [
+        "collections",
+        "create"
+      ]
+    ]
+  },
   "CFI chapter hint": {
     "owner": "core",
     "implementationPaths": [

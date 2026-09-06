@@ -30,7 +30,7 @@ struct CollectionCloudSynchronizerTests {
             maxPollCount: 3
         )
         try synchronizer.syncCollection(localPK: 7)
-        #expect(events.values == ["terminate", "recycle", "launch", "sleep"])
+        #expect(events.values == ["terminate", "recycle", "launchWithoutActivation", "sleep"])
         #expect(reads == 3)
     }
 
@@ -52,7 +52,7 @@ struct CollectionCloudSynchronizerTests {
             maxPollCount: 2
         )
         try synchronizer.syncMembership(collectionLocalPK: 7, assetID: "ASSET", deleting: false)
-        #expect(events.values == ["recycle", "launch"])
+        #expect(events.values == ["recycle", "launchWithoutActivation"])
         #expect(memberReads == 2)
     }
 
@@ -150,7 +150,7 @@ struct CollectionCloudSynchronizerTests {
         #expect(throws: CollectionCloudSyncError.acknowledgementTimedOut) {
             try synchronizer.syncCollection(localPK: 7)
         }
-        #expect(events.values == ["recycle", "launch", "sleep", "sleep"])
+        #expect(events.values == ["recycle", "launchWithoutActivation", "sleep", "sleep"])
     }
 
     private func makeSynchronizer(
@@ -168,6 +168,7 @@ struct CollectionCloudSynchronizerTests {
                 isRunning: { running },
                 terminate: { events.values.append("terminate"); running = false; return true },
                 launch: { events.values.append("launch"); running = true },
+                launchWithoutActivation: { events.values.append("launchWithoutActivation"); running = true },
                 sleep: { _ in }
             ),
             detailState: detail,

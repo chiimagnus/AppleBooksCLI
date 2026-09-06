@@ -74,7 +74,7 @@ npx -y skills@1.5.23 add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill appl
 
 ## CloudKit 同步
 
-- canonical live annotation mutation 默认等待当前 Mac 的 CloudKit acknowledgement。`--sync` 继续作为兼容/显式意图参数保留；不要再告诉用户正常 live annotation 写入必须加它或最后再跑一次根 `sync`。collection mutation 在迁移完成前暂时沿用现有显式 `--sync` / 根 `sync` 流程。
+- canonical live annotation 与 collection mutation 默认等待当前 Mac 的 CloudKit acknowledgement。`--sync` 继续作为兼容/显式意图参数保留；不要再告诉用户正常 live 写入必须加它或最后再跑一次根 `sync`。
 - 自动 acknowledgement、`--sync` 或根 `sync` 成功都只证明当前 Mac 上的 Apple Books cloud records 获得 CloudKit acknowledgement；没有第二台设备的证据时，不声称其它设备已经显示。
 - post-commit 同步失败属于已提交后的警告，不能自动重放 mutation。`backups restore` 替换的是 BKLibrary snapshot，也不等同于产生可逐条 flush 的 cloud mutation。
 

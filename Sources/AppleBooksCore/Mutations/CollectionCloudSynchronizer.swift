@@ -61,13 +61,13 @@ struct CollectionCloudSynchronizer {
 
     func syncCollection(localPK: Int64, deleting: Bool = false) throws {
         if try collectionSatisfied(localPK: localPK, deleting: deleting) { return }
-        try triggerSync()
+        try triggerSync(activating: false)
         try waitUntil { try collectionSatisfied(localPK: localPK, deleting: deleting) }
     }
 
     func syncMembership(collectionLocalPK: Int64, assetID: String, deleting: Bool) throws {
         if try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting) { return }
-        try triggerSync()
+        try triggerSync(activating: false)
         try waitUntil {
             try membershipSatisfied(collectionLocalPK: collectionLocalPK, assetID: assetID, deleting: deleting)
         }
@@ -79,7 +79,7 @@ struct CollectionCloudSynchronizer {
 
     func syncPending() throws {
         guard try pendingCountAction() > 0 else { return }
-        try triggerSync()
+        try triggerSync(activating: true)
         try waitUntil { try pendingCountAction() == 0 }
     }
 
@@ -136,12 +136,16 @@ struct CollectionCloudSynchronizer {
         return member.deleted == false && member.isAcknowledged
     }
 
-    private func triggerSync() throws {
+    private func triggerSync(activating: Bool) throws {
         if booksApp.isRunning() {
             try booksApp.terminateAndWait()
         }
         try recycleAction()
-        try booksApp.launch()
+        if activating {
+            try booksApp.launch()
+        } else {
+            try booksApp.launchWithoutActivationAndWait()
+        }
     }
 
     private func waitUntil(_ condition: () throws -> Bool) throws {

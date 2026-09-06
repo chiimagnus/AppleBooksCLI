@@ -97,11 +97,10 @@ Guarded mutation 当前覆盖：
 
 正常 collection/annotation mutation 在本地 read-back 后通过已验证的 Apple BookDataStore primitive生成 dirty cloud representation；AppleBooksCLI 不手工伪造 Core Data history token，也不伪造 Apple identity/entitlement 直接 attach Apple Books CloudKit container。
 
-当前 acknowledgement 模式处于两域迁移过渡态：
+当前 acknowledgement 模式：
 
-- **annotation mutation**：canonical live update/delete 默认在 projection 后等待对应 cloud record ack；`--sync` 继续兼容，但不再是正常 live annotation 写入获得 acknowledgement 的必要条件。single-record sync 需要临时启动 Books 时使用 non-activating launch，最终 closed/background/frontmost 仍由 `MutationCoordinator` 恢复；
-- **collection mutation**：本阶段仍沿用显式 `--sync` / root `sync`，将在同一 feature 的 collection phase 收敛为默认 acknowledgement；
-- **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。
+- **normal canonical live mutation**：annotation 与 collection mutation 都在 projection 成功后默认等待对应 cloud record ack；`--sync` 继续兼容，但不再是正常 live 写入获得 acknowledgement 的必要条件。single-record sync 需要临时启动 Books 时使用 non-activating launch；collection 仍可在该 rail 中 recycle `bookdatastored`，但最终 closed/background/frontmost 状态只由 `MutationCoordinator` 恢复；
+- **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。它是显式 pending recovery/flush 工具，不是正常 mutation 必须追加的收尾步骤。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。
 
 ack criterion 由当前 cloud synchronizer/tests 拥有，核心语义是 `syncGeneration` 已追上 `editGeneration` 且存在 CloudKit system fields；合法 delete/remove 可表现为 Apple cloud store 的物理移除。
 

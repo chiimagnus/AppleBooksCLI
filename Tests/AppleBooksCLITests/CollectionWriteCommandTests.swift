@@ -34,7 +34,9 @@ struct CollectionWriteCommandTests {
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("CloudKit"))
+            #expect(stdout.contains("Compatibility flag"))
+            #expect(stdout.contains("live collection mutations already"))
+            #expect(stdout.contains("wait for current-Mac CloudKit acknowledgement"))
         }
     }
 
@@ -121,16 +123,24 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
         let add = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
         ])
-        #expect(try add.execute(using: books).changed)
-        #expect(try add.execute(using: books).changed == false)
+        let firstAdd = try add.execute(using: books)
+        #expect(firstAdd.changed)
+        #expect(firstAdd.warningCodes == ["cloud_sync_failed"])
+        let duplicateAdd = try add.execute(using: books)
+        #expect(duplicateAdd.changed == false)
+        #expect(duplicateAdd.warningCodes.isEmpty)
 
         let remove = try CollectionsRemoveBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1",
+            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
         ])
-        #expect(try remove.execute(using: books).changed)
-        #expect(try remove.execute(using: books).changed == false)
+        let firstRemove = try remove.execute(using: books)
+        #expect(firstRemove.changed)
+        #expect(firstRemove.warningCodes == ["cloud_sync_failed"])
+        let missingRemove = try remove.execute(using: books)
+        #expect(missingRemove.changed == false)
+        #expect(missingRemove.warningCodes.isEmpty)
     }
 
     @Test

@@ -127,14 +127,14 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
-Canonical live annotation mutations now wait for current-Mac CloudKit acknowledgement automatically. `--sync` remains accepted on annotation mutations as a compatibility/explicit-intent flag; it is no longer required for their normal live path. During the collection migration, collection mutations still use the existing explicit `--sync` or root `sync` flow:
+Canonical live annotation and collection mutations wait for current-Mac CloudKit acknowledgement automatically. `--sync` remains accepted as a compatibility/explicit-intent flag, but normal live writes no longer require it:
 
 ```sh
 applebookscli annotations update-note <annotation-uuid> --note "New note" --json
-applebookscli collections create "My Shelf" --sync --json
+applebookscli collections create "My Shelf" --json
 ```
 
-`sync` only processes already pending collection/member/annotation cloud records and does not trigger the lifecycle when none are pending. It remains useful for explicit pending recovery/flush; normal live annotation writes do not need a final root `sync`. Acknowledgement proves only that **this Mac** completed the Apple Books CloudKit upload; it does not prove that another device already displays the change. A post-commit `cloud_sync_failed` must not cause an automatic mutation retry, and restoring a BKLibrary snapshot is not equivalent to replaying individually flushable cloud mutations.
+`sync` only processes already pending collection/member/annotation cloud records and does not trigger the lifecycle when none are pending. It remains useful for explicit pending recovery/flush rather than as a required final step after normal live mutations. Acknowledgement proves only that **this Mac** completed the Apple Books CloudKit upload; it does not prove that another device already displays the change. A post-commit `cloud_sync_failed` must not cause an automatic mutation retry, and restoring a BKLibrary snapshot is not equivalent to replaying individually flushable cloud mutations.
 
 ## Operation history
 

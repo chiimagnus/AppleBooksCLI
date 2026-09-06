@@ -1,118 +1,101 @@
 # Apple Books 写入与恢复安全约束
 
-> 本文是 mutation / backup / restore / cloud-sync 的长期安全 owner。用户可见能力见 [`capability-matrix.md`](capability-matrix.md)，跨模块分层见 [`architecture.md`](architecture.md)，命令参数以 `--help` 为准。
+> mutation / backup / restore / Books lifecycle / cloud acknowledgement 的长期安全 owner。能力范围见 [`capability-matrix.md`](capability-matrix.md)，process/history contract 见 [`cli-contract.md`](cli-contract.md)。
 
-## 文档职责
+## 不可破坏的不变量
 
-- **Audience**：修改 collection / annotation write、backup/restore、Books lifecycle、cloud projection/sync 或 write result 的维护者。
-- **Job**：固定不可丢失的顺序、不可逆边界、恢复语义、state-changing CLI recorder 边界与 cloud evidence boundary。
-- **Edit trigger**：writable scope、mutation/restore 顺序、backup primitive、schema guard、Books lifecycle、state-changing CLI recorder、cloud rail 或 public result/warning 变化。
-- **Evidence**：`MutationCoordinator`、domain writers、`SQLiteBackup`、`BooksAppController`、`CLIEntrypoint`、`OperationHistoryStore`、cloud projector/synchronizer 及对应 tests/live gates。
+- 普通读取 strict read-only，不触发写入 lifecycle。
+- production mutation 必须经过 guarded rail；未知 write schema fail closed。
+- writable transaction 前创建 fresh SQLite safety backup。
+- preflight 之后仍在 transaction 内 revalidate。
+- `COMMIT` 是不可逆边界；其后的失败只能成为 committed warning，不能冒充“未写入”或自动重放 mutation。
+- local commit、cloud projection、当前 Mac acknowledgement、另一设备已经显示是四层不同证据。
 
-## 总原则
-
-Apple Books SQLite 与 cloud stores 都由 Apple/Core Data 拥有。SQL 能执行不等于 Core Data、CloudKit 或另一设备已经接受修改，因此：
-
-- 普通读取保持 strict read-only，不触发写入 lifecycle；
-- 所有生产 mutation 经过 guarded write rail，schema 不确定即 fail closed；
-- 每次 mutation 在 writable transaction 前创建 fresh safety backup；
-- selector/schema preflight 不能替代 transaction 内 revalidation；
-- `COMMIT` 后的失败不能伪装成“未发生”，调用方也不能因此盲重试；
-- local commit、Apple-native cloud projection、当前 Mac CloudKit acknowledgement、second-device rendered 是四层不同证据。
-
-## Mutation ceremony
-
-collection 与 annotation mutation 的固定顺序：
+## Mutation 顺序
 
 ```text
 read-only preflight
-→ 记录 Books 原状态（closed / background / frontmost）；原本运行时 clean quit
-→ quiet-state fresh SQLite backup
-→ short-lived RW connection + bounded busy timeout
+→ snapshot Books state (closed / background / frontmost)
+→ clean quit when needed
+→ fresh quiet-state backup
+→ short-lived RW connection
 → BEGIN IMMEDIATE
-→ transaction 内 revalidate
-→ domain mutation + invariant
+→ transaction revalidation + mutation + invariant
 → COMMIT / rollback
 → close writable handle
-→ fresh read-only read-back
-→ 计算 domain result（identity / changed / optional annotation deeplink）
-→ changed=true 时执行 Apple-native cloud projection
-→ 仅当本 mutation 显式请求 `--sync` 时，在最终 UI 恢复前等待 current-Mac CloudKit acknowledgement
-→ 恢复原 Books 状态：background 不激活，frontmost 恢复前台；annotation 有 canonical deeplink 时先尝试导航；closed 只清理本次显式同步明确标记为自己临时启动且未被用户切到前台的 Books
+→ fresh read-back
+→ derive changed / identity / optional annotation deeplink
+→ changed=true: Apple-native cloud projection
+→ optional explicit acknowledgement (`--sync` only)
+→ restore original Books state
 ```
 
-无效 selector/schema 应在关闭 Books 前失败。CLI 默认按 domain 管理 Books：单侧 `--library-db` / `--annotations-db` override 的对应 writer 使用 detached lifecycle，不应因为另一个 domain 仍 live 而退出真实 Books。`AppleBooksCore` 的公开 `manageBooksApplication` 仍保留调用方显式 lifecycle 管理语义。backup 必须位于 Books quiet state；transaction 内仍要 revalidate，因为 preflight 与 `BEGIN IMMEDIATE` 之间状态可能变化。domain writer 不自行拥有事务边界。
+关键边界：
 
-cloud projection 发生在 **COMMIT + read-back 成功之后**。projection 失败是 committed warning，而不是回滚本地事务。不传 `--sync` 时 mutation 到 projection 后即进入最终 App 恢复，不触发 acknowledgement lifecycle；因此原本 closed 的 Books 不会仅因普通本地 mutation 被同步路径启动。
+- invalid selector/schema 必须尽量在退出 Books 前失败；Books quit reject/timeout 时 fail closed，不猜测性 relaunch。
+- `changed=false` 是成功 no-op：不做 projection、acknowledgement、service recycle 或 sync-only temporary launch。
+- projection/acknowledgement 发生在 commit 后；失败不回滚本地事务。
+- annotation update/delete 的 deeplink 只是 best-effort presentation metadata，不得成为 writer precondition。
 
-## 不可逆边界与结果
+## Books lifecycle
 
-`COMMIT` 是普通 mutation 的 public irreversible boundary。
+`MutationCoordinator` 捕获一次初始 `closed / background / frontmost` 并拥有最终恢复：
 
-COMMIT 前失败：rollback、关闭 writable handle；一旦已经成功进入 quiet state，则尽力恢复原 Books background/frontmost 状态。Books clean quit 本身 reject/timeout 时仍 fail closed，不猜测性 relaunch。COMMIT 后 close/read-back/relaunch/projection/sync 失败都不能把结果改写为“未提交”。structured result 继续保留 `committed=true`、`changed`、backup handle、可用 identity 与 warning。
+- background 恢复不得抢前台；frontmost 必须经过 activation + bounded verification；
+- 显式 sync 需要临时启动 Books 时使用 non-activating launch；
+- 原 closed 只清理由本次 sync 明确拥有、且没有被用户切到前台的 temporary launch；
+- deeplink open 失败或最终状态恢复失败发生在 commit 后，只产生 warning。
 
-调用方看到 committed success + warning 时应重新读取需要确认的状态，**不能自动重试同一个 mutation**。`changed=false` 是成功 no-op，不是失败。
+CLI 的单侧 DB override 对应 domain 使用 detached Books lifecycle；公开 Core API 仍可显式要求 lifecycle 管理。`backups restore` 保留独立的 running/closed restore contract，不套用 normal mutation 的三态导航语义。
+
+## Schema 与 writable scope
+
+读取可以对 optional schema 降级；写入必须验证 required table/column、Core Data entity/primary-key bookkeeping、未知 NOT NULL 字段和目标 row 状态。
+
+长期 writable boundary：
+
+- annotation 只允许已有 user annotation 的 note update / soft-delete；type=3 current-reading bookmark、deleted/system row 不进入该 writable scope；
+- collection mutation 必须拒绝 system collection；
+- delete 保持当前 soft-delete 语义；
+- local PK 只作显式本机 selector，stable identity 优先 UUID / collection ID / asset ID。
+
+具体列与 SQL 由 writer/tests 拥有，不在本文复制。
 
 ## Backup 与 restore
 
-live SQLite safety backup 使用 `sqlite3_backup_*`，不用裸复制 WAL store。completed backup 必须通过 integrity verification；public restore 只接受 backup catalog 的受控 handle，不接受任意路径。
+Safety backup 使用 SQLite online backup，不裸复制 WAL store；completed backup 必须通过 integrity verification。
 
-BKLibrary restore 顺序：
+BKLibrary restore：
 
 ```text
-验证并打开 restore source
-→ 记录/必要时停止 Books
-→ 对当前 live library 创建 fresh safety backup
-→ SQLite-level apply
-→ checkpoint + integrity verification
+validate/open selected backup
+→ quiet Books when needed
+→ backup current live library
+→ apply SQLite restore
+→ checkpoint + verify
 → retention
-→ 必要时恢复 Books
+→ restore Books when needed
 ```
 
-restore apply 成功后也已经跨过不可逆边界。后续 verification/retention/relaunch 失败必须表达为 applied-but-warning/unverified，不能包装成“restore 没发生”，也不能自动重复 restore。
+restore apply 后同样跨过不可逆边界；后续 verification/retention/relaunch 失败必须表达为 applied-but-warning/unverified，不能自动重复 restore。public backup catalog 当前只覆盖 BKLibrary；annotation mutation 的 safety backup 不构成第二套 public restore surface。
 
-public `backups list/restore` 当前只覆盖 BKLibrary。annotation mutation 也有内部 safety backup，但没有公开 annotation restore catalog。
+## Cloud projection 与 sync
 
-## Books lifecycle 与 schema guard
+普通 mutation 在 read-back 后只生成 pending Apple-native cloud representation，不等待 acknowledgement。
 
-Books.app 的 `closed / background / frontmost` 状态属于 normal mutation write protocol；`MutationCoordinator` 捕获一次初始状态并拥有最终恢复。background 恢复必须使用 non-activating launch，frontmost 恢复必须在 bounded verification 后才视为成功；`BKAgentService` / `bookassetd` 等 helper daemon 不等同于 Books running gate。safety backup 是 fresh quiet-app snapshot，但不是与所有 Apple helper daemon 写入原子锁定的数学意义 pre-state。`backups restore` 仍保留其既有 running/closed restore contract，本阶段不借机改变其产品语义。
+两种显式 sync：
 
-读取允许 optional schema degradation；写入必须验证目标 table/required columns、未知 required/NOT NULL 字段、Core Data entity metadata、`Z_PRIMARYKEY` 与目标 row 状态。Apple 私有 schema 没有公开稳定 contract，因此 guard 只能 fail closed on known drift，不能证明未来语义永久兼容。
+- mutation `--sync`：仅等待该 mutation 的 current-Mac acknowledgement；
+- root `applebookscli sync`：统计并 flush 已存在的 pending collection/member/annotation records；pending=0 时 no-op，多 domain pending 尽量复用一次 lifecycle。
 
-Insert/update/delete 的具体字段矩阵由 domain writer 与 tests 拥有，不在本文复制。长期不变量只有：PK/entity bookkeeping 必须与 transaction 同步；update 维护 entity 自己的 optimistic-lock/timestamp 语义；annotation 与 collection delete 都保持当前 soft-delete contract，CLI 不提供 annotation hard delete。
+批量写入可以不逐条 `--sync`，最后 root sync 一次。注意 root sync 会处理**所有当前 pending records**，因此不能为了形式上的收尾在一个全 `changed=false` 的任务后无条件执行。
 
-## 当前 writable surface
+ack criterion 由 synchronizer/tests 拥有。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
 
-Guarded mutation 当前覆盖：
+## Operation history 与隐私
 
-- collection create / rename / soft-delete；
-- collection add-book / remove-book；
-- existing annotation update-note / soft-delete；
-- BKLibrary backup list / restore。
+目标 mutation、restore 与 root sync 在 CLI dispatch 前记录 started；completion 记录失败不能改变原 command outcome。普通 result/error 不回显用户正文或私有 SQLite payload；显式 `history get` 是有意的完整本地读取面，细节见 [`cli-contract.md`](cli-contract.md)。
 
-不提供 create highlight/annotation、修改 selected text/CFI range、任意写 current reading position。稳定 identity 优先 collection ID / book asset ID / annotation UUID；local PK 只属于本机显式 selector。
+## Edit trigger / evidence
 
-这些目标写入命令、`backups restore` 与根 `sync` 还经过 CLI 外层 operation-history recorder：argv parse 成功后必须先持久化 started，之后才进入具体 command dispatch。这个 guard 不改变 Core mutation ceremony；未来新增 Apple Books state-changing / sync CLI surface 时也必须进入同一 recordable contract，不能形成绕过 history 的第二写入口。completion 持久化失败发生在原 command outcome 之后，不能把已 committed/applied 操作改写成未发生，也不能据此自动重试。
-
-## Cloud projection 与 acknowledgement
-
-正常 collection/annotation mutation 在本地 read-back 后通过已验证的 Apple BookDataStore primitive生成 dirty cloud representation；AppleBooksCLI 不手工伪造 Core Data history token，也不伪造 Apple identity/entitlement 直接 attach Apple Books CloudKit container。
-
-两种显式 acknowledgement 模式：
-
-- **单条 `--sync`**：本 mutation projection 成功后立即触发必要 Apple lifecycle，并等待对应 cloud record ack；临时启动 Books 使用 non-activating launch，最终 closed/background/frontmost 恢复仍由 `MutationCoordinator` 唯一负责；
-- **根 `applebookscli sync`**：先统计已经存在的 pending collection/member/annotation cloud records，再以最少必要 lifecycle flush；pending=0 时 no-op。若 collection 与 annotation 同时 pending，collection lifecycle 复用给 annotation；annotation-only pending 会确保有一次可消费变更的 Books lifecycle。连续多条 mutation 的推荐路径是不逐条 `--sync`，最后只运行一次根 `sync`。
-
-`changed=false` 的成功 no-op 不执行 projection、acknowledgement、service recycle 或同步所需的临时 Books launch；它仍保留必要的 preflight/backup/transaction/read-back 安全 rail。
-
-ack criterion 由当前 cloud synchronizer/tests 拥有，核心语义是 `syncGeneration` 已追上 `editGeneration` 且存在 CloudKit system fields；合法 delete/remove 可表现为 Apple cloud store 的物理移除。
-
-成功 acknowledgement 只证明**当前 Mac** 的 Apple Books cloud representation 已被 CloudKit 接受，不证明另一设备已经 rendered。当前实机 evidence 已覆盖全部 collection mutation 与 annotation update-note；annotation soft-delete只有 disposable clone tombstone/projection evidence，没有拿用户真实 annotation 做 destructive live gate。
-
-`backups restore` 不属于 normal mutation replay：`applebookscli sync` 只 flush 已经存在的 pending cloud representation，不会从任意 restored BKLibrary snapshot 自动推导 collection/member diff。cloud-aware restore 若未来需要，必须单独定义 reconciliation/conflict/deletion contract。
-
-## 隐私与维护验证
-
-错误/diagnostic 默认不 dump 用户正文、完整 SQLite row 或私有绝对路径。显式 `history get` 是本地 tool-history 的有意完整读取面，可能包含此前 argv/stdout/stderr；其 detail/sanitization/process contract 由 [`cli-contract.md`](cli-contract.md) 拥有，普通 mutation output/error 不因此放宽。
-
-修改 write rail 时至少证明：happy path + read-back、pre/post-COMMIT failure boundary、schema drift fail closed、backup/WAL/restore、Books originally-running/closed、cloud projection/sync failure，以及 batch pending=0 / mixed-domain single-lifecycle contract。平台行为不能由 fixture 证明时保留 scoped live evidence；skip 不能写成 live pass。
+修改 writable scope、transaction/backup/restore 顺序、Books lifecycle、warning boundary、cloud projection/sync 或 state-changing CLI recorder 时更新本文。验证至少覆盖 happy path、pre/post-COMMIT failure、schema drift、backup/restore、Books states、projection/sync failure、pending=0 与 mixed-domain lifecycle；平台实机行为未跑时必须明确 evidence gap，不能把 fixture pass 写成 live pass。

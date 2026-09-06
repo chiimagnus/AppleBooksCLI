@@ -214,6 +214,35 @@ struct MutationCoordinatorLifecycleTests {
     }
 
     @Test
+    func preCommitFailureRestoresOriginalFrontmostState() throws {
+        let fixture = try fixture(running: true, frontmost: true)
+        defer { fixture.remove() }
+
+        do {
+            _ = try fixture.coordinator.perform(
+                preflight: { _ in },
+                revalidate: { _ in },
+                mutation: { handle in
+                    fixture.state.events.append("mutation")
+                    try self.setValue(handle, "partial")
+                    throw TestFailure.mutation
+                },
+                domainData: { (_: Void) in MutationDomainData(changed: true) },
+                readBack: { _, _ in Issue.record("read-back must not run") }
+            )
+            Issue.record("expected mutation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.warnings.isEmpty)
+        }
+
+        #expect(try readValue(at: fixture.database) == "before")
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost)
+        try assertOrdered(["mutation", "launch", "activate"], in: fixture.state.events)
+    }
+
+    @Test
     func committedRelaunchFailureIsSuccessWarning() throws {
         let fixture = try fixture(running: true, launchFails: true)
         defer { fixture.remove() }

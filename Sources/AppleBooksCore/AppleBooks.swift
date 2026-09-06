@@ -51,20 +51,40 @@ public final class AppleBooks {
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
-        let collectionCloudProjector = manageBooksApplication
+        try self.init(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            configurationFile: configurationFile,
+            manageCollectionBooksApplication: manageBooksApplication,
+            manageAnnotationBooksApplication: manageBooksApplication,
+            pdfWorkerURL: pdfWorkerURL,
+            pdfWorkerTimeout: pdfWorkerTimeout
+        )
+    }
+
+    public convenience init(
+        libraryDB: URL,
+        annotationsDB: URL,
+        configurationFile: URL? = nil,
+        manageCollectionBooksApplication: Bool,
+        manageAnnotationBooksApplication: Bool,
+        pdfWorkerURL: URL? = nil,
+        pdfWorkerTimeout: TimeInterval? = nil
+    ) throws {
+        let collectionBooksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+        let annotationBooksApp = manageAnnotationBooksApplication ? BooksAppController.live : BooksAppController.detached
+        let collectionCloudProjector = manageCollectionBooksApplication
             ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
             : nil
-        let annotationCloudProjector = manageBooksApplication
+        let collectionCloudSynchronizer = manageCollectionBooksApplication
+            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: collectionBooksApp)
+            : nil
+        let annotationCloudProjector = manageAnnotationBooksApplication
             ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB)
             : nil
-        let collectionBooksApp = collectionCloudProjector == nil ? BooksAppController.detached : BooksAppController.live
-        let annotationBooksApp = annotationCloudProjector == nil ? BooksAppController.detached : BooksAppController.live
-        let collectionCloudSynchronizer = collectionCloudProjector == nil
-            ? nil
-            : CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: collectionBooksApp)
-        let annotationCloudSynchronizer = annotationCloudProjector == nil
-            ? nil
-            : AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: annotationBooksApp)
+        let annotationCloudSynchronizer = manageAnnotationBooksApplication
+            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: annotationBooksApp)
+            : nil
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,

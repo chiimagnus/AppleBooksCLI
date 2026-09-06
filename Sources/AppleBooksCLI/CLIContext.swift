@@ -17,6 +17,14 @@ struct CLIContext {
         global.config.map(URL.init(fileURLWithPath:))
     }
 
+    var managesCollectionBooksApplication: Bool {
+        global.libraryDB == nil
+    }
+
+    var managesAnnotationBooksApplication: Bool {
+        global.annotationsDB == nil
+    }
+
     func databases() throws -> DiscoveredAppleBooksDatabases {
         try databaseDiscovery.discover(
             libraryOverride: global.libraryDB.map(URL.init(fileURLWithPath:)),
@@ -43,7 +51,8 @@ struct CLIContext {
             libraryDB: databases.libraryDB,
             annotationsDB: databases.annotationsDB,
             configurationFile: configurationFile,
-            manageBooksApplication: global.libraryDB == nil || global.annotationsDB == nil,
+            manageCollectionBooksApplication: managesCollectionBooksApplication,
+            manageAnnotationBooksApplication: managesAnnotationBooksApplication,
             pdfWorkerURL: pdfWorkerURL,
             pdfWorkerTimeout: pdfWorkerTimeout
         )

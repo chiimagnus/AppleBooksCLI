@@ -255,7 +255,7 @@ struct CLIContractTests {
 
         let privateNote = "human private note"
         let annotation = try fixture.run([
-            "annotations", "update-note", "uuid-update", "--note", privateNote,
+            "annotations", "update-note", "uuid-update", "--note", privateNote, "--sync",
         ] + fixture.globals)
 
         #expect(annotation.status == 0)
@@ -267,12 +267,13 @@ struct CLIContractTests {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
         #expect(annotationLines.first == "Mutation committed.")
+        #expect(annotationLines.dropFirst().first == "warnings: cloud_sync_failed")
         let annotationURL = try #require(annotationLines.last)
         #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
         #expect(annotationURL.contains("%5Bshared%5D"))
 
         let noOp = try fixture.run([
-            "collections", "add-book", ProcessFixture.shelfID, "asset-a",
+            "collections", "add-book", ProcessFixture.shelfID, "asset-a", "--sync",
         ] + fixture.globals)
         #expect(noOp.status == 0)
         #expect(noOp.stderr.isEmpty)

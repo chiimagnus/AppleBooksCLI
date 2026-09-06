@@ -127,21 +127,14 @@ applebookscli collections --help
 applebookscli backups --help
 ```
 
-单条 collection / annotation mutation 可加 `--sync`，在本地 commit + cloud projection 后等待当前 Mac 的 CloudKit acknowledgement：
+canonical live annotation mutation 现在默认等待当前 Mac 的 CloudKit acknowledgement。annotation 上的 `--sync` 继续作为兼容/显式意图参数保留，但正常 live 路径不再依赖它。collection 迁移完成前，collection mutation 暂时仍沿用显式 `--sync` 或根 `sync`：
 
 ```sh
+applebookscli annotations update-note <annotation-uuid> --note "New note" --json
 applebookscli collections create "My Shelf" --sync --json
 ```
 
-连续多条写入时，优先正常提交各 mutation，最后只 flush 一次：
-
-```sh
-applebookscli collections create "Shelf A" --json
-applebookscli annotations update-note <annotation-uuid> --note "New note" --json
-applebookscli sync --json
-```
-
-`sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
+`sync` 只处理已存在的 pending collection/member/annotation cloud records；无 pending 时不触发生命周期。它仍用于显式 pending recovery/flush；正常 live annotation 写入不需要最后再跑一次根 `sync`。acknowledgement 只证明**当前 Mac** 已完成 Apple Books CloudKit upload，不等于另一台设备已经显示。post-commit `cloud_sync_failed` 不能触发自动重试；BKLibrary restore 也不等同于可逐条 flush 的 cloud mutation。
 
 ## 操作历史
 

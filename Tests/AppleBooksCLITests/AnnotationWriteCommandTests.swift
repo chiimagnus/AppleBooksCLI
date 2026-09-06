@@ -34,7 +34,9 @@ struct AnnotationWriteCommandTests {
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("CloudKit"))
+            #expect(stdout.contains("Compatibility flag"))
+            #expect(stdout.contains("live annotation mutations already"))
+            #expect(stdout.contains("wait for current-Mac CloudKit acknowledgement"))
         }
     }
 
@@ -138,6 +140,16 @@ struct AnnotationWriteCommandTests {
             _ = try deleted.execute(using: books)
         }
         #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
+
+        try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=0,ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: CLIError.writeSafety("Annotation is not writable.")) {
+            _ = try deleted.execute(using: books)
+        }
+        try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=NULL WHERE Z_PK=1")
+        #expect(throws: CLIError.writeSafety("Annotation is not writable.")) {
+            _ = try deleted.execute(using: books)
+        }
+        #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
     }
 
     @Test
@@ -197,13 +209,14 @@ struct AnnotationWriteCommandTests {
                   Z_ENT INTEGER,
                   Z_OPT INTEGER,
                   ZANNOTATIONDELETED INTEGER,
+                  ZANNOTATIONTYPE INTEGER,
                   ZANNOTATIONUUID TEXT,
                   ZANNOTATIONNOTE TEXT,
                   ZANNOTATIONMODIFICATIONDATE REAL,
                   ZFUTUREPROOFING6 TEXT
                 );
-                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,'123','old note',1,'1');
-                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,'other','other note',1,'1');
+                INSERT INTO ZAEANNOTATION VALUES(1,17,3,0,2,'123','old note',1,'1');
+                INSERT INTO ZAEANNOTATION VALUES(123,17,1,0,2,'other','other note',1,'1');
                 """)
             try Data(#"{"historical_assets":{}}"#.utf8).write(to: config)
         }

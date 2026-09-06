@@ -34,6 +34,7 @@ public final class AppleBooks {
     private let readingQueries: ReadingQueries
     private let collectionWriter: CollectionWriter
     private let annotationWriter: AnnotationWriter
+    private let automaticAnnotationSync: Bool
     private let restoreCoordinator: MutationCoordinator
     private let libraryDatabase: URL
     private let libraryBackupRoot: URL
@@ -78,6 +79,7 @@ public final class AppleBooks {
                 cloudProjector: annotationCloudProjector,
                 cloudSynchronizer: annotationCloudSynchronizer
             ),
+            automaticAnnotationSync: annotationCloudProjector != nil && annotationCloudSynchronizer != nil,
             restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
             pdfWorkerClient: pdfWorkerURL.map {
                 PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
@@ -91,6 +93,7 @@ public final class AppleBooks {
         configurationFile: URL?,
         collectionWriter: CollectionWriter,
         annotationWriter: AnnotationWriter? = nil,
+        automaticAnnotationSync: Bool = false,
         libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
         restoreCoordinator: MutationCoordinator? = nil,
         pdfSourceResolver: PDFSourceResolver = PDFSourceResolver(),
@@ -115,6 +118,7 @@ public final class AppleBooks {
         )
         self.collectionWriter = collectionWriter
         self.annotationWriter = annotationWriter ?? AnnotationWriter(database: annotationsDB)
+        self.automaticAnnotationSync = automaticAnnotationSync
         self.restoreCoordinator = restoreCoordinator ?? MutationCoordinator(
             database: libraryDB,
             backupRoot: libraryBackupRoot
@@ -452,19 +456,41 @@ public final class AppleBooks {
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.updateNote(localPK: localPK, note: note, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.updateNote(
+            localPK: localPK,
+            note: note,
+            syncCloud: syncCloud || automaticAnnotationSync,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func updateAnnotationNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.updateNote(uuid: uuid, note: note, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.updateNote(
+            uuid: uuid,
+            note: note,
+            syncCloud: syncCloud || automaticAnnotationSync,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func deleteAnnotation(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.delete(localPK: localPK, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.delete(
+            localPK: localPK,
+            syncCloud: syncCloud || automaticAnnotationSync,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func deleteAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
-        try annotationWriter.delete(uuid: uuid, syncCloud: syncCloud)
+        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try annotationWriter.delete(
+            uuid: uuid,
+            syncCloud: syncCloud || automaticAnnotationSync,
+            appleBooksURL: appleBooksURL
+        )
     }
 
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {

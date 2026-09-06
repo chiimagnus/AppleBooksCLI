@@ -5,6 +5,7 @@ public enum AnnotationWriteError: Error, Equatable, Sendable {
     case invalidNoteLength
     case annotationMissing
     case annotationDeletedOrUnknown
+    case annotationNotWritable
     case writeFailed
 }
 
@@ -15,6 +16,7 @@ struct AnnotationWriter {
         "Z_ENT",
         "Z_OPT",
         "ZANNOTATIONDELETED",
+        "ZANNOTATIONTYPE",
         "ZANNOTATIONNOTE",
         "ZANNOTATIONMODIFICATIONDATE",
         "ZFUTUREPROOFING6",
@@ -24,6 +26,7 @@ struct AnnotationWriter {
         "Z_ENT",
         "Z_OPT",
         "ZANNOTATIONDELETED",
+        "ZANNOTATIONTYPE",
         "ZANNOTATIONMODIFICATIONDATE",
         "ZFUTUREPROOFING6",
     ]
@@ -61,28 +64,51 @@ struct AnnotationWriter {
         self.cloudSynchronizer = cloudSynchronizer
     }
 
-    func updateNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try updateNote(.localPK(localPK), note: note, syncCloud: syncCloud)
+    func updateNote(
+        localPK: Int64,
+        note: String,
+        syncCloud: Bool = false,
+        appleBooksURL: String? = nil
+    ) throws -> MutationResult {
+        try updateNote(.localPK(localPK), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
     }
 
-    func updateNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        try updateNote(.uuid(uuid), note: note, syncCloud: syncCloud)
+    func updateNote(
+        uuid: String,
+        note: String,
+        syncCloud: Bool = false,
+        appleBooksURL: String? = nil
+    ) throws -> MutationResult {
+        try updateNote(.uuid(uuid), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
     }
 
-    func delete(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try delete(.localPK(localPK), syncCloud: syncCloud)
+    func delete(
+        localPK: Int64,
+        syncCloud: Bool = false,
+        appleBooksURL: String? = nil
+    ) throws -> MutationResult {
+        try delete(.localPK(localPK), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
     }
 
-    func delete(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
-        try delete(.uuid(uuid), syncCloud: syncCloud)
+    func delete(
+        uuid: String,
+        syncCloud: Bool = false,
+        appleBooksURL: String? = nil
+    ) throws -> MutationResult {
+        try delete(.uuid(uuid), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
     }
 
-    private func updateNote(_ selector: Selector, note: String, syncCloud: Bool) throws -> MutationResult {
+    private func updateNote(
+        _ selector: Selector,
+        note: String,
+        syncCloud: Bool,
+        appleBooksURL: String?
+    ) throws -> MutationResult {
         guard note.isEmpty == false, note.count <= 10_000 else {
             throw AnnotationWriteError.invalidNoteLength
         }
 
-        let result = try coordinator.perform(
+        return try coordinator.perform(
             preflight: { connection in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
                 try Self.validateSchema(for: selector, on: handle)
@@ -101,21 +127,33 @@ struct AnnotationWriter {
                 try Self.verifyNote(note, target: target, on: handle)
             },
             domainData: { target in
-                MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: true)
+                MutationDomainData(
+                    localPK: target.localPK,
+                    stableID: target.stableID,
+                    changed: true,
+                    appleBooksURL: appleBooksURL
+                )
             },
             cloudProjection: cloudProjector.map { projector in
                 { target in try projector.project(localPK: target.localPK) }
+            },
+            acknowledgementRequested: syncCloud,
+            acknowledgement: cloudSynchronizer.map { synchronizer in
+                { target in try synchronizer.sync(localPK: target.localPK) }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
                 try Self.verifyNote(note, target: target, on: handle)
             }
         )
-        return syncIfRequested(syncCloud, result: result)
     }
 
-    private func delete(_ selector: Selector, syncCloud: Bool) throws -> MutationResult {
-        let result = try coordinator.perform(
+    private func delete(
+        _ selector: Selector,
+        syncCloud: Bool,
+        appleBooksURL: String?
+    ) throws -> MutationResult {
+        return try coordinator.perform(
             preflight: { connection in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
                 try Self.validateSchema(for: selector, required: Self.deleteColumns, on: handle)
@@ -134,17 +172,25 @@ struct AnnotationWriter {
                 try Self.verifyDeleted(target: target, on: handle)
             },
             domainData: { target in
-                MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: true)
+                MutationDomainData(
+                    localPK: target.localPK,
+                    stableID: target.stableID,
+                    changed: true,
+                    appleBooksURL: appleBooksURL
+                )
             },
             cloudProjection: cloudProjector.map { projector in
                 { target in try projector.project(localPK: target.localPK) }
+            },
+            acknowledgementRequested: syncCloud,
+            acknowledgement: cloudSynchronizer.map { synchronizer in
+                { target in try synchronizer.sync(localPK: target.localPK) }
             },
             readBack: { connection, target in
                 guard let handle = connection.handle else { throw AnnotationWriteError.annotationMissing }
                 try Self.verifyDeleted(target: target, on: handle)
             }
         )
-        return syncIfRequested(syncCloud, result: result)
     }
 
     static func validateWriteReadiness(on connection: SQLiteConnection) throws {
@@ -176,9 +222,9 @@ struct AnnotationWriter {
         let sql: String
         switch selector {
         case .localPK:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid"
         case .uuid:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK"
         }
 
         var statement: OpaquePointer?
@@ -198,7 +244,7 @@ struct AnnotationWriter {
             }
         }
 
-        var rows: [(localPK: Int64, entityID: Int64?, optValid: Bool, deleted: Int64?)] = []
+        var rows: [(localPK: Int64, entityID: Int64?, optValid: Bool, deleted: Int64?, type: Int64?)] = []
         while true {
             switch sqlite3_step(statement) {
             case SQLITE_ROW:
@@ -206,7 +252,8 @@ struct AnnotationWriter {
                 let entityID = sqlite3_column_type(statement, 1) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 1) : nil
                 let optValid = sqlite3_column_type(statement, 2) == SQLITE_INTEGER
                 let deleted = sqlite3_column_type(statement, 3) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 3) : nil
-                rows.append((localPK, entityID, optValid, deleted))
+                let type = sqlite3_column_type(statement, 4) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 4) : nil
+                rows.append((localPK, entityID, optValid, deleted, type))
             case SQLITE_DONE:
                 break
             default:
@@ -226,6 +273,7 @@ struct AnnotationWriter {
         }
         guard row.optValid else { throw AnnotationWriteError.writeFailed }
         guard row.deleted == 0 else { throw AnnotationWriteError.annotationDeletedOrUnknown }
+        guard let type = row.type, type != 3 else { throw AnnotationWriteError.annotationNotWritable }
 
         let stableID: String?
         if case let .uuid(uuid) = selector {
@@ -324,32 +372,6 @@ struct AnnotationWriter {
     func syncPendingCloudChanges(restartRunningBooks: Bool = false) throws {
         guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
         try cloudSynchronizer.syncPending(restartRunningBooks: restartRunningBooks)
-    }
-
-    private func syncIfRequested(_ requested: Bool, result: MutationResult) -> MutationResult {
-        guard requested else { return result }
-        guard cloudProjector != nil,
-              result.warnings.contains(.cloudProjectionFailed) == false,
-              let localPK = result.localPK,
-              let cloudSynchronizer else {
-            return addingCloudSyncWarning(to: result)
-        }
-        do {
-            try cloudSynchronizer.sync(localPK: localPK)
-            return result
-        } catch {
-            return addingCloudSyncWarning(to: result)
-        }
-    }
-
-    private func addingCloudSyncWarning(to result: MutationResult) -> MutationResult {
-        MutationResult(
-            backupHandle: result.backupHandle,
-            localPK: result.localPK,
-            stableID: result.stableID,
-            changed: result.changed,
-            warnings: result.warnings + [.cloudSyncFailed]
-        )
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {

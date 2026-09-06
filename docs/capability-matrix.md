@@ -155,11 +155,11 @@
 | 写前 backup | 已实现 | SQLite online backup + integrity；本机已验证 read-only source 可用 |
 | backup list/retention | 已实现 | public backup list/restore surface 当前覆盖 BKLibrary；annotation mutation 同样创建内部 safety backup，但不公开第二套 annotation backup catalog |
 | restore | 已实现 | public restore 覆盖 BKLibrary：先校验并打开所选 restore source，记录/必要时 clean quit Books，再在 quiet state 对 live DB 创建 fresh safety backup，之后 SQLite-level apply、verify/retention 与条件 relaunch；post-apply failure 不能冒充未恢复。restore 是快照替换，不自动投影成一组 cloud mutation，也不属于 pending-cloud flush contract |
-| Books.app lifecycle | 已实现（强化） | 非变异前置检查先完成；normal mutation 捕获 `closed / background / frontmost`，原本运行时 clean quit，结束后 background 以 non-activating launch 恢复、frontmost 经显式 activation + bounded verification 恢复、closed 不主动启动；post-COMMIT 恢复失败为 success + warning。显式 CloudKit ack/flush 仍有独立受控 lifecycle；BKLibrary restore 保留既有 running/closed contract |
-| 批量 CloudKit flush | 已实现（强化） | 普通 collection/annotation mutation 在 commit 后生成 Apple-native dirty cloud representation；多次写入可不逐条 `--sync`，最后用根命令 `sync` 一次触发并等待所有 pending `BCCollectionDetail` / `BCCollectionMember` / `BCAssetAnnotations` acknowledgement。pending=0 时不触发生命周期；restore snapshot 不在此范围 |
+| Books.app lifecycle | 已实现（强化） | 非变异前置检查先完成；normal mutation 捕获 `closed / background / frontmost`。annotation 的 single-record acknowledgement 已并入 coordinator 的 post-COMMIT lifecycle：sync 临时启动使用 non-activating launch，ack 后 background/frontmost 恢复原状态，原 closed 只清理本次 sync 实际临时启动的 Books；恢复失败仍为 committed warning。collection 仍待同 feature 后续 phase 迁移；BKLibrary restore 保留既有 running/closed contract |
+| 批量 CloudKit flush | 已实现（强化） | 根命令 `sync` 仍可显式 flush 已存在的 pending `BCCollectionDetail` / `BCCollectionMember` / `BCAssetAnnotations`；pending=0 时不触发生命周期。canonical live annotation mutation 已默认等待单条 acknowledgement，不再推荐为正常 annotation 写入额外累计到最后统一 flush；collection 暂仍保留现有显式 sync 流程；restore snapshot 不在此范围 |
 | sanitised errors | 已实现 | 默认错误不 dump 用户全文/SQLite row；明确 mutation 是否已 commit、backup 在哪里 |
 | 输入边界校验 | 已实现 | selector/search/name/note 等写前校验必须存在；不要求复制同一参数名或完全相同上限，但不能让显式边界保护在 CLI 化时消失 |
-| iCloud acknowledgement 边界 | 当前限制 | 单条 mutation 的 `--sync` 或批量 `sync` 成功证明当前 Mac 对相应 cloud representation 获得 Apple Books CloudKit acknowledgement；仍不能单凭该证据声称另一台设备已经 render。annotation soft-delete 尚无用户真实数据 destructive live gate |
+| iCloud acknowledgement 边界 | 当前限制 | canonical live annotation update/delete 已默认等待当前 Mac 对对应 cloud representation 的 Apple Books CloudKit acknowledgement；`--sync` 仍兼容。collection 尚待同 feature 后续 phase 改为默认 acknowledgement，因此本 row 暂不升为“已实现”。任何 acknowledgement 都不能单凭当前 Mac 证据声称另一台设备已经 render；annotation soft-delete 尚无用户真实数据 destructive live gate |
 
 ## 配置与历史数据边界
 

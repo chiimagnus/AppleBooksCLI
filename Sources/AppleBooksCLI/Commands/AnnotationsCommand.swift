@@ -419,7 +419,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .long, help: "Replacement note text.")
     var note: String
 
-    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    @Flag(name: .long, help: "Compatibility flag; live annotation mutations already wait for current-Mac CloudKit acknowledgement.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -460,7 +460,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, trigger Apple Books cloud sync and wait for CloudKit acknowledgement.")
+    @Flag(name: .long, help: "Compatibility flag; live annotation mutations already wait for current-Mac CloudKit acknowledgement.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions

@@ -39,6 +39,8 @@ struct MutationCoordinator {
         invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
         domainData: (T) -> MutationDomainData,
         cloudProjection: ((T) throws -> Void)? = nil,
+        acknowledgementRequested: Bool = false,
+        acknowledgement: ((T) throws -> Void)? = nil,
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> MutationResult {
         let preflightConnection: SQLiteConnection
@@ -191,6 +193,7 @@ struct MutationCoordinator {
             writableOpen = false
         }
 
+        let domain = domainData(payload)
         var readBackSucceeded = false
         do {
             let readBackConnection = try SQLiteConnection.readOnly(path: database.path)
@@ -206,10 +209,12 @@ struct MutationCoordinator {
             warnings.append(.readBackFailed)
         }
 
-        if let cloudProjection {
+        var projectionSucceeded = false
+        if domain.changed, let cloudProjection {
             if readBackSucceeded {
                 do {
                     try cloudProjection(payload)
+                    projectionSucceeded = true
                 } catch {
                     warnings.append(.cloudProjectionFailed)
                 }
@@ -218,21 +223,59 @@ struct MutationCoordinator {
             }
         }
 
-        if initialBooksState != .closed {
+        var temporaryBooksLaunchObserved = false
+        if domain.changed, acknowledgementRequested {
+            if projectionSucceeded, let acknowledgement {
+                let booksWasRunningBeforeAcknowledgement = booksApp.isRunning()
+                do {
+                    try acknowledgement(payload)
+                } catch {
+                    warnings.append(.cloudSyncFailed)
+                }
+                temporaryBooksLaunchObserved = initialBooksState == .closed
+                    && booksWasRunningBeforeAcknowledgement == false
+                    && booksApp.isRunning()
+            } else {
+                warnings.append(.cloudSyncFailed)
+            }
+        }
+
+        switch initialBooksState {
+        case .closed:
+            if temporaryBooksLaunchObserved {
+                do {
+                    try booksApp.restore(.closed)
+                } catch {
+                    warnings.append(.booksStateRestoreFailed)
+                }
+            }
+        case .background:
             do {
-                try booksApp.restore(initialBooksState)
+                try booksApp.restore(.background)
+            } catch {
+                warnings.append(.relaunchFailed)
+            }
+        case .frontmost:
+            if let appleBooksURL = domain.appleBooksURL {
+                let deeplinkOpened = URL(string: appleBooksURL).map(booksApp.open) ?? false
+                if deeplinkOpened == false {
+                    warnings.append(.deeplinkOpenFailed)
+                }
+            }
+            do {
+                try booksApp.restore(.frontmost)
             } catch {
                 warnings.append(.relaunchFailed)
             }
         }
 
-        let domain = domainData(payload)
         return MutationResult(
             backupHandle: backupHandle,
             localPK: domain.localPK,
             stableID: domain.stableID,
             changed: domain.changed,
-            warnings: warnings
+            warnings: warnings,
+            appleBooksURL: domain.appleBooksURL
         )
     }
 

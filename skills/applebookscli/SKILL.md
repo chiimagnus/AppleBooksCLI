@@ -74,8 +74,8 @@ Turn requests about the user's Apple Books data into actual command results rath
 
 ## CloudKit sync
 
-- Add `--sync` to one mutation only when the user wants to wait immediately for upload acknowledgement. For several writes, commit them normally and run `applebookscli sync --json` once at the end.
-- Successful `--sync` or `sync` proves only that pending Apple Books cloud records on the current Mac received CloudKit acknowledgement. Without evidence from a second device, do not claim that another device already displays the change.
+- Canonical live annotation mutations wait for current-Mac CloudKit acknowledgement by default. Keep accepting `--sync` as a compatibility/explicit-intent flag; do not tell users they must add it or run a final root `sync` for normal live annotation writes. Collection mutations remain on their existing explicit `--sync` / root `sync` flow until that migration is complete.
+- Successful automatic acknowledgement, `--sync`, or root `sync` proves only that Apple Books cloud records on the current Mac received CloudKit acknowledgement. Without evidence from a second device, do not claim that another device already displays the change.
 - A post-commit sync failure is a warning after the write is committed and must not replay the mutation automatically. `backups restore` replaces a BKLibrary snapshot and does not by itself create individually flushable cloud mutations.
 
 ## Operation history

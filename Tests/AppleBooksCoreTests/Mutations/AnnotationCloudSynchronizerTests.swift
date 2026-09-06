@@ -34,7 +34,7 @@ struct AnnotationCloudSynchronizerTests {
             maxPollCount: 3
         )
         try synchronizer.sync(localPK: 7)
-        #expect(events.values == ["launch", "sleep"])
+        #expect(events.values == ["launchWithoutActivation", "sleep"])
         #expect(reads == 3)
     }
 
@@ -135,7 +135,7 @@ struct AnnotationCloudSynchronizerTests {
         #expect(throws: AnnotationCloudSyncError.acknowledgementTimedOut) {
             try synchronizer.sync(localPK: 7)
         }
-        #expect(events.values == ["launch", "sleep", "sleep"])
+        #expect(events.values == ["launchWithoutActivation", "sleep", "sleep"])
     }
 
     private func controller(events: Events, running initial: Bool) -> BooksAppController {
@@ -144,6 +144,7 @@ struct AnnotationCloudSynchronizerTests {
             isRunning: { running },
             terminate: { events.values.append("terminate"); running = false; return true },
             launch: { events.values.append("launch"); running = true },
+            launchWithoutActivation: { events.values.append("launchWithoutActivation"); running = true },
             sleep: { _ in }
         )
     }

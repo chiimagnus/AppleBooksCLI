@@ -24,6 +24,7 @@ struct BooksAppController {
     private let launchAction: () throws -> Void
     private let launchWithoutActivationAction: () throws -> Void
     private let activateAction: () throws -> Void
+    private let openURLAction: (URL) -> Bool
     private let runningProcessIDsAction: () -> [pid_t]
     private let isProcessAliveAction: (pid_t) -> Bool
     private let sleepAction: (TimeInterval) -> Void
@@ -37,6 +38,7 @@ struct BooksAppController {
         isFrontmost: @escaping () -> Bool = { false },
         launchWithoutActivation: (() throws -> Void)? = nil,
         activate: (() throws -> Void)? = nil,
+        openURL: @escaping (URL) -> Bool = { _ in false },
         runningProcessIDs: @escaping () -> [pid_t] = { [] },
         isProcessAlive: @escaping (pid_t) -> Bool = { _ in false },
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
@@ -50,6 +52,7 @@ struct BooksAppController {
         launchAction = launch
         launchWithoutActivationAction = launchWithoutActivation ?? launch
         activateAction = activate ?? launch
+        openURLAction = openURL
         runningProcessIDsAction = runningProcessIDs
         isProcessAliveAction = isProcessAlive
         sleepAction = sleep
@@ -94,6 +97,7 @@ struct BooksAppController {
                     throw BooksAppControllerError.launchFailed
                 }
             },
+            openURL: { NSWorkspace.shared.open($0) },
             runningProcessIDs: {
                 NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).map(\.processIdentifier)
             },
@@ -140,6 +144,10 @@ struct BooksAppController {
     func launchWithoutActivationAndWait() throws {
         try launchWithoutActivationAction()
         try waitUntil(isRunningAction)
+    }
+
+    func open(_ url: URL) -> Bool {
+        openURLAction(url)
     }
 
     func restore(_ state: BooksAppState) throws {

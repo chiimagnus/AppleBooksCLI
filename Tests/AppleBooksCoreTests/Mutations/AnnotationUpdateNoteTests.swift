@@ -96,6 +96,32 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func nonUserAnnotationTypesFailClosedBeforeBackup() throws {
+        let systemBookmark = try fixture()
+        defer { systemBookmark.remove() }
+        try execute(systemBookmark.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try systemBookmark.writer.updateNote(localPK: 1, note: "must-not-write")
+        }
+        #expect(FileManager.default.fileExists(atPath: systemBookmark.backupRoot.path) == false)
+
+        let nullType = try fixture()
+        defer { nullType.remove() }
+        try execute(nullType.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=NULL WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try nullType.writer.updateNote(localPK: 1, note: "must-not-write")
+        }
+        #expect(FileManager.default.fileExists(atPath: nullType.backupRoot.path) == false)
+
+        let missingColumn = try fixture(includeTypeColumn: false)
+        defer { missingColumn.remove() }
+        #expect(throws: WriteSchemaGuardError.self) {
+            _ = try missingColumn.writer.updateNote(localPK: 1, note: "must-not-write")
+        }
+        #expect(FileManager.default.fileExists(atPath: missingColumn.backupRoot.path) == false)
+    }
+
+    @Test
     func transactionRevalidationRejectsStateChangedDuringBooksQuit() throws {
         let root = try baseFixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -162,11 +188,18 @@ struct AnnotationUpdateNoteTests {
     private func fixture(
         deleted: Int64? = 0,
         entityID: Int64 = 17,
-        duplicateUUID: Bool = false
+        duplicateUUID: Bool = false,
+        includeTypeColumn: Bool = true
     ) throws -> Fixture {
         let root = try baseFixtureRoot()
         let database = root.appendingPathComponent("annotations.sqlite")
-        try createSchema(at: database, deleted: deleted, entityID: entityID, duplicateUUID: duplicateUUID)
+        try createSchema(
+            at: database,
+            deleted: deleted,
+            entityID: entityID,
+            duplicateUUID: duplicateUUID,
+            includeTypeColumn: includeTypeColumn
+        )
         let backupRoot = root.appendingPathComponent("backups")
         return Fixture(
             root: root,
@@ -182,7 +215,13 @@ struct AnnotationUpdateNoteTests {
         return root
     }
 
-    private func createSchema(at database: URL, deleted: Int64?, entityID: Int64, duplicateUUID: Bool) throws {
+    private func createSchema(
+        at database: URL,
+        deleted: Int64?,
+        entityID: Int64,
+        duplicateUUID: Bool,
+        includeTypeColumn: Bool = true
+    ) throws {
         try execute(database, "CREATE TABLE Z_PRIMARYKEY(Z_NAME TEXT,Z_ENT INTEGER,Z_MAX INTEGER)")
         try execute(database, "INSERT INTO Z_PRIMARYKEY VALUES('AEAnnotation',17,99)")
         try execute(database, """
@@ -191,6 +230,7 @@ struct AnnotationUpdateNoteTests {
               Z_ENT INTEGER,
               Z_OPT INTEGER,
               ZANNOTATIONDELETED INTEGER,
+              \(includeTypeColumn ? "ZANNOTATIONTYPE INTEGER," : "")
               ZANNOTATIONUUID TEXT COLLATE NOCASE,
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONMODIFICATIONDATE REAL,
@@ -199,10 +239,13 @@ struct AnnotationUpdateNoteTests {
             )
             """)
         let deletedSQL = deleted.map(String.init) ?? "NULL"
-        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(1,\(entityID),3,\(deletedSQL),'uuid-1','old-note',1,'keep-selected','1')")
-        try execute(database, "INSERT INTO ZAEANNOTATION VALUES(3,17,1,0,'UUID-1','upper-note',1,'upper-selected','1')")
+        let typeColumn = includeTypeColumn ? ",ZANNOTATIONTYPE" : ""
+        let typeValue = includeTypeColumn ? ",2" : ""
+        let columns = "Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED\(typeColumn),ZANNOTATIONUUID,ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZFUTUREPROOFING6"
+        try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(1,\(entityID),3,\(deletedSQL)\(typeValue),'uuid-1','old-note',1,'keep-selected','1')")
+        try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(3,17,1,0\(typeValue),'UUID-1','upper-note',1,'upper-selected','1')")
         if duplicateUUID {
-            try execute(database, "INSERT INTO ZAEANNOTATION VALUES(2,17,1,0,'uuid-1','other',1,'other-selected','1')")
+            try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(2,17,1,0\(typeValue),'uuid-1','other',1,'other-selected','1')")
         }
     }
 

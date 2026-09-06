@@ -137,13 +137,13 @@ struct CollectionCloudSynchronizer {
     }
 
     private func triggerSync(activating: Bool) throws {
-        if booksApp.isRunning() {
+        if activating, booksApp.isRunning() {
             try booksApp.terminateAndWait()
         }
         try recycleAction()
         if activating {
             try booksApp.launch()
-        } else {
+        } else if booksApp.isRunning() == false {
             try booksApp.launchWithoutActivationAndWait()
         }
     }

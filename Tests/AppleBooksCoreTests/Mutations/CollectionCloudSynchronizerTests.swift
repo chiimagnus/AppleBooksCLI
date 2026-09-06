@@ -14,7 +14,7 @@ struct CollectionCloudSynchronizerTests {
     }
 
     @Test
-    func dirtyCollectionRecyclesServiceAndWaitsForAck() throws {
+    func runningSingleRecordRecyclesWithoutTakingBooksLifecycleOwnership() throws {
         let events = Events()
         let dirty = state(edit: 2, sync: 1)
         let acked = state(edit: 2, sync: 2)
@@ -30,7 +30,7 @@ struct CollectionCloudSynchronizerTests {
             maxPollCount: 3
         )
         try synchronizer.syncCollection(localPK: 7)
-        #expect(events.values == ["terminate", "recycle", "launchWithoutActivation", "sleep"])
+        #expect(events.values == ["recycle", "sleep"])
         #expect(reads == 3)
     }
 

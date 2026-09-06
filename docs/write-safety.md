@@ -40,7 +40,7 @@ read-only preflight
 → 恢复原 Books 状态：background 不激活，frontmost 恢复前台；closed 只清理同步明确标记为自己临时启动、且收尾时仍未被用户切到前台的 Books
 ```
 
-无效 selector/schema 应在关闭 Books 前失败。只有对应 DB 仍是 canonical live store 的 domain 才管理真实 Books lifecycle；单侧 `--library-db` / `--annotations-db` override 的对应 writer 使用 detached lifecycle，不应因为另一个 domain 仍 live 而退出真实 Books。backup 必须位于 Books quiet state；transaction 内仍要 revalidate，因为 preflight 与 `BEGIN IMMEDIATE` 之间状态可能变化。domain writer 不自行拥有事务边界。
+无效 selector/schema 应在关闭 Books 前失败。CLI 的默认 live 路径按 domain 管理 Books：单侧 `--library-db` / `--annotations-db` override 的对应 writer 使用 detached lifecycle，不应因为另一个 domain 仍 live 而退出真实 Books。`AppleBooksCore` 的公开 `manageBooksApplication` 仍保留原有显式生命周期管理语义，双 domain initializer 也可由调用方明确选择；这不改变 automatic CloudKit projection/ack 只对 canonical live store 可用的边界。backup 必须位于 Books quiet state；transaction 内仍要 revalidate，因为 preflight 与 `BEGIN IMMEDIATE` 之间状态可能变化。domain writer 不自行拥有事务边界。
 
 cloud projection 发生在 **COMMIT + read-back 成功之后**。`changed=false` 跳过 projection 与 acknowledgement。projection/ack 失败都是 committed warning，而不是回滚本地事务；normal mutation 的最终 Books 状态恢复发生在 acknowledgement 尝试之后。
 

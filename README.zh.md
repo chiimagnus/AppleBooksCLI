@@ -12,7 +12,7 @@
 - 读取可用 EPUB 的目录、章节、元数据与批注上下文。
 - 提取 PDF 划线与笔记。
 - 导出 JSON、CSV、Markdown 或 HTML。
-- **安全修改笔记、管理藏书，并在写入前自动备份，修改之后可以更新同步到iCloud**
+- **安全修改笔记、管理藏书；写入前自动备份，并可按任务需要同步到 iCloud。**
 - 通过本地 operation history 查看最近 24 小时的 AppleBooksCLI 写入/同步 tool calls。
 - 提供标准 `applebookscli` Agent Skill，并提供英文/中文两个版本。
 

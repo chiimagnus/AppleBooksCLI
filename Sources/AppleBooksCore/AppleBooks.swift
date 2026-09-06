@@ -51,18 +51,24 @@ public final class AppleBooks {
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
-        let booksApp = manageBooksApplication ? BooksAppController.live : BooksAppController.detached
-        let collectionCloudProjector = manageBooksApplication
+        let managedDomains = Self.managedBooksApplicationDomains(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            manageBooksApplication: manageBooksApplication
+        )
+        let collectionBooksApp = managedDomains.collection ? BooksAppController.live : BooksAppController.detached
+        let annotationBooksApp = managedDomains.annotation ? BooksAppController.live : BooksAppController.detached
+        let collectionCloudProjector = managedDomains.collection
             ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
             : nil
-        let collectionCloudSynchronizer = manageBooksApplication
-            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: booksApp)
+        let collectionCloudSynchronizer = managedDomains.collection
+            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: collectionBooksApp)
             : nil
-        let annotationCloudProjector = manageBooksApplication
+        let annotationCloudProjector = managedDomains.annotation
             ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB)
             : nil
-        let annotationCloudSynchronizer = manageBooksApplication
-            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: booksApp)
+        let annotationCloudSynchronizer = managedDomains.annotation
+            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: annotationBooksApp)
             : nil
         try self.init(
             libraryDB: libraryDB,
@@ -70,22 +76,35 @@ public final class AppleBooks {
             configurationFile: configurationFile,
             collectionWriter: CollectionWriter(
                 database: libraryDB,
-                booksApp: booksApp,
+                booksApp: collectionBooksApp,
                 cloudProjector: collectionCloudProjector,
                 cloudSynchronizer: collectionCloudSynchronizer
             ),
             annotationWriter: AnnotationWriter(
                 database: annotationsDB,
-                booksApp: booksApp,
+                booksApp: annotationBooksApp,
                 cloudProjector: annotationCloudProjector,
                 cloudSynchronizer: annotationCloudSynchronizer
             ),
             automaticCollectionSync: collectionCloudProjector != nil && collectionCloudSynchronizer != nil,
             automaticAnnotationSync: annotationCloudProjector != nil && annotationCloudSynchronizer != nil,
-            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: booksApp),
+            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: collectionBooksApp),
             pdfWorkerClient: pdfWorkerURL.map {
                 PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
             }
+        )
+    }
+
+    static func managedBooksApplicationDomains(
+        libraryDB: URL,
+        annotationsDB: URL,
+        manageBooksApplication: Bool,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> (collection: Bool, annotation: Bool) {
+        guard manageBooksApplication else { return (false, false) }
+        return (
+            CollectionCloudStoreLocation.live(libraryDatabase: libraryDB, homeDirectory: homeDirectory) != nil,
+            AnnotationCloudStoreLocation.live(annotationsDatabase: annotationsDB, homeDirectory: homeDirectory) != nil
         )
     }
 

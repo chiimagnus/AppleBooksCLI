@@ -10,16 +10,6 @@ metadata:
 
 # AppleBooksCLI
 
-## 安装
-
-```sh
-npm install --global @chiimagnus/applebookscli
-CLI_VERSION="$(applebookscli --version)"
-npx -y skills add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebookscli-zh --global
-```
-
-`metadata.cli_version` 必须与 CLI release tag 一致。禁用 npm lifecycle scripts 也会禁用 npm 升级时的 Skill tag 自动对齐。
-
 ## 核心工作流
 
 1. 选择能完成请求的最小命令族；不确定语法时只读取相关层级的 `--help`。

@@ -10,16 +10,6 @@ metadata:
 
 # AppleBooksCLI
 
-## Install
-
-```sh
-npm install --global @chiimagnus/applebookscli
-CLI_VERSION="$(applebookscli --version)"
-npx -y skills add "chiimagnus/AppleBooksCLI#v${CLI_VERSION}" --skill applebookscli --global
-```
-
-`metadata.cli_version` must match the CLI release tag. Disabling npm lifecycle scripts also disables automatic Skill tag alignment during npm upgrades.
-
 ## Core workflow
 
 1. Choose the smallest command family that answers the request; read only the relevant `--help` level when syntax is uncertain.

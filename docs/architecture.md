@@ -100,7 +100,7 @@ query/content/PDF
 → confined file writer
 ```
 
-不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context；所有文件/附件经过同一 confinement/overwrite 边界；complete-notes archive 的 completeness gate 不能被普通 export 伪装替代。
+不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context；所有文件/附件经过同一 confinement/overwrite 边界。
 
 ## CLI 与维护边界
 

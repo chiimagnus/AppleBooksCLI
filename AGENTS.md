@@ -6,7 +6,7 @@
 - BKLibrary 与 AEAnnotation 是独立 store，分别发现、override 和管理 lifecycle。普通查询保持 SQLite read-only；optional read schema 可降级，required write schema/entity 漂移必须 fail closed。精确操作优先 stable identity；数字形式的 stable ID 不能猜成 local PK，多候选也不能自动挑一个。
 - production mutation 只能走 guarded write rail。`COMMIT` 是不可逆边界：commit 前失败可以 rollback；commit 后 read-back、projection、acknowledgement、deeplink、Books restore 等失败只能作为 committed warning，绝不能自动重放同一 mutation。normal mutation 的 `closed / background / frontmost` 生命周期由 `MutationCoordinator` 拥有，不要用前后 `isRunning` 猜 temporary-launch ownership。
 - 保持显式同步模型：普通 mutation 做 local commit + read-back + Apple-native cloud projection，不等待 acknowledgement；单条需要确认时显式 `--sync`；同一批多条 mutation 仅在至少一条 `changed=true` 时最后调用一次根 `applebookscli sync`。全部 no-op 时不要 root sync；current-Mac acknowledgement 也不代表其它设备已经显示。
-- EPUB 只消费可安全读取、已 materialized 的本地资源；不要主动 hydration iCloud placeholder 或绕过 DRM。PDFKit 保持隔离在独立 worker process。export renderer 保持 DB-free，文件落盘继续经过 `ExportFileWriter` 的 confinement/overwrite rail；`--complete-notes` 失败时不能降级普通 export 后仍声称完整。
+- EPUB 只消费可安全读取、已 materialized 的本地资源；不要主动 hydration iCloud placeholder 或绕过 DRM。PDFKit 保持隔离在独立 worker process。export renderer 保持 DB-free，文件落盘继续经过 `ExportFileWriter` 的 confinement/overwrite rail。
 - `AppleBooksCloudBridge` 是当前唯一允许的非 Swift production runtime；不要把它扩成自建 Apple Books CloudKit client，也不要伪造 Apple identity、entitlement 或私有 store schema。
 - recordable mutation / restore / root sync 必须在 dispatch 前成功记录 history `started`；completion history 失败只能追加 warning，不能改变原 command outcome。默认错误和 mutation 输出不得反射用户正文、私有 SQLite payload 或绝对路径。
 - fixture、文档与提交历史只能使用 synthetic / repository-owned 数据。不得提交真实用户书名、asset ID、annotation UUID/CFI、笔记正文或本机私有绝对路径。

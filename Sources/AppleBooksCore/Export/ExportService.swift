@@ -57,18 +57,13 @@ struct ExportService {
             }
         }
 
-        let bundle = ExportBundle(
+        return ExportBundle(
             options: options,
             groups: groups,
             warnings: warnings,
             statistics: makeStatistics(groups: groups),
             sourceTotals: sourceTotals
         )
-        if ExportSafetyValidator.requiresCompleteNoteArchiveValidation(options) {
-            let rawTotals = try annotationQueries.completeNoteArchiveRawTotals()
-            try ExportSafetyValidator.validateDataset(bundle, rawTotals: rawTotals)
-        }
-        return bundle
     }
 
     private func epubAnnotations(

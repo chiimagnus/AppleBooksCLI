@@ -10,9 +10,6 @@ public enum ExportFileWriterError: Error, Equatable, Sendable {
     case unsafeDestination
     case destinationExists
     case unsupportedCoverMediaType
-    case archiveDestinationExists
-    case archivePublishFailed
-    case completeArchiveRequiresStaging
     case writeFailed
 }
 
@@ -20,10 +17,6 @@ public enum ExportFileWriteDisposition: String, Codable, Equatable, Sendable {
     case created
     case updated
     case unchanged
-}
-
-public enum ExportFileWriteWarning: Equatable, Sendable {
-    case authorPageFailed
 }
 
 public struct ExportFileWriteResult: Equatable, Sendable {
@@ -40,13 +33,11 @@ public enum ExportFileLayout: Equatable, Sendable {
 public struct ExportDirectoryWriteResult: Equatable, Sendable {
     public let documentFileCount: Int
     public let files: [URL]
-    public let warnings: [ExportFileWriteWarning]
 }
 
 public struct ExportFileWriter {
     public let outputRoot: URL
     private let now: () -> Date
-    private let permitsCompleteArchivePerBookWrites: Bool
 
     public init(outputRoot: URL) throws {
         try self.init(outputRoot: outputRoot, now: Date.init)
@@ -54,15 +45,13 @@ public struct ExportFileWriter {
 
     init(
         outputRoot: URL,
-        now: @escaping () -> Date,
-        permitsCompleteArchivePerBookWrites: Bool = false
+        now: @escaping () -> Date
     ) throws {
         guard outputRoot.isFileURL, outputRoot.path.hasPrefix("/") else {
             throw ExportFileWriterError.invalidOutputRoot
         }
         self.outputRoot = try Self.prepareOutputRoot(outputRoot)
         self.now = now
-        self.permitsCompleteArchivePerBookWrites = permitsCompleteArchivePerBookWrites
     }
 
     @discardableResult
@@ -85,10 +74,6 @@ public struct ExportFileWriter {
         overwrite: OverwritePolicy = .never,
         render: (ExportGroup) throws -> Data
     ) throws -> ExportDirectoryWriteResult {
-        if ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options),
-           permitsCompleteArchivePerBookWrites == false {
-            throw ExportFileWriterError.completeArchiveRequiresStaging
-        }
         try Self.validateFileExtension(fileExtension)
         var allocator = ExportFilenameAllocator()
         var files: [URL] = []
@@ -103,177 +88,17 @@ public struct ExportFileWriter {
         }
         return ExportDirectoryWriteResult(
             documentFileCount: files.count,
-            files: files,
-            warnings: []
-        )
-    }
-
-    public static func writeCompleteNoteArchiveDocuments(
-        _ bundle: ExportBundle,
-        to destinationDirectory: URL,
-        fileExtension: String,
-        render: (ExportGroup) throws -> Data
-    ) throws -> ExportDirectoryWriteResult {
-        guard ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options) else {
-            throw ExportSafetyValidationError.incompleteArchiveDataset
-        }
-        return try publishArchiveDirectory(
-            to: destinationDirectory,
-            expectedDocuments: bundle.groups.count,
-            now: Date.init,
-            beforeArchiveRename: nil
-        ) { writer in
-            try writer.writeDocuments(
-                bundle,
-                fileExtension: fileExtension,
-                overwrite: .never,
-                render: render
-            )
-        }
-    }
-
-    public static func writeCompleteNoteArchiveMarkdown(
-        _ bundle: ExportBundle,
-        to destinationDirectory: URL,
-        profile: MarkdownProfile = .plain,
-        coverMode: ExportCoverMode = .none
-    ) throws -> ExportDirectoryWriteResult {
-        try writeCompleteNoteArchiveMarkdown(
-            bundle,
-            to: destinationDirectory,
-            layout: .perBook,
-            profile: profile,
-            coverMode: coverMode,
-            now: Date.init,
-            beforeArchiveRename: nil
-        )
-    }
-
-    public static func writeCompleteNoteArchiveMarkdown(
-        _ bundle: ExportBundle,
-        to destinationDirectory: URL,
-        layout: ExportFileLayout,
-        profile: MarkdownProfile = .plain,
-        coverMode: ExportCoverMode = .none
-    ) throws -> ExportDirectoryWriteResult {
-        try writeCompleteNoteArchiveMarkdown(
-            bundle,
-            to: destinationDirectory,
-            layout: layout,
-            profile: profile,
-            coverMode: coverMode,
-            now: Date.init,
-            beforeArchiveRename: nil
-        )
-    }
-
-    static func writeCompleteNoteArchiveMarkdown(
-        _ bundle: ExportBundle,
-        to destinationDirectory: URL,
-        layout: ExportFileLayout = .perBook,
-        profile: MarkdownProfile,
-        coverMode: ExportCoverMode,
-        now: @escaping () -> Date,
-        beforeArchiveRename: (() throws -> Void)?
-    ) throws -> ExportDirectoryWriteResult {
-        guard ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options) else {
-            throw ExportSafetyValidationError.incompleteArchiveDataset
-        }
-        let expectedDocuments: Int
-        switch layout {
-        case .single:
-            expectedDocuments = 1
-        case .perBook:
-            expectedDocuments = bundle.groups.count
-        }
-        return try publishArchiveDirectory(
-            to: destinationDirectory,
-            expectedDocuments: expectedDocuments,
-            now: now,
-            beforeArchiveRename: beforeArchiveRename
-        ) { writer in
-            try writer.writeMarkdown(
-                bundle,
-                layout: layout,
-                profile: profile,
-                coverMode: coverMode,
-                overwrite: .never
-            )
-        }
-    }
-
-    static func publishArchiveDirectory(
-        to destinationDirectory: URL,
-        expectedDocuments: Int,
-        now: @escaping () -> Date,
-        beforeArchiveRename: (() throws -> Void)?,
-        materialize: (ExportFileWriter) throws -> ExportDirectoryWriteResult
-    ) throws -> ExportDirectoryWriteResult {
-        let destination = try validatedArchiveDestination(destinationDirectory)
-        let staging = try createArchiveStaging(parent: destination.parent)
-        var published = false
-        defer {
-            if published == false {
-                removeControlledArchiveStaging(staging, parent: destination.parent)
-            }
-        }
-
-        let stagingWriter = try ExportFileWriter(
-            outputRoot: staging,
-            now: now,
-            permitsCompleteArchivePerBookWrites: true
-        )
-        let staged = try materialize(stagingWriter)
-        try ExportSafetyValidator.validateMaterialization(
-            expectedDocuments: expectedDocuments,
-            actualDocuments: staged.documentFileCount
-        )
-        let publishedFiles = try staged.files.map { file -> URL in
-            let prefix = staging.path + "/"
-            guard file.path.hasPrefix(prefix) else { throw ExportFileWriterError.archivePublishFailed }
-            let relative = String(file.path.dropFirst(prefix.count))
-            guard relative.isEmpty == false else { throw ExportFileWriterError.archivePublishFailed }
-            let published = destination.final.appendingPathComponent(relative).standardizedFileURL
-            guard published.path.hasPrefix(destination.final.path + "/") else {
-                throw ExportFileWriterError.archivePublishFailed
-            }
-            return published
-        }
-
-        _ = try validatedArchiveParent(destination.parent)
-        guard nodeType(destination.final) == nil else {
-            throw ExportFileWriterError.archiveDestinationExists
-        }
-        try beforeArchiveRename?()
-        let result = renamex_np(staging.path, destination.final.path, UInt32(RENAME_EXCL))
-        guard result == 0 else {
-            if errno == EEXIST { throw ExportFileWriterError.archiveDestinationExists }
-            throw ExportFileWriterError.archivePublishFailed
-        }
-        published = true
-        return ExportDirectoryWriteResult(
-            documentFileCount: staged.documentFileCount,
-            files: publishedFiles,
-            warnings: staged.warnings
+            files: files
         )
     }
 
     public func writeMarkdown(
         _ bundle: ExportBundle,
         layout: ExportFileLayout,
-        profile: MarkdownProfile = .plain,
         coverMode: ExportCoverMode = .none,
         overwrite: OverwritePolicy = .never
     ) throws -> ExportDirectoryWriteResult {
-        let producesMultipleFiles = layout == .perBook || coverMode == .file || profile.options.authorPages
-        if producesMultipleFiles,
-           ExportSafetyValidator.requiresCompleteNoteArchiveValidation(bundle.options),
-           permitsCompleteArchivePerBookWrites == false {
-            throw ExportFileWriterError.completeArchiveRequiresStaging
-        }
         var files: [URL] = []
-        var warnings: [ExportFileWriteWarning] = []
-        let authorTargets = authorTargets(for: bundle.groups, profile: profile)
 
         switch layout {
         case let .single(fileName):
@@ -283,42 +108,19 @@ public struct ExportFileWriter {
                 coverMode: coverMode,
                 overwrite: overwrite,
                 attachmentAllocator: &attachmentAllocator,
-                authorTargets: authorTargets,
                 files: &files
             )
-            let stable = Data(
-                MarkdownAnnotationExporter.render(bundle, profile: profile, contexts: contexts).utf8
-            )
+            let stable = Data(MarkdownAnnotationExporter.render(bundle, contexts: contexts).utf8)
             let result = try writeGenerated(
                 stableData: stable,
                 fileName: fileName,
                 parent: outputRoot,
                 overwrite: overwrite
-            ) { hash, exportedAt in
-                Data(
-                    MarkdownAnnotationExporter.render(
-                        bundle,
-                        profile: profile,
-                        contexts: contexts,
-                        fileMetadata: profile.options.extendedFrontmatter
-                            ? MarkdownFileMetadata(stableHash: hash, exportedAt: exportedAt)
-                            : nil
-                    ).utf8
-                )
-            }
+            ) { _, _ in stable }
             files.append(result.destination)
-            warnings += writeAuthorPages(
-                groups: bundle.groups,
-                documentFiles: Array(repeating: result.destination, count: bundle.groups.count),
-                profile: profile,
-                targets: authorTargets,
-                overwrite: overwrite,
-                files: &files
-            )
             return ExportDirectoryWriteResult(
                 documentFileCount: 1,
-                files: files,
-                warnings: warnings
+                files: files
             )
 
         case .perBook:
@@ -329,7 +131,6 @@ public struct ExportFileWriter {
                 coverMode: coverMode,
                 overwrite: overwrite,
                 attachmentAllocator: &attachmentAllocator,
-                authorTargets: authorTargets,
                 files: &files
             )
             var documentFiles: [URL] = []
@@ -339,41 +140,19 @@ public struct ExportFileWriter {
                     extension: "md"
                 )
                 let context = contexts[index] ?? MarkdownRenderContext()
-                let stable = Data(
-                    MarkdownAnnotationExporter.render(group, profile: profile, context: context).utf8
-                )
+                let stable = Data(MarkdownAnnotationExporter.render(group, context: context).utf8)
                 let result = try writeGenerated(
                     stableData: stable,
                     fileName: fileName,
                     parent: outputRoot,
                     overwrite: overwrite
-                ) { hash, exportedAt in
-                    Data(
-                        MarkdownAnnotationExporter.render(
-                            group,
-                            profile: profile,
-                            context: context,
-                            fileMetadata: profile.options.extendedFrontmatter
-                                ? MarkdownFileMetadata(stableHash: hash, exportedAt: exportedAt)
-                                : nil
-                        ).utf8
-                    )
-                }
+                ) { _, _ in stable }
                 documentFiles.append(result.destination)
                 files.append(result.destination)
             }
-            warnings += writeAuthorPages(
-                groups: bundle.groups,
-                documentFiles: documentFiles,
-                profile: profile,
-                targets: authorTargets,
-                overwrite: overwrite,
-                files: &files
-            )
             return ExportDirectoryWriteResult(
                 documentFileCount: documentFiles.count,
-                files: files,
-                warnings: warnings
+                files: files
             )
         }
     }
@@ -383,7 +162,6 @@ public struct ExportFileWriter {
         coverMode: ExportCoverMode,
         overwrite: OverwritePolicy,
         attachmentAllocator: inout ExportFilenameAllocator,
-        authorTargets: [String: String],
         files: inout [URL]
     ) throws -> [Int: MarkdownRenderContext] {
         var contexts: [Int: MarkdownRenderContext] = [:]
@@ -391,9 +169,6 @@ public struct ExportFileWriter {
 
         for (index, group) in groups.enumerated() {
             var context = MarkdownRenderContext()
-            if let author = Self.author(for: group), let target = authorTargets[author] {
-                context.authorLinkTarget = target
-            }
             if let cover = group.epubCover {
                 switch coverMode {
                 case .none:
@@ -423,60 +198,6 @@ public struct ExportFileWriter {
             contexts[index] = context
         }
         return contexts
-    }
-
-    private func authorTargets(
-        for groups: [ExportGroup],
-        profile: MarkdownProfile
-    ) -> [String: String] {
-        guard profile.options.authorLinks || profile.options.authorPages else { return [:] }
-        var allocator = ExportFilenameAllocator()
-        var result: [String: String] = [:]
-        for group in groups {
-            guard let author = Self.author(for: group), result[author] == nil else { continue }
-            let fileName = allocator.allocate(derivedFrom: author, extension: "md")
-            result[author] = "Authors/\(String(fileName.dropLast(3)))"
-        }
-        return result
-    }
-
-    private func writeAuthorPages(
-        groups: [ExportGroup],
-        documentFiles: [URL],
-        profile: MarkdownProfile,
-        targets: [String: String],
-        overwrite: OverwritePolicy,
-        files: inout [URL]
-    ) -> [ExportFileWriteWarning] {
-        guard profile.options.authorPages else { return [] }
-        guard let authorsDirectory = try? controlledDirectory(named: "Authors") else {
-            return [.authorPageFailed]
-        }
-
-        var grouped: [String: [(title: String, file: URL)]] = [:]
-        for (index, group) in groups.enumerated() {
-            guard documentFiles.indices.contains(index), let author = Self.author(for: group) else { continue }
-            grouped[author, default: []].append((Self.fileStem(for: group), documentFiles[index]))
-        }
-
-        var warnings: [ExportFileWriteWarning] = []
-        for author in grouped.keys.sorted() {
-            guard let target = targets[author], let entries = grouped[author] else { continue }
-            let fileName = String(target.dropFirst("Authors/".count)) + ".md"
-            let body = Self.authorPage(author: author, entries: entries, profile: profile)
-            do {
-                let result = try writeGenerated(
-                    stableData: Data(body.utf8),
-                    fileName: fileName,
-                    parent: authorsDirectory,
-                    overwrite: overwrite
-                ) { _, _ in Data(body.utf8) }
-                files.append(result.destination)
-            } catch {
-                warnings.append(.authorPageFailed)
-            }
-        }
-        return warnings
     }
 
     private func writeGenerated(
@@ -588,66 +309,6 @@ public struct ExportFileWriter {
         return canonical
     }
 
-    private static func validatedArchiveDestination(_ raw: URL) throws -> (final: URL, parent: URL) {
-        guard raw.isFileURL, raw.path.hasPrefix("/") else {
-            throw ExportFileWriterError.invalidOutputRoot
-        }
-        let standardized = raw.standardizedFileURL
-        try validateFileName(standardized.lastPathComponent)
-        guard nodeType(standardized) == nil else {
-            throw ExportFileWriterError.archiveDestinationExists
-        }
-        let parent = try validatedArchiveParent(standardized.deletingLastPathComponent().standardizedFileURL)
-        let final = parent.appendingPathComponent(standardized.lastPathComponent, isDirectory: true).standardizedFileURL
-        guard final.deletingLastPathComponent().path == parent.path else {
-            throw ExportFileWriterError.unsafeOutputRoot
-        }
-        return (final, parent)
-    }
-
-    private static func validatedArchiveParent(_ raw: URL) throws -> URL {
-        let standardized = raw.standardizedFileURL
-        guard nodeType(standardized) == S_IFDIR else { throw ExportFileWriterError.unsafeOutputRoot }
-        let canonical = standardized.resolvingSymlinksInPath()
-        guard canonical.path == standardized.path else { throw ExportFileWriterError.unsafeOutputRoot }
-        return canonical
-    }
-
-    private static func createArchiveStaging(parent: URL) throws -> URL {
-        _ = try validatedArchiveParent(parent)
-        let staging = parent.appendingPathComponent(
-            ".applebookscli-archive-\(UUID().uuidString).staging",
-            isDirectory: true
-        ).standardizedFileURL
-        guard staging.deletingLastPathComponent().path == parent.path, nodeType(staging) == nil else {
-            throw ExportFileWriterError.archivePublishFailed
-        }
-        do {
-            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
-        } catch {
-            throw ExportFileWriterError.archivePublishFailed
-        }
-        guard nodeType(staging) == S_IFDIR,
-              staging.resolvingSymlinksInPath().path == staging.path else {
-            throw ExportFileWriterError.archivePublishFailed
-        }
-        return staging
-    }
-
-    private static func removeControlledArchiveStaging(_ staging: URL, parent: URL) {
-        let name = staging.lastPathComponent
-        guard name.hasPrefix(".applebookscli-archive-"),
-              name.hasSuffix(".staging"),
-              staging.deletingLastPathComponent().standardizedFileURL.path == parent.path,
-              nodeType(parent) == S_IFDIR,
-              parent.resolvingSymlinksInPath().path == parent.path,
-              nodeType(staging) == S_IFDIR,
-              staging.resolvingSymlinksInPath().path == staging.path else {
-            return
-        }
-        try? FileManager.default.removeItem(at: staging)
-    }
-
     private static func prepareOutputRoot(_ raw: URL) throws -> URL {
         let standardized = raw.standardizedFileURL
         if let type = nodeType(standardized) {
@@ -722,25 +383,8 @@ public struct ExportFileWriter {
                 return normalized
             }
         }
-        guard var text = String(data: data, encoding: .utf8) else { return data }
-        text = text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        guard text.hasPrefix("---\n") else { return data }
-        let lines = text.components(separatedBy: "\n")
-        guard let closingIndex = lines.dropFirst().firstIndex(of: "---") else { return data }
-        var normalized: [String] = []
-        for (index, line) in lines.enumerated() {
-            let isFrontmatterValue = index > 0 && index < closingIndex
-            let isRunMetadata = line.hasPrefix("last-import-hash:") ||
-                line.hasPrefix("last_import_hash:") ||
-                line.hasPrefix("exported_at:") ||
-                line.hasPrefix("exported:")
-            if isFrontmatterValue && isRunMetadata { continue }
-            normalized.append(line)
-        }
-        return Data(normalized.joined(separator: "\n").utf8)
+        return data
     }
-
 
     private static func fileStem(for group: ExportGroup) -> String {
         switch group.source {
@@ -755,55 +399,9 @@ public struct ExportFileWriter {
         }
     }
 
-    private static func author(for group: ExportGroup) -> String? {
-        switch group.source {
-        case let .epubCurrent(book):
-            nonEmpty(book.author) ?? nonEmpty(group.epubMetadata?.creator)
-        case let .epubHistorical(_, metadata):
-            nonEmpty(metadata.author)
-        case .epubUnmapped:
-            nil
-        case let .pdf(source):
-            source.book.flatMap { nonEmpty($0.author) }
-        }
-    }
-
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value, value.isEmpty == false else { return nil }
         return value
     }
 
-    private static func authorPage(
-        author: String,
-        entries: [(title: String, file: URL)],
-        profile: MarkdownProfile
-    ) -> String {
-        let heading = markdownEscape(author.replacingOccurrences(of: "\n", with: " "))
-        if profile.syntax == .obsidian {
-            let encodedAuthor = MarkdownYAML.quotedScalar(author)
-            return """
-            # \(heading)
-
-            ```dataview
-            LIST
-            WHERE author = \(encodedAuthor)
-            ```
-            """ + "\n"
-        }
-        let links = entries.map { entry in
-            let target = "../\(entry.file.lastPathComponent)"
-            return "- [\(markdownEscape(entry.title))](<\(target)>)"
-        }.joined(separator: "\n")
-        return "# \(heading)\n\n\(links)\n"
-    }
-
-    private static func markdownEscape(_ value: String) -> String {
-        let structural = Set("\\`*_{}[]<>()#+!|")
-        var output = ""
-        for character in value {
-            if structural.contains(character) { output.append("\\") }
-            output.append(character)
-        }
-        return output
-    }
 }

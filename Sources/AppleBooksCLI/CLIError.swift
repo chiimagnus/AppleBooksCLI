@@ -218,9 +218,6 @@ enum CLIOperation {
         if error is ExportServiceError {
             return .unavailable("PDF worker is unavailable for the requested export source.")
         }
-        if error is ExportSafetyValidationError {
-            return .writeSafety("Complete-note archive safety validation failed.")
-        }
         if error is ExportFileWriterError {
             return .writeSafety("Output path is unsafe or already exists.")
         }

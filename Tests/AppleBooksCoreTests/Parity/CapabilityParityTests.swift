@@ -90,9 +90,7 @@ struct CapabilityParityTests {
         let root = repositoryRoot()
         let rendererPaths = [
             "Sources/AppleBooksCore/Export/JSONExporter.swift",
-            "Sources/AppleBooksCore/Export/CSVExporter.swift",
             "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift",
-            "Sources/AppleBooksCore/Export/HTMLExporter.swift",
         ]
         let forbiddenRendererTokens = [
             "import SQLite3",

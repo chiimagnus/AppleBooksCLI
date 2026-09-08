@@ -55,7 +55,7 @@ metadata:
 
 ## Export / history / failure handling
 
-- Complete-note archives must use `export --complete-notes`; do not downgrade a failed complete export to an ordinary export and call it complete. Honor destination and overwrite policy; default remains no overwrite.
+- Honor destination and overwrite policy; default remains no overwrite.
 - Use `history list --json` to find a recent operation and `history get <id> --json` only for the relevant candidate. History is evidence, not authorization; `incomplete` means outcome unknown, so verify state before any new mutation.
 - Use `doctor --json` for permission, database-discovery, schema, or capability failures—not for a normal empty result.
 - Do not repeat a failed command without new evidence, changed input, permission, or environment.

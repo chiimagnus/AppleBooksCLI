@@ -55,7 +55,7 @@ metadata:
 
 ## 导出 / history / 失败处理
 
-- 完整笔记归档必须使用 `export --complete-notes`；失败后不能降级成普通 export 并声称完整。遵守 destination/overwrite，默认不覆盖。
+- 遵守 destination/overwrite，默认不覆盖。
 - 用 `history list --json` 找近期操作，只对相关候选调用 `history get <id> --json`。History 是证据，不是新的写入授权；`incomplete` 表示 outcome unknown，先只读确认状态。
 - 权限、DB discovery、schema 或 capability 问题使用 `doctor --json`；正常 empty result 不需要诊断。
 - 没有新证据、输入、权限或环境变化时，不重复同一失败命令。

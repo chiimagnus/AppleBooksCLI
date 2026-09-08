@@ -9,7 +9,7 @@ English | [简体中文](README.zh.md)
 - Browse books, collections, reading state, and library statistics.
 - Search highlights and notes, inspect recent annotations, and jump back with Apple Books deep links when available.
 - Read locally available EPUB structure/content and extract PDF highlights.
-- Export JSON, CSV, Markdown, HTML, Obsidian-oriented output, covers, and complete-note archives.
+- Export JSON and Markdown.
 - Safely update existing annotation notes and manage user collections with automatic safety backups.
 - Explicitly acknowledge one mutation with `--sync`, or flush pending cloud changes once after a batch.
 - Inspect the last 24 hours of AppleBooksCLI mutation/restore/sync operation history.
@@ -68,7 +68,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-File outputs use guarded destination/overwrite handling. `--complete-notes` is the strict completeness mode; if it fails, an ordinary export is not an equivalent complete archive.
+File outputs use guarded destination/overwrite handling.
 
 ## Safe writes and iCloud sync
 
@@ -108,6 +108,17 @@ See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
 ## Development and maintenance
 
 Start with [`AGENTS.md`](AGENTS.md), then [`docs/index.md`](docs/index.md) for canonical architecture, capability, process, write-safety, and release owners.
+
+## Acknowledgements
+
+AppleBooksCLI benefited from prior art and ideas in the following open-source projects. Thanks to their authors and contributors:
+
+- [57uff3r/ibooks_notes_exporter](https://github.com/57uff3r/ibooks_notes_exporter)
+- [denya/apple-books-export](https://github.com/denya/apple-books-export)
+- [eristoddle/apple-books-annotation-import](https://github.com/eristoddle/apple-books-annotation-import)
+- [ragmha/apple-books-mcp](https://github.com/ragmha/apple-books-mcp)
+- [vgnshiyer/apple-books-mcp](https://github.com/vgnshiyer/apple-books-mcp)
+- [vgnshiyer/py-apple-books](https://github.com/vgnshiyer/py-apple-books)
 
 ## License
 

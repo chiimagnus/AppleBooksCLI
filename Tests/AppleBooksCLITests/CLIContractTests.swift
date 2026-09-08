@@ -454,7 +454,7 @@ struct CLIContractTests {
     }
 
     @Test
-    func processExportKeepsNativePayloadsAndCompleteArchiveAtomic() throws {
+    func processExportKeepsNativePayloads() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
@@ -469,22 +469,6 @@ struct CLIContractTests {
         #expect(markdown.status == 0)
         #expect(markdown.stderr.isEmpty)
         #expect(markdown.stdout.contains("First & 😀"))
-
-        let archive = fixture.root.appendingPathComponent("complete-export", isDirectory: true)
-        let complete = try fixture.run([
-            "export", "--format", "json", "--complete-notes", "--grouping", "per-book",
-            "--output", archive.path,
-        ] + fixture.globals)
-        #expect(complete.status == 0)
-        #expect(complete.stdout.isEmpty)
-        #expect(complete.stderr.isEmpty)
-        let files = try FileManager.default.contentsOfDirectory(at: archive, includingPropertiesForKeys: nil)
-        #expect(files.count == 2)
-        #expect(files.allSatisfy { $0.pathExtension == "json" })
-        let staging = try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).filter {
-            $0.hasPrefix(".applebookscli-archive-") && $0.hasSuffix(".staging")
-        }
-        #expect(staging.isEmpty)
     }
 }
 

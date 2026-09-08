@@ -9,7 +9,7 @@
 - 浏览书籍、藏书、阅读状态与书库统计。
 - 搜索划线和笔记、查看最近批注，并在可用时通过 Apple Books deep link 跳回原位置。
 - 读取本地可用 EPUB 的结构/正文，并提取 PDF highlights。
-- 导出 JSON、CSV、Markdown、HTML、Obsidian-oriented 输出、封面与完整笔记归档。
+- 导出 JSON 与 Markdown。
 - 通过自动 safety backup 安全修改已有 annotation note 与 user collection。
 - 单条 mutation 可显式 `--sync`，批量修改可最后一次 flush pending cloud changes。
 - 查看最近 24 小时的 AppleBooksCLI mutation/restore/sync operation history。
@@ -68,7 +68,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-文件输出统一经过 destination/overwrite 安全边界。`--complete-notes` 是严格完整性模式；它失败时，普通 export 不能等价称为完整归档。
+文件输出统一经过 destination/overwrite 安全边界。
 
 ## 安全写入与 iCloud 同步
 
@@ -108,6 +108,17 @@ History 是最近 AppleBooksCLI mutation/restore/sync 调用的本机私有证�
 ## 开发与维护
 
 先读 [`AGENTS.md`](AGENTS.md)，再从 [`docs/index.md`](docs/index.md) 进入架构、能力、process、写安全与 release 的 canonical owner。
+
+## 致谢
+
+AppleBooksCLI 的设计与实现受益于以下开源项目的相关工作与思路，感谢这些项目的作者和贡献者：
+
+- [57uff3r/ibooks_notes_exporter](https://github.com/57uff3r/ibooks_notes_exporter)
+- [denya/apple-books-export](https://github.com/denya/apple-books-export)
+- [eristoddle/apple-books-annotation-import](https://github.com/eristoddle/apple-books-annotation-import)
+- [ragmha/apple-books-mcp](https://github.com/ragmha/apple-books-mcp)
+- [vgnshiyer/apple-books-mcp](https://github.com/vgnshiyer/apple-books-mcp)
+- [vgnshiyer/py-apple-books](https://github.com/vgnshiyer/py-apple-books)
 
 ## License
 

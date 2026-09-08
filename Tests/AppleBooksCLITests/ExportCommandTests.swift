@@ -8,19 +8,18 @@ import Testing
 @Suite("ExportCommandTests")
 struct ExportCommandTests {
     @Test
-    func defaultsComeFromCoreExportOptionsAndPlainProfile() throws {
+    func defaultsComeFromCoreExportOptions() throws {
         let command = try ExportCommand.parse(["--format", "json"])
         let request = try command.makeRequest()
 
         #expect(request.options == (try ExportOptions()))
-        #expect(request.profile == .plain)
         #expect(request.overwrite == .never)
         #expect(request.outputURL == nil)
         #expect(request.producesMultipleFiles == false)
     }
 
     @Test
-    func everySelectionAndObsidianSwitchMapsToExistingCoreOwners() throws {
+    func everySelectionMapsToExistingCoreOwners() throws {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("export-command-map", isDirectory: true)
         let command = try ExportCommand.parse([
             "--format", "markdown",
@@ -39,19 +38,7 @@ struct ExportCommandTests {
             "--grouping", "per-book",
             "--include-epub-metadata",
             "--cover", "file",
-            "--profile", "obsidian",
             "--overwrite", "smart",
-            "--extended-frontmatter",
-            "--body-metadata",
-            "--tag", "research",
-            "--tag", "books",
-            "--chapter-headings",
-            "--annotation-dates",
-            "--annotation-styles",
-            "--reading-progress",
-            "--citation",
-            "--author-pages",
-            "--group-null-location-fragments",
             "--output", output.path,
         ])
         let request = try command.makeRequest()
@@ -72,19 +59,6 @@ struct ExportCommandTests {
         #expect(request.options.includeEPUBMetadata)
         #expect(request.options.cover == .file)
         #expect(request.options.completeNotes == false)
-        #expect(request.profile.syntax == .obsidian)
-        #expect(request.profile.options.extendedFrontmatter)
-        #expect(request.profile.options.bodyMetadata)
-        #expect(request.profile.options.includeTags == false)
-        #expect(request.profile.options.customTags == ["research", "books"])
-        #expect(request.profile.options.chapterHeadings)
-        #expect(request.profile.options.annotationDates)
-        #expect(request.profile.options.annotationStyle)
-        #expect(request.profile.options.readingProgress)
-        #expect(request.profile.options.citation)
-        #expect(request.profile.options.authorLinks)
-        #expect(request.profile.options.authorPages)
-        #expect(request.profile.options.groupConsecutiveNullLocationFragments)
         #expect(request.overwrite == .smart)
         #expect(request.outputURL?.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
@@ -136,17 +110,11 @@ struct ExportCommandTests {
         #expect(throws: ValidationError.self) { _ = try completeOverwrite.makeRequest() }
 
         let nonMarkdownFileCover = try ExportCommand.parse([
-            "--format", "html",
+            "--format", "json",
             "--cover", "file",
-            "--output", "/tmp/export.html",
+            "--output", "/tmp/export.json",
         ] + global)
         #expect(throws: ValidationError.self) { _ = try nonMarkdownFileCover.makeRequest() }
-
-        let plainExtras = try ExportCommand.parse([
-            "--format", "markdown",
-            "--tag", "ignored-if-allowed",
-        ] + global)
-        #expect(throws: ValidationError.self) { _ = try plainExtras.makeRequest() }
     }
 
     @Test
@@ -171,7 +139,7 @@ struct ExportCommandTests {
         let core = try fixture.core()
         let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-        for format in ["json", "csv", "markdown", "html"] {
+        for format in ["json", "markdown"] {
             let command = try ExportCommand.parse(["--format", format])
             let capture = Capture()
             let result = try command.execute(using: core, output: capture.output, exportedAt: exportedAt)
@@ -184,13 +152,8 @@ struct ExportCommandTests {
                 let object = try JSONSerialization.jsonObject(with: Data(capture.stdout.utf8))
                 #expect(object is [String: Any])
                 #expect(capture.stdout.contains("\"groups\""))
-            case "csv":
-                #expect(capture.stdout.hasPrefix("\u{FEFF}"))
-                #expect(capture.stdout.contains("asset-a"))
             case "markdown":
                 #expect(capture.stdout.contains("Quote A"))
-            case "html":
-                #expect(capture.stdout.lowercased().contains("<!doctype html>"))
             default:
                 Issue.record("unexpected test format")
             }
@@ -201,20 +164,19 @@ struct ExportCommandTests {
     func exactSingleFileUsesExportFileWriterAndNeverWritesPayloadToStdout() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
-        let destination = fixture.root.appendingPathComponent("annotations.csv")
+        let destination = fixture.root.appendingPathComponent("annotations.json")
         let command = try ExportCommand.parse([
-            "--format", "csv",
+            "--format", "json",
             "--output", destination.path,
         ])
         let capture = Capture()
 
         let result = try command.execute(using: fixture.core(), output: capture.output)
 
-        #expect(result == .files(documentFileCount: 1, files: [destination], warningCount: 0))
+        #expect(result == .files(documentFileCount: 1, files: [destination]))
         #expect(capture.stdout.isEmpty)
         #expect(capture.stderr.isEmpty)
         let data = try Data(contentsOf: destination)
-        #expect(data.starts(with: [0xEF, 0xBB, 0xBF]))
         #expect(String(decoding: data, as: UTF8.self).contains("asset-a"))
 
         #expect(throws: CLIError.writeSafety("Output path is unsafe or already exists.")) {
@@ -235,47 +197,14 @@ struct ExportCommandTests {
 
         let result = try command.execute(using: fixture.core(), output: Capture().output)
 
-        guard case let .files(documentFileCount, files, warningCount) = result else {
+        guard case let .files(documentFileCount, files) = result else {
             Issue.record("expected file result")
             return
         }
         #expect(documentFileCount == 2)
-        #expect(warningCount == 0)
         #expect(files.count == 2)
         #expect(files.allSatisfy { $0.deletingLastPathComponent() == directory.standardizedFileURL })
         #expect(Set(files.map(\.pathExtension)) == ["json"])
-    }
-
-    @Test
-    func authorPagesMakeSingleMarkdownAWriterOwnedMultiFileExport() throws {
-        let fixture = try Fixture(kind: .twoBooks)
-        defer { fixture.remove() }
-        let directory = fixture.root.appendingPathComponent("obsidian", isDirectory: true)
-        let command = try ExportCommand.parse([
-            "--format", "markdown",
-            "--profile", "obsidian",
-            "--author-pages",
-            "--output", directory.path,
-        ])
-
-        let request = try command.makeRequest()
-        #expect(request.options.grouping == .single)
-        #expect(request.producesMultipleFiles)
-        let result = try command.execute(using: fixture.core(), output: Capture().output)
-
-        guard case let .files(documentFileCount, files, warningCount) = result else {
-            Issue.record("expected file result")
-            return
-        }
-        #expect(documentFileCount == 1)
-        #expect(warningCount == 0)
-        #expect(files.contains { $0.lastPathComponent == "apple-books-export.md" })
-        #expect(files.contains { $0.path.contains("/Authors/") && $0.pathExtension == "md" })
-        let book = try String(
-            contentsOf: directory.appendingPathComponent("apple-books-export.md"),
-            encoding: .utf8
-        )
-        #expect(book.contains("[[Authors/"))
     }
 
     @Test
@@ -308,12 +237,11 @@ struct ExportCommandTests {
         ])
 
         let result = try command.execute(using: fixture.core(), output: Capture().output)
-        guard case let .files(documentFileCount, files, warningCount) = result else {
+        guard case let .files(documentFileCount, files) = result else {
             Issue.record("expected file result")
             return
         }
         #expect(documentFileCount == 2)
-        #expect(warningCount == 0)
         #expect(files.count == 2)
         #expect(files.allSatisfy { $0.path.hasPrefix(archive.path + "/") })
         #expect(try stagingNames(in: fixture.root).isEmpty)

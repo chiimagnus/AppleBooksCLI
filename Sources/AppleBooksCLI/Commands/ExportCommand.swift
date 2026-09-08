@@ -4,16 +4,12 @@ import Foundation
 
 enum ExportFormatArgument: String, ExpressibleByArgument, Sendable {
     case json
-    case csv
     case markdown
-    case html
 
     var fileExtension: String {
         switch self {
         case .json: "json"
-        case .csv: "csv"
         case .markdown: "md"
-        case .html: "html"
         }
     }
 }
@@ -71,11 +67,6 @@ enum ExportCoverArgument: String, ExpressibleByArgument, Sendable {
     var coreValue: ExportCoverMode { ExportCoverMode(rawValue: rawValue)! }
 }
 
-enum ExportProfileArgument: String, ExpressibleByArgument, Sendable {
-    case plain
-    case obsidian
-}
-
 enum ExportOverwriteArgument: String, ExpressibleByArgument, Sendable {
     case never
     case smart
@@ -87,19 +78,17 @@ enum ExportOverwriteArgument: String, ExpressibleByArgument, Sendable {
 struct ExportCLIRequest: Equatable, Sendable {
     let format: ExportFormatArgument
     let options: ExportOptions
-    let profile: MarkdownProfile
     let overwrite: OverwritePolicy
     let outputURL: URL?
 
     var producesMultipleFiles: Bool {
-        options.grouping == .perBook ||
-            (format == .markdown && (options.cover == .file || profile.options.authorPages))
+        options.grouping == .perBook || (format == .markdown && options.cover == .file)
     }
 }
 
 enum ExportRunResult: Equatable, Sendable {
     case stdout
-    case files(documentFileCount: Int, files: [URL], warningCount: Int)
+    case files(documentFileCount: Int, files: [URL])
 }
 
 struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
@@ -108,7 +97,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         abstract: "Export Apple Books annotations and PDF highlights."
     )
 
-    @Option(name: .long, help: "Export format: json, csv, markdown, or html.")
+    @Option(name: .long, help: "Export format: json or markdown.")
     var format: ExportFormatArgument
 
     @Option(name: .long, help: "Select an exact Apple Books asset ID. Repeatable.")
@@ -147,41 +136,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Flag(name: .customLong("complete-notes"), help: "Enable fail-closed complete note archive validation.")
     var completeNotes = false
 
-    @Option(name: .long, help: "Markdown profile: plain or obsidian.")
-    var profile: ExportProfileArgument?
-
     @Option(name: .long, help: "Existing-file policy: never, smart, or always.")
     var overwrite: ExportOverwriteArgument?
-
-    @Flag(name: .customLong("extended-frontmatter"), help: "Emit extended Obsidian YAML frontmatter.")
-    var extendedFrontmatter = false
-
-    @Flag(name: .customLong("body-metadata"), help: "Emit additional metadata in the Markdown body.")
-    var bodyMetadata = false
-
-    @Option(name: .long, help: "Add a custom Markdown tag. Repeatable.")
-    var tag: [String] = []
-
-    @Flag(name: .customLong("chapter-headings"), help: "Group Markdown annotations under chapter headings.")
-    var chapterHeadings = false
-
-    @Flag(name: .customLong("annotation-dates"), help: "Include annotation dates in Markdown.")
-    var annotationDates = false
-
-    @Flag(name: .customLong("annotation-styles"), help: "Include annotation style and underline metadata in Markdown.")
-    var annotationStyles = false
-
-    @Flag(name: .customLong("reading-progress"), help: "Include reading progress in Markdown.")
-    var readingProgress = false
-
-    @Flag(name: .long, help: "Include citation blocks in Markdown.")
-    var citation = false
-
-    @Flag(name: .customLong("author-pages"), help: "Create author pages and link exported documents to them.")
-    var authorPages = false
-
-    @Flag(name: .customLong("group-null-location-fragments"), help: "Group consecutive no-location Markdown fragments for presentation.")
-    var groupNullLocationFragments = false
 
     @Option(name: .long, help: "Write to this file or directory instead of stdout.")
     var output: String?
@@ -231,15 +187,13 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             )
         }
 
-        let markdownProfile = try makeMarkdownProfile()
-        try validateFormatSpecificOptions(options: options, profile: markdownProfile)
+        try validateFormatSpecificOptions(options: options)
 
         let overwritePolicy = overwrite?.coreValue ?? .never
         let outputURL = output.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let request = ExportCLIRequest(
             format: format,
             options: options,
-            profile: markdownProfile,
             overwrite: overwritePolicy,
             outputURL: outputURL
         )
@@ -264,48 +218,13 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 cliOutput.stdout(try renderSingle(bundle, request: request, exportedAt: exportedAt))
                 return .stdout
             }
-            return try write(bundle, request: request, outputURL: outputURL, exportedAt: exportedAt, cliOutput: cliOutput)
+            return try write(bundle, request: request, outputURL: outputURL, exportedAt: exportedAt)
         }
     }
 
-    private func makeMarkdownProfile() throws -> MarkdownProfile {
-        let hasMarkdownOptions = extendedFrontmatter || bodyMetadata || tag.isEmpty == false || chapterHeadings ||
-            annotationDates || annotationStyles || readingProgress || citation || authorPages || groupNullLocationFragments
-        if format != .markdown, profile != nil || hasMarkdownOptions {
-            throw ValidationError("Markdown profile options require --format markdown.")
-        }
-
-        let selected = profile ?? .plain
-        if selected == .plain, hasMarkdownOptions {
-            throw ValidationError("Obsidian-specific Markdown options require --profile obsidian.")
-        }
-        guard selected == .obsidian else { return .plain }
-
-        return MarkdownProfile(
-            syntax: .obsidian,
-            options: ObsidianMarkdownOptions(
-                extendedFrontmatter: extendedFrontmatter,
-                bodyMetadata: bodyMetadata,
-                includeTags: false,
-                customTags: tag,
-                chapterHeadings: chapterHeadings,
-                annotationDates: annotationDates,
-                annotationStyle: annotationStyles,
-                readingProgress: readingProgress,
-                citation: citation,
-                authorLinks: authorPages,
-                authorPages: authorPages,
-                groupConsecutiveNullLocationFragments: groupNullLocationFragments
-            )
-        )
-    }
-
-    private func validateFormatSpecificOptions(options: ExportOptions, profile: MarkdownProfile) throws {
+    private func validateFormatSpecificOptions(options: ExportOptions) throws {
         if options.cover == .file, format != .markdown {
             throw ValidationError("--cover file requires --format markdown.")
-        }
-        if format != .markdown, profile != .plain {
-            throw ValidationError("--profile is available only for Markdown export.")
         }
     }
 
@@ -337,16 +256,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         switch request.format {
         case .json:
             return String(decoding: try JSONExporter.render(bundle, exportedAt: exportedAt), as: UTF8.self)
-        case .csv:
-            return String(decoding: CSVExporter.render(bundle), as: UTF8.self)
         case .markdown:
-            return try MarkdownAnnotationExporter.render(
-                bundle,
-                profile: request.profile,
-                coverMode: request.options.cover
-            )
-        case .html:
-            return HTMLExporter.render(bundle)
+            return try MarkdownAnnotationExporter.render(bundle, coverMode: request.options.cover)
         }
     }
 
@@ -354,16 +265,14 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         _ bundle: ExportBundle,
         request: ExportCLIRequest,
         outputURL: URL,
-        exportedAt: Date,
-        cliOutput: CLIOutput
+        exportedAt: Date
     ) throws -> ExportRunResult {
         if request.producesMultipleFiles {
             return try writeMultiple(
                 bundle,
                 request: request,
                 outputDirectory: outputURL,
-                exportedAt: exportedAt,
-                cliOutput: cliOutput
+                exportedAt: exportedAt
             )
         }
 
@@ -373,11 +282,10 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             let result = try writer.writeMarkdown(
                 bundle,
                 layout: .single(fileName: outputURL.lastPathComponent),
-                profile: request.profile,
                 coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
-            return makeRunResult(result, cliOutput: cliOutput)
+            return makeRunResult(result)
         }
 
         let data = try renderData(bundle, request: request, exportedAt: exportedAt)
@@ -386,15 +294,14 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             fileName: outputURL.lastPathComponent,
             overwrite: request.overwrite
         )
-        return .files(documentFileCount: 1, files: [file.destination], warningCount: 0)
+        return .files(documentFileCount: 1, files: [file.destination])
     }
 
     private func writeMultiple(
         _ bundle: ExportBundle,
         request: ExportCLIRequest,
         outputDirectory: URL,
-        exportedAt: Date,
-        cliOutput: CLIOutput
+        exportedAt: Date
     ) throws -> ExportRunResult {
         let result: ExportDirectoryWriteResult
         if request.format == .markdown {
@@ -406,7 +313,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                     bundle,
                     to: outputDirectory,
                     layout: layout,
-                    profile: request.profile,
                     coverMode: request.options.cover
                 )
             } else {
@@ -414,7 +320,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 result = try writer.writeMarkdown(
                     bundle,
                     layout: layout,
-                    profile: request.profile,
                     coverMode: request.options.cover,
                     overwrite: request.overwrite
                 )
@@ -437,7 +342,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 try renderDocumentData(group, bundle: bundle, request: request, exportedAt: exportedAt)
             }
         }
-        return makeRunResult(result, cliOutput: cliOutput)
+        return makeRunResult(result)
     }
 
     private func renderData(
@@ -448,12 +353,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         switch request.format {
         case .json:
             try JSONExporter.render(bundle, exportedAt: exportedAt)
-        case .csv:
-            CSVExporter.render(bundle)
         case .markdown:
             Data(try renderSingle(bundle, request: request, exportedAt: exportedAt).utf8)
-        case .html:
-            Data(HTMLExporter.render(bundle).utf8)
         }
     }
 
@@ -466,23 +367,12 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         switch request.format {
         case .json:
             try JSONExporter.renderDocument(group, from: bundle, exportedAt: exportedAt)
-        case .csv:
-            CSVExporter.renderDocument(group)
         case .markdown:
             throw CLIError.internalFailure
-        case .html:
-            Data(HTMLExporter.renderDocument(group).utf8)
         }
     }
 
-    private func makeRunResult(_ result: ExportDirectoryWriteResult, cliOutput: CLIOutput) -> ExportRunResult {
-        if result.warnings.isEmpty == false {
-            cliOutput.stderr("Warning: \(result.warnings.count) export sidecar(s) could not be written.")
-        }
-        return .files(
-            documentFileCount: result.documentFileCount,
-            files: result.files,
-            warningCount: result.warnings.count
-        )
+    private func makeRunResult(_ result: ExportDirectoryWriteResult) -> ExportRunResult {
+        .files(documentFileCount: result.documentFileCount, files: result.files)
     }
 }

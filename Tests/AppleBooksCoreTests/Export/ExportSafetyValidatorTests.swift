@@ -372,7 +372,6 @@ struct ExportSafetyValidatorTests {
             _ = try ExportFileWriter.writeCompleteNoteArchiveMarkdown(
                 bundle(groups: [group]),
                 to: final,
-                profile: .plain,
                 coverMode: .file
             )
         }
@@ -391,7 +390,6 @@ struct ExportSafetyValidatorTests {
             _ = try ExportFileWriter.writeCompleteNoteArchiveMarkdown(
                 bundle(groups: [currentGroup(pk: 1, title: "One")]),
                 to: final,
-                profile: .plain,
                 coverMode: .none,
                 now: Date.init,
                 beforeArchiveRename: {

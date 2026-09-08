@@ -55,69 +55,21 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func smartMarkdownNormalizationOnlyIgnoresFrontmatterRunMetadata() throws {
+    func smartMarkdownUsesExactStableContent() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let first = Data("---\nexported_at: \"one\"\n---\nexported: body-one\n".utf8)
-        let timestampOnly = Data("---\nexported_at: \"two\"\n---\nexported: body-one\n".utf8)
-        let bodyChanged = Data("---\nexported_at: \"three\"\n---\nexported: body-two\n".utf8)
+        let first = Data("# Book\n\nfirst\n".utf8)
+        let changed = Data("# Book\n\nsecond\n".utf8)
 
-        _ = try writer.write(first, fileName: "normalized.md")
-        let unchanged = try writer.write(timestampOnly, fileName: "normalized.md", overwrite: .smart)
+        _ = try writer.write(first, fileName: "book.md")
+        let unchanged = try writer.write(first, fileName: "book.md", overwrite: .smart)
         #expect(unchanged.disposition == .unchanged)
         #expect(try Data(contentsOf: unchanged.destination) == first)
-        let updated = try writer.write(bodyChanged, fileName: "normalized.md", overwrite: .smart)
+
+        let updated = try writer.write(changed, fileName: "book.md", overwrite: .smart)
         #expect(updated.disposition == .updated)
-        #expect(try Data(contentsOf: updated.destination) == bodyChanged)
-    }
-
-    @Test
-    func markdownSmartHashOmitsSelfReferenceAndOnlyUpdatesExportedAtOnRealWrite() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        var currentDate = Date(timeIntervalSince1970: 1_700_000_000.125)
-        let writer = try ExportFileWriter(outputRoot: fixture.output, now: { currentDate })
-        let baseOptions = ObsidianMarkdownOptions(extendedFrontmatter: true, customTags: ["one"])
-        let firstProfile = MarkdownProfile(syntax: .obsidian, options: baseOptions)
-        let bundle = FixtureFactory.bundle(title: "Smart", author: "Author", note: "same")
-
-        let created = try writer.writeMarkdown(
-            bundle,
-            layout: .single(fileName: "smart.md"),
-            profile: firstProfile,
-            overwrite: .never
-        )
-        #expect(created.documentFileCount == 1)
-        let file = try #require(created.files.first)
-        let firstText = try String(contentsOf: file, encoding: .utf8)
-        #expect(firstText.contains("last-import-hash: \"") == true)
-        #expect(firstText.contains("exported_at: \"2023-11-14T22:13:20.125Z\"") == true)
-
-        currentDate = Date(timeIntervalSince1970: 1_800_000_000.5)
-        let unchanged = try writer.writeMarkdown(
-            bundle,
-            layout: .single(fileName: "smart.md"),
-            profile: firstProfile,
-            overwrite: .smart
-        )
-        #expect(unchanged.files == [file])
-        #expect(try String(contentsOf: file, encoding: .utf8) == firstText)
-
-        let changedProfile = MarkdownProfile(
-            syntax: .obsidian,
-            options: ObsidianMarkdownOptions(extendedFrontmatter: true, customTags: ["two"])
-        )
-        _ = try writer.writeMarkdown(
-            bundle,
-            layout: .single(fileName: "smart.md"),
-            profile: changedProfile,
-            overwrite: .smart
-        )
-        let changedText = try String(contentsOf: file, encoding: .utf8)
-        #expect(changedText != firstText)
-        #expect(changedText.contains("exported_at: \"2027-01-15T08:00:00.500Z\"") == true)
-        #expect(changedText.contains("  - \"two\"") == true)
+        #expect(try Data(contentsOf: updated.destination) == changed)
     }
 
     @Test
@@ -153,7 +105,6 @@ struct ExportFileWriterTests {
             Data("records=\(group.records.count)".utf8)
         }
         #expect(result.documentFileCount == 2)
-        #expect(result.warnings.isEmpty)
         #expect(result.files.map(\.lastPathComponent) == ["Same.json", "Same-2.json"])
         #expect(try result.files.map { try String(contentsOf: $0, encoding: .utf8) } == ["records=1", "records=1"])
 
@@ -224,7 +175,6 @@ struct ExportFileWriterTests {
             _ = try writer.writeMarkdown(
                 bundle,
                 layout: .perBook,
-                profile: .plain,
                 coverMode: .file
             )
         }
@@ -241,7 +191,6 @@ struct ExportFileWriterTests {
         let result = try writer.writeMarkdown(
             bundle,
             layout: .perBook,
-            profile: .plain,
             coverMode: .file
         )
         #expect(result.documentFileCount == 2)
@@ -272,42 +221,11 @@ struct ExportFileWriterTests {
         _ = try writer.writeMarkdown(
             bundle,
             layout: .perBook,
-            profile: .plain,
             coverMode: .inline
         )
         let markdown = try String(contentsOf: fixture.output.appendingPathComponent("Inline.md"), encoding: .utf8)
         #expect(markdown.contains("![Cover](data:image/png;base64,"))
         #expect(FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent("Attachments").path) == false)
-    }
-
-    @Test
-    func authorPagesReuseTheSameSafePathOwnerAndFailureDoesNotRollbackBooks() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let author = "A]]|#^/.."
-        let bundle = FixtureFactory.bundle(title: "Book", author: author)
-        let options = ObsidianMarkdownOptions(authorLinks: true, authorPages: true)
-        let profile = MarkdownProfile(syntax: .obsidian, options: options)
-        let authorStem = ExportPathComponent.safe(author, fallback: "Unknown")
-        let authors = fixture.output.appendingPathComponent("Authors", isDirectory: true)
-        try FileManager.default.createDirectory(at: authors, withIntermediateDirectories: false)
-        let existingAuthor = authors.appendingPathComponent("\(authorStem).md")
-        try Data("existing author page".utf8).write(to: existingAuthor)
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-
-        let result = try writer.writeMarkdown(
-            bundle,
-            layout: .perBook,
-            profile: profile,
-            overwrite: .never
-        )
-        #expect(result.documentFileCount == 1)
-        #expect(result.warnings == [.authorPageFailed])
-        let bookURL = fixture.output.appendingPathComponent("Book.md")
-        #expect(FileManager.default.fileExists(atPath: bookURL.path))
-        let book = try String(contentsOf: bookURL, encoding: .utf8)
-        #expect(book.contains("[[Authors/\(authorStem)|\(authorStem)]]"))
-        #expect(try String(contentsOf: existingAuthor, encoding: .utf8) == "existing author page")
     }
 
     @Test
@@ -327,7 +245,6 @@ struct ExportFileWriterTests {
             _ = try writer.writeMarkdown(
                 bundle,
                 layout: .perBook,
-                profile: .plain,
                 coverMode: .file
             )
         }

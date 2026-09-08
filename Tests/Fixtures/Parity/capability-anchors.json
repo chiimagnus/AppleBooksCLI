@@ -5,17 +5,13 @@
       "Sources/AppleBooksCore/Models/Annotation.swift",
       "Sources/AppleBooksCore/AppleBooks.swift",
       "Sources/AppleBooksCore/Mutations/MutationResult.swift",
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift",
-      "Sources/AppleBooksCore/Export/CSVExporter.swift",
       "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Models/DomainModelTests.swift",
       "Tests/AppleBooksCoreTests/AppleBooksFacadeTests.swift",
-      "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift",
       "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift",
-      "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift",
       "Tests/AppleBooksCoreTests/Export/MarkdownParityTests.swift"
     ],
     "cliHelpArgs": [
@@ -151,21 +147,6 @@
       ]
     ]
   },
-  "CSV export": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/CSVExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/CSVExporterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
   "DRM gate": {
     "owner": "core",
     "implementationPaths": [
@@ -229,81 +210,6 @@
       ]
     ]
   },
-  "HTML export": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/HTMLExporterStructureTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
-  "HTML sidebar / responsive / print": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
-  "HTML 单书折叠 + 全部折叠": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
-  "HTML 搜索": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
-  "HTML 状态持久化": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/HTMLExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/HTMLInteractionTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--format"
-      ]
-    ]
-  },
   "JSON export": {
     "owner": "core",
     "implementationPaths": [
@@ -331,10 +237,6 @@
       [
         "export",
         "--format"
-      ],
-      [
-        "export",
-        "--profile"
       ]
     ]
   },
@@ -596,22 +498,6 @@
       ]
     ]
   },
-  "author pages": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--author-pages"
-      ]
-    ]
-  },
   "author sentinel normalization": {
     "owner": "core",
     "implementationPaths": [
@@ -639,34 +525,6 @@
       [
         "backups",
         "list"
-      ]
-    ]
-  },
-  "chapter headings / annotation date / style / progress": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--chapter-headings"
-      ],
-      [
-        "export",
-        "--annotation-dates"
-      ],
-      [
-        "export",
-        "--annotation-styles"
-      ],
-      [
-        "export",
-        "--reading-progress"
       ]
     ]
   },
@@ -704,22 +562,6 @@
         "content",
         "chapter",
         "--max-chars"
-      ]
-    ]
-  },
-  "citation": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--citation"
       ]
     ]
   },
@@ -988,26 +830,6 @@
       [
         "export",
         "--underline"
-      ]
-    ]
-  },
-  "extended frontmatter/body metadata": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--extended-frontmatter"
-      ],
-      [
-        "export",
-        "--body-metadata"
       ]
     ]
   },
@@ -1489,22 +1311,6 @@
         "content",
         "chapter",
         "--config"
-      ]
-    ]
-  },
-  "tags": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/MarkdownProfile.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ObsidianMarkdownProfileTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--tag"
       ]
     ]
   },

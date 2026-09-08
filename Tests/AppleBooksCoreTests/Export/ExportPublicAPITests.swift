@@ -6,7 +6,7 @@ import Testing
 @Suite("ExportPublicAPITests")
 struct ExportPublicAPITests {
     @Test
-    func publicFacadeBuildsCanonicalBundleAndRendersEveryFormat() throws {
+    func publicFacadeBuildsCanonicalBundleAndRendersSupportedFormats() throws {
         let fixture = try Fixture(kind: .currentBook)
         defer { fixture.remove() }
 
@@ -35,17 +35,13 @@ struct ExportPublicAPITests {
             from: bundle,
             exportedAt: exportedAt
         )
-        let csv = CSVExporter.render(bundle)
-        let html = HTMLExporter.render(bundle)
         let markdown = MarkdownAnnotationExporter.render(bundle)
 
-        for data in [json, jsonDocument, csv] {
+        for data in [json, jsonDocument] {
             let text = try #require(String(data: data, encoding: .utf8))
             #expect(text.contains("public quote"))
             #expect(text.contains("deleted quote") == false)
         }
-        #expect(html.contains("public quote"))
-        #expect(html.contains("deleted quote") == false)
         #expect(markdown.contains("public quote"))
         #expect(markdown.contains("deleted quote") == false)
     }

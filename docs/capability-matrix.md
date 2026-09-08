@@ -102,14 +102,8 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | export output destination | 已实现 | confined file/dir output；默认不覆盖 unsafe/existing target |
-| Markdown export | 已实现 | plain/Obsidian profile 共用 canonical records |
+| Markdown export | 已实现 | plain Markdown；使用 canonical records |
 | JSON export | 已实现 | schemaVersion=2；保留 source-specific raw fields/warnings/statistics |
-| CSV export | 已实现 | UTF-8 BOM + CRLF + RFC4180；字符串 formula trigger neutralized |
-| HTML export | 已实现 | self-contained；用户内容只进入 escaped context |
-| HTML 搜索 | 已实现 | client-side textContent search |
-| HTML 单书折叠 + 全部折叠 | 已实现 | per-book 与全局展开/折叠 |
-| HTML 状态持久化 | 已实现 | namespaced localStorage，只存生成状态 ID |
-| HTML sidebar / responsive / print | 已实现 | sidebar、responsive、print presentation |
 | export 类型过滤 | 已实现（强化） | presentation kind 纯派生，不改 raw annotation type/style |
 | export 颜色过滤 | 已实现 | known colors + underline；unknown 不伪造已知颜色 |
 | export single/multiple file | 已实现 | single/per-document；complete archive staging 后原子发布 |
@@ -118,13 +112,8 @@
 | annotation export ordering | 已实现（CLI 等价） | EPUB CFI reading order / PDF page geometry order，稳定 fallback |
 | EPUB/PDF source scope | 已实现（CLI 等价） | `epub / pdf / all` 明确分轨，不猜 historical/unmapped source |
 | 自选有 AEAnnotation highlights 的书 | 已实现（CLI 等价） | exact stable asset ID / canonical PDF selector；missing 返回 empty，duplicate fail closed |
-| Markdown smart overwrite | 已实现（CLI 等价） | `smart / always / never`；默认 never，smart 只忽略 run-only metadata |
-| extended frontmatter/body metadata | 已实现（CLI 等价） | Obsidian profile 显式 opt-in，安全 YAML serializer |
+| Markdown smart overwrite | 已实现（CLI 等价） | `smart / always / never`；默认 never，plain Markdown 按稳定正文判定 unchanged |
 | cover inline / cover file | 已实现（CLI 等价） | 使用真实 media type；安全 filename、不覆盖 |
-| tags | 已实现（CLI 等价） | source/custom tags 稳定去重并转义 |
-| chapter headings / annotation date / style / progress | 已实现（CLI 等价） | 独立 presentation options，不改变 canonical rows |
-| citation | 已实现（CLI 等价） | EPUB 与 PDF 使用各自真实 location 语义 |
-| author pages | 已实现（CLI 等价） | optional Authors sidecar，使用同一 path confinement |
 
 ## PDF
 

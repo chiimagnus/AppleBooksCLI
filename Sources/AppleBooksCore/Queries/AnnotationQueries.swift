@@ -187,68 +187,6 @@ struct AnnotationQueries {
         )
     }
 
-    func completeNoteArchiveRawTotals() throws -> AnnotationArchiveRawTotals {
-        let schema = try AppleBooksSchema.inspect(.annotationByAssetID, on: annotationConnection)
-        let textColumns = [
-            AppleBooksSchema.Annotation.selectedText,
-            AppleBooksSchema.Annotation.representativeText,
-            AppleBooksSchema.Annotation.note,
-        ]
-        let missing = textColumns.filter { schema.contains($0) == false }
-        guard missing.isEmpty else {
-            throw SchemaCompatibilityError.missingRequiredColumns(
-                table: .annotations,
-                columns: missing.sorted()
-            )
-        }
-
-        let assetID = AppleBooksSchema.Annotation.assetID
-        let selected = AppleBooksSchema.Annotation.selectedText
-        let representative = AppleBooksSchema.Annotation.representativeText
-        let note = AppleBooksSchema.Annotation.note
-        let statement = try annotationConnection.prepare(
-            """
-            SELECT
-              \(assetID) AS asset_id,
-              SUM(CASE WHEN \(note) IS NOT NULL AND \(note) != '' THEN 1 ELSE 0 END) AS note_count,
-              SUM(CASE WHEN \(selected) IS NOT NULL AND \(selected) != '' THEN 1 ELSE 0 END) AS highlight_count,
-              SUM(
-                CASE WHEN \(note) IS NOT NULL AND \(note) != ''
-                  AND NOT (
-                    (\(selected) IS NOT NULL AND \(selected) != '')
-                    OR (\(representative) IS NOT NULL AND \(representative) != '')
-                  )
-                THEN 1 ELSE 0 END
-              ) AS note_without_quote_count
-            FROM \(AppleBooksTable.annotations.rawValue)
-            WHERE \(Self.scopePredicate(.activeRaw))
-            GROUP BY \(assetID)
-            ORDER BY \(assetID) IS NULL, \(assetID) COLLATE BINARY
-            """
-        )
-
-        var totals = AnnotationArchiveRawTotals()
-        while try statement.step() {
-            let row = try SQLiteRow(statement: statement)
-            let rawAssetID = try row.text("asset_id")
-            let noteCount = Int(try row.int64("note_count") ?? 0)
-            let highlightCount = Int(try row.int64("highlight_count") ?? 0)
-            let noteWithoutQuoteCount = Int(try row.int64("note_without_quote_count") ?? 0)
-            let source = try source(for: rawAssetID)
-            if case let .currentLibrary(book) = source, book.contentType == 3 {
-                continue
-            }
-
-            totals.noteCount += noteCount
-            totals.highlightCount += highlightCount
-            totals.noteWithoutQuoteCount += noteWithoutQuoteCount
-            if case .unmapped = source {
-                totals.unmappedNoteCount += noteCount
-            }
-        }
-        return totals
-    }
-
     private static func scopePredicate(_ scope: AnnotationScope) -> String {
         var predicate = "\(AppleBooksSchema.Annotation.isDeleted) = 0"
         if scope == .user {

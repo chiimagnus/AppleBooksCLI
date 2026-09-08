@@ -106,7 +106,7 @@
 | JSON export | 已实现 | schemaVersion=2；保留 source-specific raw fields/warnings/statistics |
 | export 类型过滤 | 已实现（强化） | presentation kind 纯派生，不改 raw annotation type/style |
 | export 颜色过滤 | 已实现 | known colors + underline；unknown 不伪造已知颜色 |
-| export single/multiple file | 已实现 | single/per-document；complete archive staging 后原子发布 |
+| export single/multiple file | 已实现 | single/per-document；统一经过 confinement/overwrite file writer |
 | partial export offset | 已实现 | 在最终 selection/order 后按 book skip |
 | export statistics | 已实现 | final selection stats 与 sourceTotals 分开 |
 | annotation export ordering | 已实现（CLI 等价） | EPUB CFI reading order / PDF page geometry order，稳定 fallback |
@@ -152,8 +152,6 @@
 | current / historical / unmapped source 区分 | 已实现 | historical metadata 不授予 current content identity |
 | orphan annotations 不因 current BKLibrary 缺 row 而消失 | 已实现 | annotation-first query；library 只 enrichment |
 | 原始 physical/range/type/style/UUID 字段完整 export | 已实现 | canonical raw identity/location/style 不被 renderer 改写 |
-| 导出数量与 raw SQLite count 校验 | 已实现 | complete-notes archive 才启用 raw aggregate completeness gate |
-| note-bearing historical asset 必须可识别 | 已实现 | complete archive 对未映射 note-bearing historical row fail closed |
 
 ## 当前明确不支持
 

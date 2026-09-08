@@ -1070,22 +1070,6 @@
       ]
     ]
   },
-  "note-bearing historical asset 必须可识别": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
-      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--complete-notes"
-      ]
-    ]
-  },
   "orphan annotations 不因 current BKLibrary 缺 row 而消失": {
     "owner": "core",
     "implementationPaths": [
@@ -1471,22 +1455,6 @@
       [
         "export",
         "--format"
-      ]
-    ]
-  },
-  "导出数量与 raw SQLite count 校验": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportSafetyValidator.swift",
-      "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportSafetyValidatorTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--complete-notes"
       ]
     ]
   },

@@ -133,9 +133,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Cover mode: none, inline, or file.")
     var cover: ExportCoverArgument?
 
-    @Flag(name: .customLong("complete-notes"), help: "Enable fail-closed complete note archive validation.")
-    var completeNotes = false
-
     @Option(name: .long, help: "Existing-file policy: never, smart, or always.")
     var overwrite: ExportOverwriteArgument?
 
@@ -156,11 +153,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         if global.json {
             throw ValidationError("`export` does not accept --json; use --format json.")
         }
-        if completeNotes, book.isEmpty == false || bookPK.isEmpty == false || kind.isEmpty == false ||
-            color.isEmpty == false || underline {
-            throw ValidationError("--complete-notes cannot be combined with book, kind, color, or underline filters.")
-        }
-
         let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
         let kinds = kind.isEmpty ? defaults.kinds : Set(kind.map(\.coreValue))
@@ -182,8 +174,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 skipFirstPerBook: resolvedSkip,
                 grouping: resolvedGrouping,
                 includeEPUBMetadata: includeEPUBMetadata,
-                cover: resolvedCover,
-                completeNotes: completeNotes
+                cover: resolvedCover
             )
         }
 
@@ -236,9 +227,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             if overwrite != nil {
                 throw ValidationError("--overwrite requires --output.")
             }
-        }
-        if request.options.completeNotes, request.producesMultipleFiles, request.overwrite != .never {
-            throw ValidationError("Multi-file --complete-notes export requires --overwrite never and a new output directory.")
         }
     }
 
@@ -304,36 +292,18 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         exportedAt: Date
     ) throws -> ExportRunResult {
         let result: ExportDirectoryWriteResult
+        let writer = try ExportFileWriter(outputRoot: outputDirectory)
         if request.format == .markdown {
             let layout: ExportFileLayout = request.options.grouping == .perBook
                 ? .perBook
                 : .single(fileName: "apple-books-export.md")
-            if request.options.completeNotes {
-                result = try ExportFileWriter.writeCompleteNoteArchiveMarkdown(
-                    bundle,
-                    to: outputDirectory,
-                    layout: layout,
-                    coverMode: request.options.cover
-                )
-            } else {
-                let writer = try ExportFileWriter(outputRoot: outputDirectory)
-                result = try writer.writeMarkdown(
-                    bundle,
-                    layout: layout,
-                    coverMode: request.options.cover,
-                    overwrite: request.overwrite
-                )
-            }
-        } else if request.options.completeNotes {
-            result = try ExportFileWriter.writeCompleteNoteArchiveDocuments(
+            result = try writer.writeMarkdown(
                 bundle,
-                to: outputDirectory,
-                fileExtension: request.format.fileExtension
-            ) { group in
-                try renderDocumentData(group, bundle: bundle, request: request, exportedAt: exportedAt)
-            }
+                layout: layout,
+                coverMode: request.options.cover,
+                overwrite: request.overwrite
+            )
         } else {
-            let writer = try ExportFileWriter(outputRoot: outputDirectory)
             result = try writer.writeDocuments(
                 bundle,
                 fileExtension: request.format.fileExtension,

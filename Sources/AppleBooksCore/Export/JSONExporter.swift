@@ -78,8 +78,7 @@ private struct JSONExportMapper {
             skipFirstPerBook: value.skipFirstPerBook,
             grouping: value.grouping.rawValue,
             includeEPUBMetadata: value.includeEPUBMetadata,
-            cover: value.cover.rawValue,
-            completeNotes: value.completeNotes
+            cover: value.cover.rawValue
         )
     }
 
@@ -263,7 +262,6 @@ private struct JSONOptionsDTO: Encodable {
     let grouping: String
     let includeEPUBMetadata: Bool
     let cover: String
-    let completeNotes: Bool
 }
 
 private struct JSONBookSelectorDTO: Encodable {

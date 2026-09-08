@@ -64,26 +64,9 @@ struct ExportPublicAPITests {
         }
     }
 
-    @Test
-    func publicFacadeCannotBypassCompleteArchiveSafetyPreflight() throws {
-        let fixture = try Fixture(kind: .unmappedNote)
-        defer { fixture.remove() }
-
-        let core = try AppleBooks(
-            libraryDB: fixture.library,
-            annotationsDB: fixture.annotations,
-            configurationFile: fixture.configuration
-        )
-
-        #expect(throws: ExportSafetyValidationError.unmappedNotes(count: 1)) {
-            _ = try core.exportBundle(options: ExportOptions(completeNotes: true))
-        }
-    }
-
     private final class Fixture {
         enum Kind {
             case currentBook
-            case unmappedNote
         }
 
         let root: URL
@@ -107,12 +90,6 @@ struct ExportPublicAPITests {
                 INSERT INTO ZAEANNOTATION VALUES
                   (1,'uuid-public','asset-a',0,0,1,1,10,20,'public quote','public representative',NULL,'epubcfi(/6/2[ch]!/4/2,:1,:2)',1,2,3,'ch'),
                   (2,'uuid-deleted','asset-a',1,0,1,1,11,21,'deleted quote','deleted representative',NULL,NULL,NULL,NULL,NULL,NULL);
-                """
-            case .unmappedNote:
-                bookRows = ""
-                annotationRows = """
-                INSERT INTO ZAEANNOTATION VALUES
-                  (1,'uuid-unmapped','missing-asset',0,0,1,1,10,20,'quoted text','representative','unmapped note',NULL,NULL,NULL,NULL,NULL);
                 """
             }
 

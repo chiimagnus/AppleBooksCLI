@@ -68,7 +68,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-File outputs use guarded destination/overwrite handling. `--complete-notes` is the strict completeness mode; if it fails, an ordinary export is not an equivalent complete archive.
+File outputs use guarded destination/overwrite handling.
 
 ## Safe writes and iCloud sync
 

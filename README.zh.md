@@ -68,7 +68,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-文件输出统一经过 destination/overwrite 安全边界。`--complete-notes` 是严格完整性模式；它失败时，普通 export 不能等价称为完整归档。
+文件输出统一经过 destination/overwrite 安全边界。
 
 ## 安全写入与 iCloud 同步
 

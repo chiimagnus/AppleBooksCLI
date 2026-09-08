@@ -18,7 +18,6 @@ struct ExportOptionsTests {
         #expect(options.grouping == .single)
         #expect(options.includeEPUBMetadata == false)
         #expect(options.cover == .none)
-        #expect(options.completeNotes == false)
 
         #expect(throws: ExportOptionsError.emptyKinds) {
             _ = try ExportOptions(kinds: [])
@@ -49,12 +48,6 @@ struct ExportOptionsTests {
         }
         #expect(throws: ExportOptionsError.conflictingOptions) {
             _ = try ExportOptions(source: .pdf, cover: .inline)
-        }
-        #expect(throws: ExportOptionsError.conflictingOptions) {
-            _ = try ExportOptions(bookSelectors: [.localPK(1)], completeNotes: true)
-        }
-        #expect(throws: ExportOptionsError.conflictingOptions) {
-            _ = try ExportOptions(source: .pdf, completeNotes: true)
         }
     }
 

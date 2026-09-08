@@ -58,33 +58,15 @@ struct ExportCommandTests {
         #expect(request.options.grouping == .perBook)
         #expect(request.options.includeEPUBMetadata)
         #expect(request.options.cover == .file)
-        #expect(request.options.completeNotes == false)
         #expect(request.overwrite == .smart)
         #expect(request.outputURL?.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
     }
 
     @Test
-    func completeNotesAndFormatSpecificInvalidCombinationsFailBeforeDatabaseIO() throws {
+    func invalidOptionsFailBeforeDatabaseIO() throws {
         let missing = "/definitely/missing/applebooks.sqlite"
         let global = ["--library-db", missing, "--annotations-db", missing]
-
-        let filtered = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--kind", "highlight",
-            "--kind", "note",
-        ] + global)
-        #expect(throws: ValidationError.self) { _ = try filtered.makeRequest() }
-
-        let incompatibleSource = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--source", "pdf",
-        ] + global)
-        #expect(throws: CLIError.usageInvalid("Export options conflict.")) {
-            _ = try incompatibleSource.makeRequest()
-        }
 
         let negativeSkip = try ExportCommand.parse([
             "--format", "json",
@@ -99,15 +81,6 @@ struct ExportCommandTests {
             "--grouping", "per-book",
         ] + global)
         #expect(throws: ValidationError.self) { _ = try noDirectory.makeRequest() }
-
-        let completeOverwrite = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--grouping", "per-book",
-            "--overwrite", "smart",
-            "--output", "/tmp/archive",
-        ] + global)
-        #expect(throws: ValidationError.self) { _ = try completeOverwrite.makeRequest() }
 
         let nonMarkdownFileCover = try ExportCommand.parse([
             "--format", "json",
@@ -207,68 +180,6 @@ struct ExportCommandTests {
         #expect(Set(files.map(\.pathExtension)) == ["json"])
     }
 
-    @Test
-    func completeNoteSafetyFailureIsTranslatedAndWritesNothing() throws {
-        let fixture = try Fixture(kind: .unmappedNote)
-        defer { fixture.remove() }
-        let destination = fixture.root.appendingPathComponent("archive.json")
-        let command = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--output", destination.path,
-        ])
-
-        #expect(throws: CLIError.writeSafety("Complete-note archive safety validation failed.")) {
-            _ = try command.execute(using: fixture.core(), output: Capture().output)
-        }
-        #expect(FileManager.default.fileExists(atPath: destination.path) == false)
-    }
-
-    @Test
-    func completePerBookArchivePublishesThroughStagingAndNeverMixesExistingDirectory() throws {
-        let fixture = try Fixture(kind: .twoBooks)
-        defer { fixture.remove() }
-        let archive = fixture.root.appendingPathComponent("complete", isDirectory: true)
-        let command = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--grouping", "per-book",
-            "--output", archive.path,
-        ])
-
-        let result = try command.execute(using: fixture.core(), output: Capture().output)
-        guard case let .files(documentFileCount, files) = result else {
-            Issue.record("expected file result")
-            return
-        }
-        #expect(documentFileCount == 2)
-        #expect(files.count == 2)
-        #expect(files.allSatisfy { $0.path.hasPrefix(archive.path + "/") })
-        #expect(try stagingNames(in: fixture.root).isEmpty)
-
-        let existing = fixture.root.appendingPathComponent("existing", isDirectory: true)
-        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: false)
-        let marker = existing.appendingPathComponent("keep.txt")
-        try Data("keep".utf8).write(to: marker)
-        let existingCommand = try ExportCommand.parse([
-            "--format", "json",
-            "--complete-notes",
-            "--grouping", "per-book",
-            "--output", existing.path,
-        ])
-        #expect(throws: CLIError.writeSafety("Output path is unsafe or already exists.")) {
-            _ = try existingCommand.execute(using: fixture.core(), output: Capture().output)
-        }
-        #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
-        #expect(try stagingNames(in: fixture.root).isEmpty)
-    }
-
-    private func stagingNames(in parent: URL) throws -> [String] {
-        try FileManager.default.contentsOfDirectory(atPath: parent.path).filter {
-            $0.hasPrefix(".applebookscli-archive-") && $0.hasSuffix(".staging")
-        }
-    }
-
     private final class Capture {
         var stdout = ""
         var stderr = ""
@@ -284,7 +195,6 @@ struct ExportCommandTests {
     private final class Fixture {
         enum Kind {
             case twoBooks
-            case unmappedNote
         }
 
         let root: URL
@@ -318,20 +228,6 @@ struct ExportCommandTests {
                 INSERT INTO ZAEANNOTATION VALUES
                   (1,'uuid-a','asset-a',0,0,1,1,10,20,'Quote A','Representative A','Note A','epubcfi(/6/2[a]!/4/2,:1,:2)',1,2,3,'Chapter A'),
                   (2,'uuid-b','asset-b',0,0,2,1,11,21,'Quote B','Representative B','Note B','epubcfi(/6/2[b]!/4/2,:1,:2)',4,5,6,'Chapter B');
-                """)
-            case .unmappedNote:
-                try Self.createDatabase(library, sql: """
-                CREATE TABLE ZBKLIBRARYASSET(
-                  Z_PK INTEGER PRIMARY KEY,
-                  ZASSETID TEXT,
-                  ZTITLE TEXT,
-                  ZAUTHOR TEXT,
-                  ZCONTENTTYPE INTEGER
-                );
-                """)
-                try Self.createDatabase(annotations, sql: Self.annotationSchema + """
-                INSERT INTO ZAEANNOTATION VALUES
-                  (1,'uuid-orphan','missing-asset',0,0,1,1,10,20,'Private Quote','Private Representative','Private Note',NULL,NULL,NULL,NULL,NULL);
                 """)
             }
         }

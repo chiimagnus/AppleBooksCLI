@@ -7,32 +7,103 @@ import Testing
 @Suite("ChapterCommandTests")
 struct ChapterCommandTests {
     @Test
-    func chaptersPreserveNestedTOCIdentityFragmentsAndDepth() throws {
+    func chaptersUseBoundedSummaryCursorAndEveryOrderFeedsCanonicalChapterRead() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let result = try fixture.runJSON(
-            ContentChaptersResult.self,
-            arguments: ["content", "chapters", "12"]
+        var page = try fixture.runJSON(
+            ContentChaptersPageResult.self,
+            arguments: ["content", "chapters", "--book", "12", "--limit", "40"]
         )
-        #expect(result.bookLocalPK == 1)
-        #expect(result.bookAssetID == "12")
-        #expect(result.chapters.map(\.id) == ["1", "2", "chapter-two"])
-        #expect(result.chapters.map(\.title) == ["One", "Two", "Three"])
-        #expect(result.chapters.map(\.href) == [
-            "OPS/Text/ch1.xhtml",
-            "OPS/Text/ch1.xhtml",
-            "OPS/Text/ch2.xhtml",
-        ])
-        #expect(result.chapters.map(\.fragment) == ["one", "two", ""])
-        #expect(result.chapters.map(\.order) == [1, 2, 3])
-        #expect(result.chapters.map(\.depth) == [0, 1, 1])
+        #expect(page.bookAssetID == "12")
+        #expect(page.bookLocalPK == nil)
+        #expect(page.items.count == 40)
+        #expect(page.items.prefix(3).map(\.chapterOrder) == [1, 2, 3])
+        #expect(page.items.prefix(3).map(\.title) == ["One", "Two", "Three"])
+        #expect(page.items.prefix(3).map(\.depth) == [0, 1, 1])
+
+        var allItems = page.items
+        while let cursor = page.nextCursor {
+            page = try fixture.runJSON(
+                ContentChaptersPageResult.self,
+                arguments: ["content", "chapters", "--book", "12", "--limit", "37", "--cursor", cursor]
+            )
+            allItems += page.items
+        }
+        #expect(page.hasMore == false)
+        #expect(allItems.count == 105)
+        #expect(allItems.map(\.chapterOrder) == Array(1...105))
+        #expect(Set(allItems.map(\.chapterOrder)).count == 105)
+        let longTitle = try #require(allItems.first(where: { $0.chapterOrder == 105 }))
+        #expect(longTitle.title.count == 512)
+        #expect(longTitle.truncatedFields == ["title"])
+
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["content", "chapters", "--book", "12", "--limit", "1"] + fixture.globalArguments,
+            output: capture.output
+        )
+        #expect(code == CLIProcessExit.success.rawValue)
+        let json = try #require(JSONSerialization.jsonObject(with: Data(capture.stdout.utf8)) as? [String: Any])
+        let items = try #require(json["items"] as? [[String: Any]])
+        let firstJSON = try #require(items.first)
+        #expect(Set(firstJSON.keys) == Set(["chapterOrder", "title", "depth", "truncatedFields"]))
+        for hidden in ["id", "href", "fragment", "order"] {
+            #expect(firstJSON[hidden] == nil)
+        }
 
         let byPK = try fixture.runJSON(
-            ContentChaptersResult.self,
-            arguments: ["content", "chapters", "--pk", "1"]
+            ContentChaptersPageResult.self,
+            arguments: ["content", "chapters", "--book-pk", "1", "--limit", "3"]
         )
-        #expect(byPK.chapters == result.chapters)
+        #expect(byPK.bookAssetID == "12")
+        #expect(byPK.bookLocalPK == nil)
+        #expect(byPK.items.map(\.chapterOrder) == [1, 2, 3])
+
+        for order in 1...105 {
+            let body = try fixture.runJSON(
+                ContentChapterPageResult.self,
+                arguments: ["content", "chapter", "--book", "12", "--chapter", String(order), "--max-chars", "1"]
+            )
+            #expect(body.chapterOrder == order)
+            #expect(body.content.isEmpty == false)
+        }
+    }
+
+    @Test
+    func chaptersCursorBindsSelectorAndStalesWhenNavigationChanges() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let first = try fixture.runJSON(
+            ContentChaptersPageResult.self,
+            arguments: ["content", "chapters", "--book", "12", "--limit", "2"]
+        )
+        let cursor = try #require(first.nextCursor)
+
+        let mismatch = Capture()
+        let mismatchCode = CLIEntrypoint.run(
+            arguments: ["content", "chapters", "--book-pk", "1", "--cursor", cursor] + fixture.globalArguments,
+            output: mismatch.output
+        )
+        #expect(mismatchCode == CLIProcessExit.usageInvalid.rawValue)
+        #expect(mismatch.stdout.isEmpty)
+
+        try fixture.replaceNavigationTitle()
+        let stale = Capture()
+        let staleCode = CLIEntrypoint.run(
+            arguments: ["content", "chapters", "--book", "12", "--cursor", cursor] + fixture.globalArguments,
+            output: stale.output
+        )
+        #expect(staleCode == CLIProcessExit.unavailable.rawValue)
+        #expect(stale.stdout.isEmpty)
+        #expect(try fixture.decode(CLIErrorEnvelope.self, stale.stderr).error.message == "Pagination cursor is stale. Restart from the first page.")
+
+        let restarted = try fixture.runJSON(
+            ContentChaptersPageResult.self,
+            arguments: ["content", "chapters", "--book", "12", "--limit", "4"]
+        )
+        #expect(restarted.items.map(\.chapterOrder) == [1, 2, 3, 4])
+        #expect(restarted.items.last?.title == "Changed Extra 4")
     }
 
     @Test
@@ -152,15 +223,20 @@ struct ChapterCommandTests {
         try fixture.insertBook(localPK: 12, assetID: "path-huge", path: String(repeating: "z", count: 2 * 1_024 * 1_024))
 
         for assetID in ["path-4096", "path-4097", "path-huge"] {
-            let capture = Capture()
-            let code = CLIEntrypoint.run(
-                arguments: ["content", "chapter", "--book", assetID, "--chapter", "1"] + fixture.globalArguments,
-                output: capture.output
-            )
-            #expect(code == CLIProcessExit.unavailable.rawValue)
-            #expect(capture.stdout.isEmpty)
-            #expect(capture.stderr.contains(String(repeating: "z", count: 128)) == false)
-            #expect(capture.stderr.contains(String(repeating: "y", count: 128)) == false)
+            for command in [
+                ["content", "chapter", "--book", assetID, "--chapter", "1"],
+                ["content", "chapters", "--book", assetID],
+            ] {
+                let capture = Capture()
+                let code = CLIEntrypoint.run(
+                    arguments: command + fixture.globalArguments,
+                    output: capture.output
+                )
+                #expect(code == CLIProcessExit.unavailable.rawValue)
+                #expect(capture.stdout.isEmpty)
+                #expect(capture.stderr.contains(String(repeating: "z", count: 128)) == false)
+                #expect(capture.stderr.contains(String(repeating: "y", count: 128)) == false)
+            }
         }
     }
 
@@ -180,6 +256,13 @@ struct ChapterCommandTests {
             ["content", "chapter", "--book", "12", "--book-pk", "1", "--chapter", "1"],
             ["content", "chapter", "12", "1"],
             ["content", "chapter", "--book", "12", "--chapter", "1", "--offset", "1"],
+            ["content", "chapters", "--book", "12", "--limit", "0"],
+            ["content", "chapters", "--book", "12", "--limit", "101"],
+            ["content", "chapters", "--book", "12", "--cursor", "!"],
+            ["content", "chapters"],
+            ["content", "chapters", "--book", "12", "--book-pk", "1"],
+            ["content", "chapters", "12"],
+            ["content", "chapters", "--book", "12", "--offset", "1"],
         ]
         for arguments in invalidCases {
             let capture = Capture()
@@ -200,11 +283,21 @@ struct ChapterCommandTests {
         #expect(help.stdout.contains("--offset") == false)
         #expect(help.stdout.contains("ARGUMENTS:") == false)
 
+        let chaptersHelp = Capture()
+        let chaptersHelpCode = CLIEntrypoint.run(arguments: ["content", "chapters", "--help"], output: chaptersHelp.output)
+        #expect(chaptersHelpCode == CLIProcessExit.success.rawValue)
+        #expect(chaptersHelp.stderr.isEmpty)
+        for flag in ["--book", "--book-pk", "--limit", "--cursor"] {
+            #expect(chaptersHelp.stdout.contains(flag))
+        }
+        #expect(chaptersHelp.stdout.contains("--offset") == false)
+        #expect(chaptersHelp.stdout.contains("ARGUMENTS:") == false)
+
         let fixture = try Fixture()
         defer { fixture.remove() }
         let missingChapter = Capture()
         let missingCode = CLIEntrypoint.run(
-            arguments: ["content", "chapter", "--book", "12", "--chapter", "99"] + fixture.globalArguments,
+            arguments: ["content", "chapter", "--book", "12", "--chapter", "999"] + fixture.globalArguments,
             output: missingChapter.output
         )
         #expect(missingCode == CLIProcessExit.notFound.rawValue)
@@ -314,6 +407,14 @@ struct ChapterCommandTests {
                 .write(to: epub.appendingPathComponent("OPS/Text/ch1.xhtml"))
         }
 
+        func replaceNavigationTitle() throws {
+            let url = epub.appendingPathComponent("OPS/nav.xhtml")
+            let original = try String(contentsOf: url, encoding: .utf8)
+            let changed = original.replacingOccurrences(of: ">Extra 4<", with: ">Changed Extra 4<")
+            guard changed != original else { throw FixtureError.epub }
+            try Data(changed.utf8).write(to: url)
+        }
+
         func insertBook(localPK: Int64, assetID: String, path: String) throws {
             var handle: OpaquePointer?
             guard sqlite3_open(library.path, &handle) == SQLITE_OK, let handle else { throw FixtureError.sqlite }
@@ -366,22 +467,32 @@ struct ChapterCommandTests {
               <rootfiles><rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
             </container>
             """.utf8).write(to: epub.appendingPathComponent("META-INF/container.xml"))
-            try Data("""
+
+            let longRawID = String(repeating: "raw-id-", count: 1_300)
+            let package = """
             <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
               <manifest>
                 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
                 <item id="chapter-one" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
                 <item id="chapter-two" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
                 <item id="appendix" href="Text/appendix.xhtml" media-type="application/xhtml+xml"/>
+                <item id="\(longRawID)" href="Text/extras.xhtml" media-type="application/xhtml+xml"/>
               </manifest>
               <spine>
                 <itemref idref="chapter-one"/>
                 <itemref idref="chapter-two"/>
                 <itemref idref="appendix"/>
+                <itemref idref="\(longRawID)"/>
               </spine>
             </package>
-            """.utf8).write(to: epub.appendingPathComponent("OPS/package.opf"))
-            try Data("""
+            """
+            try Data(package.utf8).write(to: epub.appendingPathComponent("OPS/package.opf"))
+
+            let extraLinks = (4...105).map { order -> String in
+                let title = order == 105 ? String(repeating: "T", count: 700) : "Extra \(order)"
+                return "<li><a href=\"Text/extras.xhtml#extra-\(order)\">\(title)</a></li>"
+            }.joined()
+            let navigation = """
             <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
               <body>
                 <nav epub:type="toc">
@@ -392,11 +503,14 @@ struct ChapterCommandTests {
                         <li><a href="Text/ch2.xhtml">Three</a></li>
                       </ol>
                     </li>
+                    \(extraLinks)
                   </ol>
                 </nav>
               </body>
             </html>
-            """.utf8).write(to: epub.appendingPathComponent("OPS/nav.xhtml"))
+            """
+            try Data(navigation.utf8).write(to: epub.appendingPathComponent("OPS/nav.xhtml"))
+
             try Data("""
             <html xmlns="http://www.w3.org/1999/xhtml"><body>
               <p id="one">A🇸🇬e\u{301}中🙂Z</p>
@@ -407,6 +521,9 @@ struct ChapterCommandTests {
                 .write(to: epub.appendingPathComponent("OPS/Text/ch2.xhtml"))
             try Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>Appendix body</p></body></html>".utf8)
                 .write(to: epub.appendingPathComponent("OPS/Text/appendix.xhtml"))
+            let extraBodies = (4...105).map { "<p id=\"extra-\($0)\">extra body \($0)</p>" }.joined()
+            try Data("<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>\(extraBodies)</body></html>".utf8)
+                .write(to: epub.appendingPathComponent("OPS/Text/extras.xhtml"))
         }
 
         private static func makeOrderConflictEPUB(at epub: URL) throws {
@@ -477,5 +594,6 @@ struct ChapterCommandTests {
 
     private enum FixtureError: Error {
         case sqlite
+        case epub
     }
 }

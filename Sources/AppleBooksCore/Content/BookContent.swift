@@ -16,6 +16,20 @@ package struct SemanticChapterContinuationPage: Equatable, Sendable {
     package let nextCursor: String?
 }
 
+package struct SemanticChapterSummary: Equatable, Sendable {
+    package let chapterOrder: Int
+    package let title: String
+    package let depth: Int
+}
+
+package struct SemanticChapterListPage: Equatable, Sendable {
+    package let bookLocalPK: Int64
+    package let bookAssetID: String?
+    package let items: [SemanticChapterSummary]
+    package let nextCursor: String?
+    package let hasMore: Bool
+}
+
 package enum ChapterContinuationPolicy {
     package static let defaultMaximumCharacters = 4_000
     package static let maximumCharacters = 16_000
@@ -84,25 +98,10 @@ public final class BookContent {
             chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
         }
 
-        let generation: CursorGenerationComponent
-        if let directory = package.reader as? DirectoryEPUBResourceReader {
-            var paths = [
-                try EPUBPath.resolve(reference: "META-INF/container.xml"),
-                package.packageDocument,
-            ]
-            for item in package.manifest.values where
-                item.properties.contains("nav") || item.mediaType == "application/x-dtbncx+xml" {
-                if try directory.contains(item.path) { paths.append(item.path) }
-            }
-            let encryption = try EPUBPath.resolve(reference: "META-INF/encryption.xml")
-            if try directory.contains(encryption) { paths.append(encryption) }
-            generation = try directory.cursorGenerationComponent(label: "reading-context", paths: paths)
-        } else if let archive = package.reader as? ZIPEPUBResourceReader {
-            generation = try .regularFile(label: "reading-context", url: archive.fileURL)
-        } else {
-            generation = try .synthetic(label: "reading-context", value: "parsed")
-        }
-        return (chapterOrder, generation)
+        return (
+            chapterOrder,
+            try navigationCursorGenerationComponent(label: "reading-context")
+        )
     }
 
     public func getChapter(_ selector: String) throws -> String {
@@ -185,25 +184,39 @@ public final class BookContent {
         return page
     }
 
+    func chapterListCursorGenerationComponent() throws -> CursorGenerationComponent {
+        try navigationCursorGenerationComponent(label: "chapter-list")
+    }
+
     func chapterCursorGenerationComponent(for chapter: Chapter) throws -> CursorGenerationComponent {
+        try navigationCursorGenerationComponent(
+            label: "chapter-source",
+            additionalDirectoryPaths: [try chapterResourcePath(chapter)]
+        )
+    }
+
+    private func navigationCursorGenerationComponent(
+        label: String,
+        additionalDirectoryPaths: [EPUBPath] = []
+    ) throws -> CursorGenerationComponent {
         if let directory = package.reader as? DirectoryEPUBResourceReader {
             var paths = [
                 try EPUBPath.resolve(reference: "META-INF/container.xml"),
                 package.packageDocument,
-                try chapterResourcePath(chapter),
             ]
+            paths.append(contentsOf: additionalDirectoryPaths)
             for item in package.manifest.values where
                 item.properties.contains("nav") || item.mediaType == "application/x-dtbncx+xml" {
                 if try directory.contains(item.path) { paths.append(item.path) }
             }
             let encryption = try EPUBPath.resolve(reference: "META-INF/encryption.xml")
             if try directory.contains(encryption) { paths.append(encryption) }
-            return try directory.cursorGenerationComponent(label: "chapter-source", paths: paths)
+            return try directory.cursorGenerationComponent(label: label, paths: paths)
         }
         if let archive = package.reader as? ZIPEPUBResourceReader {
-            return try .regularFile(label: "chapter-source", url: archive.fileURL)
+            return try .regularFile(label: label, url: archive.fileURL)
         }
-        return try .synthetic(label: "chapter-source", value: "parsed")
+        return try .synthetic(label: label, value: "parsed")
     }
 
     func resolveChapter(_ selector: String) throws -> Chapter {

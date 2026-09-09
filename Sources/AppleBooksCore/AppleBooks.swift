@@ -851,20 +851,41 @@ public final class AppleBooks {
         try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: try requiredConfiguration()))
     }
 
+    package func semanticChapterListPage(
+        bookAssetID assetID: String,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> SemanticChapterListPage? {
+        guard let target = try requiredBookQueries().uniqueResourceTarget(assetID: assetID) else { return nil }
+        return try semanticChapterListPage(
+            target: target,
+            selector: .assetID(assetID),
+            limit: limit,
+            cursor: cursor
+        )
+    }
+
+    package func semanticChapterListPage(
+        bookLocalPK localPK: Int64,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> SemanticChapterListPage? {
+        guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
+        return try semanticChapterListPage(
+            target: target,
+            selector: .localPK(localPK),
+            limit: limit,
+            cursor: cursor
+        )
+    }
+
     package func semanticChapterPage(
         bookAssetID assetID: String,
         chapterOrder: Int,
         maximumCharacters: Int? = nil,
         cursor: String? = nil
     ) throws -> SemanticChapterContinuationPage? {
-        let queries = try requiredBookQueries()
-        guard let multiplicity = try queries.identityMultiplicity(assetIDs: [assetID])[assetID] else {
-            return nil
-        }
-        guard multiplicity.count == 1, let localPK = multiplicity.uniqueLocalPK else {
-            throw StableIdentityError.ambiguousBookAssetID
-        }
-        guard let target = try queries.resourceTarget(localPK: localPK) else { return nil }
+        guard let target = try requiredBookQueries().uniqueResourceTarget(assetID: assetID) else { return nil }
         return try semanticChapterPage(
             target: target,
             selector: .assetID(assetID),
@@ -890,14 +911,79 @@ public final class AppleBooks {
         )
     }
 
-    private enum ChapterPageBookSelector {
+    private enum ContentBookSelector {
         case assetID(String)
         case localPK(Int64)
     }
 
+    private func semanticChapterListPage(
+        target: BookResourceTarget,
+        selector: ContentBookSelector,
+        limit: Int?,
+        cursor: String?
+    ) throws -> SemanticChapterListPage {
+        guard target.path != nil else { throw ContentError.bookPathUnavailable }
+        let effectiveLimit = try resolvedCursorPageLimit(limit)
+        let selected = try EPUBSourceResolver.resolve(
+            for: target,
+            configuration: try requiredConfiguration()
+        ).requireReader()
+        let content = try BookContent(reader: selected.reader)
+        let beforeGeneration = try CursorGeneration.compose([
+            content.chapterListCursorGenerationComponent(),
+        ])
+        let session = try CursorPaginationSession(
+            cursor: cursor,
+            fingerprint: try chapterListFingerprint(selector: selector),
+            generation: beforeGeneration
+        )
+        let anchorOrder = try chapterListOrder(from: session.locator)
+        let chapters = try content.listChapters()
+        var previousOrder = 0
+        for chapter in chapters {
+            guard chapter.order > previousOrder else {
+                throw CursorPaginationError.internalContractFailure
+            }
+            previousOrder = chapter.order
+        }
+        if let anchorOrder,
+           chapters.contains(where: { $0.order == anchorOrder }) == false {
+            throw CursorPaginationError.staleCursor
+        }
+        let candidates = Array(
+            chapters.lazy
+                .filter { chapter in anchorOrder.map { chapter.order > $0 } ?? true }
+                .prefix(effectiveLimit + 1)
+                .map {
+                    SemanticChapterSummary(
+                        chapterOrder: $0.order,
+                        title: $0.title,
+                        depth: $0.depth
+                    )
+                }
+        )
+        let hasMore = candidates.count > effectiveLimit
+        let items = Array(candidates.prefix(effectiveLimit))
+        let afterGeneration = try CursorGeneration.compose([
+            content.chapterListCursorGenerationComponent(),
+        ])
+        let nextCursor = try session.nextCursor(
+            after: afterGeneration,
+            hasMore: hasMore,
+            locator: hasMore ? try items.last.map { try CursorLocator(words: [UInt64($0.chapterOrder)]) } : nil
+        )
+        return SemanticChapterListPage(
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
+            items: items,
+            nextCursor: nextCursor,
+            hasMore: hasMore
+        )
+    }
+
     private func semanticChapterPage(
         target: BookResourceTarget,
-        selector: ChapterPageBookSelector,
+        selector: ContentBookSelector,
         chapterOrder: Int,
         maximumCharacters: Int?,
         cursor: String?
@@ -958,27 +1044,49 @@ public final class AppleBooks {
         )
     }
 
+    private func chapterListFingerprint(selector: ContentBookSelector) throws -> CursorQueryFingerprint {
+        try CursorQueryFingerprint.make(
+            kind: "content.chapters",
+            fields: [CursorFingerprintField("order.version", .unsigned(1))] + contentBookFingerprintFields(selector)
+        )
+    }
+
     private func chapterPageFingerprint(
-        selector: ChapterPageBookSelector,
+        selector: ContentBookSelector,
         chapterOrder: Int
     ) throws -> CursorQueryFingerprint {
-        var fields = [
-            CursorFingerprintField("order.version", .unsigned(1)),
-            CursorFingerprintField("chapter.order", .signed(Int64(chapterOrder))),
-        ]
+        try CursorQueryFingerprint.make(
+            kind: "content.chapter",
+            fields: [
+                CursorFingerprintField("order.version", .unsigned(1)),
+                CursorFingerprintField("chapter.order", .signed(Int64(chapterOrder))),
+            ] + contentBookFingerprintFields(selector)
+        )
+    }
+
+    private func contentBookFingerprintFields(_ selector: ContentBookSelector) -> [CursorFingerprintField] {
         switch selector {
         case let .assetID(assetID):
-            fields += [
+            [
                 CursorFingerprintField("book.kind", .string("asset")),
                 CursorFingerprintField("book.value", .string(assetID)),
             ]
         case let .localPK(localPK):
-            fields += [
+            [
                 CursorFingerprintField("book.kind", .string("pk")),
                 CursorFingerprintField("book.value", .signed(localPK)),
             ]
         }
-        return try CursorQueryFingerprint.make(kind: "content.chapter", fields: fields)
+    }
+
+    private func chapterListOrder(from locator: CursorLocator?) throws -> Int? {
+        guard let locator else { return nil }
+        guard locator.words.count == 1,
+              locator.words[0] > 0,
+              locator.words[0] <= UInt64(Int.max) else {
+            throw CursorPaginationError.invalidCursor
+        }
+        return Int(locator.words[0])
     }
 
     private func chapterPageOffset(from locator: CursorLocator?) throws -> Int {

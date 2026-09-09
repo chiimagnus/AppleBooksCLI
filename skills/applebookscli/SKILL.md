@@ -17,7 +17,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 1. Choose the smallest command family that answers the request. If syntax is uncertain, read only that command's `--help`.
 2. Prefer stable identity for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. Use a local PK only when it was explicitly supplied or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
 3. Operational commands return JSON by default. Do not add `--json`.
-4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged. Growing book, reading-state, collection, PDF inventory, and `annotations list` queries use this cursor contract (default 20, max 100); `content chapter` also uses opaque continuation with `--book|--book-pk` + positive `--chapter <order>` and never `--offset`.
+4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged. Growing book, reading-state, collection, PDF inventory, `annotations list`, and `content chapters` queries use this cursor contract (default 20, max 100); `content chapters` returns only `chapterOrder`, bounded title, and depth. Feed `chapterOrder` to `content chapter --book|--book-pk --chapter <order>`, whose text continuation is also opaque and never uses `--offset`.
 5. If `truncatedFields` is present, those fields are valid but incomplete presentation text. Use archival export when the user explicitly needs the original full text/CFI.
 
 ## Command routing

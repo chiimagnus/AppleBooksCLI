@@ -56,6 +56,7 @@ applebookscli annotations list --has-note true --order modified   # default 20; 
 applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
 applebookscli annotations context <annotation-uuid>
+applebookscli content chapters --book <asset-id>   # default 20; continue with --cursor <nextCursor>
 applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
 
 # PDF inventory / extraction
@@ -63,7 +64,7 @@ applebookscli pdf list   # continue with --cursor <nextCursor> when present
 applebookscli pdf highlights --help
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, `collections list/search/books`, `pdf list`, and `annotations list` use opaque cursors; when `nextCursor` is returned, repeat the same query filters/order and pass it unchanged to `--cursor`. PDF inventory returns either `bookAssetID` or opaque `pdfSourceID`; feed that identity back to `pdf highlights --book` or `--pdf` rather than treating an absolute file path as the ordinary selector. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; `annotations get` exposes semantic detail and, when available, a book-level `bookURL` without a CFI fragment. Use explicit archival export when the original full text/CFI is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
+Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, `collections list/search/books`, `pdf list`, `annotations list`, and `content chapters` use opaque cursors; when `nextCursor` is returned, repeat the same query filters/order and pass it unchanged to `--cursor`. PDF inventory returns either `bookAssetID` or opaque `pdfSourceID`; feed that identity back to `pdf highlights --book` or `--pdf` rather than treating an absolute file path as the ordinary selector. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; `annotations get` exposes semantic detail and, when available, a book-level `bookURL` without a CFI fragment. Use explicit archival export when the original full text/CFI is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
 
 ## Export
 

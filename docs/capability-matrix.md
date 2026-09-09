@@ -71,7 +71,7 @@
 | --- | --- | --- |
 | 本地 materialization 检查 | 已实现 | probe 不主动触发 iCloud hydration |
 | DRM gate | 已实现 | DRM 明确不可读，不用空正文冒充成功 |
-| EPUB ToC | 已实现 | nav → NCX → spine fallback |
+| EPUB ToC | 已实现（强化） | `content chapters --book|--book-pk`；nav → NCX → spine fallback；默认 20 / 最大 100 的 opaque cursor，只公开 `chapterOrder`、bounded title、depth |
 | chapter text | 已实现（强化） | `content chapter --book <assetID> --chapter <order>`；按 ToC order 精确选择，ordinary JSON 不公开 raw chapter id/href/fragment |
 | chapter text pagination | 已实现（强化） | bounded normalized traversal + opaque cursor；默认 4,000 graphemes/32 KiB，`--max-chars` 最大 16,000，单页 hard cap 128 KiB；无 `--offset` |
 | 细粒度 spine entry | 已实现 | ToC 外 spine item 仍可读取 |

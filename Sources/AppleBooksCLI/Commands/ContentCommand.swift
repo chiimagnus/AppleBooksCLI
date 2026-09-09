@@ -162,31 +162,54 @@ struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapters",
-        abstract: "List the canonical EPUB table of contents."
+        abstract: "List the canonical EPUB table of contents with opaque cursor pagination."
     )
 
-    @Argument(help: "Exact Apple Books asset ID.")
-    var assetID: String?
+    @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID.")
+    var book: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
-    var pk: Int64?
+    @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
+    var bookPK: Int64?
+
+    @Option(name: .long, parsing: .unconditional, help: "Page size (default 20, maximum 100).")
+    var limit: Int?
+
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
 
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
+        try output.writeJSON(try execute())
     }
 
-    func execute() throws -> ContentChaptersResult {
-        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
+    func execute() throws -> ContentChaptersPageResult {
+        let selector = try parseOptionalBookSelector(
+            assetID: book,
+            localPK: bookPK,
+            localPKOptionName: "--book-pk"
+        )
+        guard let selector else {
+            throw ValidationError("Provide exactly one of --book or --book-pk.")
+        }
+        try CLIOperation.run {
+            _ = try resolvedCursorPageLimit(limit)
+            try validateCursorInputSyntax(cursor)
+        }
+
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(selector, in: books)
-            let chapters = try books.semanticBookContent(forBookLocalPK: book.localPK).listChapters()
-            return ContentChaptersResult(book: book, chapters: chapters)
+            let page: SemanticChapterListPage?
+            switch selector {
+            case let .assetID(assetID):
+                page = try books.semanticChapterListPage(bookAssetID: assetID, limit: limit, cursor: cursor)
+            case let .localPK(localPK):
+                page = try books.semanticChapterListPage(bookLocalPK: localPK, limit: limit, cursor: cursor)
+            }
+            guard let page else { throw CLIError.notFound("Book not found.") }
+            return ContentChaptersPageResult(page)
         }
     }
 }
@@ -460,17 +483,38 @@ struct ContentChapterResult: Codable, Equatable, Sendable {
 
 }
 
-struct ContentChaptersResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
-    let bookAssetID: String?
-    let chapters: [ContentChapterResult]
+struct ContentChapterSummaryResult: Codable, Equatable, Sendable {
+    let chapterOrder: Int
+    let title: String
+    let depth: Int
+    let truncatedFields: [String]
 
-    init(book: SemanticBookDetail, chapters: [Chapter]) {
-        bookLocalPK = book.localPK
-        bookAssetID = book.assetID
-        self.chapters = chapters.map(ContentChapterResult.init)
+    init(_ chapter: SemanticChapterSummary) {
+        chapterOrder = chapter.chapterOrder
+        let boundedTitle = BoundedTextPolicy.truncate(chapter.title, profile: .metadata)
+        title = boundedTitle.value ?? ""
+        depth = chapter.depth
+        truncatedFields = boundedTitle.truncated ? ["title"] : []
     }
+}
 
+struct ContentChaptersPageResult: Codable, Equatable, Sendable {
+    let bookAssetID: String?
+    let bookLocalPK: Int64?
+    let items: [ContentChapterSummaryResult]
+    let nextCursor: String?
+    let hasMore: Bool
+
+    init(_ page: SemanticChapterListPage) {
+        let stableAssetID = PublicStableTokenPolicy.isEligible(page.bookAssetID) ? page.bookAssetID : nil
+        bookAssetID = stableAssetID
+        bookLocalPK = stableAssetID == nil && LocalPKPolicy.isEligible(page.bookLocalPK)
+            ? page.bookLocalPK
+            : nil
+        items = page.items.map(ContentChapterSummaryResult.init)
+        nextCursor = page.nextCursor
+        hasMore = page.hasMore
+    }
 }
 
 struct ContentChapterPageResult: Codable, Equatable, Sendable {

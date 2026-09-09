@@ -132,6 +132,33 @@ struct ChapterPaginationTests {
             )
         }
 
+        let listGeneration = try CursorGeneration.compose([
+            content.chapterListCursorGenerationComponent(),
+        ])
+        let listCursor = try CursorPaginationSession(
+            cursor: nil,
+            fingerprint: fingerprint,
+            generation: listGeneration
+        ).nextCursor(
+            after: listGeneration,
+            hasMore: true,
+            locator: try CursorLocator(words: [1])
+        )
+        let packageURL = fixture.epub.appendingPathComponent("OPS/package.opf")
+        var packageData = try Data(contentsOf: packageURL)
+        packageData.append(Data("\n<!-- changed package metadata -->".utf8))
+        try packageData.write(to: packageURL)
+        let changedListGeneration = try CursorGeneration.compose([
+            content.chapterListCursorGenerationComponent(),
+        ])
+        #expect(throws: CursorPaginationError.staleCursor) {
+            _ = try CursorPaginationSession(
+                cursor: listCursor,
+                fingerprint: fingerprint,
+                generation: changedListGeneration
+            )
+        }
+
         let zipURL = fixture.root.appendingPathComponent("supplemental.epub")
         try Self.makeZipEPUB(at: zipURL, body: "first zip body")
         let zipContent = try BookContent(reader: ZIPEPUBResourceReader(fileURL: zipURL))
@@ -148,6 +175,18 @@ struct ChapterPaginationTests {
             hasMore: true,
             locator: try CursorLocator(words: [1])
         )
+        let zipListGeneration = try CursorGeneration.compose([
+            zipContent.chapterListCursorGenerationComponent(),
+        ])
+        let zipListCursor = try CursorPaginationSession(
+            cursor: nil,
+            fingerprint: fingerprint,
+            generation: zipListGeneration
+        ).nextCursor(
+            after: zipListGeneration,
+            hasMore: true,
+            locator: try CursorLocator(words: [1])
+        )
         try FileManager.default.removeItem(at: zipURL)
         try Self.makeZipEPUB(at: zipURL, body: "replacement zip body with a different size")
         let changedZipGeneration = try CursorGeneration.compose([
@@ -158,6 +197,16 @@ struct ChapterPaginationTests {
                 cursor: zipCursor,
                 fingerprint: fingerprint,
                 generation: changedZipGeneration
+            )
+        }
+        let changedZipListGeneration = try CursorGeneration.compose([
+            zipContent.chapterListCursorGenerationComponent(),
+        ])
+        #expect(throws: CursorPaginationError.staleCursor) {
+            _ = try CursorPaginationSession(
+                cursor: zipListCursor,
+                fingerprint: fingerprint,
+                generation: changedZipListGeneration
             )
         }
     }

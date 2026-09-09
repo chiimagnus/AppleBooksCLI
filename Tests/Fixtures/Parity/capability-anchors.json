@@ -180,17 +180,26 @@
   "EPUB ToC": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
+      "Sources/AppleBooksCore/Content/EPUBNavigation.swift",
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNavTests.swift",
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNCXTests.swift",
-      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift",
+      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
         "content",
-        "chapters"
+        "chapters",
+        "--limit"
+      ],
+      [
+        "content",
+        "chapters",
+        "--cursor"
       ]
     ]
   },

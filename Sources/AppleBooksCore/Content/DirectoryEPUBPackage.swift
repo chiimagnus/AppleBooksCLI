@@ -71,12 +71,15 @@ private final class ContainerDocument: NSObject, XMLParserDelegate {
     private var sawContainer = false
     private var sawRootfiles = false
     private var structuralError: DirectoryEPUBPackageError?
+    private var structureTooComplex = false
 
     static func parse(_ data: Data) throws -> String {
         let delegate = ContainerDocument()
         let parser = XMLParser(data: data)
         configure(parser, delegate: delegate)
-        guard parser.parse(), delegate.structuralError == nil, delegate.sawContainer else {
+        let parsed = parser.parse()
+        if delegate.structureTooComplex { throw EPUBResourceError.tooComplex }
+        guard parsed, delegate.structuralError == nil, delegate.sawContainer else {
             throw delegate.structuralError ?? DirectoryEPUBPackageError.invalidContainer
         }
         guard let rootfile = delegate.firstRootfile else {
@@ -92,7 +95,12 @@ private final class ContainerDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        guard structuralError == nil else { return }
+        guard structuralError == nil, structureTooComplex == false else { return }
+        guard depth < EPUBStructureBudget.maximumNestingDepth else {
+            structureTooComplex = true
+            parser.abortParsing()
+            return
+        }
         if depth == 0 {
             guard namespaceURI == Self.namespace, elementName == "container" else {
                 fail(parser)
@@ -167,12 +175,15 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
     private var sawManifest = false
     private var sawSpine = false
     private var structuralError: DirectoryEPUBPackageError?
+    private var structureTooComplex = false
 
     static func parse(_ data: Data) throws -> PackageDocument {
         let delegate = PackageDocument()
         let parser = XMLParser(data: data)
         configure(parser, delegate: delegate)
-        guard parser.parse(),
+        let parsed = parser.parse()
+        if delegate.structureTooComplex { throw EPUBResourceError.tooComplex }
+        guard parsed,
               delegate.structuralError == nil,
               delegate.sawPackage,
               delegate.sawManifest,
@@ -189,7 +200,12 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        guard structuralError == nil else { return }
+        guard structuralError == nil, structureTooComplex == false else { return }
+        guard depth < EPUBStructureBudget.maximumNestingDepth else {
+            structureTooComplex = true
+            parser.abortParsing()
+            return
+        }
         if depth == 0 {
             guard namespaceURI == Self.namespace, elementName == "package" else {
                 fail(.invalidPackageDocument, parser: parser)
@@ -224,6 +240,11 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
                     fail(.invalidPackageDocument, parser: parser)
                     return
                 }
+                guard manifest.count < EPUBStructureBudget.maximumManifestItems else {
+                    structureTooComplex = true
+                    parser.abortParsing()
+                    return
+                }
                 guard manifestIDs.insert(id).inserted else {
                     fail(.duplicateManifestID, parser: parser)
                     return
@@ -234,6 +255,11 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
                 guard spineDepth == depth,
                       let idref = required(attributeDict["idref"]) else {
                     fail(.invalidPackageDocument, parser: parser)
+                    return
+                }
+                guard spine.count < EPUBStructureBudget.maximumSpineItems else {
+                    structureTooComplex = true
+                    parser.abortParsing()
                     return
                 }
                 spine.append(idref)

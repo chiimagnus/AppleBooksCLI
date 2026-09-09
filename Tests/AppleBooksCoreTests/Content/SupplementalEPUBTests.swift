@@ -109,6 +109,36 @@ struct SupplementalEPUBTests {
     }
 
     @Test
+    func zipLightweightIndexBoundsRetainedPathBytesBeforeGrowth() throws {
+        let root = try Self.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let zip = root.appendingPathComponent("path-budget.epub")
+        try Self.makeZip(at: zip, entries: [
+            .file("alpha.txt", Data("a".utf8), .none),
+            .file("beta.txt", Data("b".utf8), .none),
+        ])
+
+        let exactBudget = "alpha.txt".utf8.count + "beta.txt".utf8.count
+        let reader = try ZIPEPUBResourceReader(
+            fileURL: zip,
+            maximumEntryCount: 10,
+            maximumIndexedPathBytes: exactBudget
+        )
+        #expect(reader.indexedPathCount == 2)
+        #expect(reader.indexedPathUTF8Bytes == exactBudget)
+        #expect(try reader.contains(EPUBPath(relativePath: "alpha.txt", fragment: nil)))
+        #expect(try reader.readExactResource(EPUBPath(relativePath: "beta.txt", fragment: nil), maxBytes: 8) == Data("b".utf8))
+
+        #expect(throws: EPUBResourceError.tooManyEntries) {
+            _ = try ZIPEPUBResourceReader(
+                fileURL: zip,
+                maximumEntryCount: 10,
+                maximumIndexedPathBytes: exactBudget - 1
+            )
+        }
+    }
+
+    @Test
     func resolverPrefersCurrentDirectoryThenUsesOnlyExactBasenamePackedFallback() throws {
         let root = try Self.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

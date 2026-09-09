@@ -75,6 +75,29 @@ struct EPUBEncryptionTests {
     }
 
     @Test
+    func encryptionStructureBudgetAcceptsTwentyThousandAndRejectsNextEntry() throws {
+        let boundary = try Fixture()
+        defer { boundary.remove() }
+        let entry = "<e:EncryptedData><e:EncryptionMethod Algorithm=\"x\"/><e:CipherReference URI=\"x\"/></e:EncryptedData>"
+        let entries = String(repeating: entry, count: EPUBStructureBudget.maximumEncryptionEntries)
+        try boundary.write(
+            "<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" xmlns:e=\"http://www.w3.org/2001/04/xmlenc#\">\(entries)</encryption>",
+            at: "META-INF/encryption.xml"
+        )
+        #expect(try EPUBEncryption.inspect(package: boundary.package()) == .contentEncryptionUnsupported)
+
+        let overflow = try Fixture()
+        defer { overflow.remove() }
+        try overflow.write(
+            "<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\" xmlns:e=\"http://www.w3.org/2001/04/xmlenc#\">\(entries)\(entry)</encryption>",
+            at: "META-INF/encryption.xml"
+        )
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try EPUBEncryption.inspect(package: overflow.package())
+        }
+    }
+
+    @Test
     func externalDTDIsNeverResolved() throws {
         let fixture = try Fixture(manifest: """
         <item id="font" href="Fonts/A.ttf" media-type="font/ttf"/>

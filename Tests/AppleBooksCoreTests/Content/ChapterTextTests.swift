@@ -40,6 +40,25 @@ struct ChapterTextTests {
     }
 
     @Test
+    func traversalBudgetsAcceptBoundaryAndRejectNextDepthOrNode() throws {
+        let boundaryDepth = Data(("<html><body>" + String(repeating: "<div>", count: 255) + String(repeating: "</div>", count: 255) + "</body></html>").utf8)
+        #expect(try XHTMLText.extract(boundaryDepth, fragment: nil).isEmpty)
+
+        let overflowDepth = Data(("<html><body>" + String(repeating: "<div>", count: 256) + String(repeating: "</div>", count: 256) + "</body></html>").utf8)
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try XHTMLText.extract(overflowDepth, fragment: nil)
+        }
+
+        let boundaryNodes = Data(("<html><body>" + String(repeating: "<span></span>", count: EPUBStructureBudget.maximumXHTMLNodes - 1) + "</body></html>").utf8)
+        #expect(try XHTMLText.extract(boundaryNodes, fragment: nil).isEmpty)
+
+        let overflowNodes = Data(("<html><body>" + String(repeating: "<span></span>", count: EPUBStructureBudget.maximumXHTMLNodes) + "</body></html>").utf8)
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try XHTMLText.extract(overflowNodes, fragment: nil)
+        }
+    }
+
+    @Test
     func bookContentUsesSameFileFragmentsAndRawSpineCanStillReadWholeBody() throws {
         let root = try makeEPUB()
         defer { try? FileManager.default.removeItem(at: root) }

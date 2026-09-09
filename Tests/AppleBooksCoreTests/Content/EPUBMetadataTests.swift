@@ -91,6 +91,20 @@ struct EPUBMetadataTests {
     }
 
     @Test
+    func metadataListBudgetAcceptsTwentyThousandAndRejectsNextValue() throws {
+        let values = (0..<EPUBStructureBudget.maximumMetadataListValues).map { "<dc:identifier>id\($0)</dc:identifier>" }.joined()
+        let boundary = try makeEPUB(metadata: values)
+        defer { try? FileManager.default.removeItem(at: boundary.deletingLastPathComponent()) }
+        #expect(try BookContent(root: boundary).metadata().identifiers.count == EPUBStructureBudget.maximumMetadataListValues)
+
+        let overflow = try makeEPUB(metadata: values + "<dc:subject>overflow</dc:subject>")
+        defer { try? FileManager.default.removeItem(at: overflow.deletingLastPathComponent()) }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try BookContent(root: overflow).metadata()
+        }
+    }
+
+    @Test
     func enrichmentNeverOverridesCanonicalBookIdentityTitleAuthorLanguageOrReleaseDate() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

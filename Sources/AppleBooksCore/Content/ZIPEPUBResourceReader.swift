@@ -3,13 +3,21 @@ import Foundation
 import ZIPFoundation
 
 final class ZIPEPUBResourceReader: EPUBResourceReader {
-    static let maximumEntryCount = 20_000
+    static let maximumEntryCount = EPUBStructureBudget.maximumZIPEntries
+    static let maximumIndexedPathBytes = EPUBStructureBudget.maximumIndexedPathBytes
 
     private let archive: Archive
-    private let entries: [String: Entry]
+    private let indexedPaths: Set<String>
+    private let retainedIndexedPathBytes: Int
 
-    init(fileURL: URL, maximumEntryCount: Int = ZIPEPUBResourceReader.maximumEntryCount) throws {
-        guard maximumEntryCount > 0 else { throw EPUBResourceError.tooManyEntries }
+    init(
+        fileURL: URL,
+        maximumEntryCount: Int = ZIPEPUBResourceReader.maximumEntryCount,
+        maximumIndexedPathBytes: Int = ZIPEPUBResourceReader.maximumIndexedPathBytes
+    ) throws {
+        guard maximumEntryCount > 0, maximumIndexedPathBytes > 0 else {
+            throw EPUBResourceError.tooManyEntries
+        }
         let canonicalURL = fileURL.standardizedFileURL
         guard canonicalURL.pathExtension.lowercased() == "epub" else {
             throw ContentError.unsupportedFormat
@@ -34,7 +42,8 @@ final class ZIPEPUBResourceReader: EPUBResourceReader {
             throw EPUBResourceError.invalidArchive
         }
 
-        var indexed: [String: Entry] = [:]
+        var indexed = Set<String>()
+        var retainedPathBytes = 0
         var count = 0
         for entry in archive {
             count += 1
@@ -46,20 +55,35 @@ final class ZIPEPUBResourceReader: EPUBResourceReader {
                 throw EPUBResourceError.unsafeResource
             case .file:
                 let normalized = try Self.normalizedEntryPath(entry.path, directory: false)
-                guard indexed[normalized] == nil else { throw EPUBResourceError.ambiguousResource }
-                indexed[normalized] = entry
+                let pathBytes = normalized.utf8.count
+                guard pathBytes <= maximumIndexedPathBytes - retainedPathBytes else {
+                    throw EPUBResourceError.tooManyEntries
+                }
+                guard indexed.insert(normalized).inserted else {
+                    throw EPUBResourceError.ambiguousResource
+                }
+                retainedPathBytes += pathBytes
             }
         }
-        entries = indexed
+        indexedPaths = indexed
+        retainedIndexedPathBytes = retainedPathBytes
     }
 
+    var indexedPathCount: Int { indexedPaths.count }
+    var indexedPathUTF8Bytes: Int { retainedIndexedPathBytes }
+
     func contains(_ path: EPUBPath) throws -> Bool {
-        entries[path.relativePath] != nil
+        indexedPaths.contains(path.relativePath)
     }
 
     func readExactResource(_ path: EPUBPath, maxBytes: Int) throws -> Data {
         guard maxBytes >= 0 else { throw EPUBResourceError.invalidByteBudget }
-        guard let entry = entries[path.relativePath] else { throw EPUBResourceError.missingResource }
+        guard indexedPaths.contains(path.relativePath) else { throw EPUBResourceError.missingResource }
+        guard let entry = archive[path.relativePath],
+              entry.type == .file,
+              try Self.normalizedEntryPath(entry.path, directory: false) == path.relativePath else {
+            throw EPUBResourceError.unreadableResource
+        }
         guard entry.uncompressedSize <= UInt64(maxBytes) else { throw EPUBResourceError.resourceTooLarge }
 
         var output = Data()

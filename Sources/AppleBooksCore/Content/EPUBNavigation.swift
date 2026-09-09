@@ -41,7 +41,12 @@ struct EPUBNavigation {
 
         var drafts: [Draft] = []
         var seen = Set<Target>()
-        try walk(rootList, depth: 0, navDirectory: navItem.path.directory, drafts: &drafts, seen: &seen)
+        try walkIteratively(
+            rootList,
+            navDirectory: navItem.path.directory,
+            drafts: &drafts,
+            seen: &seen
+        )
 
         var idCounts: [String: Int] = [:]
         for draft in drafts {
@@ -63,7 +68,7 @@ struct EPUBNavigation {
         let ncxItems = package.manifest.values.filter { $0.mediaType == "application/x-dtbncx+xml" }
         guard let ncxItem = ncxItems.sorted(by: { $0.id < $1.id }).first else { return [] }
         let data = try package.reader.readExactResource(ncxItem.path, maxBytes: EPUBResourceBudget.navigation)
-        guard let entries = NCXDocument.parse(data), entries.isEmpty == false else { return [] }
+        guard let entries = try NCXDocument.parse(data), entries.isEmpty == false else { return [] }
 
         var idCounts: [String: Int] = [:]
         for entry in entries where entry.rawID.isEmpty == false {
@@ -89,21 +94,32 @@ struct EPUBNavigation {
         }
     }
 
-    private func walk(
-        _ list: Element,
-        depth: Int,
+    private func walkIteratively(
+        _ rootList: Element,
         navDirectory: String,
         drafts: inout [Draft],
         seen: inout Set<Target>
     ) throws {
-        for item in list.children() where item.tagName().lowercased() == "li" {
-            if let link = item.children().first(where: { $0.tagName().lowercased() == "a" }) {
+        var frames = [ListFrame(items: listItems(rootList), depth: 0, nextIndex: 0)]
+
+        while var frame = frames.popLast() {
+            guard frame.nextIndex < frame.items.count else { continue }
+            let item = frame.items[frame.nextIndex]
+            frame.nextIndex += 1
+            frames.append(frame)
+
+            let children = item.children()
+            if let link = children.first(where: { $0.tagName().lowercased() == "a" }) {
                 let title = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
                 let href = try link.attr("href").trimmingCharacters(in: .whitespacesAndNewlines)
                 if title.isEmpty == false, href.isEmpty == false {
                     let path = try EPUBPath.resolve(reference: href, relativeTo: navDirectory)
                     let target = Target(href: path.relativePath, fragment: path.fragment ?? "")
-                    if seen.insert(target).inserted {
+                    if seen.contains(target) == false {
+                        guard drafts.count < EPUBStructureBudget.maximumNavigationEntries else {
+                            throw EPUBResourceError.tooComplex
+                        }
+                        seen.insert(target)
                         let matchingIDs = package.manifest.values
                             .filter { $0.path.relativePath == path.relativePath }
                             .map(\.id)
@@ -114,16 +130,34 @@ struct EPUBNavigation {
                             title: title,
                             target: target,
                             order: order,
-                            depth: depth
+                            depth: frame.depth
                         ))
                     }
                 }
             }
 
-            for childList in item.children() where childList.tagName().lowercased() == "ol" {
-                try walk(childList, depth: depth + 1, navDirectory: navDirectory, drafts: &drafts, seen: &seen)
+            let childLists = children.filter { $0.tagName().lowercased() == "ol" }
+            guard childLists.isEmpty || frame.depth + 1 < EPUBStructureBudget.maximumNestingDepth else {
+                throw EPUBResourceError.tooComplex
+            }
+            for childList in childLists.reversed() {
+                frames.append(ListFrame(
+                    items: listItems(childList),
+                    depth: frame.depth + 1,
+                    nextIndex: 0
+                ))
             }
         }
+    }
+
+    private func listItems(_ list: Element) -> [Element] {
+        list.children().filter { $0.tagName().lowercased() == "li" }
+    }
+
+    private struct ListFrame {
+        let items: [Element]
+        let depth: Int
+        var nextIndex: Int
     }
 
     private struct Target: Hashable {
@@ -165,8 +199,10 @@ private final class NCXDocument: NSObject, XMLParserDelegate {
     private var collectingText = false
     private var textBuffer = ""
     private var incomplete = false
+    private var structureTooComplex = false
+    private var xmlDepth = 0
 
-    static func parse(_ data: Data) -> [Entry]? {
+    static func parse(_ data: Data) throws -> [Entry]? {
         let delegate = NCXDocument()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
@@ -174,7 +210,9 @@ private final class NCXDocument: NSObject, XMLParserDelegate {
         parser.shouldReportNamespacePrefixes = false
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
-        guard parser.parse(), delegate.sawNavMap, delegate.incomplete == false else { return nil }
+        let parsed = parser.parse()
+        if delegate.structureTooComplex { throw EPUBResourceError.tooComplex }
+        guard parsed, delegate.sawNavMap, delegate.incomplete == false else { return nil }
         return delegate.entries.sorted { $0.order < $1.order }
     }
 
@@ -185,11 +223,24 @@ private final class NCXDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        guard structureTooComplex == false else { return }
+        guard xmlDepth < EPUBStructureBudget.maximumNestingDepth else {
+            structureTooComplex = true
+            parser.abortParsing()
+            return
+        }
+        defer { xmlDepth += 1 }
         guard namespaceURI == Self.namespace else { return }
         switch elementName {
         case "navMap":
             sawNavMap = true
         case "navPoint" where sawNavMap:
+            guard nextOrder < EPUBStructureBudget.maximumNavigationEntries,
+                  stack.count < EPUBStructureBudget.maximumNestingDepth else {
+                structureTooComplex = true
+                parser.abortParsing()
+                return
+            }
             nextOrder += 1
             stack.append(Pending(
                 rawID: attributeDict["id"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
@@ -216,6 +267,7 @@ private final class NCXDocument: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        defer { xmlDepth = max(0, xmlDepth - 1) }
         guard namespaceURI == Self.namespace else { return }
         if elementName == "text", collectingText, stack.isEmpty == false {
             stack[stack.count - 1].title = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)

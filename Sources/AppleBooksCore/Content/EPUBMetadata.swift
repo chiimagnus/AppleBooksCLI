@@ -122,6 +122,7 @@ private final class OPFMetadataDocument: NSObject, XMLParserDelegate {
     private var currentText = ""
     private var currentIdentifierExplicitISBN = false
     private var sawPackage = false
+    private var structureTooComplex = false
 
     static func parse(_ data: Data) throws -> OPFMetadataDocument {
         let delegate = OPFMetadataDocument()
@@ -131,7 +132,9 @@ private final class OPFMetadataDocument: NSObject, XMLParserDelegate {
         parser.shouldReportNamespacePrefixes = false
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
-        guard parser.parse(), delegate.sawPackage else {
+        let parsed = parser.parse()
+        if delegate.structureTooComplex { throw EPUBResourceError.tooComplex }
+        guard parsed, delegate.sawPackage else {
             throw EPUBMetadataError.invalidPackageMetadata
         }
         return delegate
@@ -144,6 +147,12 @@ private final class OPFMetadataDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
+        guard structureTooComplex == false else { return }
+        guard depth < EPUBStructureBudget.maximumNestingDepth else {
+            structureTooComplex = true
+            parser.abortParsing()
+            return
+        }
         if depth == 0 {
             sawPackage = namespaceURI == Self.opfNamespace && elementName == "package"
         }
@@ -184,6 +193,11 @@ private final class OPFMetadataDocument: NSObject, XMLParserDelegate {
                 case "title": title = title ?? value
                 case "creator": creator = creator ?? value
                 case "identifier":
+                    guard identifiers.count + subjects.count < EPUBStructureBudget.maximumMetadataListValues else {
+                        structureTooComplex = true
+                        parser.abortParsing()
+                        return
+                    }
                     identifiers.append(value)
                     if isbn == nil, let candidate = canonicalISBN(value, explicitlyISBN: currentIdentifierExplicitISBN) {
                         isbn = candidate
@@ -192,7 +206,13 @@ private final class OPFMetadataDocument: NSObject, XMLParserDelegate {
                 case "publisher": publisher = publisher ?? value
                 case "date": publicationDate = publicationDate ?? value
                 case "rights": rights = rights ?? value
-                case "subject": subjects.append(value)
+                case "subject":
+                    guard identifiers.count + subjects.count < EPUBStructureBudget.maximumMetadataListValues else {
+                        structureTooComplex = true
+                        parser.abortParsing()
+                        return
+                    }
+                    subjects.append(value)
                 default: break
                 }
             }

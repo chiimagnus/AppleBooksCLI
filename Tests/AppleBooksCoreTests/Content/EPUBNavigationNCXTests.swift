@@ -28,6 +28,36 @@ struct EPUBNavigationNCXTests {
     }
 
     @Test
+    func ncxStructureBudgetAcceptsTwentyThousandAndRejectsNextEntry() throws {
+        let points = (0..<EPUBStructureBudget.maximumNavigationEntries).map {
+            "<navPoint id=\"n\($0)\"><navLabel><text>N</text></navLabel><content src=\"../Text/ch1.xhtml#n\($0)\"/></navPoint>"
+        }.joined()
+        let boundary = try makeEPUB(nav: nil, ncx: "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\"><navMap>\(points)</navMap></ncx>")
+        defer { try? FileManager.default.removeItem(at: boundary) }
+        #expect(try EPUBNavigation(package: DirectoryEPUBPackage(root: boundary)).chaptersFromNavigation().count == EPUBStructureBudget.maximumNavigationEntries)
+
+        let overflow = try makeEPUB(nav: nil, ncx: "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\"><navMap>\(points)<navPoint id=\"overflow\"><navLabel><text>X</text></navLabel><content src=\"../Text/ch1.xhtml#overflow\"/></navPoint></navMap></ncx>")
+        defer { try? FileManager.default.removeItem(at: overflow) }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: overflow)).chaptersFromNavigation()
+        }
+    }
+
+    @Test
+    func ncxDepthBudgetAccepts256XMLLevelsAndRejects257() throws {
+        let boundaryNavPoints = EPUBStructureBudget.maximumNestingDepth - 4
+        let boundary = try makeEPUB(nav: nil, ncx: nestedNCX(navPointLevels: boundaryNavPoints))
+        defer { try? FileManager.default.removeItem(at: boundary) }
+        #expect(try EPUBNavigation(package: DirectoryEPUBPackage(root: boundary)).chaptersFromNavigation().count == boundaryNavPoints)
+
+        let overflow = try makeEPUB(nav: nil, ncx: nestedNCX(navPointLevels: boundaryNavPoints + 1))
+        defer { try? FileManager.default.removeItem(at: overflow) }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: overflow)).chaptersFromNavigation()
+        }
+    }
+
+    @Test
     func usableNavWinsWithoutMixingNCX() throws {
         let nav = """
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -71,6 +101,15 @@ struct EPUBNavigationNCXTests {
         #expect(throws: EPUBPathError.rootEscape) {
             _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: root)).chaptersFromNavigation()
         }
+    }
+
+    private func nestedNCX(navPointLevels: Int) -> String {
+        var points = ""
+        for index in 0..<navPointLevels {
+            points += "<navPoint id=\"d\(index)\"><navLabel><text>D</text></navLabel><content src=\"../Text/ch1.xhtml#d\(index)\"/>"
+        }
+        points += String(repeating: "</navPoint>", count: navPointLevels)
+        return "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\"><navMap>\(points)</navMap></ncx>"
     }
 
     private func makeEPUB(nav: String?, ncx: String) throws -> URL {

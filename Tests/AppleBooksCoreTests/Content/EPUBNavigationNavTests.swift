@@ -36,6 +36,45 @@ struct EPUBNavigationNavTests {
     }
 
     @Test
+    func navStructureBudgetAcceptsTwentyThousandAndRejectsNextEntry() throws {
+        let links = (0..<EPUBStructureBudget.maximumNavigationEntries).map {
+            "<li><a href=\"Text/ch1.xhtml#n\($0)\">N</a></li>"
+        }.joined()
+        let boundary = try makeEPUB(nav: """
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
+          <nav epub:type="toc"><ol>\(links)</ol></nav>
+        </body></html>
+        """)
+        defer { try? FileManager.default.removeItem(at: boundary) }
+        #expect(try EPUBNavigation(package: DirectoryEPUBPackage(root: boundary)).navChapters().count == EPUBStructureBudget.maximumNavigationEntries)
+
+        let overflow = try makeEPUB(nav: """
+        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
+          <nav epub:type="toc"><ol>\(links)<li><a href="Text/ch1.xhtml#overflow">Overflow</a></li></ol></nav>
+        </body></html>
+        """)
+        defer { try? FileManager.default.removeItem(at: overflow) }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: overflow)).navChapters()
+        }
+    }
+
+    @Test
+    func navTraversalAccepts256ListLevelsAndRejects257WithoutRecursion() throws {
+        let boundary = try makeEPUB(nav: nestedNav(levels: EPUBStructureBudget.maximumNestingDepth))
+        defer { try? FileManager.default.removeItem(at: boundary) }
+        let chapters = try EPUBNavigation(package: DirectoryEPUBPackage(root: boundary)).navChapters()
+        #expect(chapters.count == EPUBStructureBudget.maximumNestingDepth)
+        #expect(chapters.last?.depth == EPUBStructureBudget.maximumNestingDepth - 1)
+
+        let overflow = try makeEPUB(nav: nestedNav(levels: EPUBStructureBudget.maximumNestingDepth + 1))
+        defer { try? FileManager.default.removeItem(at: overflow) }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: overflow)).navChapters()
+        }
+    }
+
+    @Test
     func missingTocNavFallsBackToEmpty() throws {
         let root = try makeEPUB(nav: """
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -59,6 +98,15 @@ struct EPUBNavigationNavTests {
         #expect(throws: EPUBPathError.rootEscape) {
             _ = try EPUBNavigation(package: DirectoryEPUBPackage(root: root)).navChapters()
         }
+    }
+
+    private func nestedNav(levels: Int) -> String {
+        var body = ""
+        for index in 0..<levels {
+            body += "<ol><li><a href=\"Text/ch1.xhtml#d\(index)\">D</a>"
+        }
+        body += String(repeating: "</li></ol>", count: levels)
+        return "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\"><body><nav epub:type=\"toc\">\(body)</nav></body></html>"
     }
 
     private func makeEPUB(nav: String) throws -> URL {

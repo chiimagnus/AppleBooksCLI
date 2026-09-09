@@ -30,6 +30,8 @@ public enum EPUBEncryption: String, Codable, Equatable, Sendable {
         let entries: [EncryptionEntry]
         do {
             entries = try EncryptionDocument.parse(data)
+        } catch EPUBResourceError.tooComplex {
+            throw EPUBResourceError.tooComplex
         } catch {
             return .malformedEncryptionMetadata
         }
@@ -81,6 +83,8 @@ private final class EncryptionDocument: NSObject, XMLParserDelegate {
     private var algorithm: String?
     private var uri: String?
     private var malformed = false
+    private var structureTooComplex = false
+    private var depth = 0
 
     static func parse(_ data: Data) throws -> [EncryptionEntry] {
         let delegate = EncryptionDocument()
@@ -90,7 +94,9 @@ private final class EncryptionDocument: NSObject, XMLParserDelegate {
         parser.shouldReportNamespacePrefixes = false
         parser.shouldResolveExternalEntities = false
         parser.externalEntityResolvingPolicy = .never
-        guard parser.parse(), delegate.malformed == false, delegate.sawRoot else {
+        let parsed = parser.parse()
+        if delegate.structureTooComplex { throw EPUBResourceError.tooComplex }
+        guard parsed, delegate.malformed == false, delegate.sawRoot else {
             throw EncryptionDocumentError.invalid
         }
         return delegate.entries
@@ -103,7 +109,13 @@ private final class EncryptionDocument: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        guard malformed == false else { return }
+        guard malformed == false, structureTooComplex == false else { return }
+        guard depth < EPUBStructureBudget.maximumNestingDepth else {
+            structureTooComplex = true
+            parser.abortParsing()
+            return
+        }
+        defer { depth += 1 }
         if sawRoot == false {
             guard namespaceURI == Self.containerNamespace, elementName == "encryption" else {
                 malformed = true
@@ -153,6 +165,7 @@ private final class EncryptionDocument: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        defer { depth = max(0, depth - 1) }
         guard namespaceURI == Self.encryptionNamespace,
               elementName == "EncryptedData",
               insideEncryptedData else {
@@ -160,6 +173,11 @@ private final class EncryptionDocument: NSObject, XMLParserDelegate {
         }
         guard let algorithm, let uri else {
             malformed = true
+            parser.abortParsing()
+            return
+        }
+        guard entries.count < EPUBStructureBudget.maximumEncryptionEntries else {
+            structureTooComplex = true
             parser.abortParsing()
             return
         }

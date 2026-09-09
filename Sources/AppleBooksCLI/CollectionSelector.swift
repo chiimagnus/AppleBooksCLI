@@ -14,12 +14,16 @@ enum CollectionSelector: Equatable, Sendable {
         }
     }
 
-    func resolveBookSummaries(in books: AppleBooks) throws -> [BookSummary]? {
+    func resolveBookSummaryPage(
+        in books: AppleBooks,
+        limit: Int?,
+        cursor: String?
+    ) throws -> CursorPage<BookSummary>? {
         switch self {
         case let .collectionID(collectionID):
-            try books.semanticBookSummaries(inCollectionID: collectionID)
+            try books.semanticBookSummaryPage(inCollectionID: collectionID, limit: limit, cursor: cursor)
         case let .localPK(localPK):
-            try books.semanticBookSummaries(inCollectionLocalPK: localPK)
+            try books.semanticBookSummaryPage(inCollectionLocalPK: localPK, limit: limit, cursor: cursor)
         }
     }
 

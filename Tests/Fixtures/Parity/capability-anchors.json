@@ -906,7 +906,8 @@
   "get/describe collection": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift",
+      "Sources/AppleBooksCore/Models/CollectionEditCapabilities.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
@@ -1052,13 +1053,19 @@
         "collections",
         "books",
         "--pk"
+      ],
+      [
+        "collections",
+        "books",
+        "--cursor"
       ]
     ]
   },
   "list collections": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift",
+      "Sources/AppleBooksCore/Models/CollectionEditCapabilities.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
@@ -1067,6 +1074,11 @@
       [
         "collections",
         "list"
+      ],
+      [
+        "collections",
+        "list",
+        "--cursor"
       ]
     ]
   },
@@ -1235,6 +1247,11 @@
       [
         "collections",
         "search"
+      ],
+      [
+        "collections",
+        "search",
+        "--cursor"
       ]
     ]
   },

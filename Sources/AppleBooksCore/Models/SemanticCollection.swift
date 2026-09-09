@@ -1,5 +1,14 @@
 import Foundation
 
+package struct SemanticCollectionSummary: Equatable, Sendable {
+    package let localPK: Int64
+    package let collectionID: String?
+    package let title: String?
+    package let canEditCollection: Bool
+    package let canEditMembership: Bool
+    package let byteTruncatedFields: [String]
+}
+
 public struct SemanticCollection: Equatable, Sendable {
     public let localPK: Int64
     public let collectionID: String?
@@ -13,5 +22,7 @@ public struct SemanticCollection: Equatable, Sendable {
     public let viewMode: Int64?
     public let lastModificationDate: Date?
     public let localModificationDate: Date?
+    public let canEditCollection: Bool
+    public let canEditMembership: Bool
     public let byteTruncatedFields: [String]
 }

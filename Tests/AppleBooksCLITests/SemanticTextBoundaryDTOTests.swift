@@ -20,10 +20,12 @@ struct SemanticTextBoundaryDTOTests {
             viewMode: nil,
             lastModificationDate: nil,
             localModificationDate: nil,
+            canEditCollection: false,
+            canEditMembership: false,
             byteTruncatedFields: ["title", "details"]
         )
 
-        let result = CollectionResult(collection)
+        let result = CollectionDetailResult(collection)
         #expect(result.title?.count == BoundedTextProfile.metadata.maximumGraphemes)
         #expect(result.details?.count == BoundedTextProfile.detail.maximumGraphemes)
         #expect(result.truncatedFields == ["details", "title"])

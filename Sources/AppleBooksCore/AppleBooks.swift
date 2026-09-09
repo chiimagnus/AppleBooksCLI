@@ -307,8 +307,11 @@ public final class AppleBooks {
         try requiredCollectionQueries().list(limit: limit, offset: offset)
     }
 
-    package func semanticCollections(limit: Int? = nil, offset: Int = 0) throws -> [SemanticCollection] {
-        try requiredCollectionQueries().semanticList(limit: limit, offset: offset)
+    package func semanticCollectionSummaryPage(
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<SemanticCollectionSummary> {
+        try requiredCollectionQueries().semanticListPage(limit: limit, cursor: cursor)
     }
 
     // Missing or deleted collections return nil.
@@ -333,8 +336,12 @@ public final class AppleBooks {
         try requiredCollectionQueries().searchTitle(text, limit: limit, offset: offset)
     }
 
-    package func semanticCollections(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [SemanticCollection] {
-        try requiredCollectionQueries().semanticSearchTitle(text, limit: limit, offset: offset)
+    package func semanticCollectionSummaryPage(
+        matchingTitle text: String,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<SemanticCollectionSummary> {
+        try requiredCollectionQueries().semanticSearchTitlePage(text, limit: limit, cursor: cursor)
     }
 
     public func books(inCollectionLocalPK localPK: Int64) throws -> [Book]? {
@@ -347,14 +354,22 @@ public final class AppleBooks {
         return try requiredCollectionQueries().books(in: collection)
     }
 
-    package func semanticBookSummaries(inCollectionLocalPK localPK: Int64) throws -> [BookSummary]? {
+    package func semanticBookSummaryPage(
+        inCollectionLocalPK localPK: Int64,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<BookSummary>? {
         guard let collection = try requiredCollectionQueries().semanticGetByLocalPK(localPK) else { return nil }
-        return try requiredCollectionQueries().semanticBooks(in: collection)
+        return try requiredCollectionQueries().semanticBooksPage(in: collection, limit: limit, cursor: cursor)
     }
 
-    package func semanticBookSummaries(inCollectionID collectionID: String) throws -> [BookSummary]? {
+    package func semanticBookSummaryPage(
+        inCollectionID collectionID: String,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<BookSummary>? {
         guard let collection = try requiredCollectionQueries().semanticGetUniqueByCollectionID(collectionID) else { return nil }
-        return try requiredCollectionQueries().semanticBooks(in: collection)
+        return try requiredCollectionQueries().semanticBooksPage(in: collection, limit: limit, cursor: cursor)
     }
 
     public func createCollection(

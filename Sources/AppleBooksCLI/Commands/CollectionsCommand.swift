@@ -26,11 +26,11 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         abstract: "List non-deleted collections in the canonical stable order."
     )
 
-    @Option(name: .long, parsing: .unconditional, help: "Limit the stable collection order.")
+    @Option(name: .long, parsing: .unconditional, help: "Maximum collections in this page (default 20, max 100).")
     var limit: Int?
 
-    @Option(name: .long, parsing: .unconditional, help: "Offset into the stable collection order.")
-    var offset = 0
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
 
     @OptionGroup var global: GlobalOptions
 
@@ -42,10 +42,15 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 
     func execute() throws -> CollectionPageResult {
-        try validateCollectionPagination(limit: limit, offset: offset)
+        try validateCollectionPageInput(limit: limit, cursor: cursor)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).semanticCollections(limit: limit, offset: offset)
-            return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
+            let page = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+                .semanticCollectionSummaryPage(limit: limit, cursor: cursor)
+            return CollectionPageResult(
+                items: page.items.map(CollectionSummaryResult.init),
+                nextCursor: page.nextCursor,
+                hasMore: page.hasMore
+            )
         }
     }
 }
@@ -71,14 +76,14 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         try output.writeJSON(result)
     }
 
-    func execute() throws -> CollectionResult {
+    func execute() throws -> CollectionDetailResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let collection = try selector.resolveSemantic(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
-            return CollectionResult(collection)
+            return CollectionDetailResult(collection)
         }
     }
 }
@@ -92,11 +97,11 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Argument(help: "Literal title substring.")
     var query: String
 
-    @Option(name: .long, parsing: .unconditional, help: "Limit the stable search order.")
+    @Option(name: .long, parsing: .unconditional, help: "Maximum collections in this page (default 20, max 100).")
     var limit: Int?
 
-    @Option(name: .long, parsing: .unconditional, help: "Offset into the stable search order.")
-    var offset = 0
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
 
     @OptionGroup var global: GlobalOptions
 
@@ -108,12 +113,16 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 
     func execute() throws -> CollectionPageResult {
-        guard query.isEmpty == false else { throw ValidationError("Search query must not be empty.") }
-        try validateCollectionPagination(limit: limit, offset: offset)
+        try validateCollectionSearchInput(query)
+        try validateCollectionPageInput(limit: limit, cursor: cursor)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-                .semanticCollections(matchingTitle: query, limit: limit, offset: offset)
-            return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
+            let page = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+                .semanticCollectionSummaryPage(matchingTitle: query, limit: limit, cursor: cursor)
+            return CollectionPageResult(
+                items: page.items.map(CollectionSummaryResult.init),
+                nextCursor: page.nextCursor,
+                hasMore: page.hasMore
+            )
         }
     }
 }
@@ -130,6 +139,12 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
+    @Option(name: .long, parsing: .unconditional, help: "Maximum books in this page (default 20, max 100).")
+    var limit: Int?
+
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -141,12 +156,17 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
 
     func execute() throws -> CollectionBooksResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        try validateCollectionPageInput(limit: limit, cursor: cursor)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            guard let members = try selector.resolveBookSummaries(in: books) else {
+            guard let page = try selector.resolveBookSummaryPage(in: books, limit: limit, cursor: cursor) else {
                 throw CLIError.notFound("Collection not found.")
             }
-            return CollectionBooksResult(items: members.map { BookSummaryResult(summary: $0) })
+            return CollectionBooksResult(
+                items: page.items.map { BookSummaryResult(summary: $0) },
+                nextCursor: page.nextCursor,
+                hasMore: page.hasMore
+            )
         }
     }
 }
@@ -351,60 +371,59 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
 }
 
 struct CollectionPageResult: Codable, Equatable, Sendable {
-    let items: [CollectionResult]
-    let limit: Int?
-    let offset: Int
-
+    let items: [CollectionSummaryResult]
+    let nextCursor: String?
+    let hasMore: Bool
 }
 
 struct CollectionBooksResult: Codable, Equatable, Sendable {
     let items: [BookSummaryResult]
-
+    let nextCursor: String?
+    let hasMore: Bool
 }
 
-struct CollectionResult: Codable, Equatable, Sendable {
-    let localPK: Int64
+struct CollectionSummaryResult: Codable, Equatable, Sendable {
     let collectionID: String?
+    let localPK: Int64?
+    let title: String?
+    let canEditCollection: Bool
+    let canEditMembership: Bool
+    let truncatedFields: [String]
+
+    init(_ collection: SemanticCollectionSummary) {
+        let stableID = PublicStableTokenPolicy.isEligible(collection.collectionID) ? collection.collectionID : nil
+        collectionID = stableID
+        localPK = stableID == nil && LocalPKPolicy.isEligible(collection.localPK) ? collection.localPK : nil
+        var truncated = collection.byteTruncatedFields
+        title = boundedField(collection.title, field: "title", profile: .metadata, truncatedFields: &truncated)
+        canEditCollection = collection.canEditCollection
+        canEditMembership = collection.canEditMembership
+        truncatedFields = Array(Set(truncated)).sorted()
+    }
+}
+
+struct CollectionDetailResult: Codable, Equatable, Sendable {
+    let collectionID: String?
+    let localPK: Int64?
     let title: String?
     let details: String?
-    let isDeleted: Bool?
     let isHidden: Bool?
-    let isPlaceholder: Bool?
-    let sortKey: Int64?
-    let sortMode: Int64?
-    let viewMode: Int64?
-    let lastModificationDate: Date?
-    let localModificationDate: Date?
-
+    let canEditCollection: Bool
+    let canEditMembership: Bool
     let truncatedFields: [String]
 
     init(_ collection: SemanticCollection) {
-        localPK = collection.localPK
-        collectionID = collection.collectionID
+        let stableID = PublicStableTokenPolicy.isEligible(collection.collectionID) ? collection.collectionID : nil
+        collectionID = stableID
+        localPK = stableID == nil && LocalPKPolicy.isEligible(collection.localPK) ? collection.localPK : nil
         var truncated = collection.byteTruncatedFields
-        title = boundedField(
-            collection.title,
-            field: "title",
-            profile: .metadata,
-            truncatedFields: &truncated
-        )
-        details = boundedField(
-            collection.details,
-            field: "details",
-            profile: .detail,
-            truncatedFields: &truncated
-        )
-        isDeleted = collection.isDeleted
+        title = boundedField(collection.title, field: "title", profile: .metadata, truncatedFields: &truncated)
+        details = boundedField(collection.details, field: "details", profile: .detail, truncatedFields: &truncated)
         isHidden = collection.isHidden
-        isPlaceholder = collection.isPlaceholder
-        sortKey = collection.sortKey
-        sortMode = collection.sortMode
-        viewMode = collection.viewMode
-        lastModificationDate = collection.lastModificationDate
-        localModificationDate = collection.localModificationDate
+        canEditCollection = collection.canEditCollection
+        canEditMembership = collection.canEditMembership
         truncatedFields = Array(Set(truncated)).sorted()
     }
-
 }
 
 private func parseCollectionMembershipSelectors(
@@ -432,7 +451,16 @@ private func parseCollectionMembershipSelectors(
     return (collection, book)
 }
 
-private func validateCollectionPagination(limit: Int?, offset: Int) throws {
-    if let limit, limit <= 0 { throw ValidationError("--limit must be positive.") }
-    guard offset >= 0 else { throw ValidationError("--offset must be non-negative.") }
+private func validateCollectionPageInput(limit: Int?, cursor: String?) throws {
+    try CLIOperation.run {
+        _ = try resolvedCursorPageLimit(limit)
+        try validateCursorInputSyntax(cursor)
+    }
+}
+
+private func validateCollectionSearchInput(_ query: String) throws {
+    guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+          BoundedTextPolicy.accepts(query, profile: .metadata) else {
+        throw CLIError.usageInvalid("Search query must be non-empty and within the metadata input limit.")
+    }
 }

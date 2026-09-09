@@ -194,6 +194,151 @@ struct CollectionQueriesTests {
         }
     }
 
+    @Test
+    func semanticCollectionPagesUseSQLiteNoCaseNullOrder() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKCOLLECTION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZCOLLECTIONID TEXT,
+            ZTITLE TEXT,
+            ZDELETEDFLAG INTEGER
+        );
+        INSERT INTO ZBKCOLLECTION VALUES
+            (1, 'one', 'beta', 0),
+            (2, 'two', 'Alpha', 0),
+            (3, 'three', 'alpha', 0),
+            (4, 'four', NULL, 0),
+            (5, 'deleted', 'aardvark', 1);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let first = try queries.semanticListPage(limit: 2)
+        #expect(first.items.map(\.localPK) == [2, 3])
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
+
+        let second = try queries.semanticListPage(limit: 2, cursor: cursor)
+        #expect(second.items.map(\.localPK) == [1, 4])
+        #expect(second.hasMore == false)
+        #expect(second.nextCursor == nil)
+
+        let searchFirst = try queries.semanticSearchTitlePage("ALP", limit: 1)
+        #expect(searchFirst.items.map(\.localPK) == [2])
+        let searchCursor = try #require(searchFirst.nextCursor)
+        let searchSecond = try queries.semanticSearchTitlePage("ALP", limit: 1, cursor: searchCursor)
+        #expect(searchSecond.items.map(\.localPK) == [3])
+        #expect(searchSecond.hasMore == false)
+    }
+
+    @Test
+    func semanticCollectionCapabilitiesUseRawIdentityWithoutPublishingInvalidTokens() throws {
+        let oversized = String(repeating: "x", count: PublicStableIdentityPolicy.maximumUTF8Bytes + 1)
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKCOLLECTION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZCOLLECTIONID TEXT,
+            ZTITLE TEXT,
+            ZDELETEDFLAG INTEGER
+        );
+        INSERT INTO ZBKCOLLECTION VALUES
+            (1, '550E8400-E29B-41D4-A716-446655440000', 'A', 0),
+            (2, 'Want_To_Read_Collection_ID', 'B', 0),
+            (3, 'Books_Collection_ID', 'C', 0),
+            (4, NULL, 'D', 0),
+            (5, '\(oversized)', 'E', 0);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let page = try queries.semanticListPage(limit: 10)
+        let byPK = Dictionary(uniqueKeysWithValues: page.items.map { ($0.localPK, $0) })
+        #expect(byPK[1]?.canEditCollection == true)
+        #expect(byPK[1]?.canEditMembership == true)
+        #expect(byPK[2]?.canEditCollection == false)
+        #expect(byPK[2]?.canEditMembership == true)
+        for pk in [Int64(3), 4, 5] {
+            #expect(byPK[pk]?.canEditCollection == false)
+            #expect(byPK[pk]?.canEditMembership == false)
+        }
+        #expect(byPK[5]?.collectionID == nil)
+
+        let detail = try #require(try queries.semanticGetByLocalPK(2))
+        #expect(detail.canEditCollection == false)
+        #expect(detail.canEditMembership == true)
+    }
+
+    @Test
+    func membershipCursorPagesMatchFullCanonicalSequenceAcrossDuplicatesAndStaleRows() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY, ZDELETEDFLAG INTEGER, ZTITLE TEXT);
+        CREATE TABLE ZBKCOLLECTIONMEMBER(
+            Z_PK INTEGER PRIMARY KEY,
+            ZCOLLECTION INTEGER,
+            ZASSETID TEXT,
+            ZSORTKEY REAL
+        );
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT
+        );
+        INSERT INTO ZBKCOLLECTION VALUES (1, 0, 'Synthetic');
+        WITH RECURSIVE seq(x) AS (
+            VALUES(1)
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 125
+        )
+        INSERT INTO ZBKLIBRARYASSET
+        SELECT x, printf('asset-%03d', x), printf('Book %03d', x) FROM seq;
+        INSERT INTO ZBKLIBRARYASSET VALUES (1000, 'asset-001', 'Duplicate source book row');
+        WITH RECURSIVE seq(x) AS (
+            VALUES(1)
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 125
+        )
+        INSERT INTO ZBKCOLLECTIONMEMBER
+        SELECT x, 1, printf('asset-%03d', x), CASE WHEN x % 10 = 0 THEN NULL ELSE x % 7 END FROM seq;
+        INSERT INTO ZBKCOLLECTIONMEMBER VALUES
+            (1001, 1, 'asset-001', 999),
+            (1002, 1, 'asset-050', 999),
+            (1003, 1, 'missing-asset', -1),
+            (1004, 1, NULL, -2);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+        let semanticCollection = try #require(try queries.semanticGetByLocalPK(1))
+        let rawCollection = try #require(try queries.getByLocalPK(1))
+        var expectedMembers: [(memberPK: Int, sortKey: Int?)] = (1...125).map { value in
+            (memberPK: value, sortKey: value % 10 == 0 ? nil : value % 7)
+        }
+        expectedMembers.sort { lhs, rhs in
+            if lhs.sortKey == nil { return rhs.sortKey != nil || lhs.memberPK < rhs.memberPK }
+            if rhs.sortKey == nil { return false }
+            let left = lhs.sortKey!
+            let right = rhs.sortKey!
+            return left == right ? lhs.memberPK < rhs.memberPK : left < right
+        }
+        let expectedLocalPKs: [Int64] = expectedMembers.flatMap { row in
+            row.memberPK == 1 ? [1, 1_000] : [Int64(row.memberPK)]
+        }
+        let fullLocalPKs = try queries.books(in: rawCollection).map(\.localPK)
+        #expect(fullLocalPKs == expectedLocalPKs)
+        #expect(Set(fullLocalPKs).count == 126)
+
+        var paged: [BookSummary] = []
+        var cursor: String?
+        repeat {
+            let page = try queries.semanticBooksPage(in: semanticCollection, limit: 20, cursor: cursor)
+            paged.append(contentsOf: page.items)
+            cursor = page.nextCursor
+            if page.hasMore == false { #expect(cursor == nil) }
+        } while cursor != nil
+
+        #expect(paged.map(\.localPK) == fullLocalPKs)
+        #expect(Set(paged.map(\.localPK)).count == paged.count)
+    }
+
     private func queries(for url: URL) throws -> CollectionQueries {
         CollectionQueries(connection: try SQLiteConnection.readOnly(path: url.path))
     }

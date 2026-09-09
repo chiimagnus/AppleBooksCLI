@@ -48,6 +48,7 @@ applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
 applebookscli reading recent --limit 20   # continue with --cursor <nextCursor> when present
 applebookscli stats
+applebookscli collections list   # continue with --cursor <nextCursor> when present
 applebookscli doctor   # ready / partial / unavailable + fixed capability map
 
 # Recent annotations
@@ -62,7 +63,7 @@ applebookscli pdf list
 applebookscli pdf highlights --help
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search` use opaque cursors; when `nextCursor` is returned, pass it unchanged to `--cursor` on the same query. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; use explicit archival export when the original full text is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
+Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, and `collections list/search/books` use opaque cursors; when `nextCursor` is returned, pass it unchanged to `--cursor` on the same query. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; use explicit archival export when the original full text is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
 
 ## Export
 

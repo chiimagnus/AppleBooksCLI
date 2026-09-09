@@ -117,7 +117,7 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         }
 
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
 
             if let bookSelector {
                 guard let selectedBook = try bookSelector.resolve(in: books) else {
@@ -234,7 +234,7 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     func execute() throws -> AnnotationResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             guard let row = try selector.resolve(in: books, scope: scope.coreValue) else {
                 throw CLIError.notFound("Annotation not found.")
             }
@@ -286,7 +286,7 @@ struct AnnotationsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try validateAnnotationPagination(limit: limit, offset: offset)
 
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             let rows: [EnrichedAnnotation]
             switch field {
             case .all:
@@ -342,7 +342,7 @@ struct AnnotationsRecentCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func execute() throws -> AnnotationCollectionResult {
         try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             let rows: [EnrichedAnnotation]
             switch timeField {
             case .created:
@@ -392,7 +392,7 @@ struct AnnotationsRangeCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
         try validateAnnotationPagination(limit: limit, offset: offset)
         let range = try AnnotationDateRangeParser(calendar: calendar).parse(after: after, before: before)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             let rows = try books.annotations(
                 createdAtOrAfter: range.lowerInclusive,
                 beforeExclusive: range.upperExclusive,
@@ -442,7 +442,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
             return MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
         }
     }
@@ -483,7 +483,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
             return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }

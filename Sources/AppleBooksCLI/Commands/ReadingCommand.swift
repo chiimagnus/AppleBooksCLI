@@ -67,7 +67,7 @@ extension ReadingStatusLeaf {
             throw ValidationError("--offset must be non-negative.")
         }
         let result = try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             return try statusKind.fetch(from: books, limit: limit, offset: offset)
         }
         if global.json {
@@ -131,7 +131,7 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func run(output: CLIOutput) throws {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         let result = try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             guard let book = try selector.resolve(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }

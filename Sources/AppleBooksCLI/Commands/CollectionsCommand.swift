@@ -44,7 +44,7 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func execute() throws -> CollectionPageResult {
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks().listCollections(limit: limit, offset: offset)
+            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).listCollections(limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
     }
@@ -74,7 +74,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     func execute() throws -> CollectionResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let collection = try selector.resolve(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
@@ -111,7 +111,7 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         guard query.isEmpty == false else { throw ValidationError("Search query must not be empty.") }
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks()
+            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
                 .collections(matchingTitle: query, limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
@@ -142,7 +142,7 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     func execute() throws -> CollectionBooksResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let members = try selector.resolveBooks(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
@@ -179,7 +179,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
         }
     }
@@ -217,7 +217,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
         }
     }
@@ -252,7 +252,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }
@@ -298,7 +298,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
             bookPK: bookPK
         )
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
         }
     }
@@ -344,7 +344,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
             bookPK: bookPK
         )
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
         }
     }

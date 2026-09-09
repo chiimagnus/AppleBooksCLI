@@ -15,7 +15,7 @@ struct StatsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable 
 
     func run(output: CLIOutput) throws {
         let result = try CLIOperation.run {
-            StatsResult(try CLIContext(global: global).makeAppleBooks().libraryStats())
+            StatsResult(try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration]).libraryStats())
         }
         if global.json {
             try output.writeJSON(result)

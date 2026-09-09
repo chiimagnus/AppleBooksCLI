@@ -33,6 +33,8 @@ applebookscli
 
 BKLibrary 与 AEAnnotation 是独立 store，必须分别发现、override 和打开。annotation existence 不依赖 current BKLibrary row；Book metadata 只是 enrichment。
 
+CLI 以命令实际能力声明组合 Core 依赖，而不是先构造“全能力 AppleBooks”：library-only 命令不发现 AEAnnotation、不加载 config、不解析 PDF worker；annotation-only mutation 不发现 BKLibrary；content 只组合 library + config；需要 enrichment/reading-position/context 的命令才组合 library + annotations + config。Export exact selector 先用 library identity 判定 source，再只装配该 source 真正需要的 annotation/config 或 PDF worker。公开 `AppleBooks` 双 DB initializer 继续表示调用方显式请求完整兼容能力；CLI 的 partial composition 只是 package-internal 装配边界，误调用未装配能力必须明确失败，不能通过 dummy path 或静默空结果伪装。
+
 普通读取使用 read-only SQLite。写入 required schema 漂移时 fail closed；读取 optional 字段缺失可以降级。
 
 本地 SQLite commit、Apple-native cloud projection、当前 Mac CloudKit acknowledgement 是不同层次：

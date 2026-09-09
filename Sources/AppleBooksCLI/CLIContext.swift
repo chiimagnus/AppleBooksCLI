@@ -43,14 +43,27 @@ struct CLIContext {
     }
 
     func makeAppleBooks(
+        dependencies: AppleBooksDependencies,
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws -> AppleBooks {
-        let databases = try databases()
+        let libraryDB = try dependencies.needsLibraryDatabase
+            ? databaseDiscovery.resolve(
+                store: .library,
+                override: global.libraryDB.map(URL.init(fileURLWithPath:))
+            )
+            : nil
+        let annotationsDB = try dependencies.needsAnnotationsDatabase
+            ? databaseDiscovery.resolve(
+                store: .annotations,
+                override: global.annotationsDB.map(URL.init(fileURLWithPath:))
+            )
+            : nil
         return try AppleBooks(
-            libraryDB: databases.libraryDB,
-            annotationsDB: databases.annotationsDB,
-            configurationFile: configurationFile,
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            configurationFile: dependencies.contains(.configuration) ? configurationFile : nil,
+            dependencies: dependencies,
             manageCollectionBooksApplication: managesCollectionBooksApplication,
             manageAnnotationBooksApplication: managesAnnotationBooksApplication,
             pdfWorkerURL: pdfWorkerURL,

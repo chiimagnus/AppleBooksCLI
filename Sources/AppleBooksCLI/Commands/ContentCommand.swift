@@ -44,7 +44,7 @@ struct ContentStatusCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
     func execute() throws -> ContentStatusResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(selector, in: books)
             guard let status = try books.contentStatus(forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
@@ -79,7 +79,7 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func execute() throws -> ContentMetadataResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(selector, in: books)
             guard let inspection = try books.contentMetadata(forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
@@ -125,7 +125,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
         }
 
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(selector, in: books)
             guard let inspection = try books.contentCover(forBookLocalPK: book.localPK) else {
                 throw CLIError.unavailable("Book cover is unavailable.")
@@ -166,7 +166,7 @@ struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
     func execute() throws -> ContentLocationResult {
         let parsed = try parseBookSelectorAndValue(values: values, localPK: pk, valueName: "CFI")
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(parsed.selector, in: books)
             guard let inspection = try books.locate(rawCFI: parsed.value, forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
@@ -204,7 +204,7 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func execute() throws -> ContentChaptersResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(selector, in: books)
             let chapters = try books.bookContent(forBookLocalPK: book.localPK).listChapters()
             return ContentChaptersResult(book: book, chapters: chapters)
@@ -254,7 +254,7 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         }
 
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
             let book = try requireBook(parsed.selector, in: books)
             let page = try books.bookContent(forBookLocalPK: book.localPK).chapterPage(
                 id: parsed.value,
@@ -299,7 +299,7 @@ struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CL
     func execute() throws -> ContentCurrentChapterResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             let book = try requireBook(selector, in: books)
             guard let chapter = try books.currentReadingChapter(forBookLocalPK: book.localPK) else {
                 throw CLIError.unavailable("Current reading chapter is unavailable.")
@@ -347,7 +347,7 @@ struct ContentContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         }
 
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             guard let enriched = try selector.resolve(in: books) else {
                 throw CLIError.notFound("Annotation not found.")
             }

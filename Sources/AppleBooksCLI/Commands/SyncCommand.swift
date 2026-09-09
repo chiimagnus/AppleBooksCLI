@@ -20,7 +20,7 @@ struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, 
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> CloudSyncCommandResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: [.collectionWrite, .annotationWrite])
             return CloudSyncCommandResult(try books.syncPendingCloudChanges())
         }
     }

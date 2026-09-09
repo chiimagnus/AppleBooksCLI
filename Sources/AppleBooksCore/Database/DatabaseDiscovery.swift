@@ -57,7 +57,7 @@ public struct DatabaseDiscovery: Sendable {
         return discoverSingleDatabase(in: directory, prefix: prefix)
     }
 
-    private func resolve(store: AppleBooksStore, override: URL?) throws -> URL {
+    package func resolve(store: AppleBooksStore, override: URL?) throws -> URL {
         switch probe(store: store, override: override) {
         case let .success(url):
             return url

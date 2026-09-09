@@ -61,7 +61,7 @@ struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunna
         }
         if all {
             return try CLIOperation.run {
-                let appleBooks = try CLIContext(global: global).makeAppleBooks()
+                let appleBooks = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
                 let allBooks = try appleBooks.listBooks()
                 let visibleBooks = offset == 0 ? allBooks : try appleBooks.listBooks(offset: offset)
                 return BookPageResult(
@@ -77,7 +77,7 @@ struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunna
             throw ValidationError("--limit must be between 1 and 100 for paged book lists.")
         }
         return try CLIOperation.run {
-            let page = try CLIContext(global: global).makeAppleBooks().bookPage(limit: limit, offset: offset)
+            let page = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).bookPage(limit: limit, offset: offset)
             return BookPageResult(
                 items: page.items.map { BookResult(book: $0) },
                 total: page.total,
@@ -89,7 +89,7 @@ struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunna
 
     private func annotatedResult() throws -> BookPageResult {
         try CLIOperation.run {
-            let overviews = try CLIContext(global: global).makeAppleBooks().annotatedBooks()
+            let overviews = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead]).annotatedBooks()
             if all {
                 return BookPageResult(
                     items: overviews.dropFirst(offset).map { BookResult(overview: $0) },
@@ -145,11 +145,11 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
     func execute() throws -> BookResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
-            guard let overview = try selector.resolveOverview(in: books) else {
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+            guard let book = try selector.resolve(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }
-            return BookResult(overview: overview)
+            return BookResult(book: book)
         }
     }
 }
@@ -187,7 +187,7 @@ struct BooksSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
     func execute() throws -> BookPageResult {
         try validateSearchInput(query: query, limit: limit, offset: offset)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             let allMatches = try books.books(matching: query)
             let pageItems: [Book]
             if limit == nil, offset == 0 {
@@ -238,7 +238,7 @@ struct BooksGenreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunn
     func execute() throws -> BookPageResult {
         try validateSearchInput(query: query, limit: limit, offset: offset)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             let allMatches = try books.books(matchingGenre: query)
             let pageItems: [Book]
             if limit == nil, offset == 0 {

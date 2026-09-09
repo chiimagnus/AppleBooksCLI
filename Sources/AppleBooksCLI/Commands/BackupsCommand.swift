@@ -30,7 +30,7 @@ struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> BackupListResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryBackup)
             return BackupListResult(items: try books.listLibraryBackups().map(BackupResult.init))
         }
     }
@@ -58,7 +58,7 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> RestoreCommandResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryBackup)
             return RestoreCommandResult(try books.restoreLibraryBackup(handle: handle))
         }
     }

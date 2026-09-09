@@ -106,6 +106,35 @@ struct ExportCommandTests {
     }
 
     @Test
+    func exactCurrentEPUBWithAllSourceDoesNotResolvePDFWorker() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let destination = fixture.root.appendingPathComponent("exact-epub.json")
+        let command = try ExportCommand.parse([
+            "--format", "json",
+            "--book", "asset-a",
+            "--source", "all",
+            "--output", destination.path,
+            "--library-db", fixture.library.path,
+            "--annotations-db", fixture.annotations.path,
+            "--config", fixture.configuration.path,
+        ])
+        var workerResolutionCount = 0
+
+        let result = try command.execute(
+            output: Capture().output,
+            workerURLProvider: {
+                workerResolutionCount += 1
+                throw FixtureError.workerMustNotBeResolved
+            }
+        )
+
+        #expect(workerResolutionCount == 0)
+        #expect(result == .files(documentFileCount: 1, files: [destination]))
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test
     func everySingleRendererWritesNativePayloadToStdoutWithoutWrapper() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
@@ -281,5 +310,6 @@ struct ExportCommandTests {
 
     private enum FixtureError: Error {
         case database
+        case workerMustNotBeResolved
     }
 }

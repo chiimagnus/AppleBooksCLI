@@ -28,7 +28,7 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             return PDFSourceListResult(items: try books.pdfSources().map(PDFSourceResult.init))
         }
     }
@@ -71,6 +71,7 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(
+                dependencies: [.libraryRead, .pdfWorker],
                 pdfWorkerURL: workerURL,
                 pdfWorkerTimeout: timeout
             )

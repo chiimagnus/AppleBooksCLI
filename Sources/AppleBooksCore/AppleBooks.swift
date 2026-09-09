@@ -28,17 +28,19 @@ public struct CloudSyncSummary: Equatable, Sendable {
 public final class AppleBooks {
     public static let defaultPDFWorkerTimeout: TimeInterval = PDFWorkerClient.defaultTimeout
 
-    private let bookQueries: BookQueries
-    private let collectionQueries: CollectionQueries
-    private let annotationQueries: AnnotationQueries
-    private let readingQueries: ReadingQueries
-    private let collectionWriter: CollectionWriter
-    private let annotationWriter: AnnotationWriter
-    private let restoreCoordinator: MutationCoordinator
-    private let libraryDatabase: URL
+    private let bookQueries: BookQueries?
+    private let collectionQueries: CollectionQueries?
+    private let annotationQueries: AnnotationQueries?
+    private let readingQueries: ReadingQueries?
+    private let annotationConnection: SQLiteConnection?
+    private let collectionWriter: CollectionWriter?
+    private let annotationWriter: AnnotationWriter?
+    private let restoreCoordinator: MutationCoordinator?
+    private let libraryDatabase: URL?
     private let libraryBackupRoot: URL
     private let pdfSourceResolver: PDFSourceResolver
     private let pdfWorkerClient: PDFWorkerClient?
+    private let dependencies: AppleBooksDependencies
     let configuration: AppleBooksConfiguration
 
     public convenience init(
@@ -69,44 +71,25 @@ public final class AppleBooks {
         pdfWorkerURL: URL? = nil,
         pdfWorkerTimeout: TimeInterval? = nil
     ) throws {
-        let collectionBooksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
-        let annotationBooksApp = manageAnnotationBooksApplication ? BooksAppController.live : BooksAppController.detached
-        let collectionCloudProjector = manageCollectionBooksApplication
-            ? CollectionCloudProjector.live(libraryDatabase: libraryDB)
-            : nil
-        let collectionCloudSynchronizer = manageCollectionBooksApplication
-            ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: collectionBooksApp)
-            : nil
-        let annotationCloudProjector = manageAnnotationBooksApplication
-            ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB)
-            : nil
-        let annotationCloudSynchronizer = manageAnnotationBooksApplication
-            ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: annotationBooksApp)
-            : nil
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             configurationFile: configurationFile,
-            collectionWriter: CollectionWriter(
-                database: libraryDB,
-                booksApp: collectionBooksApp,
-                cloudProjector: collectionCloudProjector,
-                cloudSynchronizer: collectionCloudSynchronizer
-            ),
-            annotationWriter: AnnotationWriter(
-                database: annotationsDB,
-                booksApp: annotationBooksApp,
-                cloudProjector: annotationCloudProjector,
-                cloudSynchronizer: annotationCloudSynchronizer
-            ),
-            restoreCoordinator: MutationCoordinator(database: libraryDB, booksApp: collectionBooksApp),
+            dependencies: .full,
+            manageCollectionBooksApplication: manageCollectionBooksApplication,
+            manageAnnotationBooksApplication: manageAnnotationBooksApplication,
+            libraryBackupRoot: SQLiteBackup.defaultRoot(),
+            collectionWriter: nil,
+            annotationWriter: nil,
+            restoreCoordinator: nil,
+            pdfSourceResolver: PDFSourceResolver(),
             pdfWorkerClient: pdfWorkerURL.map {
                 PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
             }
         )
     }
 
-    init(
+    convenience init(
         libraryDB: URL,
         annotationsDB: URL,
         configurationFile: URL?,
@@ -117,71 +100,233 @@ public final class AppleBooks {
         pdfSourceResolver: PDFSourceResolver = PDFSourceResolver(),
         pdfWorkerClient: PDFWorkerClient? = nil
     ) throws {
-        let libraryConnection = try SQLiteConnection.readOnly(path: libraryDB.path)
-        let annotationConnection = try SQLiteConnection.readOnly(path: annotationsDB.path)
-        let configuration = try configurationFile.map(AppleBooksConfiguration.init(fileURL:))
-            ?? AppleBooksConfiguration.loadDefault()
+        try self.init(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            configurationFile: configurationFile,
+            dependencies: .full,
+            manageCollectionBooksApplication: false,
+            manageAnnotationBooksApplication: false,
+            libraryBackupRoot: libraryBackupRoot,
+            collectionWriter: collectionWriter,
+            annotationWriter: annotationWriter ?? AnnotationWriter(database: annotationsDB),
+            restoreCoordinator: restoreCoordinator ?? MutationCoordinator(
+                database: libraryDB,
+                backupRoot: libraryBackupRoot
+            ),
+            pdfSourceResolver: pdfSourceResolver,
+            pdfWorkerClient: pdfWorkerClient
+        )
+    }
 
-        let books = BookQueries(connection: libraryConnection)
+    package convenience init(
+        libraryDB: URL?,
+        annotationsDB: URL?,
+        configurationFile: URL?,
+        dependencies: AppleBooksDependencies,
+        manageCollectionBooksApplication: Bool,
+        manageAnnotationBooksApplication: Bool,
+        pdfWorkerURL: URL? = nil,
+        pdfWorkerTimeout: TimeInterval? = nil
+    ) throws {
+        try self.init(
+            libraryDB: libraryDB,
+            annotationsDB: annotationsDB,
+            configurationFile: configurationFile,
+            dependencies: dependencies,
+            manageCollectionBooksApplication: manageCollectionBooksApplication,
+            manageAnnotationBooksApplication: manageAnnotationBooksApplication,
+            libraryBackupRoot: SQLiteBackup.defaultRoot(),
+            collectionWriter: nil,
+            annotationWriter: nil,
+            restoreCoordinator: nil,
+            pdfSourceResolver: PDFSourceResolver(),
+            pdfWorkerClient: dependencies.contains(.pdfWorker) ? pdfWorkerURL.map {
+                PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
+            } : nil
+        )
+    }
+
+    private init(
+        libraryDB: URL?,
+        annotationsDB: URL?,
+        configurationFile: URL?,
+        dependencies: AppleBooksDependencies,
+        manageCollectionBooksApplication: Bool,
+        manageAnnotationBooksApplication: Bool,
+        libraryBackupRoot: URL,
+        collectionWriter injectedCollectionWriter: CollectionWriter?,
+        annotationWriter injectedAnnotationWriter: AnnotationWriter?,
+        restoreCoordinator injectedRestoreCoordinator: MutationCoordinator?,
+        pdfSourceResolver: PDFSourceResolver,
+        pdfWorkerClient: PDFWorkerClient?
+    ) throws {
+        guard dependencies.needsLibraryDatabase == (libraryDB != nil),
+              dependencies.needsAnnotationsDatabase == (annotationsDB != nil) else {
+            throw AppleBooksDependencyError.invalidComposition
+        }
+
+        let libraryConnection = try dependencies.contains(.libraryRead)
+            ? SQLiteConnection.readOnly(path: libraryDB!.path)
+            : nil
+        let annotationConnection = try dependencies.contains(.annotationsRead)
+            ? SQLiteConnection.readOnly(path: annotationsDB!.path)
+            : nil
+        let configuration = try dependencies.contains(.configuration)
+            ? configurationFile.map(AppleBooksConfiguration.init(fileURL:)) ?? AppleBooksConfiguration.loadDefault()
+            : .empty
+
+        let books = libraryConnection.map(BookQueries.init(connection:))
         bookQueries = books
-        collectionQueries = CollectionQueries(connection: libraryConnection)
-        annotationQueries = AnnotationQueries(
-            annotationConnection: annotationConnection,
-            bookQueries: books,
-            historicalAssets: configuration.historicalAssets
-        )
-        readingQueries = ReadingQueries(
-            connection: libraryConnection,
-            annotationConnection: annotationConnection
-        )
-        self.collectionWriter = collectionWriter
-        self.annotationWriter = annotationWriter ?? AnnotationWriter(database: annotationsDB)
-        self.restoreCoordinator = restoreCoordinator ?? MutationCoordinator(
-            database: libraryDB,
-            backupRoot: libraryBackupRoot
-        )
+        collectionQueries = libraryConnection.map(CollectionQueries.init(connection:))
+        self.annotationConnection = annotationConnection
+        if let annotationConnection, let books, dependencies.contains(.configuration) {
+            annotationQueries = AnnotationQueries(
+                annotationConnection: annotationConnection,
+                bookQueries: books,
+                historicalAssets: configuration.historicalAssets
+            )
+        } else {
+            annotationQueries = nil
+        }
+        readingQueries = libraryConnection.map {
+            ReadingQueries(connection: $0, annotationConnection: annotationConnection)
+        }
+
+        if dependencies.contains(.collectionWrite), let libraryDB {
+            if let injectedCollectionWriter {
+                collectionWriter = injectedCollectionWriter
+            } else {
+                let booksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+                collectionWriter = CollectionWriter(
+                    database: libraryDB,
+                    booksApp: booksApp,
+                    cloudProjector: manageCollectionBooksApplication ? CollectionCloudProjector.live(libraryDatabase: libraryDB) : nil,
+                    cloudSynchronizer: manageCollectionBooksApplication
+                        ? CollectionCloudSynchronizer.live(libraryDatabase: libraryDB, booksApp: booksApp)
+                        : nil
+                )
+            }
+        } else {
+            collectionWriter = nil
+        }
+
+        if dependencies.contains(.annotationWrite), let annotationsDB {
+            if let injectedAnnotationWriter {
+                annotationWriter = injectedAnnotationWriter
+            } else {
+                let booksApp = manageAnnotationBooksApplication ? BooksAppController.live : BooksAppController.detached
+                annotationWriter = AnnotationWriter(
+                    database: annotationsDB,
+                    booksApp: booksApp,
+                    cloudProjector: manageAnnotationBooksApplication ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB) : nil,
+                    cloudSynchronizer: manageAnnotationBooksApplication
+                        ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: booksApp)
+                        : nil
+                )
+            }
+        } else {
+            annotationWriter = nil
+        }
+
+        if dependencies.contains(.libraryBackup), let libraryDB {
+            if let injectedRestoreCoordinator {
+                restoreCoordinator = injectedRestoreCoordinator
+            } else {
+                let booksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+                restoreCoordinator = MutationCoordinator(database: libraryDB, backupRoot: libraryBackupRoot, booksApp: booksApp)
+            }
+        } else {
+            restoreCoordinator = nil
+        }
+
         libraryDatabase = libraryDB
         self.libraryBackupRoot = libraryBackupRoot
         self.pdfSourceResolver = pdfSourceResolver
-        self.pdfWorkerClient = pdfWorkerClient
+        self.pdfWorkerClient = dependencies.contains(.pdfWorker) ? pdfWorkerClient : nil
+        self.dependencies = dependencies
         self.configuration = configuration
     }
 
+    private func require<T>(_ component: T?, _ dependency: AppleBooksDependency) throws -> T {
+        guard let component else { throw AppleBooksDependencyError.unavailable(dependency) }
+        return component
+    }
+
+    private func requiredBookQueries() throws -> BookQueries {
+        try require(bookQueries, .libraryRead)
+    }
+
+    private func requiredCollectionQueries() throws -> CollectionQueries {
+        try require(collectionQueries, .libraryRead)
+    }
+
+    private func requiredAnnotationQueries() throws -> AnnotationQueries {
+        try require(annotationQueries, .annotationsRead)
+    }
+
+    private func requiredReadingQueries() throws -> ReadingQueries {
+        try require(readingQueries, .libraryRead)
+    }
+
+    private func requiredCollectionWriter() throws -> CollectionWriter {
+        try require(collectionWriter, .collectionWrite)
+    }
+
+    private func requiredAnnotationWriter() throws -> AnnotationWriter {
+        try require(annotationWriter, .annotationWrite)
+    }
+
+    private func requiredRestoreCoordinator() throws -> MutationCoordinator {
+        try require(restoreCoordinator, .libraryBackup)
+    }
+
+    private func requiredLibraryDatabase() throws -> URL {
+        try require(libraryDatabase, .libraryBackup)
+    }
+
+    private func requiredConfiguration() throws -> AppleBooksConfiguration {
+        guard dependencies.contains(.configuration) else {
+            throw AppleBooksDependencyError.unavailable(.configuration)
+        }
+        return configuration
+    }
+
     public func listLibraryBackups() throws -> [LibraryBackup] {
-        try SQLiteBackup.list(source: libraryDatabase, backupRoot: libraryBackupRoot)
+        try SQLiteBackup.list(source: try requiredLibraryDatabase(), backupRoot: libraryBackupRoot)
     }
 
     public func restoreLibraryBackup(handle: String) throws -> RestoreResult {
-        try restoreCoordinator.restoreLibrary(handle: handle)
+        try requiredRestoreCoordinator().restoreLibrary(handle: handle)
     }
 
     // Stable deterministic order + validated pagination.
     public func listCollections(limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try collectionQueries.list(limit: limit, offset: offset)
+        try requiredCollectionQueries().list(limit: limit, offset: offset)
     }
 
     // Missing or deleted collections return nil.
     public func collection(localPK: Int64) throws -> Collection? {
-        try collectionQueries.getByLocalPK(localPK)
+        try requiredCollectionQueries().getByLocalPK(localPK)
     }
 
     public func collection(collectionID: String) throws -> Collection? {
-        try collectionQueries.getUniqueByCollectionID(collectionID)
+        try requiredCollectionQueries().getUniqueByCollectionID(collectionID)
     }
 
     // Title is a search field, never collection identity.
     public func collections(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try collectionQueries.searchTitle(text, limit: limit, offset: offset)
+        try requiredCollectionQueries().searchTitle(text, limit: limit, offset: offset)
     }
 
     public func books(inCollectionLocalPK localPK: Int64) throws -> [Book]? {
-        guard let collection = try collectionQueries.getByLocalPK(localPK) else { return nil }
-        return try collectionQueries.books(in: collection)
+        guard let collection = try requiredCollectionQueries().getByLocalPK(localPK) else { return nil }
+        return try requiredCollectionQueries().books(in: collection)
     }
 
     public func books(inCollectionID collectionID: String) throws -> [Book]? {
-        guard let collection = try collectionQueries.getUniqueByCollectionID(collectionID) else { return nil }
-        return try collectionQueries.books(in: collection)
+        guard let collection = try requiredCollectionQueries().getUniqueByCollectionID(collectionID) else { return nil }
+        return try requiredCollectionQueries().books(in: collection)
     }
 
     public func createCollection(
@@ -189,7 +334,7 @@ public final class AppleBooks {
         details: String? = nil,
         syncCloud: Bool = false
     ) throws -> MutationResult {
-        try collectionWriter.createCollection(
+        try requiredCollectionWriter().createCollection(
             title: title,
             details: details,
             syncCloud: syncCloud
@@ -197,7 +342,7 @@ public final class AppleBooks {
     }
 
     public func renameCollection(localPK: Int64, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.renameCollection(
+        try requiredCollectionWriter().renameCollection(
             localPK: localPK,
             newTitle: newTitle,
             syncCloud: syncCloud
@@ -205,7 +350,7 @@ public final class AppleBooks {
     }
 
     public func renameCollection(collectionID: String, newTitle: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.renameCollection(
+        try requiredCollectionWriter().renameCollection(
             collectionID: collectionID,
             newTitle: newTitle,
             syncCloud: syncCloud
@@ -213,21 +358,21 @@ public final class AppleBooks {
     }
 
     public func deleteCollection(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.deleteCollection(
+        try requiredCollectionWriter().deleteCollection(
             localPK: localPK,
             syncCloud: syncCloud
         )
     }
 
     public func deleteCollection(collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.deleteCollection(
+        try requiredCollectionWriter().deleteCollection(
             collectionID: collectionID,
             syncCloud: syncCloud
         )
     }
 
     public func addBook(bookLocalPK: Int64, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(
+        try requiredCollectionWriter().addBook(
             bookLocalPK: bookLocalPK,
             toCollectionLocalPK: collectionLocalPK,
             syncCloud: syncCloud
@@ -235,7 +380,7 @@ public final class AppleBooks {
     }
 
     public func addBook(assetID: String, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(
+        try requiredCollectionWriter().addBook(
             assetID: assetID,
             toCollectionID: collectionID,
             syncCloud: syncCloud
@@ -243,7 +388,7 @@ public final class AppleBooks {
     }
 
     public func addBook(bookLocalPK: Int64, toCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(
+        try requiredCollectionWriter().addBook(
             bookLocalPK: bookLocalPK,
             toCollectionID: collectionID,
             syncCloud: syncCloud
@@ -251,7 +396,7 @@ public final class AppleBooks {
     }
 
     public func addBook(assetID: String, toCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.addBook(
+        try requiredCollectionWriter().addBook(
             assetID: assetID,
             toCollectionLocalPK: collectionLocalPK,
             syncCloud: syncCloud
@@ -259,7 +404,7 @@ public final class AppleBooks {
     }
 
     public func removeBook(bookLocalPK: Int64, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(
+        try requiredCollectionWriter().removeBook(
             bookLocalPK: bookLocalPK,
             fromCollectionLocalPK: collectionLocalPK,
             syncCloud: syncCloud
@@ -267,7 +412,7 @@ public final class AppleBooks {
     }
 
     public func removeBook(assetID: String, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(
+        try requiredCollectionWriter().removeBook(
             assetID: assetID,
             fromCollectionID: collectionID,
             syncCloud: syncCloud
@@ -275,7 +420,7 @@ public final class AppleBooks {
     }
 
     public func removeBook(bookLocalPK: Int64, fromCollectionID collectionID: String, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(
+        try requiredCollectionWriter().removeBook(
             bookLocalPK: bookLocalPK,
             fromCollectionID: collectionID,
             syncCloud: syncCloud
@@ -283,7 +428,7 @@ public final class AppleBooks {
     }
 
     public func removeBook(assetID: String, fromCollectionLocalPK collectionLocalPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        try collectionWriter.removeBook(
+        try requiredCollectionWriter().removeBook(
             assetID: assetID,
             fromCollectionLocalPK: collectionLocalPK,
             syncCloud: syncCloud
@@ -291,14 +436,14 @@ public final class AppleBooks {
     }
 
     public func syncPendingCloudChanges() throws -> CloudSyncSummary {
-        let collectionPending = try collectionWriter.pendingCloudChangeCount()
-        let annotationPending = try annotationWriter.pendingCloudChangeCount()
+        let collectionPending = try requiredCollectionWriter().pendingCloudChangeCount()
+        let annotationPending = try requiredAnnotationWriter().pendingCloudChangeCount()
         do {
             if collectionPending > 0 {
-                try collectionWriter.syncPendingCloudChanges()
+                try requiredCollectionWriter().syncPendingCloudChanges()
             }
             if annotationPending > 0 {
-                try annotationWriter.syncPendingCloudChanges(restartRunningBooks: collectionPending == 0)
+                try requiredAnnotationWriter().syncPendingCloudChanges(restartRunningBooks: collectionPending == 0)
             }
         } catch is AppleBooksCloudSyncError {
             throw AppleBooksCloudSyncError.unavailable
@@ -312,12 +457,12 @@ public final class AppleBooks {
     }
 
     public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try bookQueries.list(limit: limit, offset: offset)
+        try requiredBookQueries().list(limit: limit, offset: offset)
     }
 
     public func annotatedBooks() throws -> [BookOverview] {
         let counts = try userAnnotationCountsByAssetID()
-        return try bookQueries.list().compactMap { book in
+        return try requiredBookQueries().list().compactMap { book in
             guard let assetID = book.assetID,
                   let count = counts[assetID],
                   count > 0 else {
@@ -328,24 +473,24 @@ public final class AppleBooks {
     }
 
     public func bookOverview(localPK: Int64) throws -> BookOverview? {
-        guard let book = try bookQueries.getByLocalPK(localPK) else { return nil }
+        guard let book = try requiredBookQueries().getByLocalPK(localPK) else { return nil }
         let counts = try userAnnotationCountsByAssetID()
         let count = book.assetID.flatMap { counts[$0] } ?? 0
         return BookOverview(book: book, userAnnotationCount: count)
     }
 
     public func bookOverview(assetID: String) throws -> BookOverview? {
-        guard let book = try bookQueries.getUniqueByAssetID(assetID) else { return nil }
+        guard let book = try requiredBookQueries().getUniqueByAssetID(assetID) else { return nil }
         let counts = try userAnnotationCountsByAssetID()
         return BookOverview(book: book, userAnnotationCount: counts[assetID] ?? 0)
     }
 
     public func libraryStats() throws -> LibraryStats {
-        let books = try bookQueries.list()
-        let finished = try readingQueries.finished()
-        let inProgress = try readingQueries.inProgress()
-        let unstarted = try readingQueries.unstarted()
-        let annotations = try annotationQueries.list(scope: .user)
+        let books = try requiredBookQueries().list()
+        let finished = try requiredReadingQueries().finished()
+        let inProgress = try requiredReadingQueries().inProgress()
+        let unstarted = try requiredReadingQueries().unstarted()
+        let annotations = try requiredAnnotationQueries().list(scope: .user)
 
         var booksByAssetID: [String: [Book]] = [:]
         var bookByLocalPK: [Int64: Book] = [:]
@@ -393,28 +538,28 @@ public final class AppleBooks {
     }
 
     public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
-        try bookQueries.page(limit: limit, offset: offset)
+        try requiredBookQueries().page(limit: limit, offset: offset)
     }
 
     public func book(localPK: Int64) throws -> Book? {
-        try bookQueries.getByLocalPK(localPK)
+        try requiredBookQueries().getByLocalPK(localPK)
     }
 
     public func book(assetID: String) throws -> Book? {
-        try bookQueries.getUniqueByAssetID(assetID)
+        try requiredBookQueries().getUniqueByAssetID(assetID)
     }
 
     public func pdfSources() throws -> [PDFSource] {
-        pdfSourceResolver.resolve(pdfBooks: try bookQueries.pdfBooks())
+        pdfSourceResolver.resolve(pdfBooks: try requiredBookQueries().pdfBooks())
     }
 
     public func pdfSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
-        guard let book = try bookQueries.pdfBooks().first(where: { $0.localPK == localPK }) else { return nil }
+        guard let book = try requiredBookQueries().pdfBooks().first(where: { $0.localPK == localPK }) else { return nil }
         return pdfSourceResolver.resolve(book: book)
     }
 
     public func pdfSource(fileURL: URL) throws -> PDFSource? {
-        pdfSourceResolver.resolve(fileURL: fileURL, pdfBooks: try bookQueries.pdfBooks())
+        pdfSourceResolver.resolve(fileURL: fileURL, pdfBooks: try requiredBookQueries().pdfBooks())
     }
 
     public func pdfHighlights() throws -> PDFHighlightServiceResult {
@@ -428,69 +573,72 @@ public final class AppleBooks {
     private func pdfHighlightService() throws -> PDFHighlightService {
         guard let pdfWorkerClient else { throw PDFHighlightFacadeError.workerUnavailable }
         return PDFHighlightService(
-            bookQueries: bookQueries,
+            bookQueries: try requiredBookQueries(),
             sourceResolver: pdfSourceResolver,
             workerClient: pdfWorkerClient
         )
     }
 
     public func exportBundle(options: ExportOptions) throws -> ExportBundle {
-        let pdfService = pdfWorkerClient.map {
-            PDFHighlightService(
-                bookQueries: bookQueries,
+        let pdfService: PDFHighlightService?
+        if let pdfWorkerClient {
+            pdfService = PDFHighlightService(
+                bookQueries: try requiredBookQueries(),
                 sourceResolver: pdfSourceResolver,
-                workerClient: $0
+                workerClient: pdfWorkerClient
             )
+        } else {
+            pdfService = nil
         }
         return try ExportService(
             annotationQueries: annotationQueries,
-            bookQueries: bookQueries,
-            configuration: configuration,
+            bookQueries: try requiredBookQueries(),
+            configuration: dependencies.contains(.configuration) ? configuration : nil,
             pdfService: pdfService
         ).makeBundle(options: options)
     }
 
     public func books(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try bookQueries.searchTitle(text, limit: limit, offset: offset)
+        try requiredBookQueries().searchTitle(text, limit: limit, offset: offset)
     }
 
     public func books(matchingGenre text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try bookQueries.searchGenre(text, limit: limit, offset: offset)
+        try requiredBookQueries().searchGenre(text, limit: limit, offset: offset)
     }
 
     public func books(matching text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try bookQueries.search(text, limit: limit, offset: offset)
+        try requiredBookQueries().search(text, limit: limit, offset: offset)
     }
 
     public func contentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {
-        guard let book = try bookQueries.getForContent(localPK) else { return nil }
-        return EPUBContentInspector.status(book: book, configuration: configuration)
+        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
+        return EPUBContentInspector.status(book: book, configuration: try requiredConfiguration())
     }
 
     public func contentMetadata(forBookLocalPK localPK: Int64) throws -> EPUBMetadataInspection? {
-        guard let book = try bookQueries.getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.metadata(book: book, configuration: configuration)
+        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.metadata(book: book, configuration: try requiredConfiguration())
     }
 
     public func contentCover(forBookLocalPK localPK: Int64) throws -> EPUBCoverInspection? {
-        guard let book = try bookQueries.getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.cover(book: book, configuration: configuration)
+        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.cover(book: book, configuration: try requiredConfiguration())
     }
 
     public func locate(rawCFI: String, forBookLocalPK localPK: Int64) throws -> EPUBLocationInspection? {
-        guard let book = try bookQueries.getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.locate(rawCFI: rawCFI, book: book, configuration: configuration)
+        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
+        return try EPUBContentInspector.locate(rawCFI: rawCFI, book: book, configuration: try requiredConfiguration())
     }
 
     public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
-        guard let book = try bookQueries.getForContent(localPK) else {
+        guard let book = try requiredBookQueries().getForContent(localPK) else {
             throw ContentError.bookPathUnavailable
         }
         return try bookContent(for: book)
     }
 
     private func bookContent(for book: Book) throws -> BookContent {
-        try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: configuration))
+        try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: try requiredConfiguration()))
     }
 
     public func listAnnotations(
@@ -498,7 +646,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.list(scope: scope, limit: limit, offset: offset)
+        try requiredAnnotationQueries().list(scope: scope, limit: limit, offset: offset)
     }
 
     public func annotationPage(
@@ -506,7 +654,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> Page<EnrichedAnnotation> {
-        try annotationQueries.page(scope: scope, limit: limit, offset: offset)
+        try requiredAnnotationQueries().page(scope: scope, limit: limit, offset: offset)
     }
 
     public func annotationPage(
@@ -515,16 +663,16 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> Page<EnrichedAnnotation> {
-        try annotationQueries.page(colorName: colorName, scope: scope, limit: limit, offset: offset)
+        try requiredAnnotationQueries().page(colorName: colorName, scope: scope, limit: limit, offset: offset)
     }
 
     public func annotation(localPK: Int64, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
-        try annotationQueries.getByLocalPK(localPK, scope: scope)
+        try requiredAnnotationQueries().getByLocalPK(localPK, scope: scope)
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
-        return try annotationWriter.updateNote(
+        let appleBooksURL = (try? requiredAnnotationQueries().getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try requiredAnnotationWriter().updateNote(
             localPK: localPK,
             note: note,
             syncCloud: syncCloud,
@@ -533,8 +681,8 @@ public final class AppleBooks {
     }
 
     public func updateAnnotationNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
-        return try annotationWriter.updateNote(
+        let appleBooksURL = (try? requiredAnnotationQueries().getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try requiredAnnotationWriter().updateNote(
             uuid: uuid,
             note: note,
             syncCloud: syncCloud,
@@ -543,8 +691,8 @@ public final class AppleBooks {
     }
 
     public func deleteAnnotation(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? annotationQueries.getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
-        return try annotationWriter.delete(
+        let appleBooksURL = (try? requiredAnnotationQueries().getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
+        return try requiredAnnotationWriter().delete(
             localPK: localPK,
             syncCloud: syncCloud,
             appleBooksURL: appleBooksURL
@@ -552,8 +700,8 @@ public final class AppleBooks {
     }
 
     public func deleteAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? annotationQueries.getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
-        return try annotationWriter.delete(
+        let appleBooksURL = (try? requiredAnnotationQueries().getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
+        return try requiredAnnotationWriter().delete(
             uuid: uuid,
             syncCloud: syncCloud,
             appleBooksURL: appleBooksURL
@@ -561,7 +709,7 @@ public final class AppleBooks {
     }
 
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
-        try annotationQueries.getUniqueByUUID(uuid, scope: scope)
+        try requiredAnnotationQueries().getUniqueByUUID(uuid, scope: scope)
     }
 
     public func annotations(
@@ -570,7 +718,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.byAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
+        try requiredAnnotationQueries().byAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
     }
 
     public func annotations(
@@ -580,8 +728,8 @@ public final class AppleBooks {
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
         try validatePagination(limit: limit, offset: offset)
-        guard let book = try bookQueries.getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
-        return try annotationQueries.byAssetID(assetID, scope: scope, limit: limit, offset: offset)
+        guard let book = try requiredBookQueries().getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
+        return try requiredAnnotationQueries().byAssetID(assetID, scope: scope, limit: limit, offset: offset)
     }
 
     public func annotationsInReadingOrder(
@@ -590,7 +738,7 @@ public final class AppleBooks {
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
         try validatePagination(limit: limit, offset: offset)
-        guard let book = try bookQueries.getByLocalPK(bookLocalPK) else { return [] }
+        guard let book = try requiredBookQueries().getByLocalPK(bookLocalPK) else { return [] }
         return try annotationsInReadingOrder(book: book, limit: limit, offset: offset)
     }
 
@@ -600,7 +748,7 @@ public final class AppleBooks {
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
         try validatePagination(limit: limit, offset: offset)
-        guard let book = try bookQueries.getUniqueByAssetID(assetID) else { return [] }
+        guard let book = try requiredBookQueries().getUniqueByAssetID(assetID) else { return [] }
         return try annotationsInReadingOrder(book: book, limit: limit, offset: offset)
     }
 
@@ -610,7 +758,7 @@ public final class AppleBooks {
         offset: Int
     ) throws -> [EnrichedAnnotation] {
         guard let assetID = book.assetID else { return [] }
-        let annotations = try annotationQueries.byAssetID(assetID, scope: .user)
+        let annotations = try requiredAnnotationQueries().byAssetID(assetID, scope: .user)
         guard annotations.isEmpty == false else { return [] }
 
         var chapterOrder: [String: Int] = [:]
@@ -653,14 +801,14 @@ public final class AppleBooks {
         guard charsBefore >= 0, charsAfter >= 0 else {
             throw AnnotationContextError.invalidWindow
         }
-        guard let enriched = try annotationQueries.getByLocalPK(localPK) else {
+        guard let enriched = try requiredAnnotationQueries().getByLocalPK(localPK) else {
             throw AnnotationContextError.annotationUnavailable
         }
         let annotation = enriched.annotation
         guard let assetID = annotation.rawAssetID else {
             throw AnnotationContextError.assetIdentityUnavailable
         }
-        let books = try bookQueries.getByAssetID(assetID)
+        let books = try requiredBookQueries().getByAssetID(assetID)
         guard books.isEmpty == false else {
             throw AnnotationContextError.currentBookUnavailable
         }
@@ -696,7 +844,7 @@ public final class AppleBooks {
     }
 
     public func annotations(colorName: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try annotationQueries.byColorName(colorName, limit: limit, offset: offset)
+        try requiredAnnotationQueries().byColorName(colorName, limit: limit, offset: offset)
     }
 
     public func annotations(
@@ -705,7 +853,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
+        try requiredAnnotationQueries().searchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
     public func annotations(
@@ -714,7 +862,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchNote(text, colorName: colorName, limit: limit, offset: offset)
+        try requiredAnnotationQueries().searchNote(text, colorName: colorName, limit: limit, offset: offset)
     }
 
     public func annotations(
@@ -723,15 +871,15 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.searchText(text, colorName: colorName, limit: limit, offset: offset)
+        try requiredAnnotationQueries().searchText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
     public func recentlyCreatedAnnotations(limit: Int? = 10, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try annotationQueries.recentlyCreated(limit: limit, offset: offset)
+        try requiredAnnotationQueries().recentlyCreated(limit: limit, offset: offset)
     }
 
     public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {
-        try annotationQueries.recentlyModified()
+        try requiredAnnotationQueries().recentlyModified()
     }
 
     public func annotations(
@@ -740,7 +888,7 @@ public final class AppleBooks {
         limit: Int? = nil,
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
-        try annotationQueries.created(
+        try requiredAnnotationQueries().created(
             lowerInclusive: lowerInclusive,
             upperExclusive: upperExclusive,
             limit: limit,
@@ -749,33 +897,47 @@ public final class AppleBooks {
     }
 
     public func booksInProgress(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try readingQueries.inProgress(limit: limit, offset: offset)
+        try requiredReadingQueries().inProgress(limit: limit, offset: offset)
     }
 
     public func finishedBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try readingQueries.finished(limit: limit, offset: offset)
+        try requiredReadingQueries().finished(limit: limit, offset: offset)
     }
 
     public func unstartedBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try readingQueries.unstarted(limit: limit, offset: offset)
+        try requiredReadingQueries().unstarted(limit: limit, offset: offset)
     }
 
     public func recentlyReadBooks(limit: Int = 10, offset: Int = 0) throws -> [Book] {
-        try readingQueries.recentlyRead(limit: limit, offset: offset)
+        try requiredReadingQueries().recentlyRead(limit: limit, offset: offset)
     }
 
     public func currentReadingLocation(forBookLocalPK localPK: Int64) throws -> Annotation? {
-        guard let book = try bookQueries.getForCurrentReadingLocation(localPK),
+        guard let book = try requiredBookQueries().getForCurrentReadingLocation(localPK),
               let assetID = book.assetID else {
             return nil
         }
-        return try readingQueries.currentPosition(rawAssetID: assetID)
+        return try requiredReadingQueries().currentPosition(rawAssetID: assetID)
     }
 
     private func userAnnotationCountsByAssetID() throws -> [String: Int] {
+        guard let annotationConnection else {
+            throw AppleBooksDependencyError.unavailable(.annotationsRead)
+        }
+        let schema = try AppleBooksSchema.inspect(.annotationUserBase, on: annotationConnection)
+        guard schema.contains(AppleBooksSchema.Annotation.assetID) else { return [:] }
+
+        let statement = try annotationConnection.prepare("""
+        SELECT \(AppleBooksSchema.Annotation.assetID)
+        FROM \(AppleBooksTable.annotations.rawValue)
+        WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0
+          AND \(AppleBooksSchema.Annotation.type) != 3
+          AND \(AppleBooksSchema.Annotation.assetID) IS NOT NULL
+        """)
         var counts: [String: Int] = [:]
-        for enriched in try annotationQueries.list(scope: .user) {
-            if let assetID = enriched.annotation.rawAssetID {
+        while try statement.step() {
+            let row = try SQLiteRow(statement: statement)
+            if let assetID = try row.text(AppleBooksSchema.Annotation.assetID) {
                 counts[assetID, default: 0] += 1
             }
         }
@@ -819,11 +981,11 @@ public final class AppleBooks {
             )
         }
 
-        guard let book = try bookQueries.getForCurrentReadingLocation(localPK),
+        guard let book = try requiredBookQueries().getForCurrentReadingLocation(localPK),
               let assetID = book.assetID else {
             return nil
         }
-        let candidate = try annotationQueries.byAssetID(assetID, scope: .user)
+        let candidate = try requiredAnnotationQueries().byAssetID(assetID, scope: .user)
             .filter { $0.annotation.location?.chapterID != nil }
             .sorted { lhs, rhs in
                 switch (lhs.annotation.createdAt, rhs.annotation.createdAt) {

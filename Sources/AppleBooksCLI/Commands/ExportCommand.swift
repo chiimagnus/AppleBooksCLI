@@ -196,11 +196,15 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     func execute(
         using injectedBooks: AppleBooks? = nil,
         output cliOutput: CLIOutput = .standard,
-        exportedAt: Date = Date()
+        exportedAt: Date = Date(),
+        workerURLProvider: () throws -> URL = { try installedPDFWorkerURL() }
     ) throws -> ExportRunResult {
         let request = try makeRequest()
         return try CLIOperation.run {
-            let books = try injectedBooks ?? makeAppleBooks(for: request.options.source)
+            let books = try injectedBooks ?? makeAppleBooks(
+                for: request.options,
+                workerURLProvider: workerURLProvider
+            )
             let bundle = try books.exportBundle(options: request.options)
             if bundle.warnings.isEmpty == false {
                 cliOutput.stderr("Warning: export completed with \(bundle.warnings.count) source warning(s).")
@@ -230,10 +234,51 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
     }
 
-    private func makeAppleBooks(for source: ExportSourceScope) throws -> AppleBooks {
+    private func makeAppleBooks(
+        for options: ExportOptions,
+        workerURLProvider: () throws -> URL
+    ) throws -> AppleBooks {
         let context = CLIContext(global: global)
-        guard source != .epub else { return try context.makeAppleBooks() }
-        return try context.makeAppleBooks(pdfWorkerURL: try installedPDFWorkerURL())
+        var dependencies: AppleBooksDependencies = [.libraryRead]
+
+        if options.bookSelectors.isEmpty {
+            switch options.source {
+            case .epub:
+                dependencies.formUnion([.annotationsRead, .configuration])
+            case .pdf:
+                dependencies.insert(.pdfWorker)
+            case .all:
+                dependencies.formUnion([.annotationsRead, .configuration, .pdfWorker])
+            }
+        } else {
+            let probe = try context.makeAppleBooks(dependencies: .libraryRead)
+            for selector in options.bookSelectors {
+                switch selector {
+                case let .assetID(assetID):
+                    let current = try probe.book(assetID: assetID)
+                    if current?.contentType == 3 {
+                        if options.source != .epub { dependencies.insert(.pdfWorker) }
+                    } else if options.source != .pdf {
+                        dependencies.formUnion([.annotationsRead, .configuration])
+                    }
+                case let .localPK(localPK):
+                    guard let current = try probe.book(localPK: localPK) else { continue }
+                    if current.contentType == 3 {
+                        if options.source != .epub { dependencies.insert(.pdfWorker) }
+                    } else if options.source != .pdf {
+                        dependencies.formUnion([.annotationsRead, .configuration])
+                    }
+                case .pdfFile:
+                    if options.source != .epub { dependencies.insert(.pdfWorker) }
+                }
+            }
+        }
+
+        let workerURL = dependencies.contains(.pdfWorker) ? try workerURLProvider() : nil
+        return try context.makeAppleBooks(
+            dependencies: dependencies,
+            pdfWorkerURL: workerURL
+        )
     }
 
     private func renderSingle(

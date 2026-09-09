@@ -36,7 +36,7 @@ struct BooksCommandTests {
     }
 
     @Test
-    func getKeepsExactAssetIdentitySeparateFromExplicitLocalPKAndReturnsRichJSON() throws {
+    func getKeepsExactAssetIdentitySeparateFromExplicitLocalPKWithoutAnnotationEnrichment() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -58,7 +58,7 @@ struct BooksCommandTests {
         #expect(asset.readingProgressPercent == 50)
         #expect(asset.durationRawMilliseconds == 2_000)
         #expect(asset.durationSeconds == 2)
-        #expect(asset.userAnnotationCount == 1)
+        #expect(asset.userAnnotationCount == nil)
 
         let pkCapture = Capture()
         let pkCode = CLIEntrypoint.run(

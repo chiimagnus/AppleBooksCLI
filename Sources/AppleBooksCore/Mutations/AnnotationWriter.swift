@@ -227,9 +227,9 @@ struct AnnotationWriter {
         let sql: String
         switch selector {
         case .localPK:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid LIMIT 2"
         case .uuid:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2"
         }
 
         var statement: OpaquePointer?
@@ -249,30 +249,24 @@ struct AnnotationWriter {
             }
         }
 
-        var rows: [(localPK: Int64, entityID: Int64?, optValid: Bool, deleted: Int64?, type: Int64?)] = []
-        while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
-                let localPK = sqlite3_column_int64(statement, 0)
-                let entityID = sqlite3_column_type(statement, 1) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 1) : nil
-                let optValid = sqlite3_column_type(statement, 2) == SQLITE_INTEGER
-                let deleted = sqlite3_column_type(statement, 3) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 3) : nil
-                let type = sqlite3_column_type(statement, 4) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 4) : nil
-                rows.append((localPK, entityID, optValid, deleted, type))
-            case SQLITE_DONE:
-                break
-            default:
-                throw AnnotationWriteError.writeFailed
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw AnnotationWriteError.annotationMissing
+        }
+        let row = (
+            localPK: sqlite3_column_int64(statement, 0),
+            entityID: sqlite3_column_type(statement, 1) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 1) : nil,
+            optValid: sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
+            deleted: sqlite3_column_type(statement, 3) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 3) : nil,
+            type: sqlite3_column_type(statement, 4) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 4) : nil
+        )
+        let second = sqlite3_step(statement)
+        if second == SQLITE_ROW {
+            if case .uuid = selector {
+                throw StableIdentityError.ambiguousAnnotationUUID
             }
-            if sqlite3_data_count(statement) == 0 { break }
+            throw AnnotationWriteError.writeFailed
         }
-
-        guard rows.isEmpty == false else { throw AnnotationWriteError.annotationMissing }
-        if case .uuid = selector, rows.count > 1 {
-            throw StableIdentityError.ambiguousAnnotationUUID
-        }
-        guard rows.count == 1 else { throw AnnotationWriteError.writeFailed }
-        let row = rows[0]
+        guard second == SQLITE_DONE else { throw AnnotationWriteError.writeFailed }
         guard row.entityID == entity.entityID else {
             throw WriteSchemaGuardError.entityMismatch(WriteSchemaTable.annotations.rawValue)
         }

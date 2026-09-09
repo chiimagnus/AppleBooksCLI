@@ -868,11 +868,13 @@ public final class AppleBooks {
         guard let assetID = annotation.rawAssetID else {
             throw AnnotationContextError.assetIdentityUnavailable
         }
-        let books = try requiredBookQueries().getByAssetID(assetID)
-        guard books.isEmpty == false else {
-            throw AnnotationContextError.currentBookUnavailable
-        }
-        guard books.count == 1, let book = books.first else {
+        let book: Book
+        do {
+            guard let resolved = try requiredBookQueries().getUniqueByAssetID(assetID) else {
+                throw AnnotationContextError.currentBookUnavailable
+            }
+            book = resolved
+        } catch StableIdentityError.ambiguousBookAssetID {
             throw AnnotationContextError.currentBookAmbiguous
         }
         guard book.path != nil else {

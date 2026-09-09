@@ -207,9 +207,25 @@ struct BookQueries {
     }
 
     func getUniqueByAssetID(_ assetID: String) throws -> Book? {
-        let matches = try getByAssetID(assetID)
-        guard matches.count <= 1 else { throw StableIdentityError.ambiguousBookAssetID }
-        return matches.first
+        _ = try AppleBooksSchema.inspect(.bookAssetLookup, on: connection)
+        let statement = try connection.prepare("""
+            SELECT \(AppleBooksSchema.Book.localPK), \(AppleBooksSchema.Book.assetID)
+            FROM \(AppleBooksTable.books.rawValue)
+            WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY
+            ORDER BY \(AppleBooksSchema.Book.localPK)
+            LIMIT 2
+            """)
+        try statement.bind(assetID, at: 1)
+        guard try statement.step() else { return nil }
+        let first = try SQLiteRow(statement: statement)
+        guard let localPK = try first.int64(AppleBooksSchema.Book.localPK),
+              try first.text(AppleBooksSchema.Book.assetID) == assetID else {
+            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Book.localPK)
+        }
+        if try statement.step() {
+            throw StableIdentityError.ambiguousBookAssetID
+        }
+        return try getByLocalPK(localPK)
     }
 
     func getForCurrentReadingLocation(_ localPK: Int64) throws -> Book? {

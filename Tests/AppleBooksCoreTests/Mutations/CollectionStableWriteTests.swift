@@ -89,6 +89,50 @@ struct CollectionStableWriteTests {
     }
 
     @Test
+    func stableWriterRejectsTenThousandDuplicatesBeforeBackup() throws {
+        let duplicateCollection = try makeFixture()
+        defer { duplicateCollection.remove() }
+        try execute(duplicateCollection.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZBKCOLLECTION(
+              Z_PK,Z_ENT,Z_OPT,ZDELETEDFLAG,ZHIDDEN,ZPLACEHOLDER,ZSORTKEY,ZSORTMODE,ZVIEWMODE,
+              ZLASTMODIFICATION,ZLOCALMODDATE,ZCOLLECTIONID,ZDETAILS,ZTITLE
+            )
+            SELECT x,7,1,0,0,0,50000,6,NULL,1,1,
+              '550E8400-E29B-41D4-A716-446655440000',NULL,'Duplicate' FROM seq;
+            """)
+        #expect(throws: StableIdentityError.ambiguousCollectionID) {
+            _ = try duplicateCollection.writer.deleteCollection(
+                collectionID: "550E8400-E29B-41D4-A716-446655440000"
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: duplicateCollection.backupRoot.path) == false)
+
+        let duplicateBook = try makeFixture()
+        defer { duplicateBook.remove() }
+        try execute(duplicateBook.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZBKLIBRARYASSET(Z_PK,ZASSETID)
+            SELECT x,'asset-1' FROM seq;
+            """)
+        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
+            _ = try duplicateBook.writer.addBook(
+                assetID: "asset-1",
+                toCollectionID: "550E8400-E29B-41D4-A716-446655440000"
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: duplicateBook.backupRoot.path) == false)
+    }
+
+    @Test
     func duplicateStableIdentityFailsClosedBeforeBackup() throws {
         let duplicateCollection = try makeFixture()
         defer { duplicateCollection.remove() }

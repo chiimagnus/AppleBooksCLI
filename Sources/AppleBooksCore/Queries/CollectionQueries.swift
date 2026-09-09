@@ -23,9 +23,26 @@ struct CollectionQueries {
     }
 
     func getUniqueByCollectionID(_ collectionID: String) throws -> Collection? {
-        let matches = try query(.collectionID(collectionID), capability: .collectionIDLookup, limit: nil, offset: 0)
-        guard matches.count <= 1 else { throw StableIdentityError.ambiguousCollectionID }
-        return matches.first
+        _ = try AppleBooksSchema.inspect(.collectionIDLookup, on: connection)
+        let statement = try connection.prepare("""
+            SELECT \(AppleBooksSchema.Collection.localPK), \(AppleBooksSchema.Collection.collectionID)
+            FROM \(AppleBooksTable.collections.rawValue)
+            WHERE \(AppleBooksSchema.Collection.isDeleted) = 0
+              AND \(AppleBooksSchema.Collection.collectionID) = ? COLLATE BINARY
+            ORDER BY \(AppleBooksSchema.Collection.localPK)
+            LIMIT 2
+            """)
+        try statement.bind(collectionID, at: 1)
+        guard try statement.step() else { return nil }
+        let first = try SQLiteRow(statement: statement)
+        guard let localPK = try first.int64(AppleBooksSchema.Collection.localPK),
+              try first.text(AppleBooksSchema.Collection.collectionID) == collectionID else {
+            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Collection.localPK)
+        }
+        if try statement.step() {
+            throw StableIdentityError.ambiguousCollectionID
+        }
+        return try getByLocalPK(localPK)
     }
 
     func books(in collection: Collection) throws -> [Book] {

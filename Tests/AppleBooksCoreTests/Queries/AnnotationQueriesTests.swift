@@ -146,6 +146,46 @@ struct AnnotationQueriesTests {
     }
 
     @Test
+    func uniqueUUIDResolutionStopsAfterTwoRowsWhileAllMatchRemainsFullFidelity() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let annotations = try database(at: root.appendingPathComponent("duplicate.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZANNOTATIONUUID TEXT,
+            ZANNOTATIONDELETED INTEGER,
+            ZANNOTATIONTYPE INTEGER,
+            ZANNOTATIONSELECTEDTEXT TEXT
+        );
+        WITH RECURSIVE seq(x) AS (
+            VALUES(1)
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 10001
+        )
+        INSERT INTO ZAEANNOTATION
+        SELECT x, 'duplicate-uuid', 0, 1, CAST(X'FF' AS TEXT) FROM seq;
+        """)
+        let library = try database(
+            at: root.appendingPathComponent("library.sqlite"),
+            sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);"
+        )
+        let config = root.appendingPathComponent("config.json")
+        try Data("{\"historical_assets\":{}}".utf8).write(to: config)
+        let queries = AnnotationQueries(
+            annotationConnection: try SQLiteConnection.readOnly(path: annotations.path),
+            bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
+            historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
+        )
+
+        #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
+            _ = try queries.getUniqueByUUID("duplicate-uuid")
+        }
+        #expect(throws: SQLiteRowError.invalidUTF8(column: "ZANNOTATIONSELECTEDTEXT")) {
+            _ = try queries.getByUUID("duplicate-uuid")
+        }
+    }
+
+    @Test
     func missingOptionalSortAndAssetColumnsDoNotDropCanonicalRows() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

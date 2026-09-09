@@ -91,6 +91,29 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func uuidWriterRejectsTenThousandDuplicatesBeforeBackup() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZAEANNOTATION(
+              Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE,ZANNOTATIONUUID,
+              ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZFUTUREPROOFING6
+            )
+            SELECT x,17,1,0,2,'uuid-1','duplicate',1,'duplicate','1' FROM seq;
+            """)
+
+        #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
+            _ = try fixture.writer.updateNote(uuid: "uuid-1", note: "must-not-write")
+        }
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+    }
+
+    @Test
     func duplicateDeletedUnknownAndEntityMismatchFailClosedBeforeBackup() throws {
         let duplicate = try fixture(duplicateUUID: true)
         defer { duplicate.remove() }

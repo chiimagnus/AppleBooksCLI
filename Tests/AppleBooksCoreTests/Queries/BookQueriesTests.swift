@@ -131,6 +131,33 @@ struct BookQueriesTests {
     }
 
     @Test
+    func uniqueAssetResolutionStopsAfterTwoRowsWhileAllMatchRemainsFullFidelity() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT
+        );
+        WITH RECURSIVE seq(x) AS (
+            VALUES(1)
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 10001
+        )
+        INSERT INTO ZBKLIBRARYASSET
+        SELECT x, 'duplicate-asset', CAST(X'FF' AS TEXT) FROM seq;
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
+            _ = try queries.getUniqueByAssetID("duplicate-asset")
+        }
+        #expect(throws: SQLiteRowError.invalidUTF8(column: "ZTITLE")) {
+            _ = try queries.getByAssetID("duplicate-asset")
+        }
+    }
+
+    @Test
     func explicitMissingSearchFieldFailsWhileAllUsesAvailableColumns() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZTITLE TEXT);

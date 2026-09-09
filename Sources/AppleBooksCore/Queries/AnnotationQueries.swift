@@ -56,9 +56,26 @@ struct AnnotationQueries {
     }
 
     func getUniqueByUUID(_ uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
-        let matches = try getByUUID(uuid, scope: scope)
-        guard matches.count <= 1 else { throw StableIdentityError.ambiguousAnnotationUUID }
-        return matches.first
+        _ = try AppleBooksSchema.inspect(.annotationByUUID, on: annotationConnection)
+        let statement = try annotationConnection.prepare("""
+            SELECT \(AppleBooksSchema.Annotation.localPK), \(AppleBooksSchema.Annotation.uuid)
+            FROM \(AppleBooksTable.annotations.rawValue)
+            WHERE \(Self.scopePredicate(scope))
+              AND \(AppleBooksSchema.Annotation.uuid) = ? COLLATE BINARY
+            ORDER BY \(AppleBooksSchema.Annotation.localPK)
+            LIMIT 2
+            """)
+        try statement.bind(uuid, at: 1)
+        guard try statement.step() else { return nil }
+        let first = try SQLiteRow(statement: statement)
+        guard let localPK = try first.int64(AppleBooksSchema.Annotation.localPK),
+              try first.text(AppleBooksSchema.Annotation.uuid) == uuid else {
+            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Annotation.localPK)
+        }
+        if try statement.step() {
+            throw StableIdentityError.ambiguousAnnotationUUID
+        }
+        return try getByLocalPK(localPK, scope: scope)
     }
 
     func byAssetID(

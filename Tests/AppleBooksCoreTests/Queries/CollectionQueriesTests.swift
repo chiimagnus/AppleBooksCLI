@@ -51,6 +51,34 @@ struct CollectionQueriesTests {
     }
 
     @Test
+    func uniqueCollectionResolutionStopsAfterTwoRowsWithoutDecodingRichFields() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKCOLLECTION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZCOLLECTIONID TEXT,
+            ZTITLE TEXT,
+            ZDELETEDFLAG INTEGER
+        );
+        WITH RECURSIVE seq(x) AS (
+            VALUES(1)
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 10001
+        )
+        INSERT INTO ZBKCOLLECTION
+        SELECT x, 'duplicate-collection', CAST(X'FF' AS TEXT), 0 FROM seq;
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        #expect(throws: StableIdentityError.ambiguousCollectionID) {
+            _ = try queries.getUniqueByCollectionID("duplicate-collection")
+        }
+        #expect(throws: SQLiteRowError.invalidUTF8(column: "ZTITLE")) {
+            _ = try queries.list()
+        }
+    }
+
+    @Test
     func listFallsBackToLocalPkWhenOptionalTitleIsAbsent() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY, ZDELETEDFLAG INTEGER);

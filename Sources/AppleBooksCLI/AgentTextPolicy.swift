@@ -39,6 +39,18 @@ enum BoundedTextPolicy {
     }
 }
 
+enum LocalPKPolicy {
+    static func isEligible(_ value: Int64) -> Bool {
+        value > 0
+    }
+
+    static func validateInput(_ value: Int64, optionName: String = "--pk") throws {
+        guard isEligible(value) else {
+            throw CLIError.usageInvalid("\(optionName) must be a positive local row identifier.")
+        }
+    }
+}
+
 enum PublicStableTokenPolicy {
     static let maximumUTF8Bytes = PublicStableIdentityPolicy.maximumUTF8Bytes
 

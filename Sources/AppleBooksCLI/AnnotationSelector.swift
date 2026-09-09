@@ -41,6 +41,7 @@ func parseAnnotationSelector(uuid: String?, localPK: Int64?) throws -> Annotatio
         }
         return .uuid(uuid)
     case let (nil, .some(localPK)):
+        try LocalPKPolicy.validateInput(localPK)
         return .localPK(localPK)
     case (nil, nil):
         throw ValidationError("Provide an annotation UUID or --pk.")

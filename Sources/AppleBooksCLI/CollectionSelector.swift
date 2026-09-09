@@ -80,6 +80,7 @@ func parseCollectionSelector(
         }
         return .collectionID(collectionID)
     case let (nil, .some(localPK)):
+        try LocalPKPolicy.validateInput(localPK, optionName: localPKOptionName)
         return .localPK(localPK)
     case (nil, nil):
         throw ValidationError("Provide a collection ID or --pk.")

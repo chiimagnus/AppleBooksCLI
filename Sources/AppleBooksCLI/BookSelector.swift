@@ -41,6 +41,7 @@ func parseOptionalBookSelector(
         try PublicStableTokenPolicy.validateInput(assetID)
         return .assetID(assetID)
     case let (nil, .some(localPK)):
+        try LocalPKPolicy.validateInput(localPK, optionName: localPKOptionName)
         return .localPK(localPK)
     case (nil, nil):
         return nil

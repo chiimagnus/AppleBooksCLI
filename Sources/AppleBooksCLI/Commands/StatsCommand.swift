@@ -32,7 +32,7 @@ struct TopAnnotatedBookResult: Codable, Equatable, Sendable {
             localPK = nil
         } else {
             assetID = nil
-            localPK = summary.localPK > 0 ? summary.localPK : nil
+            localPK = LocalPKPolicy.isEligible(summary.localPK) ? summary.localPK : nil
         }
         annotationCount = summary.annotationCount
     }

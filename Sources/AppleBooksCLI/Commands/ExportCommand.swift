@@ -158,6 +158,9 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     }
 
     func makeRequest() throws -> ExportCLIRequest {
+        for localPK in bookPK {
+            try LocalPKPolicy.validateInput(localPK, optionName: "--book-pk")
+        }
         let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
         let kinds = kind.isEmpty ? defaults.kinds : Set(kind.map(\.coreValue))

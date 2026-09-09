@@ -272,6 +272,29 @@ struct BooksCommandTests {
     }
 
     @Test
+    func nonPositiveDatabasePKIsNeverPublishedAsFallbackIdentity() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZTITLE TEXT
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(0, NULL, 'Invalid Local Identity');
+            """)
+        defer { fixture.remove() }
+
+        let capture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "list"] + fixture.globalArguments,
+            output: capture.output
+        ) == CLIProcessExit.success.rawValue)
+        let page = try decode(BookSummaryPageResult.self, capture.stdout)
+        let item = try #require(page.items.first)
+        #expect(item.assetID == nil)
+        #expect(item.localPK == nil)
+    }
+
+    @Test
     func missingGetUsesStableNotFoundErrorEnvelope() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

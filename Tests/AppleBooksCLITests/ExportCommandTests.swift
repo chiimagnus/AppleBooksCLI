@@ -81,6 +81,17 @@ struct ExportCommandTests {
             _ = try negativeSkip.makeRequest()
         }
 
+        let invalidPK = try ExportCommand.parse([
+            "--format", "json",
+            "--book-pk", "1",
+            "--book-pk", "0",
+            "--book-pk", "2",
+            "--output", "/tmp/export.json",
+        ] + global)
+        #expect(throws: CLIError.usageInvalid("--book-pk must be a positive local row identifier.")) {
+            _ = try invalidPK.makeRequest()
+        }
+
         let noOutput = try ExportCommand.parse(["--format", "json"] + global)
         #expect(throws: ValidationError.self) { _ = try noOutput.makeRequest() }
 

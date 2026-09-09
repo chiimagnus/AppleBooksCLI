@@ -9,6 +9,40 @@ import Testing
 @Suite("CLIContractTests")
 struct CLIContractTests {
     @Test
+    func publicLocalPKFallbackRejectsNonPositiveValuesBeforeDependencyDiscovery() throws {
+        #expect(LocalPKPolicy.isEligible(-1) == false)
+        #expect(LocalPKPolicy.isEligible(0) == false)
+        #expect(LocalPKPolicy.isEligible(1))
+        #expect(LocalPKPolicy.isEligible(Int64.max))
+        #expect(try parseBookSelector(assetID: nil, localPK: Int64.max) == .localPK(Int64.max))
+        #expect(try parseAnnotationSelector(uuid: nil, localPK: Int64.max) == .localPK(Int64.max))
+        #expect(try parseCollectionSelector(collectionID: nil, localPK: Int64.max) == .localPK(Int64.max))
+
+        let missing = "/definitely/missing/applebookscli-pk-preflight.sqlite"
+        let globals = ["--library-db", missing, "--annotations-db", missing]
+        let cases: [[String]] = [
+            ["books", "get", "--pk", "0"],
+            ["reading", "position", "--pk", "-1"],
+            ["content", "metadata", "--pk", "0"],
+            ["annotations", "get", "--pk", "-1"],
+            ["annotations", "list", "--book-pk", "0"],
+            ["collections", "get", "--pk", "0"],
+            ["collections", "add-book", "--collection-pk", "-1", "--book-pk", "1"],
+            ["collections", "add-book", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
+            ["pdf", "highlights", "--book-pk", "0"],
+        ]
+
+        for arguments in cases {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments + globals, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
+            #expect(capture.stderr.contains("PDF worker") == false)
+        }
+    }
+
+    @Test
     func processParseHelpAndVersionContractsDoNotDiscoverDatabases() throws {
         let harness = try ProcessHarness()
         defer { harness.remove() }
@@ -867,6 +901,18 @@ private final class ProcessFixture {
       (3,11,1,'uuid-b','asset-b',0,0,2,1,120,220,'Second section','Second representative','note beta','epubcfi(/6/2[shared]!/4/2,:0,:14)',4,5,6,'shared','220'),
       (4,11,1,'uuid-update','asset-a',0,0,3,1,130,230,'Update quote','Update representative','old note','epubcfi(/6/2[shared]!/4/2,:0,:6)',7,8,9,'shared','230');
     """
+}
+
+private final class Capture {
+    var stdout = ""
+    var stderr = ""
+
+    var output: CLIOutput {
+        CLIOutput(
+            stdout: { [self] in stdout += $0 },
+            stderr: { [self] in stderr += $0 }
+        )
+    }
 }
 
 private enum ContractFixtureError: Error {

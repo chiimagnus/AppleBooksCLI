@@ -201,7 +201,7 @@ struct BookSummaryResult: Codable, Equatable, Sendable {
     init(summary: BookSummary, userAnnotationCount: Int? = nil) {
         let stableAssetID = PublicStableTokenPolicy.isEligible(summary.assetID) ? summary.assetID : nil
         assetID = stableAssetID
-        localPK = stableAssetID == nil && summary.localPK > 0 ? summary.localPK : nil
+        localPK = stableAssetID == nil && LocalPKPolicy.isEligible(summary.localPK) ? summary.localPK : nil
         var truncated: [String] = []
         title = boundedField(summary.title, field: "title", profile: .metadata, truncatedFields: &truncated)
         author = boundedField(summary.author, field: "author", profile: .metadata, truncatedFields: &truncated)
@@ -232,7 +232,7 @@ struct BookDetailResult: Codable, Equatable, Sendable {
     init(book: Book) {
         let stableAssetID = PublicStableTokenPolicy.isEligible(book.assetID) ? book.assetID : nil
         assetID = stableAssetID
-        localPK = stableAssetID == nil && book.localPK > 0 ? book.localPK : nil
+        localPK = stableAssetID == nil && LocalPKPolicy.isEligible(book.localPK) ? book.localPK : nil
         var truncated: [String] = []
         title = boundedField(book.title, field: "title", profile: .metadata, truncatedFields: &truncated)
         author = boundedField(book.normalizedAuthor, field: "author", profile: .metadata, truncatedFields: &truncated)

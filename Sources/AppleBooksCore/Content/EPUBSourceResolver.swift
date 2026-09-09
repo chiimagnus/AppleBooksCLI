@@ -36,12 +36,32 @@ enum EPUBSourceResolver {
         try resolve(for: book, configuration: configuration).requireReader().reader
     }
 
+    static func reader(for target: BookResourceTarget, configuration: AppleBooksConfiguration) throws -> any EPUBResourceReader {
+        try resolve(for: target, configuration: configuration).requireReader().reader
+    }
+
     static func resolve(
         for book: Book,
         configuration: AppleBooksConfiguration,
         observingAvailability: Bool = false
     ) -> EPUBSourceResolution {
-        guard let rawPath = book.path else {
+        resolve(rawPath: book.path, configuration: configuration, observingAvailability: observingAvailability)
+    }
+
+    static func resolve(
+        for target: BookResourceTarget,
+        configuration: AppleBooksConfiguration,
+        observingAvailability: Bool = false
+    ) -> EPUBSourceResolution {
+        resolve(rawPath: target.path, configuration: configuration, observingAvailability: observingAvailability)
+    }
+
+    private static func resolve(
+        rawPath: String?,
+        configuration: AppleBooksConfiguration,
+        observingAvailability: Bool
+    ) -> EPUBSourceResolution {
+        guard let rawPath else {
             return EPUBSourceResolution(
                 currentAvailability: nil,
                 supplementalAvailability: nil,

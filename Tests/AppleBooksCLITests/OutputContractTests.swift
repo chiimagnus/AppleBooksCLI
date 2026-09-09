@@ -2,76 +2,69 @@ import ArgumentParser
 import Foundation
 import Testing
 @testable import AppleBooksCLI
-@testable import AppleBooksCore
 
 @Suite("OutputContractTests")
 struct OutputContractTests {
     @Test
-    func humanParseFailureUsesUsageExitAndStderrOnly() {
+    func parseFailureIsSanitizedJsonOnStderrOnly() throws {
+        let sentinel = "secret-value-DO-NOT-ECHO"
         let capture = Capture()
+
         let code = CLIEntrypoint.run(
-            arguments: ["--unknown-option"],
+            arguments: ["books", "list", "--definitely-unknown", sentinel],
             output: capture.output
         )
 
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
         #expect(capture.stdout.isEmpty)
-        #expect(capture.stderr.contains("Error:"))
-        #expect(capture.stderr.contains("--unknown-option"))
+        #expect(capture.stderr.contains(sentinel) == false)
+        #expect(capture.stderr.contains("definitely-unknown") == false)
+        let envelope = try decodeError(capture.stderr)
+        #expect(envelope == CLIErrorEnvelope(.usageInvalid("Invalid command-line arguments.")))
+        #expect(envelope.error.reason == nil)
+        #expect(envelope.error.recoveryHint == nil)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(capture.stderr.utf8)) as? [String: Any])
+        let error = try #require(object["error"] as? [String: Any])
+        #expect(error["reason"] is NSNull)
+        #expect(error["recoveryHint"] is NSNull)
     }
 
     @Test
-    func jsonParseFailureIsOneDecodableValueOnStdout() throws {
-        let capture = Capture()
-        let code = CLIEntrypoint.run(
-            arguments: ["--json", "--unknown-option"],
-            output: capture.output
-        )
+    func removedJsonAndVerboseFlagsAreNotCompatibilityAliases() throws {
+        for removedFlag in ["--json", "--verbose"] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(
+                arguments: ["books", "list", removedFlag],
+                output: capture.output
+            )
 
-        #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        #expect(capture.stderr.isEmpty)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(capture.stdout.utf8))
-        #expect(envelope == CLIErrorEnvelope(.usageInvalid("Unknown option '--json'")))
-        #expect(capture.stdout.first == "{")
-        #expect(capture.stdout.last == "}")
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            let envelope = try decodeError(capture.stderr)
+            #expect(envelope.error.code == .usageInvalid)
+            #expect(envelope.error.message == "Invalid command-line arguments.")
+            #expect(capture.stderr.contains(removedFlag) == false)
+        }
     }
 
     @Test
-    func rawJsonDetectionIsExactAndStopsAtTerminator() {
-        let prefix = Capture()
-        let prefixCode = CLIEntrypoint.run(arguments: ["--jsonish"], output: prefix.output)
-        #expect(prefixCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(prefix.stdout.isEmpty)
-        #expect(prefix.stderr.isEmpty == false)
-
-        let afterTerminator = Capture()
-        let terminatorCode = CLIEntrypoint.run(
-            arguments: ["--", "--json"],
-            output: afterTerminator.output
-        )
-        #expect(terminatorCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(afterTerminator.stdout.isEmpty)
-        #expect(afterTerminator.stderr.isEmpty == false)
-    }
-
-    @Test
-    func helpAndVersionRemainPureTextEvenWhenRawJsonTokenIsPresent() {
+    func helpAndVersionRemainPlainTextCleanExits() {
         let help = Capture()
-        let helpCode = CLIEntrypoint.run(arguments: ["--help", "--json"], output: help.output)
+        let helpCode = CLIEntrypoint.run(arguments: ["--help"], output: help.output)
         #expect(helpCode == CLIProcessExit.success.rawValue)
         #expect(help.stderr.isEmpty)
         #expect(help.stdout.contains("USAGE:"))
         #expect((try? JSONSerialization.jsonObject(with: Data(help.stdout.utf8))) == nil)
 
         let version = Capture()
-        let versionCode = CLIEntrypoint.run(arguments: ["--version", "--json"], output: version.output)
+        let versionCode = CLIEntrypoint.run(arguments: ["--version"], output: version.output)
         #expect(versionCode == CLIProcessExit.success.rawValue)
         #expect(version.stderr.isEmpty)
         #expect(version.stdout == "dev")
     }
 
     @Test
-    func typedErrorsHaveStableCodesMessagesAndExitNumbers() throws {
+    func typedErrorsHaveStableCodesMessagesAndExitNumbersOnStderr() throws {
         let cases: [(CLIError, CLIErrorCode, CLIProcessExit)] = [
             (.usageInvalid("bad usage"), .usageInvalid, .usageInvalid),
             (.notFound("missing"), .notFound, .notFound),
@@ -83,40 +76,28 @@ struct OutputContractTests {
 
         for (error, expectedCode, expectedExit) in cases {
             let capture = Capture()
-            let code = CLIEntrypoint.presentRunError(
-                error,
-                jsonRequested: true,
-                output: capture.output
-            )
+            let code = CLIEntrypoint.presentRunError(error, output: capture.output)
             #expect(code == expectedExit.rawValue)
-            #expect(capture.stderr.isEmpty)
-            let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(capture.stdout.utf8))
+            #expect(capture.stdout.isEmpty)
+            let envelope = try decodeError(capture.stderr)
             #expect(envelope.error.code == expectedCode)
             #expect(envelope.error.message == error.message)
+            #expect(envelope.error.reason == nil)
+            #expect(envelope.error.recoveryHint == nil)
         }
     }
 
     @Test
-    func validationErrorMapsToUsageInvalidInHumanAndJsonModes() throws {
-        let human = Capture()
-        let humanCode = CLIEntrypoint.presentRunError(
+    func validationErrorMapsToUsageInvalidJsonOnStderr() throws {
+        let capture = Capture()
+        let code = CLIEntrypoint.presentRunError(
             ValidationError("invalid selection"),
-            jsonRequested: false,
-            output: human.output
+            output: capture.output
         )
-        #expect(humanCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(human.stdout.isEmpty)
-        #expect(human.stderr == "Error: invalid selection")
 
-        let machine = Capture()
-        let machineCode = CLIEntrypoint.presentRunError(
-            ValidationError("invalid selection"),
-            jsonRequested: true,
-            output: machine.output
-        )
-        #expect(machineCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(machine.stderr.isEmpty)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(machine.stdout.utf8))
+        #expect(code == CLIProcessExit.usageInvalid.rawValue)
+        #expect(capture.stdout.isEmpty)
+        let envelope = try decodeError(capture.stderr)
         #expect(envelope.error.code == .usageInvalid)
         #expect(envelope.error.message == "invalid selection")
     }
@@ -126,7 +107,6 @@ struct OutputContractTests {
         let capture = Capture()
         let code = CLIEntrypoint.presentRunError(
             CleanExit.message("clean message"),
-            jsonRequested: true,
             output: capture.output
         )
 
@@ -140,56 +120,19 @@ struct OutputContractTests {
         struct PrivateFailure: Error {
             let secret: String
         }
-
-        let human = Capture()
-        let humanCode = CLIEntrypoint.presentRunError(
-            PrivateFailure(secret: "private-payload"),
-            jsonRequested: false,
-            output: human.output
-        )
-        #expect(humanCode == CLIProcessExit.internal.rawValue)
-        #expect(human.stderr == "Error: Internal error.")
-        #expect(human.stderr.contains("private-payload") == false)
-
-        let machine = Capture()
-        let machineCode = CLIEntrypoint.presentRunError(
-            PrivateFailure(secret: "private-payload"),
-            jsonRequested: true,
-            output: machine.output
-        )
-        #expect(machineCode == CLIProcessExit.internal.rawValue)
-        #expect(machine.stderr.isEmpty)
-        #expect(machine.stdout.contains("private-payload") == false)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(machine.stdout.utf8))
-        #expect(envelope.error.code == .internal)
-        #expect(envelope.error.message == "Internal error.")
-    }
-
-    @Test
-    func mutationJsonWriterEmitsExactlyOneMachineValueIncludingOptionalDeeplink() throws {
-        let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
-        let result = MutationCommandResult(
-            MutationResult(
-                backupHandle: "annotations__backup.sqlite",
-                localPK: 7,
-                stableID: "uuid-7",
-                changed: true,
-                warnings: [.cloudSyncFailed],
-                appleBooksURL: deeplink
-            )
-        )
         let capture = Capture()
 
-        try capture.output.writeJSON(result)
+        let code = CLIEntrypoint.presentRunError(
+            PrivateFailure(secret: "private-payload"),
+            output: capture.output
+        )
 
-        #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.first == "{")
-        #expect(capture.stdout.last == "}")
-        #expect(capture.stdout.contains("Mutation committed.") == false)
-        #expect(capture.stdout.contains("warnings:") == false)
-        let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: Data(capture.stdout.utf8))
-        #expect(decoded == result)
-        #expect(decoded.appleBooksURL == deeplink)
+        #expect(code == CLIProcessExit.internal.rawValue)
+        #expect(capture.stdout.isEmpty)
+        #expect(capture.stderr.contains("private-payload") == false)
+        let envelope = try decodeError(capture.stderr)
+        #expect(envelope.error.code == .internal)
+        #expect(envelope.error.message == "Internal error.")
     }
 
     @Test
@@ -203,6 +146,24 @@ struct OutputContractTests {
         #expect(capture.stderr.isEmpty)
         #expect(capture.stdout == #"{"value":"ok"}"#)
         #expect(try JSONDecoder().decode(Result.self, from: Data(capture.stdout.utf8)) == Result(value: "ok"))
+    }
+
+    @Test
+    func diagnosticWriterUsesOneSanitizedJsonLineOnStderr() throws {
+        let capture = Capture()
+        try capture.output.writeDiagnostic(.historyCompletionFailed)
+
+        #expect(capture.stdout.isEmpty)
+        let decoded = try JSONDecoder().decode(
+            CLIDiagnosticEnvelope.self,
+            from: Data(capture.stderr.utf8)
+        )
+        #expect(decoded == .historyCompletionFailed)
+        #expect(decoded.diagnostic.severity == .warning)
+    }
+
+    private func decodeError(_ value: String) throws -> CLIErrorEnvelope {
+        try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(value.utf8))
     }
 
     private final class Capture {

@@ -18,12 +18,20 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: fixture.emptyConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: backupRoot,
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.state == .ready)
         #expect(report.libraryDatabaseReady)
         #expect(report.annotationsDatabaseReady)
+        #expect(report.libraryReadReady)
+        #expect(report.annotationsReadReady)
+        #expect(report.collectionsReadReady)
+        #expect(report.collectionWriteReady)
+        #expect(report.annotationWriteReady)
+        #expect(report.contentReadPrerequisitesReady)
+        #expect(report.pdfReadPrerequisitesReady)
         #expect(report.readSchemaReady)
         #expect(report.optionalSchemaComplete == false)
         #expect(report.writeSchemaReady)
@@ -47,11 +55,14 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: fixture.emptyConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.state == .fatal)
         #expect(report.libraryDatabaseReady)
+        #expect(report.libraryReadReady)
+        #expect(report.contentReadPrerequisitesReady == false)
         #expect(report.readSchemaReady == false)
         #expect(report.issues.contains(.init(code: .libraryReadSchemaIncompatible, state: .fatal)))
         let encoded = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
@@ -70,10 +81,15 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: fixture.emptyConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.state == .degraded)
+        #expect(report.libraryReadReady)
+        #expect(report.collectionsReadReady)
+        #expect(report.collectionWriteReady == false)
+        #expect(report.annotationWriteReady)
         #expect(report.readSchemaReady)
         #expect(report.writeSchemaReady == false)
         #expect(report.issues.contains(.init(code: .libraryWriteSchemaIncompatible, state: .degraded)))
@@ -92,7 +108,8 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: fixture.emptyConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.writeSchemaReady == false)
@@ -112,7 +129,8 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: invalid,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
         #expect(invalidReport.state == .fatal)
         #expect(invalidReport.configurationReady == false)
@@ -128,7 +146,8 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: supplemental,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
         #expect(supplementalReport.state == .degraded)
         #expect(supplementalReport.configurationReady)
@@ -154,7 +173,8 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: regularConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
         #expect(regularReport.supplementalRootReady == false)
         #expect(regularReport.issues.contains(.init(code: .supplementalRootUnavailable, state: .degraded)))
@@ -173,10 +193,39 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: symlinkConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
         #expect(symlinkReport.supplementalRootReady)
         #expect(symlinkReport.issues.contains(where: { $0.code == .supplementalRootUnavailable }) == false)
+    }
+
+    @Test
+    func cloudSyncReadinessUsesResolvedDatabasesAndDegradesWhenUnavailable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var observedLibrary: URL?
+        var observedAnnotations: URL?
+
+        let report = AppleBooksDiagnostics.inspect(
+            libraryOverride: fixture.library,
+            annotationsOverride: fixture.annotations,
+            configurationFile: fixture.emptyConfig,
+            databaseDiscovery: fixture.discovery,
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { library, annotations in
+                observedLibrary = library
+                observedAnnotations = annotations
+                return false
+            }
+        )
+
+        #expect(observedLibrary == fixture.library.standardizedFileURL.resolvingSymlinksInPath())
+        #expect(observedAnnotations == fixture.annotations.standardizedFileURL.resolvingSymlinksInPath())
+        #expect(report.cloudSyncReady == false)
+        #expect(report.state == .degraded)
+        #expect(report.issues.contains(.init(code: .cloudSyncUnavailable, state: .degraded)))
     }
 
     @Test
@@ -192,7 +241,8 @@ struct AppleBooksDiagnosticsTests {
             configurationFile: fixture.emptyConfig,
             databaseDiscovery: fixture.discovery,
             backupRoot: backupFile,
-            booksApp: fixture.booksApp
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.state == .degraded)
@@ -226,7 +276,8 @@ struct AppleBooksDiagnosticsTests {
                 isRunning: { false },
                 terminate: { Issue.record("diagnostics must not terminate Books"); return false },
                 launch: { Issue.record("diagnostics must not launch Books") }
-            )
+            ),
+            cloudSyncReadiness: { _, _ in true }
         )
 
         #expect(report.state == .fatal)

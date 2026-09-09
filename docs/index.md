@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | [`README.md`](../README.md) / [`README.zh.md`](../README.zh.md) | 用户入口：安装、快速任务、关键限制、导航 | 安装/入口/核心用户工作流变化 |
 | [`capability-matrix.md`](capability-matrix.md) | 当前能力与明确不支持项 | 用户可见 capability/safety boundary 变化 |
-| [`architecture.md`](architecture.md) | store/source/identity/ownership 分层 | 数据源、identity、Core↔CLI、content/export/cloud ownership 变化 |
-| [`cli-contract.md`](cli-contract.md) | process exit/stdout/JSON/history contract | process protocol 或 history persistence/read 变化 |
+| [`architecture.md`](architecture.md) | store/source/identity/ownership 与长期资源边界 | 数据源、identity、Core↔CLI、content/export/cloud ownership 或 hard resource budget 变化 |
+| [`cli-contract.md`](cli-contract.md) | process exit/stdout/JSON/cursor/doctor/history contract | process protocol、cursor/doctor presentation 或 history persistence/read 变化 |
 | [`write-safety.md`](write-safety.md) | mutation/backup/restore/lifecycle/cloud 顺序与不可逆边界 | write rail、restore、Books lifecycle、cloud sync 变化 |
 | [`release.md`](release.md) | version/channel/tag/publication | release pipeline 或 version injection 变化 |
 | [`macos-27-schema-baseline.md`](macos-27-schema-baseline.md) | 2026-08-30 macOS 27 只读 schema 观测 | 只在建立新的明确版本 baseline 时更新/新增 |
@@ -17,7 +17,7 @@
 ## Runtime / release Markdown
 
 - [`../AGENTS.md`](../AGENTS.md)：仓库级行动前 guardrail；全仓 posture、不可破坏边界、canonical owner 路由或验证入口变化时更新。
-- [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) 与 [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md)：Agent 实际执行规则；CLI workflow/safety/batch-sync 变化时双语同步并跑 validator + packaging smoke。
+- [`../skills/applebookscli/SKILL.md`](../skills/applebookscli/SKILL.md) 与 [`../skills/applebookscli-zh/SKILL.md`](../skills/applebookscli-zh/SKILL.md)：Agent 实际执行规则；只有命令路由、selector、输出解释、写入/sync 等会改变 AI 调用方式的行为变化才双语同步，纯内部实现变化不触发；机械验证由 canonical `scripts/ci-gates.sh` 覆盖 Skill packaging checks。
 - [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)：依赖许可证 provenance；只随实际 dependency/license 变化更新。
 
 ## Ownership rules

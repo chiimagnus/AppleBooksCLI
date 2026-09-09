@@ -40,6 +40,7 @@ struct AnnotationWriter {
         let localPK: Int64
         let entityID: Int64
         let stableID: String?
+        let appleBooksURL: String?
     }
 
     private let coordinator: MutationCoordinator
@@ -67,42 +68,37 @@ struct AnnotationWriter {
     func updateNote(
         localPK: Int64,
         note: String,
-        syncCloud: Bool = false,
-        appleBooksURL: String? = nil
+        syncCloud: Bool = false
     ) throws -> MutationResult {
-        try updateNote(.localPK(localPK), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try updateNote(.localPK(localPK), note: note, syncCloud: syncCloud)
     }
 
     func updateNote(
         uuid: String,
         note: String,
-        syncCloud: Bool = false,
-        appleBooksURL: String? = nil
+        syncCloud: Bool = false
     ) throws -> MutationResult {
-        try updateNote(.uuid(uuid), note: note, syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try updateNote(.uuid(uuid), note: note, syncCloud: syncCloud)
     }
 
     func delete(
         localPK: Int64,
-        syncCloud: Bool = false,
-        appleBooksURL: String? = nil
+        syncCloud: Bool = false
     ) throws -> MutationResult {
-        try delete(.localPK(localPK), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try delete(.localPK(localPK), syncCloud: syncCloud)
     }
 
     func delete(
         uuid: String,
-        syncCloud: Bool = false,
-        appleBooksURL: String? = nil
+        syncCloud: Bool = false
     ) throws -> MutationResult {
-        try delete(.uuid(uuid), syncCloud: syncCloud, appleBooksURL: appleBooksURL)
+        try delete(.uuid(uuid), syncCloud: syncCloud)
     }
 
     private func updateNote(
         _ selector: Selector,
         note: String,
-        syncCloud: Bool,
-        appleBooksURL: String?
+        syncCloud: Bool
     ) throws -> MutationResult {
         guard note.isEmpty == false, note.count <= 10_000 else {
             throw AnnotationWriteError.invalidNoteLength
@@ -131,7 +127,7 @@ struct AnnotationWriter {
                     localPK: target.localPK,
                     stableID: target.stableID,
                     changed: true,
-                    appleBooksURL: appleBooksURL
+                    appleBooksURL: target.appleBooksURL
                 )
             },
             cloudProjection: cloudProjector.map { projector in
@@ -155,8 +151,7 @@ struct AnnotationWriter {
 
     private func delete(
         _ selector: Selector,
-        syncCloud: Bool,
-        appleBooksURL: String?
+        syncCloud: Bool
     ) throws -> MutationResult {
         return try coordinator.perform(
             preflight: { connection in
@@ -181,7 +176,7 @@ struct AnnotationWriter {
                     localPK: target.localPK,
                     stableID: target.stableID,
                     changed: true,
-                    appleBooksURL: appleBooksURL
+                    appleBooksURL: target.appleBooksURL
                 )
             },
             cloudProjection: cloudProjector.map { projector in
@@ -232,9 +227,9 @@ struct AnnotationWriter {
         let sql: String
         switch selector {
         case .localPK:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid LIMIT 2"
         case .uuid:
-            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK"
+            sql = "SELECT Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2"
         }
 
         var statement: OpaquePointer?
@@ -254,30 +249,24 @@ struct AnnotationWriter {
             }
         }
 
-        var rows: [(localPK: Int64, entityID: Int64?, optValid: Bool, deleted: Int64?, type: Int64?)] = []
-        while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
-                let localPK = sqlite3_column_int64(statement, 0)
-                let entityID = sqlite3_column_type(statement, 1) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 1) : nil
-                let optValid = sqlite3_column_type(statement, 2) == SQLITE_INTEGER
-                let deleted = sqlite3_column_type(statement, 3) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 3) : nil
-                let type = sqlite3_column_type(statement, 4) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 4) : nil
-                rows.append((localPK, entityID, optValid, deleted, type))
-            case SQLITE_DONE:
-                break
-            default:
-                throw AnnotationWriteError.writeFailed
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw AnnotationWriteError.annotationMissing
+        }
+        let row = (
+            localPK: sqlite3_column_int64(statement, 0),
+            entityID: sqlite3_column_type(statement, 1) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 1) : nil,
+            optValid: sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
+            deleted: sqlite3_column_type(statement, 3) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 3) : nil,
+            type: sqlite3_column_type(statement, 4) == SQLITE_INTEGER ? sqlite3_column_int64(statement, 4) : nil
+        )
+        let second = sqlite3_step(statement)
+        if second == SQLITE_ROW {
+            if case .uuid = selector {
+                throw StableIdentityError.ambiguousAnnotationUUID
             }
-            if sqlite3_data_count(statement) == 0 { break }
+            throw AnnotationWriteError.writeFailed
         }
-
-        guard rows.isEmpty == false else { throw AnnotationWriteError.annotationMissing }
-        if case .uuid = selector, rows.count > 1 {
-            throw StableIdentityError.ambiguousAnnotationUUID
-        }
-        guard rows.count == 1 else { throw AnnotationWriteError.writeFailed }
-        let row = rows[0]
+        guard second == SQLITE_DONE else { throw AnnotationWriteError.writeFailed }
         guard row.entityID == entity.entityID else {
             throw WriteSchemaGuardError.entityMismatch(WriteSchemaTable.annotations.rawValue)
         }
@@ -291,7 +280,53 @@ struct AnnotationWriter {
         } else {
             stableID = nil
         }
-        return Target(localPK: row.localPK, entityID: entity.entityID, stableID: stableID)
+        return Target(
+            localPK: row.localPK,
+            entityID: entity.entityID,
+            stableID: stableID,
+            appleBooksURL: appleBooksURL(localPK: row.localPK, on: handle)
+        )
+    }
+
+    private static func appleBooksURL(localPK: Int64, on handle: OpaquePointer) -> String? {
+        var statement: OpaquePointer?
+        let sql = """
+        SELECT ZANNOTATIONASSETID,
+               CASE
+                 WHEN ZANNOTATIONLOCATION IS NOT NULL
+                  AND length(CAST(ZANNOTATIONLOCATION AS BLOB)) <= \(CFIResourcePolicy.maximumStructuralBytes)
+                 THEN ZANNOTATIONLOCATION
+                 ELSE NULL
+               END
+        FROM ZAEANNOTATION
+        WHERE Z_PK=?
+        """
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            return nil
+        }
+
+        func text(_ index: Int32) -> String? {
+            switch sqlite3_column_type(statement, index) {
+            case SQLITE_NULL:
+                return nil
+            case SQLITE_TEXT:
+                return try? decodeSQLiteText(statement, at: index)
+            default:
+                return nil
+            }
+        }
+
+        let assetID = text(0)
+        let rawCFI = text(1)
+        guard sqlite3_step(statement) == SQLITE_DONE else { return nil }
+        return Annotation.appleBooksURL(rawAssetID: assetID, rawCFI: rawCFI)
     }
 
     private static func applyNote(_ note: String, to localPK: Int64, on handle: OpaquePointer) throws {
@@ -343,9 +378,16 @@ struct AnnotationWriter {
               sqlite3_column_type(statement, 1) == SQLITE_INTEGER,
               sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
               sqlite3_column_int64(statement, 2) == 0,
-              sqlite3_column_type(statement, 3) == SQLITE_TEXT,
-              let rawNote = sqlite3_column_text(statement, 3),
-              String(cString: rawNote) == note,
+              sqlite3_column_type(statement, 3) == SQLITE_TEXT else {
+            throw AnnotationWriteError.writeFailed
+        }
+        let storedNote: String
+        do {
+            storedNote = try decodeSQLiteText(statement, at: 3)
+        } catch {
+            throw AnnotationWriteError.writeFailed
+        }
+        guard storedNote == note,
               sqlite3_column_type(statement, 4) == SQLITE_FLOAT,
               sqlite3_column_type(statement, 5) == SQLITE_TEXT,
               sqlite3_step(statement) == SQLITE_DONE else {
@@ -385,8 +427,6 @@ struct AnnotationWriter {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
-        value.withCString {
-            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        bindSQLiteText(value, to: statement, at: index)
     }
 }

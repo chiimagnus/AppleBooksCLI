@@ -35,19 +35,7 @@ public struct Book: Equatable, Sendable {
     public let rating: Double?
 
     public var normalizedAuthor: String? {
-        guard let author else { return nil }
-        let scalars = author.unicodeScalars.filter { scalar in
-            scalar.value < 0xE000 || scalar.value > 0xF8FF
-        }
-        let normalized = String(String.UnicodeScalarView(scalars))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.isEmpty == false else { return nil }
-        switch normalized.lowercased() {
-        case "unknown", "unknownauthor", "unknown author":
-            return nil
-        default:
-            return normalized
-        }
+        normalizedAppleBooksAuthor(author)
     }
 
     public var readingProgressPercent: Double? {

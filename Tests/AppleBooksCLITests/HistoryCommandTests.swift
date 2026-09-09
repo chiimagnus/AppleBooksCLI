@@ -19,7 +19,7 @@ struct HistoryCommandTests {
         let second = try store.begin(operation: "annotations.update-note", arguments: ["annotations", "update-note", "--note", "private note"])
         try store.complete(second, exitCode: 1, stdout: "", stderr: "private-error-secret")
 
-        let command = try HistoryListCommand.parse(["--json"])
+        let command = try HistoryListCommand.parse([])
         let capture = Capture()
         try command.run(output: capture.output, store: store)
         let result = try JSONDecoder.history.decode(HistoryListResult.self, from: Data(capture.stdout.utf8))
@@ -55,7 +55,7 @@ struct HistoryCommandTests {
     }
 
     @Test
-    func humanGetEscapesControlCharactersInsteadOfReplayingThem() throws {
+    func jsonGetEscapesControlCharactersInsteadOfReplayingThem() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = fixture.store()
@@ -81,14 +81,14 @@ struct HistoryCommandTests {
         let fixture = try Fixture(createRoot: false)
         defer { fixture.remove() }
         let store = fixture.store()
-        let list = try HistoryListCommand.parse(["--json"])
+        let list = try HistoryListCommand.parse([])
         let listCapture = Capture()
         try list.run(output: listCapture.output, store: store)
         let result = try JSONDecoder.history.decode(HistoryListResult.self, from: Data(listCapture.stdout.utf8))
         #expect(result.items.isEmpty)
         #expect(FileManager.default.fileExists(atPath: fixture.root.path) == false)
 
-        let get = try HistoryGetCommand.parse(["00000000-0000-4000-8000-000000000000", "--json"])
+        let get = try HistoryGetCommand.parse(["00000000-0000-4000-8000-000000000000"])
         #expect(throws: CLIError.notFound("Operation history entry not found.")) {
             try get.run(output: Capture().output, store: store)
         }
@@ -101,7 +101,7 @@ struct HistoryCommandTests {
         defer { fixture.remove() }
         let privatePayload = "private-history-payload"
         try Data((privatePayload + "\n").utf8).write(to: fixture.root.appendingPathComponent("2026-09-04.jsonl"))
-        let command = try HistoryListCommand.parse(["--json"])
+        let command = try HistoryListCommand.parse([])
 
         do {
             try command.run(output: Capture().output, store: fixture.store(now: fixture.date("2026-09-04T10:00:00Z")))
@@ -122,15 +122,15 @@ struct HistoryCommandTests {
         try store.complete(token, exitCode: 0, stdout: "ok", stderr: "")
         let before = try store.list().count
 
-        let list = try HistoryListCommand.parse(["--json"])
+        let list = try HistoryListCommand.parse([])
         try list.run(output: Capture().output, store: store)
-        let get = try HistoryGetCommand.parse([token.id, "--json"])
+        let get = try HistoryGetCommand.parse([token.id])
         try get.run(output: Capture().output, store: store)
         #expect(try store.list().count == before)
     }
 
     private func runJSONGet(_ id: String, store: OperationHistoryStore) throws -> HistoryDetailResult {
-        let command = try HistoryGetCommand.parse([id, "--json"])
+        let command = try HistoryGetCommand.parse([id])
         let capture = Capture()
         try command.run(output: capture.output, store: store)
         return try JSONDecoder.history.decode(HistoryDetailResult.self, from: Data(capture.stdout.utf8))

@@ -1,6 +1,7 @@
 import AppleBooksCore
 import ArgumentParser
 import Foundation
+import SQLite3
 import Testing
 @testable import AppleBooksCLI
 
@@ -9,20 +10,19 @@ struct CLIContextTests {
     @Test
     func globalOptionsAreLeafLocalAndParseAfterTheCommandPath() throws {
         let parsed = try TestLeaf.parse([
-            "--json",
-            "--verbose",
             "--config", "/tmp/config.json",
             "--library-db", "/tmp/library.sqlite",
             "--annotations-db", "/tmp/annotations.sqlite",
         ])
 
-        #expect(parsed.global.json)
-        #expect(parsed.global.verbose)
         #expect(parsed.global.config == "/tmp/config.json")
         #expect(parsed.global.libraryDB == "/tmp/library.sqlite")
         #expect(parsed.global.annotationsDB == "/tmp/annotations.sqlite")
         #expect(throws: (any Error).self) {
-            _ = try AppleBooksCLI.parseAsRoot(["--json"])
+            _ = try TestLeaf.parse(["--json"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try TestLeaf.parse(["--verbose"])
         }
     }
 
@@ -39,9 +39,6 @@ struct CLIContextTests {
 
         let context = CLIContext(global: try GlobalOptions.parse([]), databaseDiscovery: discovery)
         #expect(context.configurationFile == nil)
-        #expect(throws: DatabaseDiscoveryError.missing(.library)) {
-            _ = try context.databases()
-        }
     }
 
     @Test
@@ -52,18 +49,14 @@ struct CLIContextTests {
         var libraryOnly = try GlobalOptions.parse([])
         libraryOnly.libraryDB = fixture.libraryOverride.path
         let libraryContext = CLIContext(global: libraryOnly, databaseDiscovery: fixture.discovery)
-        let libraryResolved = try libraryContext.databases()
-        #expect(libraryResolved.libraryDB == fixture.libraryOverride.resolvingSymlinksInPath())
-        #expect(libraryResolved.annotationsDB == fixture.defaultAnnotations.resolvingSymlinksInPath())
+        _ = try libraryContext.makeAppleBooks(dependencies: .libraryRead)
         #expect(libraryContext.managesCollectionBooksApplication == false)
         #expect(libraryContext.managesAnnotationBooksApplication)
 
         var annotationsOnly = try GlobalOptions.parse([])
         annotationsOnly.annotationsDB = fixture.annotationsOverride.path
         let annotationsContext = CLIContext(global: annotationsOnly, databaseDiscovery: fixture.discovery)
-        let annotationsResolved = try annotationsContext.databases()
-        #expect(annotationsResolved.libraryDB == fixture.defaultLibrary.resolvingSymlinksInPath())
-        #expect(annotationsResolved.annotationsDB == fixture.annotationsOverride.resolvingSymlinksInPath())
+        _ = try annotationsContext.makeAppleBooks(dependencies: .annotationsRead)
         #expect(annotationsContext.managesCollectionBooksApplication)
         #expect(annotationsContext.managesAnnotationBooksApplication == false)
     }
@@ -84,9 +77,9 @@ struct CLIContextTests {
         global.libraryDB = library.path
         global.annotationsDB = annotations.path
 
-        let resolved = try CLIContext(global: global, databaseDiscovery: discovery).databases()
-        #expect(resolved.libraryDB == library.resolvingSymlinksInPath())
-        #expect(resolved.annotationsDB == annotations.resolvingSymlinksInPath())
+        _ = try CLIContext(global: global, databaseDiscovery: discovery).makeAppleBooks(
+            dependencies: [.libraryRead, .annotationsRead]
+        )
     }
 
     @Test
@@ -99,6 +92,86 @@ struct CLIContextTests {
         #expect(CLIContext(global: try GlobalOptions.parse([])).configurationFile == nil)
     }
 
+
+    @Test
+    func libraryOnlyCompositionIgnoresBrokenAnnotationsAndConfiguration() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = root.appendingPathComponent("library.sqlite")
+        try createDatabase(library, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZTITLE TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (1, 'Only Library');
+        """)
+        let badConfig = root.appendingPathComponent("bad-config.json")
+        try Data("not-json".utf8).write(to: badConfig)
+        var global = try GlobalOptions.parse([])
+        global.libraryDB = library.path
+        global.annotationsDB = root.appendingPathComponent("missing-annotations.sqlite").path
+        global.config = badConfig.path
+
+        let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+
+        #expect(try books.listBooks().map(\.localPK) == [1])
+        #expect(throws: AppleBooksDependencyError.unavailable(.annotationsRead)) {
+            _ = try books.listAnnotations()
+        }
+    }
+
+    @Test
+    func annotationWriteCompositionIgnoresMissingLibraryAndBrokenConfiguration() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        try createDatabase(annotations, sql: """
+        CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);
+        """)
+        let badConfig = root.appendingPathComponent("bad-config.json")
+        try Data("not-json".utf8).write(to: badConfig)
+        var global = try GlobalOptions.parse([])
+        global.libraryDB = root.appendingPathComponent("missing-library.sqlite").path
+        global.annotationsDB = annotations.path
+        global.config = badConfig.path
+
+        let books = try CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
+
+        #expect(throws: AppleBooksDependencyError.unavailable(.libraryRead)) {
+            _ = try books.listBooks()
+        }
+    }
+
+    @Test
+    func annotatedBookCompositionNeedsAnnotationsButNotConfiguration() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = root.appendingPathComponent("library.sqlite")
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        try createDatabase(library, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZASSETID TEXT, ZTITLE TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (1, 'asset-a', 'Annotated');
+        """)
+        try createDatabase(annotations, sql: """
+        CREATE TABLE ZAEANNOTATION(
+          Z_PK INTEGER PRIMARY KEY,
+          ZANNOTATIONDELETED INTEGER,
+          ZANNOTATIONTYPE INTEGER,
+          ZANNOTATIONASSETID TEXT
+        );
+        INSERT INTO ZAEANNOTATION VALUES (1, 0, 1, 'asset-a');
+        """)
+        let badConfig = root.appendingPathComponent("bad-config.json")
+        try Data("not-json".utf8).write(to: badConfig)
+        var global = try GlobalOptions.parse([])
+        global.libraryDB = library.path
+        global.annotationsDB = annotations.path
+        global.config = badConfig.path
+
+        let books = try CLIContext(global: global).makeAppleBooks(
+            dependencies: [.libraryRead, .annotationsRead]
+        )
+
+        #expect(try books.annotatedBooks().map { $0.book.localPK } == [1])
+    }
+
     @Test
     func invalidDatabaseOverrideFailsThroughCoreDiscovery() throws {
         let fixture = try DiscoveryFixture()
@@ -107,7 +180,9 @@ struct CLIContextTests {
         global.libraryDB = fixture.root.path
 
         #expect(throws: DatabaseDiscoveryError.invalidOverride(.library)) {
-            _ = try CLIContext(global: global, databaseDiscovery: fixture.discovery).databases()
+            _ = try CLIContext(global: global, databaseDiscovery: fixture.discovery).makeAppleBooks(
+                dependencies: .libraryRead
+            )
         }
     }
 
@@ -160,4 +235,20 @@ struct CLIContextTests {
         try Data().write(to: url)
         return url
     }
+    private func createDatabase(_ url: URL, sql: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else {
+            if let handle { sqlite3_close_v2(handle) }
+            throw TestError.database
+        }
+        defer { sqlite3_close_v2(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw TestError.database
+        }
+    }
+
+    private enum TestError: Error {
+        case database
+    }
+
 }

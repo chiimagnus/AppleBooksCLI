@@ -180,6 +180,7 @@ struct ExportOptionsTests {
 
     @Test
     func epubReadingOrderUsesNumericCFIValidFirstAndStableTies() throws {
+        let oversizedCFI = "epubcfi(/6/2[" + String(repeating: "x", count: CFIResourcePolicy.maximumStructuralBytes) + "]!/4/2:1)"
         let records = [
             epubRecord(pk: 1, cfi: "not-a-cfi"),
             epubRecord(pk: 2, cfi: "epubcfi(/6/10[assertion999]!/4/2:1)"),
@@ -187,13 +188,14 @@ struct ExportOptionsTests {
             epubRecord(pk: 4, cfi: nil),
             epubRecord(pk: 5, cfi: "epubcfi(/6/2[different888]!/4/2:1)"),
             epubRecord(pk: 6, cfi: "epubcfi(/6/2[broken!/4/2:1)"),
+            epubRecord(pk: 7, cfi: oversizedCFI),
         ]
 
         let ordered = ExportSelection.apply(
             options: try ExportOptions(kinds: [.highlight], order: .reading),
             to: records
         )
-        #expect(ordered.compactMap(\.epubPK) == [3, 5, 2, 1, 4, 6])
+        #expect(ordered.compactMap(\.epubPK) == [3, 5, 2, 1, 4, 6, 7])
     }
 
     @Test

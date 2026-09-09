@@ -5,12 +5,12 @@ enum AnnotationSelector: Equatable, Sendable {
     case uuid(String)
     case localPK(Int64)
 
-    func resolve(in books: AppleBooks, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
+    func resolveSemantic(in books: AppleBooks, scope: AnnotationScope = .user) throws -> SemanticAnnotation? {
         switch self {
         case let .uuid(uuid):
-            try books.annotation(uuid: uuid, scope: scope)
+            try books.semanticAnnotation(uuid: uuid, scope: scope)
         case let .localPK(localPK):
-            try books.annotation(localPK: localPK, scope: scope)
+            try books.semanticAnnotation(localPK: localPK, scope: scope)
         }
     }
 
@@ -36,11 +36,10 @@ enum AnnotationSelector: Equatable, Sendable {
 func parseAnnotationSelector(uuid: String?, localPK: Int64?) throws -> AnnotationSelector {
     switch (uuid, localPK) {
     case let (.some(uuid), nil):
-        guard uuid.isEmpty == false else {
-            throw ValidationError("Annotation UUID must not be empty.")
-        }
+        try PublicStableTokenPolicy.validateInput(uuid)
         return .uuid(uuid)
     case let (nil, .some(localPK)):
+        try LocalPKPolicy.validateInput(localPK)
         return .localPK(localPK)
     case (nil, nil):
         throw ValidationError("Provide an annotation UUID or --pk.")

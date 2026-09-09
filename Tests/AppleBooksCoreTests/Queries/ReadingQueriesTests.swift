@@ -27,6 +27,8 @@ struct ReadingQueriesTests {
           (9,2,0,NULL,120);
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        try setReal(.infinity, column: "ZREADINGPROGRESS", localPK: 5, database: fixture)
+        try setReal(.infinity, column: "ZLASTOPENDATE", localPK: 5, database: fixture)
         let queries = try ReadingQueries(connection: SQLiteConnection.readOnly(path: fixture.path))
 
         let finished = try queries.finished()
@@ -36,6 +38,9 @@ struct ReadingQueriesTests {
         #expect(inProgress.map(\.localPK) == [8, 3, 4])
         #expect(unstarted.map(\.localPK) == [7, 6, 5])
         #expect(inProgress.first?.readingProgressRaw == 1.25)
+        #expect(unstarted.last?.readingProgressRaw?.isInfinite == true)
+        #expect(try queries.recentlyRead(limit: 20).map(\.localPK).contains(5) == false)
+        #expect(try queries.partitionCounts() == ReadingPartitionCounts(finished: 3, inProgress: 3, unstarted: 3))
 
         let sets = [Set(finished.map(\.localPK)), Set(inProgress.map(\.localPK)), Set(unstarted.map(\.localPK))]
         #expect(sets[0].isDisjoint(with: sets[1]))
@@ -93,6 +98,26 @@ struct ReadingQueriesTests {
         #expect(recent.count == 10)
         #expect(recent.prefix(2).map(\.localPK) == [2, 1])
         #expect(try queries.recentlyRead(limit: 2, offset: 1).map(\.localPK) == [1, 12])
+    }
+
+    private func setReal(_ value: Double, column: String, localPK: Int64, database: URL) throws {
+        var handle: OpaquePointer?
+        let open = sqlite3_open(database.path, &handle)
+        guard open == SQLITE_OK, let handle else {
+            throw SQLiteError.current(operation: .open, code: open, handle: handle)
+        }
+        defer { sqlite3_close(handle) }
+        var statement: OpaquePointer?
+        let prepare = sqlite3_prepare_v2(handle, "UPDATE ZBKLIBRARYASSET SET \(column) = ? WHERE Z_PK = ?", -1, &statement, nil)
+        guard prepare == SQLITE_OK, let statement else {
+            throw SQLiteError.current(operation: .prepare, code: prepare, handle: handle)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_double(statement, 1, value) == SQLITE_OK,
+              sqlite3_bind_int64(statement, 2, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
     }
 
     private func database(sql: String) throws -> URL {

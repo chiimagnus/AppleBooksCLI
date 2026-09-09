@@ -5,21 +5,21 @@ enum CollectionSelector: Equatable, Sendable {
     case collectionID(String)
     case localPK(Int64)
 
-    func resolve(in books: AppleBooks) throws -> Collection? {
+    func resolveSemantic(in books: AppleBooks) throws -> SemanticCollection? {
         switch self {
         case let .collectionID(collectionID):
-            try books.collection(collectionID: collectionID)
+            try books.semanticCollection(collectionID: collectionID)
         case let .localPK(localPK):
-            try books.collection(localPK: localPK)
+            try books.semanticCollection(localPK: localPK)
         }
     }
 
-    func resolveBooks(in books: AppleBooks) throws -> [Book]? {
+    func resolveBookSummaries(in books: AppleBooks) throws -> [BookSummary]? {
         switch self {
         case let .collectionID(collectionID):
-            try books.books(inCollectionID: collectionID)
+            try books.semanticBookSummaries(inCollectionID: collectionID)
         case let .localPK(localPK):
-            try books.books(inCollectionLocalPK: localPK)
+            try books.semanticBookSummaries(inCollectionLocalPK: localPK)
         }
     }
 
@@ -75,11 +75,12 @@ func parseCollectionSelector(
 ) throws -> CollectionSelector {
     switch (collectionID, localPK) {
     case let (.some(collectionID), nil):
-        guard collectionID.isEmpty == false else {
-            throw ValidationError("Collection ID must not be empty.")
+        guard PublicStableTokenPolicy.isEligible(collectionID) else {
+            throw ValidationError("Collection ID is invalid or too long.")
         }
         return .collectionID(collectionID)
     case let (nil, .some(localPK)):
+        try LocalPKPolicy.validateInput(localPK, optionName: localPKOptionName)
         return .localPK(localPK)
     case (nil, nil):
         throw ValidationError("Provide a collection ID or --pk.")

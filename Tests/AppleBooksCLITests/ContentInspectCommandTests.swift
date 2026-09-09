@@ -73,13 +73,13 @@ struct ContentInspectCommandTests {
 
         let metadataCapture = Capture()
         let metadataCode = CLIEntrypoint.run(
-            arguments: ["content", "metadata", "12"] + drm.globalArguments + ["--json"],
+            arguments: ["content", "metadata", "12"] + drm.globalArguments,
             output: metadataCapture.output
         )
         #expect(metadataCode == CLIProcessExit.unavailable.rawValue)
-        let envelope = try drm.decode(CLIErrorEnvelope.self, metadataCapture.stdout)
+        #expect(metadataCapture.stdout.isEmpty)
+        let envelope = try drm.decode(CLIErrorEnvelope.self, metadataCapture.stderr)
         #expect(envelope.error.code == .unavailable)
-        #expect(metadataCapture.stderr.isEmpty)
     }
 
     @Test
@@ -117,7 +117,7 @@ struct ContentInspectCommandTests {
 
         let capture = Capture()
         let code = CLIEntrypoint.run(
-            arguments: ["content", "cover", "12", "--output", destination.path] + fixture.globalArguments + ["--json"],
+            arguments: ["content", "cover", "12", "--output", destination.path] + fixture.globalArguments,
             output: capture.output
         )
         #expect(code == CLIProcessExit.success.rawValue)
@@ -135,13 +135,14 @@ struct ContentInspectCommandTests {
 
         let second = Capture()
         let secondCode = CLIEntrypoint.run(
-            arguments: ["content", "cover", "12", "--output", destination.path] + fixture.globalArguments + ["--json"],
+            arguments: ["content", "cover", "12", "--output", destination.path] + fixture.globalArguments,
             output: second.output
         )
         #expect(secondCode == CLIProcessExit.writeSafety.rawValue)
-        let envelope = try fixture.decode(CLIErrorEnvelope.self, second.stdout)
+        #expect(second.stdout.isEmpty)
+        let envelope = try fixture.decode(CLIErrorEnvelope.self, second.stderr)
         #expect(envelope.error.code == .writeSafety)
-        #expect(second.stdout.contains(destination.path) == false)
+        #expect(second.stderr.contains(destination.path) == false)
         #expect(try Data(contentsOf: destination) == fixture.coverData)
     }
 
@@ -168,14 +169,15 @@ struct ContentInspectCommandTests {
         #expect(byPK.bookAssetID == "12")
         #expect(byPK.rawCFI == rawCFI)
 
-        let human = Capture()
-        let humanCode = CLIEntrypoint.run(
+        let defaultOutput = Capture()
+        let defaultCode = CLIEntrypoint.run(
             arguments: ["content", "locate", "12", rawCFI] + fixture.globalArguments,
-            output: human.output
+            output: defaultOutput.output
         )
-        #expect(humanCode == CLIProcessExit.success.rawValue)
-        #expect(human.stderr.isEmpty)
-        #expect(human.stdout.contains(rawCFI) == false)
+        #expect(defaultCode == CLIProcessExit.success.rawValue)
+        #expect(defaultOutput.stderr.isEmpty)
+        let defaultResult = try fixture.decode(ContentLocationResult.self, defaultOutput.stdout)
+        #expect(defaultResult.rawCFI == rawCFI)
     }
 
     @Test
@@ -202,7 +204,7 @@ struct ContentInspectCommandTests {
         let outputCode = CLIEntrypoint.run(
             arguments: [
                 "content", "cover", "12", "--output", "relative.png",
-                "--library-db", missing, "--annotations-db", missing, "--json",
+                "--library-db", missing, "--annotations-db", missing,
             ],
             output: outputCapture.output
         )
@@ -212,7 +214,7 @@ struct ContentInspectCommandTests {
         let locateCode = CLIEntrypoint.run(
             arguments: [
                 "content", "locate", "--pk", "1", "extra", "cfi",
-                "--library-db", missing, "--annotations-db", missing, "--json",
+                "--library-db", missing, "--annotations-db", missing,
             ],
             output: locateCapture.output
         )
@@ -313,7 +315,7 @@ struct ContentInspectCommandTests {
 
         func runJSON<Value: Decodable>(_ type: Value.Type, arguments: [String]) throws -> Value {
             let capture = Capture()
-            let code = CLIEntrypoint.run(arguments: arguments + globalArguments + ["--json"], output: capture.output)
+            let code = CLIEntrypoint.run(arguments: arguments + globalArguments, output: capture.output)
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(capture.stderr.isEmpty)
             return try decode(type, capture.stdout)

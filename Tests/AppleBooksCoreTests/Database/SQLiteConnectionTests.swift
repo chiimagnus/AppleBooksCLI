@@ -71,6 +71,33 @@ struct SQLiteConnectionTests {
     }
 
     @Test
+    func textBindingUsesExactUTF8LengthIncludingEmbeddedNUL() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let connection = try SQLiteConnection.readOnly(path: fixture.path)
+
+        for value in ["", "正常 Unicode 📚", "\0prefix", "mid\0dle", "suffix\0"] {
+            let statement = try connection.prepare("""
+            SELECT typeof(?) AS kind,
+                   length(CAST(? AS BLOB)) AS byteCount,
+                   hex(CAST(? AS BLOB)) AS hexValue,
+                   (? = ? COLLATE BINARY) AS exactMatch
+            """)
+            for index in 1...5 {
+                try statement.bind(value, at: Int32(index))
+            }
+            #expect(try statement.step())
+            let row = try SQLiteRow(statement: statement)
+            #expect(try row.text("kind") == "text")
+            #expect(try row.int64("byteCount") == Int64(value.utf8.count))
+            let expectedHex = value.utf8.map { String(format: "%02X", $0) }.joined()
+            #expect(try row.text("hexValue") == expectedHex)
+            #expect(try row.int64("exactMatch") == 1)
+            #expect(try statement.step() == false)
+        }
+    }
+
+    @Test
     func errorPathsFinalizeStatementsAndConnectionCanClose() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }

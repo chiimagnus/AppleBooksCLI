@@ -23,13 +23,13 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
-            return PDFSourceListResult(items: try books.pdfSources().map(PDFSourceResult.init))
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+            return PDFSourceListResult(items: try books.semanticPDFSources().map(PDFSourceResult.init))
         }
     }
 }
@@ -58,7 +58,7 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(workerURL injectedWorkerURL: URL? = nil) throws -> PDFHighlightsResult {
@@ -71,21 +71,22 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(
+                dependencies: [.libraryRead, .pdfWorker],
                 pdfWorkerURL: workerURL,
                 pdfWorkerTimeout: timeout
             )
             let source: PDFSource
             switch selection {
             case let .book(selector):
-                guard let selectedBook = try selector.resolve(in: books) else {
+                guard let selectedBook = try selector.resolveSemanticDetail(in: books) else {
                     throw CLIError.notFound("Book not found.")
                 }
-                guard let resolved = try books.pdfSource(forBookLocalPK: selectedBook.localPK) else {
+                guard let resolved = try books.semanticPDFSource(forBookLocalPK: selectedBook.localPK) else {
                     throw CLIError.unavailable("Selected book does not have an available PDF source.")
                 }
                 source = resolved
             case let .path(fileURL):
-                guard let resolved = try books.pdfSource(fileURL: fileURL) else {
+                guard let resolved = try books.semanticPDFSource(fileURL: fileURL) else {
                     throw CLIError.unavailable("Selected PDF source is unavailable.")
                 }
                 source = resolved
@@ -126,27 +127,21 @@ private enum PDFCLISelection {
 struct PDFSourceListResult: Codable, Equatable, Sendable {
     let items: [PDFSourceResult]
 
-    var humanDescription: String {
-        (["total: \(items.count)"] + items.map(\.humanSummary)).joined(separator: "\n")
-    }
 }
 
 struct PDFSourceResult: Codable, Equatable, Sendable {
     let filePath: String
     let displayTitle: String
     let provenance: String
-    let book: BookResult?
+    let book: BookSummaryResult?
 
     init(_ source: PDFSource) {
         filePath = source.fileURL.path
         displayTitle = source.displayTitle
         provenance = source.provenance.rawValue
-        book = source.book.map { BookResult(book: $0) }
+        book = source.bookSummary.map { BookSummaryResult(summary: $0) }
     }
 
-    var humanSummary: String {
-        "\(provenance)\t\(book?.assetID ?? "-")\t\(displayTitle)\t\(filePath)"
-    }
 }
 
 struct PDFHighlightsResult: Codable, Equatable, Sendable {
@@ -168,18 +163,6 @@ struct PDFHighlightsResult: Codable, Equatable, Sendable {
         timeoutCount = result.timeoutCount
     }
 
-    var humanDescription: String {
-        var lines = [
-            "attempted: \(attemptedCount)",
-            "succeeded: \(succeededCount)",
-            "failed: \(failedCount)",
-            "timeouts: \(timeoutCount)",
-        ]
-        for document in documents {
-            lines.append("\(document.source.displayTitle): \(document.highlights.count) highlights")
-        }
-        return lines.joined(separator: "\n")
-    }
 }
 
 struct PDFDocumentHighlightsResult: Codable, Equatable, Sendable {

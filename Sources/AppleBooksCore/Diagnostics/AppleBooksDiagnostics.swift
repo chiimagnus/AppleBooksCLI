@@ -25,6 +25,7 @@ public enum AppleBooksDiagnosticIssueCode: String, Codable, Equatable, Sendable 
     case configurationInvalid = "configuration_invalid"
     case supplementalRootUnavailable = "supplemental_root_unavailable"
     case backupLocationUnavailable = "backup_location_unavailable"
+    case cloudSyncUnavailable = "cloud_sync_unavailable"
     case pdfWorkerUnavailable = "pdf_worker_unavailable"
 }
 
@@ -42,6 +43,15 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let state: AppleBooksDiagnosticState
     public let libraryDatabaseReady: Bool
     public let annotationsDatabaseReady: Bool
+    public let libraryReadReady: Bool
+    public let annotationsReadReady: Bool
+    public let collectionsReadReady: Bool
+    public let collectionWriteReady: Bool
+    public let annotationWriteReady: Bool
+    public let contentReadPrerequisitesReady: Bool
+    public let pdfReadPrerequisitesReady: Bool
+    public let libraryOptionalSchemaComplete: Bool
+    public let annotationsOptionalSchemaComplete: Bool
     public let readSchemaReady: Bool
     public let optionalSchemaComplete: Bool
     public let writeSchemaReady: Bool
@@ -49,6 +59,7 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let supplementalRootConfigured: Bool
     public let supplementalRootReady: Bool
     public let backupLocationReady: Bool
+    public let cloudSyncReady: Bool
     public let booksAppRunning: Bool
     public let issues: [AppleBooksDiagnosticIssue]
 }
@@ -67,7 +78,8 @@ public enum AppleBooksDiagnostics {
             configurationFile: configurationFile,
             databaseDiscovery: databaseDiscovery,
             backupRoot: backupRoot,
-            booksApp: .live
+            booksApp: .live,
+            cloudSyncReadiness: Self.cloudSyncReadiness
         )
     }
 
@@ -77,7 +89,8 @@ public enum AppleBooksDiagnostics {
         configurationFile: URL?,
         databaseDiscovery: DatabaseDiscovery,
         backupRoot: URL,
-        booksApp: BooksAppController
+        booksApp: BooksAppController,
+        cloudSyncReadiness: (URL, URL) -> Bool
     ) -> AppleBooksDiagnosticReport {
         var issues: [AppleBooksDiagnosticIssue] = []
 
@@ -94,31 +107,52 @@ public enum AppleBooksDiagnostics {
             issues: &issues
         )
 
-        var readSchemaReady = true
-        var optionalSchemaComplete = true
-        var writeSchemaReady = true
+        var libraryReadReady = false
+        var annotationsReadReady = false
+        var collectionsReadReady = false
+        var collectionWriteReady = false
+        var annotationWriteReady = false
+        var contentReadPrerequisitesReady = false
+        var pdfReadPrerequisitesReady = false
+        var libraryLegacyReadReady = false
+        var annotationsLegacyReadReady = false
+        var libraryOptionalSchemaComplete = false
+        var annotationsOptionalSchemaComplete = false
 
         if let libraryConnection = library.connection {
             let schema = inspectReadSchema(
                 on: libraryConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table != .annotations }
             )
+            libraryLegacyReadReady = schema.requiredReady
+            libraryOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
-                readSchemaReady = false
                 issues.append(.init(code: .libraryReadSchemaIncompatible, state: .fatal))
             }
-            optionalSchemaComplete = optionalSchemaComplete && schema.optionalComplete
+
+            libraryReadReady = capabilitiesReady(
+                [.bookBase, .bookAssetLookup],
+                on: libraryConnection
+            )
+            collectionsReadReady = capabilitiesReady(
+                [.collectionBase, .collectionTitleSearch, .collectionIDLookup, .collectionMembers, .collectionMemberBooks],
+                on: libraryConnection
+            )
+            contentReadPrerequisitesReady = capabilitiesReady(
+                [.bookAssetLookup, .bookContentPathLookup],
+                on: libraryConnection
+            )
+            pdfReadPrerequisitesReady = capabilitiesReady(
+                [.bookAssetLookup, .bookPDF],
+                on: libraryConnection
+            )
 
             do {
                 try CollectionWriter.validateWriteReadiness(on: libraryConnection)
+                collectionWriteReady = true
             } catch {
-                writeSchemaReady = false
                 issues.append(.init(code: .libraryWriteSchemaIncompatible, state: .degraded))
             }
-        } else {
-            readSchemaReady = false
-            optionalSchemaComplete = false
-            writeSchemaReady = false
         }
 
         if let annotationConnection = annotations.connection {
@@ -126,23 +160,28 @@ public enum AppleBooksDiagnostics {
                 on: annotationConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table == .annotations }
             )
+            annotationsLegacyReadReady = schema.requiredReady
+            annotationsOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
-                readSchemaReady = false
                 issues.append(.init(code: .annotationsReadSchemaIncompatible, state: .fatal))
             }
-            optionalSchemaComplete = optionalSchemaComplete && schema.optionalComplete
+
+            annotationsReadReady = capabilitiesReady(
+                [.annotationUserBase, .annotationByUUID, .annotationByAssetID],
+                on: annotationConnection
+            )
 
             do {
                 try AnnotationWriter.validateWriteReadiness(on: annotationConnection)
+                annotationWriteReady = true
             } catch {
-                writeSchemaReady = false
                 issues.append(.init(code: .annotationsWriteSchemaIncompatible, state: .degraded))
             }
-        } else {
-            readSchemaReady = false
-            optionalSchemaComplete = false
-            writeSchemaReady = false
         }
+
+        let readSchemaReady = libraryLegacyReadReady && annotationsLegacyReadReady
+        let optionalSchemaComplete = libraryOptionalSchemaComplete && annotationsOptionalSchemaComplete
+        let writeSchemaReady = collectionWriteReady && annotationWriteReady
 
         let configuration: AppleBooksConfiguration?
         do {
@@ -169,6 +208,16 @@ public enum AppleBooksDiagnostics {
             issues.append(.init(code: .backupLocationUnavailable, state: .degraded))
         }
 
+        let cloudSyncReady: Bool
+        if let libraryURL = library.url, let annotationsURL = annotations.url {
+            cloudSyncReady = cloudSyncReadiness(libraryURL, annotationsURL)
+            if cloudSyncReady == false {
+                issues.append(.init(code: .cloudSyncUnavailable, state: .degraded))
+            }
+        } else {
+            cloudSyncReady = false
+        }
+
         let finalState: AppleBooksDiagnosticState
         if issues.contains(where: { $0.state == .fatal }) {
             finalState = .fatal
@@ -182,6 +231,15 @@ public enum AppleBooksDiagnostics {
             state: finalState,
             libraryDatabaseReady: library.connection != nil,
             annotationsDatabaseReady: annotations.connection != nil,
+            libraryReadReady: libraryReadReady,
+            annotationsReadReady: annotationsReadReady,
+            collectionsReadReady: collectionsReadReady,
+            collectionWriteReady: collectionWriteReady,
+            annotationWriteReady: annotationWriteReady,
+            contentReadPrerequisitesReady: contentReadPrerequisitesReady,
+            pdfReadPrerequisitesReady: pdfReadPrerequisitesReady,
+            libraryOptionalSchemaComplete: libraryOptionalSchemaComplete,
+            annotationsOptionalSchemaComplete: annotationsOptionalSchemaComplete,
             readSchemaReady: readSchemaReady,
             optionalSchemaComplete: optionalSchemaComplete,
             writeSchemaReady: writeSchemaReady,
@@ -189,12 +247,14 @@ public enum AppleBooksDiagnostics {
             supplementalRootConfigured: supplementalRootConfigured,
             supplementalRootReady: supplementalRootReady,
             backupLocationReady: backupReady,
+            cloudSyncReady: cloudSyncReady,
             booksAppRunning: booksApp.isRunning(),
             issues: issues
         )
     }
 
     private struct DatabaseInspection {
+        let url: URL?
         let connection: SQLiteConnection?
     }
 
@@ -210,17 +270,17 @@ public enum AppleBooksDiagnostics {
             url = found
         case let .failure(error):
             issues.append(.init(code: issueCode(store: store, error: error), state: .fatal))
-            return DatabaseInspection(connection: nil)
+            return DatabaseInspection(url: nil, connection: nil)
         }
 
         do {
-            return DatabaseInspection(connection: try SQLiteConnection.readOnly(path: url.path))
+            return DatabaseInspection(url: url, connection: try SQLiteConnection.readOnly(path: url.path))
         } catch {
             let code: AppleBooksDiagnosticIssueCode = store == .library
                 ? .libraryDatabaseUnreadable
                 : .annotationsDatabaseUnreadable
             issues.append(.init(code: code, state: .fatal))
-            return DatabaseInspection(connection: nil)
+            return DatabaseInspection(url: nil, connection: nil)
         }
     }
 
@@ -240,6 +300,20 @@ public enum AppleBooksDiagnostics {
         }
     }
 
+    private static func capabilitiesReady(
+        _ capabilities: [SchemaCapability],
+        on connection: SQLiteConnection
+    ) -> Bool {
+        for capability in capabilities {
+            do {
+                _ = try AppleBooksSchema.inspect(capability, on: connection)
+            } catch {
+                return false
+            }
+        }
+        return true
+    }
+
     private static func inspectReadSchema(
         on connection: SQLiteConnection,
         capabilities: [SchemaCapability]
@@ -256,6 +330,20 @@ public enum AppleBooksDiagnostics {
             }
         }
         return (true, optionalComplete)
+    }
+
+    private static func cloudSyncReadiness(_ libraryDatabase: URL, _ annotationsDatabase: URL) -> Bool {
+        guard let collection = CollectionCloudSynchronizer.live(libraryDatabase: libraryDatabase),
+              let annotation = AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDatabase) else {
+            return false
+        }
+        do {
+            _ = try collection.pendingCount()
+            _ = try annotation.pendingCount()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func backupLocationIsReady(_ rawRoot: URL) -> Bool {

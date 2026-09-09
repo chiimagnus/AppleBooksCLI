@@ -1,10 +1,13 @@
+import Foundation
 import SQLite3
 
 public final class SQLiteConnection {
     var handle: OpaquePointer?
+    package let databaseURL: URL
 
-    private init(handle: OpaquePointer) {
+    private init(handle: OpaquePointer, databaseURL: URL) {
         self.handle = handle
+        self.databaseURL = databaseURL
     }
 
     public static func readOnly(path: String) throws -> SQLiteConnection {
@@ -17,7 +20,7 @@ public final class SQLiteConnection {
             }
             throw error
         }
-        return SQLiteConnection(handle: handle)
+        return SQLiteConnection(handle: handle, databaseURL: URL(fileURLWithPath: path).standardizedFileURL)
     }
 
     public func prepare(_ sql: String) throws -> SQLiteStatement {

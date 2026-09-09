@@ -144,6 +144,75 @@ struct DirectoryEPUBPackageTests {
     }
 
     @Test
+    func packageStructureBudgetAcceptsLimitsAndRejectsNextItemBeforeGrowth() throws {
+        let manifestBoundary = try Fixture()
+        defer { manifestBoundary.remove() }
+        try manifestBoundary.writeContainer(rootfiles: ["package.opf"])
+        let manifest = (0..<EPUBStructureBudget.maximumManifestItems).map {
+            "<item id=\"i\($0)\" href=\"c\($0)\" media-type=\"x\"/>"
+        }.joined()
+        try manifestBoundary.writeOPF(
+            "<package xmlns=\"http://www.idpf.org/2007/opf\"><manifest>\(manifest)</manifest><spine></spine></package>",
+            at: "package.opf"
+        )
+        #expect(try DirectoryEPUBPackage(root: manifestBoundary.root).manifest.count == EPUBStructureBudget.maximumManifestItems)
+
+        let manifestOverflow = try Fixture()
+        defer { manifestOverflow.remove() }
+        try manifestOverflow.writeContainer(rootfiles: ["package.opf"])
+        try manifestOverflow.writeOPF(
+            "<package xmlns=\"http://www.idpf.org/2007/opf\"><manifest>\(manifest)<item id=\"overflow\" href=\"overflow\" media-type=\"x\"/></manifest><spine></spine></package>",
+            at: "package.opf"
+        )
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try DirectoryEPUBPackage(root: manifestOverflow.root)
+        }
+
+        let spineBoundary = try Fixture()
+        defer { spineBoundary.remove() }
+        try spineBoundary.writeContainer(rootfiles: ["package.opf"])
+        let spine = (0..<EPUBStructureBudget.maximumSpineItems).map { _ in "<itemref idref=\"chapter\"/>" }.joined()
+        try spineBoundary.writeOPF(
+            "<package xmlns=\"http://www.idpf.org/2007/opf\"><manifest><item id=\"chapter\" href=\"chapter\" media-type=\"x\"/></manifest><spine>\(spine)</spine></package>",
+            at: "package.opf"
+        )
+        #expect(try DirectoryEPUBPackage(root: spineBoundary.root).spine.count == EPUBStructureBudget.maximumSpineItems)
+
+        let spineOverflow = try Fixture()
+        defer { spineOverflow.remove() }
+        try spineOverflow.writeContainer(rootfiles: ["package.opf"])
+        try spineOverflow.writeOPF(
+            "<package xmlns=\"http://www.idpf.org/2007/opf\"><manifest><item id=\"chapter\" href=\"chapter\" media-type=\"x\"/></manifest><spine>\(spine)<itemref idref=\"chapter\"/></spine></package>",
+            at: "package.opf"
+        )
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try DirectoryEPUBPackage(root: spineOverflow.root)
+        }
+    }
+
+    @Test
+    func packageDepthBudgetAccepts256LevelsAndRejects257() throws {
+        for (extraDepth, shouldPass) in [(255, true), (256, false)] {
+            let fixture = try Fixture()
+            defer { fixture.remove() }
+            try fixture.writeContainer(rootfiles: ["package.opf"])
+            let opens = String(repeating: "<x>", count: extraDepth)
+            let closes = String(repeating: "</x>", count: extraDepth)
+            try fixture.writeOPF(
+                "<package xmlns=\"http://www.idpf.org/2007/opf\">\(opens)\(closes)<manifest></manifest><spine></spine></package>",
+                at: "package.opf"
+            )
+            if shouldPass {
+                _ = try DirectoryEPUBPackage(root: fixture.root)
+            } else {
+                #expect(throws: EPUBResourceError.tooComplex) {
+                    _ = try DirectoryEPUBPackage(root: fixture.root)
+                }
+            }
+        }
+    }
+
+    @Test
     func missingMetadataFilesFailClosedAndExternalDTDIsNeverResolved() throws {
         let missing = try Fixture()
         defer { missing.remove() }

@@ -21,6 +21,27 @@ struct SQLiteRowTests {
     }
 
     @Test
+    func textDecodingPreservesEmbeddedNULAndRejectsInvalidUTF8() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let connection = try SQLiteConnection.readOnly(path: fixture.path)
+
+        let exact = try connection.prepare("SELECT value FROM text_edges WHERE rowid=1")
+        #expect(try exact.step())
+        #expect(try SQLiteRow(statement: exact).text("value") == "a\0b")
+
+        let empty = try connection.prepare("SELECT value FROM text_edges WHERE rowid=2")
+        #expect(try empty.step())
+        #expect(try SQLiteRow(statement: empty).text("value") == "")
+
+        let invalid = try connection.prepare("SELECT value FROM text_edges WHERE rowid=3")
+        #expect(try invalid.step())
+        #expect(throws: SQLiteRowError.invalidUTF8(column: "value")) {
+            _ = try SQLiteRow(statement: invalid).text("value")
+        }
+    }
+
+    @Test
     func missingColumnsAndTypeMismatchesFailClosed() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
@@ -47,7 +68,15 @@ struct SQLiteRowTests {
             throw SQLiteError.current(operation: .open, code: open, handle: database)
         }
         defer { sqlite3_close(database) }
-        let sql = "CREATE TABLE values_table(i INTEGER, r REAL, t TEXT, b BLOB, n TEXT); INSERT INTO values_table VALUES (42, 3.5, 'text', X'000102', NULL);"
+        let sql = """
+        CREATE TABLE values_table(i INTEGER, r REAL, t TEXT, b BLOB, n TEXT);
+        INSERT INTO values_table VALUES (42, 3.5, 'text', X'000102', NULL);
+        CREATE TABLE text_edges(value TEXT);
+        INSERT INTO text_edges(value) VALUES
+            (CAST(X'610062' AS TEXT)),
+            (''),
+            (CAST(X'80' AS TEXT));
+        """
         let result = sqlite3_exec(database, sql, nil, nil, nil)
         guard result == SQLITE_OK else {
             throw SQLiteError.current(operation: .step, code: result, handle: database)

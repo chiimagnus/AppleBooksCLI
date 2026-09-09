@@ -1,7 +1,40 @@
 import Foundation
 import SQLite3
 
-private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+enum SQLiteTextCodecError: Error, Equatable, Sendable {
+    case invalidUTF8
+}
+
+@inline(__always)
+func bindSQLiteText(_ value: String, to statement: OpaquePointer?, at index: Int32) -> Int32 {
+    let byteCount = value.utf8.count
+    return value.withCString { pointer in
+        sqlite3_bind_text64(
+            statement,
+            index,
+            pointer,
+            sqlite3_uint64(byteCount),
+            sqliteTransient,
+            UInt8(SQLITE_UTF8)
+        )
+    }
+}
+
+@inline(__always)
+func decodeSQLiteText(_ statement: OpaquePointer, at index: Int32) throws -> String {
+    let byteCount = Int(sqlite3_column_bytes(statement, index))
+    guard byteCount > 0 else { return "" }
+    guard let pointer = sqlite3_column_text(statement, index) else {
+        throw SQLiteTextCodecError.invalidUTF8
+    }
+    let bytes = UnsafeBufferPointer(start: pointer, count: byteCount)
+    guard let value = String(bytes: bytes, encoding: .utf8) else {
+        throw SQLiteTextCodecError.invalidUTF8
+    }
+    return value
+}
 
 public final class SQLiteStatement {
     private let connection: SQLiteConnection
@@ -33,10 +66,7 @@ public final class SQLiteStatement {
     }
 
     public func bind(_ value: String, at index: Int32) throws {
-        let result = value.withCString { pointer in
-            sqlite3_bind_text(handle, index, pointer, -1, sqliteTransient)
-        }
-        try checkBind(result)
+        try checkBind(bindSQLiteText(value, to: handle, at: index))
     }
 
     public func bind(_ value: Data, at index: Int32) throws {

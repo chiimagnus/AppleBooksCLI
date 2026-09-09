@@ -9,11 +9,24 @@ public enum EPUBResourceError: Error, Equatable, Sendable {
     case invalidArchive
     case ambiguousResource
     case tooManyEntries
+    case tooComplex
 }
 
 protocol EPUBResourceReader: AnyObject {
     func contains(_ path: EPUBPath) throws -> Bool
     func readExactResource(_ path: EPUBPath, maxBytes: Int) throws -> Data
+}
+
+enum EPUBStructureBudget {
+    static let maximumNestingDepth = 256
+    static let maximumManifestItems = 20_000
+    static let maximumSpineItems = 20_000
+    static let maximumNavigationEntries = 20_000
+    static let maximumMetadataListValues = 20_000
+    static let maximumEncryptionEntries = 20_000
+    static let maximumXHTMLNodes = 20_000
+    static let maximumZIPEntries = 20_000
+    static let maximumIndexedPathBytes = 32 * 1_024 * 1_024
 }
 
 enum EPUBResourceBudget {

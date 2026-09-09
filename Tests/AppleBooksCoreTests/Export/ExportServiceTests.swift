@@ -35,6 +35,31 @@ struct ExportServiceTests {
     }
 
     @Test
+    func archivalExportPreservesLargeAnnotationTextWithoutOrdinaryQueryBudgets() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let body = String(repeating: "archive", count: 150_000)
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "archive-book", title: "Archive", contentType: 1, path: nil),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "archive-book", selectedText: body, note: body),
+        ])
+
+        let bundle = try fixture.service().makeBundle(options: ExportOptions())
+        let record = try #require(bundle.groups.first?.records.first)
+        guard case let .epub(enriched) = record.payload else {
+            Issue.record("expected EPUB record")
+            return
+        }
+        #expect(enriched.annotation.selectedText == body)
+        #expect(enriched.annotation.note == body)
+
+        let data = try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        #expect(data.count > body.utf8.count * 2)
+    }
+
+    @Test
     func allSourceMergesCanonicalEPUBAndPDFAndKeepsFailuresAsWarnings() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

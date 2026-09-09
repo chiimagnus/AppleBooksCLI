@@ -1,4 +1,5 @@
 import AppKit
+import ArgumentParser
 import Foundation
 import PDFKit
 import SQLite3
@@ -8,23 +9,55 @@ import Testing
 @Suite("CLIContractTests")
 struct CLIContractTests {
     @Test
+    func publicLocalPKFallbackRejectsNonPositiveValuesBeforeDependencyDiscovery() throws {
+        #expect(LocalPKPolicy.isEligible(-1) == false)
+        #expect(LocalPKPolicy.isEligible(0) == false)
+        #expect(LocalPKPolicy.isEligible(1))
+        #expect(LocalPKPolicy.isEligible(Int64.max))
+        #expect(try parseBookSelector(assetID: nil, localPK: Int64.max) == .localPK(Int64.max))
+        #expect(try parseAnnotationSelector(uuid: nil, localPK: Int64.max) == .localPK(Int64.max))
+        #expect(try parseCollectionSelector(collectionID: nil, localPK: Int64.max) == .localPK(Int64.max))
+
+        let missing = "/definitely/missing/applebookscli-pk-preflight.sqlite"
+        let globals = ["--library-db", missing, "--annotations-db", missing]
+        let cases: [[String]] = [
+            ["books", "get", "--pk", "0"],
+            ["reading", "position", "--pk", "-1"],
+            ["content", "metadata", "--pk", "0"],
+            ["annotations", "get", "--pk", "-1"],
+            ["annotations", "list", "--book-pk", "0"],
+            ["collections", "get", "--pk", "0"],
+            ["collections", "add-book", "--collection-pk", "-1", "--book-pk", "1"],
+            ["collections", "add-book", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
+            ["pdf", "highlights", "--book-pk", "0"],
+        ]
+
+        for arguments in cases {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments + globals, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
+            #expect(capture.stderr.contains("PDF worker") == false)
+        }
+    }
+
+    @Test
     func processParseHelpAndVersionContractsDoNotDiscoverDatabases() throws {
         let harness = try ProcessHarness()
         defer { harness.remove() }
+        let sentinel = "secret-value-DO-NOT-ECHO"
 
-        let humanError = try harness.run(["books", "list", "--definitely-unknown"])
-        #expect(humanError.status == CLIProcessExit.usageInvalid.rawValue)
-        #expect(humanError.stdout.isEmpty)
-        #expect(humanError.stderr.isEmpty == false)
-        #expect(humanError.stderr.contains("definitely-unknown"))
-
-        let jsonError = try harness.run(["books", "list", "--json", "--definitely-unknown"])
-        #expect(jsonError.status == CLIProcessExit.usageInvalid.rawValue)
-        #expect(jsonError.stderr.isEmpty)
-        let envelope = try dictionary(jsonError.stdout)
-        #expect(envelope["ok"] as? Bool == false)
-        let error = try #require(envelope["error"] as? [String: Any])
-        #expect(error["code"] as? String == "usage_invalid")
+        let failure = try harness.run(["books", "list", "--definitely-unknown", sentinel])
+        #expect(failure.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(failure.stdout.isEmpty)
+        #expect(failure.stderr.contains(sentinel) == false)
+        #expect(failure.stderr.contains("definitely-unknown") == false)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(failure.stderr.utf8))
+        #expect(envelope.error.code == .usageInvalid)
+        #expect(envelope.error.message == "Invalid command-line arguments.")
+        #expect(envelope.error.reason == nil)
+        #expect(envelope.error.recoveryHint == nil)
 
         let help = try harness.run(["--help"])
         #expect(help.status == 0)
@@ -85,7 +118,7 @@ struct CLIContractTests {
         )
         try store.complete(token, exitCode: 0, stdout: "{\"committed\":true}\n", stderr: "")
 
-        let list = try harness.run(["history", "list", "--json"])
+        let list = try harness.run(["history", "list"])
         #expect(list.status == 0)
         #expect(list.stderr.isEmpty)
         #expect(list.stdout.contains(privateArgument) == false)
@@ -95,7 +128,7 @@ struct CLIContractTests {
         #expect(listResult.items.count == 1)
         #expect(listResult.items[0].id == token.id)
 
-        let get = try harness.run(["history", "get", token.id, "--json"])
+        let get = try harness.run(["history", "get", token.id])
         #expect(get.status == 0)
         #expect(get.stderr.isEmpty)
         let detail = try decoder.decode(HistoryDetailResult.self, from: Data(get.stdout.utf8))
@@ -111,18 +144,25 @@ struct CLIContractTests {
         defer { fixture.remove() }
 
         let doctor = try fixture.runJSON(["doctor"])
-        #expect(doctor["libraryDatabaseReady"] as? Bool == true)
-        #expect(doctor["annotationsDatabaseReady"] as? Bool == true)
-        #expect(doctor["installedPDFWorkerReady"] as? Bool == true)
+        #expect(doctor["status"] as? String == "partial")
+        let doctorComponents = try #require(doctor["components"] as? [String: Any])
+        let doctorCapabilities = try #require(doctor["capabilities"] as? [String: Any])
+        #expect(doctorComponents["libraryDatabaseReady"] as? Bool == true)
+        #expect(doctorComponents["annotationsDatabaseReady"] as? Bool == true)
+        #expect(doctorComponents["cloudSyncReady"] as? Bool == false)
+        #expect(doctorComponents["pdfWorkerReady"] as? Bool == true)
+        #expect(doctorCapabilities["booksRead"] as? Bool == true)
+        #expect(doctorCapabilities["annotationsRead"] as? Bool == true)
+        #expect(doctorCapabilities["syncPrerequisites"] as? Bool == false)
 
-        let list = try fixture.runJSON(["books", "list", "--all"])
+        let list = try fixture.runJSON(["books", "list"])
         #expect(list["total"] as? Int == 3)
         let listedBooks = try #require(list["items"] as? [[String: Any]])
         #expect(Set(listedBooks.compactMap { $0["assetID"] as? String }) == ["asset-a", "asset-b", "asset-pdf"])
 
         let get = try fixture.runJSON(["books", "get", "asset-a"])
-        #expect(get["localPK"] as? Int == 1)
         #expect(get["assetID"] as? String == "asset-a")
+        #expect(get["localPK"] == nil)
 
         let search = try fixture.runJSON(["books", "search", "Book A"])
         #expect(search["total"] as? Int == 1)
@@ -249,11 +289,11 @@ struct CLIContractTests {
     }
 
     @Test
-    func processHumanMutationOutputIsMinimalAndAnnotationDeeplinkIsLastLine() throws {
+    func processMutationOutputDefaultsToJSONAndNeverEchoesPrivateBody() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
-        let privateNote = "human private note"
+        let privateNote = "synthetic private note"
         let annotation = try fixture.run([
             "annotations", "update-note", "uuid-update", "--note", privateNote, "--sync",
         ] + fixture.globals)
@@ -261,14 +301,14 @@ struct CLIContractTests {
         #expect(annotation.status == 0)
         #expect(annotation.stderr.isEmpty)
         #expect(annotation.stdout.contains(privateNote) == false)
-        #expect(annotation.stdout.contains("backup") == false)
-        #expect(annotation.stdout.contains("local PK") == false)
-        let annotationLines = annotation.stdout
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init)
-        #expect(annotationLines.first == "Mutation committed.")
-        #expect(annotationLines.dropFirst().first == "warnings: cloud_sync_failed")
-        let annotationURL = try #require(annotationLines.last)
+        let annotationResult = try JSONDecoder().decode(
+            MutationCommandResult.self,
+            from: Data(annotation.stdout.utf8)
+        )
+        #expect(annotationResult.committed)
+        #expect(annotationResult.changed)
+        #expect(annotationResult.warningCodes == ["cloud_sync_failed"])
+        let annotationURL = try #require(annotationResult.appleBooksURL)
         #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
         #expect(annotationURL.contains("%5Bshared%5D"))
 
@@ -277,7 +317,9 @@ struct CLIContractTests {
         ] + fixture.globals)
         #expect(noOp.status == 0)
         #expect(noOp.stderr.isEmpty)
-        #expect(noOp.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "No change.")
+        let noOpResult = try JSONDecoder().decode(MutationCommandResult.self, from: Data(noOp.stdout.utf8))
+        #expect(noOpResult.changed == false)
+        #expect(noOpResult.warningCodes.isEmpty)
     }
 
     @Test
@@ -285,16 +327,16 @@ struct CLIContractTests {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
-        let createArguments = ["collections", "create", "History Shelf"] + fixture.globals + ["--json"]
+        let createArguments = ["collections", "create", "History Shelf"] + fixture.globals
         let create = try fixture.run(createArguments)
         #expect(create.status == 0)
         #expect(create.stderr.isEmpty)
         #expect(try dictionary(create.stdout)["committed"] as? Bool == true)
 
-        let privateNote = "history private note"
+        let privateNote = "history synthetic private note"
         let updateArguments = [
             "annotations", "update-note", "uuid-update", "--note", privateNote,
-        ] + fixture.globals + ["--json"]
+        ] + fixture.globals
         let update = try fixture.run(updateArguments)
         #expect(update.status == 0)
         #expect(update.stderr.isEmpty)
@@ -306,27 +348,28 @@ struct CLIContractTests {
 
         let noOpArguments = [
             "collections", "add-book", ProcessFixture.shelfID, "asset-a",
-        ] + fixture.globals + ["--json"]
+        ] + fixture.globals
         let noOp = try fixture.run(noOpArguments)
         #expect(noOp.status == 0)
         #expect(try dictionary(noOp.stdout)["changed"] as? Bool == false)
 
-        let jsonFailureArguments = [
+        let renameFailureArguments = [
             "collections", "rename", "missing-collection", "--title", "Nope",
-        ] + fixture.globals + ["--json"]
-        let jsonFailure = try fixture.run(jsonFailureArguments)
-        #expect(jsonFailure.status == CLIProcessExit.notFound.rawValue)
-        #expect(jsonFailure.stderr.isEmpty)
-        let jsonEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(jsonFailure.stdout.utf8))
-        #expect(jsonEnvelope.error.code == .notFound)
+        ] + fixture.globals
+        let renameFailure = try fixture.run(renameFailureArguments)
+        #expect(renameFailure.status == CLIProcessExit.notFound.rawValue)
+        #expect(renameFailure.stdout.isEmpty)
+        let renameEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(renameFailure.stderr.utf8))
+        #expect(renameEnvelope.error.code == .notFound)
 
-        let humanFailureArguments = [
+        let deleteFailureArguments = [
             "collections", "delete", "missing-collection",
         ] + fixture.globals
-        let humanFailure = try fixture.run(humanFailureArguments)
-        #expect(humanFailure.status == CLIProcessExit.notFound.rawValue)
-        #expect(humanFailure.stdout.isEmpty)
-        #expect(humanFailure.stderr.hasPrefix("Error:"))
+        let deleteFailure = try fixture.run(deleteFailureArguments)
+        #expect(deleteFailure.status == CLIProcessExit.notFound.rawValue)
+        #expect(deleteFailure.stdout.isEmpty)
+        let deleteEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(deleteFailure.stderr.utf8))
+        #expect(deleteEnvelope.error.code == .notFound)
 
         let history = try fixture.harness.historyRecords()
         #expect(history.count == 5)
@@ -348,17 +391,17 @@ struct CLIContractTests {
         #expect(noOpRecord.arguments == noOpArguments)
         #expect(noOpRecord.stdout == noOp.stdout)
 
-        let jsonFailureRecord = try #require(history.first { $0.operation == "collections.rename" })
-        #expect(jsonFailureRecord.status == .failure)
-        #expect(jsonFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
-        #expect(jsonFailureRecord.stdout == jsonFailure.stdout)
-        #expect(jsonFailureRecord.stderr == "")
+        let renameFailureRecord = try #require(history.first { $0.operation == "collections.rename" })
+        #expect(renameFailureRecord.status == .failure)
+        #expect(renameFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
+        #expect(renameFailureRecord.stdout == "")
+        #expect(renameFailureRecord.stderr == renameFailure.stderr)
 
-        let humanFailureRecord = try #require(history.first { $0.operation == "collections.delete" })
-        #expect(humanFailureRecord.status == .failure)
-        #expect(humanFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
-        #expect(humanFailureRecord.stdout == "")
-        #expect(humanFailureRecord.stderr == humanFailure.stderr)
+        let deleteFailureRecord = try #require(history.first { $0.operation == "collections.delete" })
+        #expect(deleteFailureRecord.status == .failure)
+        #expect(deleteFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
+        #expect(deleteFailureRecord.stdout == "")
+        #expect(deleteFailureRecord.stderr == deleteFailure.stderr)
     }
 
     @Test
@@ -371,16 +414,16 @@ struct CLIContractTests {
         )
         try Data("not a directory".utf8).write(to: harness.historyRoot)
 
-        let invocation = try harness.run(["sync", "--json"])
+        let invocation = try harness.run(["sync"])
         #expect(invocation.status == CLIProcessExit.unavailable.rawValue)
-        #expect(invocation.stderr.isEmpty)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stdout.utf8))
+        #expect(invocation.stdout.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stderr.utf8))
         #expect(envelope.error.code == .unavailable)
         #expect(envelope.error.message == "Operation history is unavailable.")
     }
 
     @Test
-    func historyCompletionFailurePreservesOriginalJsonOutcomeAndLeavesIncompleteEvidence() throws {
+    func historyCompletionFailurePreservesSuccessfulOutcomeAndEmitsOneDiagnosticLine() throws {
         let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent("applebookscli-history-completion-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
@@ -413,22 +456,26 @@ struct CLIContractTests {
             stderr: { text in stderr += text }
         )
 
-        let code = CLIEntrypoint.run(
-            arguments: ["collections", "rename", "--title", "Nope", "--json"],
+        let code = CLIEntrypoint.runParsed(
+            HistorySuccessCommand(),
+            arguments: ["history-success-test"],
             output: output,
             historyStore: store
         )
         #expect(sabotageError == nil)
-        #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(stdout.utf8))
-        #expect(envelope.error.code == .usageInvalid)
-        #expect(stderr == "Warning: Operation history completion was not recorded.")
+        #expect(code == CLIProcessExit.success.rawValue)
+        let primary = try JSONDecoder().decode(HistorySuccessResult.self, from: Data(stdout.utf8))
+        #expect(primary == HistorySuccessResult(ok: true))
+        let diagnosticLines = stderr.split(separator: "\n", omittingEmptySubsequences: true)
+        #expect(diagnosticLines.count == 1)
+        let diagnostic = try JSONDecoder().decode(CLIDiagnosticEnvelope.self, from: Data(diagnosticLines[0].utf8))
+        #expect(diagnostic == .historyCompletionFailed)
 
         let lock = root.appendingPathComponent(".lock")
         try FileManager.default.removeItem(at: lock)
         let records = try store.list()
         #expect(records.count == 1)
-        #expect(records[0].operation == "collections.rename")
+        #expect(records[0].operation == "test.success")
         #expect(records[0].status == .incomplete)
     }
 
@@ -454,21 +501,53 @@ struct CLIContractTests {
     }
 
     @Test
-    func processExportKeepsNativePayloads() throws {
+    func processExportWritesNativePayloadsOnlyToExplicitFiles() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
-        let json = try fixture.run(["export", "--format", "json"] + fixture.globals)
+        let jsonFile = fixture.root.appendingPathComponent("export.json")
+        let json = try fixture.run([
+            "export", "--format", "json", "--output", jsonFile.path,
+        ] + fixture.globals)
         #expect(json.status == 0)
         #expect(json.stderr.isEmpty)
-        let exportRoot = try dictionary(json.stdout)
+        let jsonResult = try JSONDecoder().decode(ExportRunResult.self, from: Data(json.stdout.utf8))
+        #expect(jsonResult.destination == jsonFile.standardizedFileURL.path)
+        #expect(jsonResult.disposition == .file)
+        #expect(jsonResult.documentCount == 1)
+        #expect(json.stdout.contains("\"groups\"") == false)
+        let exportRoot = try dictionary(String(decoding: try Data(contentsOf: jsonFile), as: UTF8.self))
         let groups = try #require(exportRoot["groups"] as? [[String: Any]])
         #expect(groups.count == 2)
 
-        let markdown = try fixture.run(["export", "--format", "markdown"] + fixture.globals)
+        let markdownFile = fixture.root.appendingPathComponent("export.md")
+        let markdown = try fixture.run([
+            "export", "--format", "markdown", "--output", markdownFile.path,
+        ] + fixture.globals)
         #expect(markdown.status == 0)
         #expect(markdown.stderr.isEmpty)
-        #expect(markdown.stdout.contains("First & 😀"))
+        let markdownResult = try JSONDecoder().decode(ExportRunResult.self, from: Data(markdown.stdout.utf8))
+        #expect(markdownResult.destination == markdownFile.standardizedFileURL.path)
+        #expect(markdownResult.disposition == .file)
+        #expect(markdown.stdout.contains("First & 😀") == false)
+        let markdownArtifact = String(decoding: try Data(contentsOf: markdownFile), as: UTF8.self)
+        #expect(markdownArtifact.contains("First & 😀"))
+    }
+}
+
+private struct HistorySuccessResult: Codable, Equatable {
+    let ok: Bool
+}
+
+private struct HistorySuccessCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(commandName: "history-success-test")
+
+    var historyOperation: String { "test.success" }
+
+    mutating func run() throws {}
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(HistorySuccessResult(ok: true))
     }
 }
 
@@ -605,7 +684,7 @@ private final class ProcessFixture {
     }
 
     func runJSON(_ arguments: [String]) throws -> [String: Any] {
-        let invocation = try run(arguments + globals + ["--json"])
+        let invocation = try run(arguments + globals)
         #expect(invocation.status == 0)
         #expect(invocation.stderr.isEmpty)
         return try dictionary(invocation.stdout)
@@ -824,6 +903,18 @@ private final class ProcessFixture {
       (3,11,1,'uuid-b','asset-b',0,0,2,1,120,220,'Second section','Second representative','note beta','epubcfi(/6/2[shared]!/4/2,:0,:14)',4,5,6,'shared','220'),
       (4,11,1,'uuid-update','asset-a',0,0,3,1,130,230,'Update quote','Update representative','old note','epubcfi(/6/2[shared]!/4/2,:0,:6)',7,8,9,'shared','230');
     """
+}
+
+private final class Capture {
+    var stdout = ""
+    var stderr = ""
+
+    var output: CLIOutput {
+        CLIOutput(
+            stdout: { [self] in stdout += $0 },
+            stderr: { [self] in stderr += $0 }
+        )
+    }
 }
 
 private enum ContractFixtureError: Error {

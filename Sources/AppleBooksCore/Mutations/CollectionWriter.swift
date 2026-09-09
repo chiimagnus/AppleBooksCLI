@@ -523,7 +523,7 @@ struct CollectionWriter {
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 handle,
-                "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK",
+                "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
                 -1,
                 &statement,
                 nil
@@ -535,27 +535,23 @@ struct CollectionWriter {
             guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
                 throw CollectionWriteError.writeFailed
             }
-            var matches: [Int64] = []
-            while true {
-                switch sqlite3_step(statement) {
-                case SQLITE_ROW:
-                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-                          let rawID = sqlite3_column_text(statement, 1),
-                          String(cString: rawID) == collectionID else {
-                        throw CollectionWriteError.collectionIdentityUnavailable
-                    }
-                    matches.append(sqlite3_column_int64(statement, 0))
-                case SQLITE_DONE:
-                    break
-                default:
-                    throw CollectionWriteError.writeFailed
-                }
-                if sqlite3_data_count(statement) == 0 { break }
+            guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
+            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
+                throw CollectionWriteError.collectionIdentityUnavailable
             }
-            guard matches.isEmpty == false else { throw CollectionWriteError.collectionMissing }
-            guard matches.count == 1, let localPK = matches.first else {
-                throw StableIdentityError.ambiguousCollectionID
+            let storedID: String
+            do {
+                storedID = try decodeSQLiteText(statement, at: 1)
+            } catch {
+                throw CollectionWriteError.collectionIdentityUnavailable
             }
+            guard storedID == collectionID else {
+                throw CollectionWriteError.collectionIdentityUnavailable
+            }
+            let localPK = sqlite3_column_int64(statement, 0)
+            let second = sqlite3_step(statement)
+            if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
+            guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
             _ = try editableTarget(localPK: localPK, scope: scope, on: handle)
             return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
         }
@@ -575,7 +571,7 @@ struct CollectionWriter {
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 handle,
-                "SELECT Z_PK,ZASSETID FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK",
+                "SELECT Z_PK,ZASSETID FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
                 -1,
                 &statement,
                 nil
@@ -587,27 +583,23 @@ struct CollectionWriter {
             guard bind(assetID, to: statement, index: 1) == SQLITE_OK else {
                 throw CollectionWriteError.writeFailed
             }
-            var matches: [Int64] = []
-            while true {
-                switch sqlite3_step(statement) {
-                case SQLITE_ROW:
-                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-                          let rawID = sqlite3_column_text(statement, 1),
-                          String(cString: rawID) == assetID else {
-                        throw CollectionWriteError.bookAssetIDUnavailable
-                    }
-                    matches.append(sqlite3_column_int64(statement, 0))
-                case SQLITE_DONE:
-                    break
-                default:
-                    throw CollectionWriteError.writeFailed
-                }
-                if sqlite3_data_count(statement) == 0 { break }
+            guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
+            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
+                throw CollectionWriteError.bookAssetIDUnavailable
             }
-            guard matches.isEmpty == false else { throw CollectionWriteError.bookMissing }
-            guard matches.count == 1, let localPK = matches.first else {
-                throw StableIdentityError.ambiguousBookAssetID
+            let storedID: String
+            do {
+                storedID = try decodeSQLiteText(statement, at: 1)
+            } catch {
+                throw CollectionWriteError.bookAssetIDUnavailable
             }
+            guard storedID == assetID else {
+                throw CollectionWriteError.bookAssetIDUnavailable
+            }
+            let localPK = sqlite3_column_int64(statement, 0)
+            let second = sqlite3_step(statement)
+            if second == SQLITE_ROW { throw StableIdentityError.ambiguousBookAssetID }
+            guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
             return BookWriteTarget(localPK: localPK, assetID: assetID)
         }
     }
@@ -639,11 +631,15 @@ struct CollectionWriter {
               sqlite3_column_int64(statement, 2) == 0 else {
             throw CollectionWriteError.collectionDeletedOrUnknown
         }
-        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-              let rawID = sqlite3_column_text(statement, 1) else {
+        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
-        let collectionID = String(cString: rawID)
+        let collectionID: String
+        do {
+            collectionID = try decodeSQLiteText(statement, at: 1)
+        } catch {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
 
         if scope == .membership, collectionID == membershipEditableSystemID {
             return CollectionWriteTarget(localPK: localPK, stableID: nil)
@@ -823,11 +819,14 @@ struct CollectionWriter {
         }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
         guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
-        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT,
-              let text = sqlite3_column_text(statement, 0) else {
+        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
             throw CollectionWriteError.writeFailed
         }
-        return String(cString: text)
+        do {
+            return try decodeSQLiteText(statement, at: 0)
+        } catch {
+            throw CollectionWriteError.writeFailed
+        }
     }
 
     private static func validateMatchingMemberEntities(
@@ -1069,9 +1068,7 @@ struct CollectionWriter {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
-        value.withCString {
-            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        bindSQLiteText(value, to: statement, at: index)
     }
 
     private static func bindOptional(_ value: String?, to statement: OpaquePointer, index: Int32) -> Int32 {

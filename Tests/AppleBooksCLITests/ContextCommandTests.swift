@@ -40,7 +40,6 @@ struct ContextCommandTests {
         let globals = [
             "--library-db", missing,
             "--annotations-db", missing,
-            "--json",
         ]
 
         for arguments in [
@@ -51,8 +50,8 @@ struct ContextCommandTests {
             let capture = Capture()
             let code = CLIEntrypoint.run(arguments: arguments + globals, output: capture.output)
             #expect(code == CLIProcessExit.usageInvalid.rawValue)
-            #expect(capture.stderr.isEmpty)
-            #expect(capture.stdout.contains("Database override") == false)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
         }
     }
 
@@ -64,17 +63,17 @@ struct ContextCommandTests {
         for uuid in ["anchor-miss-private", "missing-chapter-private"] {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: ["content", "context", uuid] + fixture.globalArguments + ["--json"],
+                arguments: ["content", "context", uuid] + fixture.globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.unavailable.rawValue)
-            #expect(capture.stderr.isEmpty)
-            let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stdout)
+            #expect(capture.stdout.isEmpty)
+            let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stderr)
             #expect(envelope.error.code == .unavailable)
             #expect(envelope.error.message == "Annotation context is unavailable.")
-            #expect(capture.stdout.contains(uuid) == false)
-            #expect(capture.stdout.contains("chapter opening that must not be returned") == false)
-            #expect(capture.stdout.contains("absent anchor that is private") == false)
+            #expect(capture.stderr.contains(uuid) == false)
+            #expect(capture.stderr.contains("chapter opening that must not be returned") == false)
+            #expect(capture.stderr.contains("absent anchor that is private") == false)
         }
     }
 
@@ -86,20 +85,20 @@ struct ContextCommandTests {
         for uuid in ["missing-content-private", "drm-content-private"] {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: ["content", "context", uuid] + fixture.globalArguments + ["--json"],
+                arguments: ["content", "context", uuid] + fixture.globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.unavailable.rawValue)
-            #expect(capture.stderr.isEmpty)
-            let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stdout)
+            #expect(capture.stdout.isEmpty)
+            let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stderr)
             #expect(envelope.error.code == .unavailable)
-            #expect(capture.stdout.contains(uuid) == false)
-            #expect(capture.stdout.contains("quick brown") == false)
+            #expect(capture.stderr.contains(uuid) == false)
+            #expect(capture.stderr.contains("quick brown") == false)
         }
     }
 
     @Test
-    func humanOutputUsesCoreMarkedPresentationOnly() throws {
+    func defaultJSONPreservesCoreMarkedPresentationField() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -110,8 +109,9 @@ struct ContextCommandTests {
         )
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("«quick\n\nbrown»"))
-        #expect(capture.stdout.filter { $0 == "«" }.count == 1)
+        let result = try fixture.decode(ContentContextResult.self, capture.stdout)
+        #expect(result.presentationText.contains("«quick\n\nbrown»"))
+        #expect(result.presentationText.filter { $0 == "«" }.count == 1)
     }
 
     private final class Fixture {
@@ -156,7 +156,7 @@ struct ContextCommandTests {
         func runJSON<Value: Decodable>(_ type: Value.Type, arguments: [String]) throws -> Value {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: arguments + globalArguments + ["--json"],
+                arguments: arguments + globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.success.rawValue)

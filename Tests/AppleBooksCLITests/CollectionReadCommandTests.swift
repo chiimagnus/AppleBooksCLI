@@ -62,7 +62,8 @@ struct CollectionReadCommandTests {
             output: capture.output
         )
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        #expect(capture.stdout.contains("Database override") == false)
+        #expect(capture.stdout.isEmpty)
+        #expect(capture.stderr.contains("Database override") == false)
     }
 
     @Test
@@ -100,11 +101,12 @@ struct CollectionReadCommandTests {
         defer { fixture.remove() }
 
         let byID = try fixture.runJSON(CollectionBooksResult.self, ["collections", "books", "123"])
-        #expect(byID.items.map(\.localPK) == [11, 12, 10])
+        #expect(byID.items.map(\.assetID) == ["asset-b", "asset-b", "asset-a"])
+        #expect(byID.items.allSatisfy { $0.localPK == nil })
 
         let byPK = try fixture.runJSON(CollectionBooksResult.self, ["collections", "books", "--pk", "1"])
-        #expect(byPK.items.map(\.localPK) == [11, 12, 10])
         #expect(byPK.items.map(\.assetID) == ["asset-b", "asset-b", "asset-a"])
+        #expect(byPK.items.allSatisfy { $0.localPK == nil })
     }
 
     private final class Fixture {
@@ -115,7 +117,6 @@ struct CollectionReadCommandTests {
         static let missingGlobals = [
             "--library-db", "/definitely/missing/applebookscli-t12-library.sqlite",
             "--annotations-db", "/definitely/missing/applebookscli-t12-annotations.sqlite",
-            "--json",
         ]
 
         var globals: [String] {
@@ -133,7 +134,7 @@ struct CollectionReadCommandTests {
 
         func runJSON<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) throws -> Value {
             let capture = Capture()
-            let code = CLIEntrypoint.run(arguments: arguments + globals + ["--json"], output: capture.output)
+            let code = CLIEntrypoint.run(arguments: arguments + globals, output: capture.output)
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(capture.stderr.isEmpty)
             let decoder = JSONDecoder()

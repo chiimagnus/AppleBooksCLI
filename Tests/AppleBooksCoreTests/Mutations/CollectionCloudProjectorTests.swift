@@ -40,6 +40,59 @@ struct CollectionCloudProjectorTests {
     }
 
     @Test
+    func collectionIdentityPreservesEmbeddedNULFromDatabase() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = root.appendingPathComponent("library.sqlite")
+        try execute(library, "CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY,ZCOLLECTIONID TEXT)")
+        try insertCollection(library, collectionID: "collection\0tail")
+
+        #expect(try CollectionCloudProjector.collectionID(libraryDatabase: library, localPK: 7) == "collection\0tail")
+    }
+
+    @Test
+    func bridgeUsesExactLengthForCollectionIdentityLookup() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeDirectory = root.appendingPathComponent("BCCloudCollections", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let cloudDatabase = storeDirectory.appendingPathComponent("BCCloudCollections")
+        try Data().write(to: cloudDatabase)
+        let library = root.appendingPathComponent("library.sqlite")
+        try execute(library, """
+            CREATE TABLE ZBKCOLLECTION(
+              Z_PK INTEGER PRIMARY KEY,
+              ZCOLLECTIONID TEXT,
+              ZDELETEDFLAG INTEGER,
+              ZHIDDEN INTEGER,
+              ZSORTMODE INTEGER,
+              ZSORTKEY INTEGER,
+              ZLASTMODIFICATION REAL,
+              ZTITLE TEXT,
+              ZDETAILS TEXT
+            )
+            """)
+        try insertBridgeCollection(library, collectionID: "collection\0tail")
+
+        let status = root.path.withCString { rootPath in
+            cloudDatabase.path.withCString { cloudPath in
+                library.path.withCString { libraryPath in
+                    withCloudBridgeUTF8Bytes("collection\0tail") { collectionID, collectionIDLength in
+                        ABProjectCollectionState(
+                            rootPath,
+                            cloudPath,
+                            libraryPath,
+                            collectionID,
+                            collectionIDLength
+                        )
+                    }
+                }
+            }
+        }
+        #expect(status >= 4)
+    }
+
+    @Test
     func nonCanonicalLibraryDisablesLiveProjection() throws {
         let root = try fixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -84,13 +137,80 @@ struct CollectionCloudProjectorTests {
         let status = storeDirectory.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 library.path.withCString { libraryPath in
-                    "00000000-0000-0000-0000-000000000001".withCString { collectionID in
-                        ABProjectCollectionState(rootPath, databasePath, libraryPath, collectionID)
+                    withCloudBridgeUTF8Bytes("\0COLLECTION") { collectionID, collectionIDLength in
+                        ABProjectCollectionState(
+                            rootPath,
+                            databasePath,
+                            libraryPath,
+                            collectionID,
+                            collectionIDLength
+                        )
                     }
                 }
             }
         }
         #expect(status == 2)
+
+        let invalidBytes: [UInt8] = [0xFF]
+        let invalidStatus = storeDirectory.path.withCString { rootPath in
+            database.path.withCString { databasePath in
+                library.path.withCString { libraryPath in
+                    invalidBytes.withUnsafeBufferPointer { invalid in
+                        ABProjectCollectionState(
+                            rootPath,
+                            databasePath,
+                            libraryPath,
+                            invalid.baseAddress!,
+                            invalid.count
+                        )
+                    }
+                }
+            }
+        }
+        #expect(invalidStatus == 1)
+    }
+
+    private func insertCollection(_ database: URL, collectionID: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
+        defer { sqlite3_close_v2(handle) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "INSERT INTO ZBKCOLLECTION(Z_PK,ZCOLLECTIONID) VALUES(7,?)", -1, &statement, nil) == SQLITE_OK,
+              let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
+        defer { sqlite3_finalize(statement) }
+        try bindExact(collectionID, to: statement, index: 1, handle: handle)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
+    }
+
+    private func insertBridgeCollection(_ database: URL, collectionID: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
+        defer { sqlite3_close_v2(handle) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "INSERT INTO ZBKCOLLECTION VALUES(7,?,0,0,6,20000,1,'Synthetic',NULL)", -1, &statement, nil) == SQLITE_OK,
+              let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
+        defer { sqlite3_finalize(statement) }
+        try bindExact(collectionID, to: statement, index: 1, handle: handle)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
+    }
+
+    private func bindExact(_ value: String, to statement: OpaquePointer, index: Int32, handle: OpaquePointer) throws {
+        let bytes = Array(value.utf8)
+        let result = bytes.withUnsafeBytes { raw in
+            sqlite3_bind_text64(
+                statement,
+                index,
+                raw.baseAddress,
+                sqlite3_uint64(raw.count),
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self),
+                UInt8(SQLITE_UTF8)
+            )
+        }
+        guard result == SQLITE_OK else { throw SQLiteError.current(operation: .bind, code: result, handle: handle) }
     }
 
     private func fixtureRoot() throws -> URL {

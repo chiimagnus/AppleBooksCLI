@@ -2,73 +2,327 @@ import Foundation
 import SQLite3
 import Testing
 @testable import AppleBooksCLI
+@testable import AppleBooksCore
 
 @Suite("BooksCommandTests")
 struct BooksCommandTests {
     @Test
-    func listDefaultsToContentPageAndAllUsesUnlimitedSurface() throws {
+    func listUsesWholeLibraryUniverseAndOpaqueCursorWithoutRawBookFields() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let paged = Capture()
-        let pagedCode = CLIEntrypoint.run(
-            arguments: ["books", "list"] + fixture.globalArguments + ["--json"],
-            output: paged.output
+        let firstCapture = Capture()
+        let firstCode = CLIEntrypoint.run(
+            arguments: ["books", "list", "--limit", "2"] + fixture.globalArguments,
+            output: firstCapture.output
         )
-        #expect(pagedCode == CLIProcessExit.success.rawValue)
-        #expect(paged.stderr.isEmpty)
-        let page = try decode(BookPageResult.self, paged.stdout)
-        #expect(page.total == 3)
-        #expect(page.limit == 20)
-        #expect(page.offset == 0)
-        #expect(page.items.contains(where: { $0.assetID == "null-content" }) == false)
+        #expect(firstCode == CLIProcessExit.success.rawValue)
+        #expect(firstCapture.stderr.isEmpty)
+        let first = try decode(BookSummaryPageResult.self, firstCapture.stdout)
+        #expect(first.total == 9)
+        #expect(first.items.count == 2)
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
 
-        let unlimited = Capture()
-        let unlimitedCode = CLIEntrypoint.run(
-            arguments: ["books", "list", "--all"] + fixture.globalArguments + ["--json"],
-            output: unlimited.output
+        let secondCapture = Capture()
+        let secondCode = CLIEntrypoint.run(
+            arguments: ["books", "list", "--limit", "100", "--cursor", cursor] + fixture.globalArguments,
+            output: secondCapture.output
         )
-        #expect(unlimitedCode == CLIProcessExit.success.rawValue)
-        let all = try decode(BookPageResult.self, unlimited.stdout)
-        #expect(all.total == 4)
-        #expect(all.limit == nil)
-        #expect(all.items.contains(where: { $0.assetID == "null-content" }))
+        #expect(secondCode == CLIProcessExit.success.rawValue)
+        let second = try decode(BookSummaryPageResult.self, secondCapture.stdout)
+        #expect(second.hasMore == false)
+        #expect(second.nextCursor == nil)
+        #expect(first.items.count + second.items.count == 9)
+        #expect((first.items + second.items).contains { $0.assetID == "null-content" })
+
+        let raw = try jsonObject(firstCapture.stdout)
+        let items = try #require(raw["items"] as? [[String: Any]])
+        for item in items {
+            #expect(item["path"] == nil)
+            #expect(item["contentType"] == nil)
+            #expect(item["comments"] == nil)
+            #expect(item["genresRaw"] == nil)
+        }
     }
 
     @Test
-    func getKeepsExactAssetIdentitySeparateFromExplicitLocalPKAndReturnsRichJSON() throws {
+    func getReturnsSemanticDetailAndStableIdentityFirst() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let assetCapture = Capture()
-        let assetCode = CLIEntrypoint.run(
-            arguments: ["books", "get", "12"] + fixture.globalArguments + ["--json"],
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "12"] + fixture.globalArguments,
             output: assetCapture.output
-        )
-        #expect(assetCode == CLIProcessExit.success.rawValue)
-        let asset = try decode(BookResult.self, assetCapture.stdout)
-        #expect(asset.localPK == 1)
+        ) == CLIProcessExit.success.rawValue)
+        let asset = try decode(BookDetailResult.self, assetCapture.stdout)
         #expect(asset.assetID == "12")
-        #expect(asset.author == "Ada\u{E000} Author")
-        #expect(asset.normalizedAuthor == "Ada Author")
+        #expect(asset.localPK == nil)
+        #expect(asset.author == "Ada Author")
         #expect(asset.description == "Alpha description")
-        #expect(asset.epubID == "epub-alpha")
-        #expect(asset.genresRaw == Data([0x01, 0x02]))
-        #expect(asset.readingProgressRaw == 0.5)
         #expect(asset.readingProgressPercent == 50)
-        #expect(asset.durationRawMilliseconds == 2_000)
-        #expect(asset.durationSeconds == 2)
-        #expect(asset.userAnnotationCount == 1)
+        #expect(asset.isPDF == false)
 
-        let pkCapture = Capture()
-        let pkCode = CLIEntrypoint.run(
-            arguments: ["books", "get", "--pk", "12"] + fixture.globalArguments + ["--json"],
-            output: pkCapture.output
+        let pdfCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "--pk", "12"] + fixture.globalArguments,
+            output: pdfCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        let pdf = try decode(BookDetailResult.self, pdfCapture.stdout)
+        #expect(pdf.assetID == "asset-pk-12")
+        #expect(pdf.localPK == nil)
+        #expect(pdf.author == nil)
+        #expect(pdf.readingProgressPercent == 100)
+        #expect(pdf.isPDF == true)
+
+        let negativeCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "history-id"] + fixture.globalArguments,
+            output: negativeCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        #expect(try decode(BookDetailResult.self, negativeCapture.stdout).readingProgressPercent == 0)
+
+        let raw = try jsonObject(assetCapture.stdout)
+        for removed in [
+            "epubID", "path", "contentType", "genresRaw", "comments", "coverURL",
+            "readingProgressRaw", "durationRawMilliseconds", "normalizedAuthor",
+        ] {
+            #expect(raw[removed] == nil)
+        }
+    }
+
+    @Test
+    func getSanitizesNonFiniteSemanticRealWhileCoreKeepsRawFidelity() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZREADINGPROGRESS REAL,
+              ZDURATION REAL,
+              ZRATING REAL
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(1, 'non-finite', 9e999, 9e999, 9e999);
+            """)
+        defer { fixture.remove() }
+
+        let connection = try SQLiteConnection.readOnly(path: fixture.library.path)
+        let raw = try #require(BookQueries(connection: connection).getByAssetID("non-finite").first)
+        #expect(raw.readingProgressRaw?.isInfinite == true)
+        #expect(raw.durationRawMilliseconds?.isInfinite == true)
+        #expect(raw.rating?.isInfinite == true)
+
+        let capture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "non-finite"] + fixture.globalArguments,
+            output: capture.output
+        ) == CLIProcessExit.success.rawValue)
+        #expect(capture.stderr.isEmpty)
+        #expect(try decode(BookDetailResult.self, capture.stdout).readingProgressPercent == nil)
+        let object = try jsonObject(capture.stdout)
+        #expect(object["readingProgressPercent"] == nil)
+    }
+
+    @Test
+    func searchUsesFieldAndCursorAndGenreRouteIsGone() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let firstCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "search", "Fiction", "--field", "genre", "--limit", "1"] + fixture.globalArguments,
+            output: firstCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        let first = try decode(BookSummaryPageResult.self, firstCapture.stdout)
+        #expect(first.total == 2)
+        #expect(first.items.count == 1)
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
+
+        let secondCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "search", "Fiction", "--field", "genre", "--limit", "100", "--cursor", cursor] + fixture.globalArguments,
+            output: secondCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        let second = try decode(BookSummaryPageResult.self, secondCapture.stdout)
+        #expect(second.items.count == 1)
+        #expect(second.hasMore == false)
+        #expect(Set((first.items + second.items).compactMap(\.assetID)) == ["12", "null-content"])
+
+        let mismatch = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "search", "Fiction", "--field", "title", "--cursor", cursor] + fixture.globalArguments,
+            output: mismatch.output
+        ) == CLIProcessExit.usageInvalid.rawValue)
+        #expect(mismatch.stdout.isEmpty)
+
+        let removed = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "genre", "Fiction"] + fixture.globalArguments,
+            output: removed.output
+        ) == CLIProcessExit.usageInvalid.rawValue)
+    }
+
+    @Test
+    func annotatedListUsesTwoStoreCursorAndCounts() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let firstCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "list", "--annotated", "--limit", "1"] + fixture.globalArguments,
+            output: firstCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        let first = try decode(BookSummaryPageResult.self, firstCapture.stdout)
+        #expect(first.total == nil)
+        #expect(first.items.count == 1)
+        #expect(first.items[0].userAnnotationCount == 1)
+        let cursor = try #require(first.nextCursor)
+
+        let secondCapture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "list", "--annotated", "--cursor", cursor] + fixture.globalArguments,
+            output: secondCapture.output
+        ) == CLIProcessExit.success.rawValue)
+        let second = try decode(BookSummaryPageResult.self, secondCapture.stdout)
+        #expect(second.items.count == 1)
+        #expect(second.items[0].userAnnotationCount == 1)
+        #expect(second.hasMore == false)
+        #expect(Set((first.items + second.items).compactMap(\.assetID)) == ["12", "history-id"])
+    }
+
+    @Test
+    func invalidInputsAndRemovedPaginationFailBeforeDatabaseAccess() {
+        let missingGlobals = [
+            "--library-db", "/definitely/missing/library.sqlite",
+            "--annotations-db", "/definitely/missing/annotations.sqlite",
+        ]
+        let cases = [
+            ["books", "list", "--all"],
+            ["books", "list", "--offset", "1"],
+            ["books", "list", "--limit", "101"],
+            ["books", "list", "--cursor", "é"],
+            ["books", "get", String(repeating: "x", count: 2_049)],
+            ["books", "get", " leading"],
+            ["books", "get", "trailing "],
+            ["books", "get", "abc\0def"],
+            ["books", "search", String(repeating: "q", count: 513)],
+        ]
+        for arguments in cases {
+            let capture = Capture()
+            #expect(CLIEntrypoint.run(arguments: arguments + missingGlobals, output: capture.output) == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
+        }
+    }
+
+    @Test
+    func summaryUsesFallbackPKForIneligibleIdentityAndBoundsTextAtCharacterBoundary() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let capture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "list", "--limit", "100"] + fixture.globalArguments,
+            output: capture.output
+        ) == CLIProcessExit.success.rawValue)
+        let page = try decode(BookSummaryPageResult.self, capture.stdout)
+
+        let missingIdentity = try #require(page.items.first { $0.title == "No Identity" })
+        #expect(missingIdentity.assetID == nil)
+        #expect(missingIdentity.localPK == 5)
+
+        let oversizedIdentity = try #require(page.items.first { $0.title == "Oversize Identity" })
+        #expect(oversizedIdentity.assetID == nil)
+        #expect(oversizedIdentity.localPK == 6)
+
+        let edgeWhitespace = try #require(page.items.first { $0.title == "Whitespace Identity" })
+        #expect(edgeWhitespace.assetID == nil)
+        #expect(edgeWhitespace.localPK == 8)
+
+        let exactLimitIdentity = try #require(page.items.first { $0.title == "Exact Identity Limit" })
+        #expect(exactLimitIdentity.assetID?.utf8.count == 2_048)
+        #expect(exactLimitIdentity.localPK == nil)
+
+        let exactGet = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", String(repeating: "x", count: 2_048)] + fixture.globalArguments,
+            output: exactGet.output
+        ) == CLIProcessExit.success.rawValue)
+        #expect(try decode(BookDetailResult.self, exactGet.stdout).assetID?.utf8.count == 2_048)
+
+        let longTitle = try #require(page.items.first { $0.assetID == "long-title" })
+        #expect(longTitle.title?.count == 512)
+        #expect(longTitle.truncatedFields == ["title"])
+
+        #expect(PublicStableTokenPolicy.isEligible("abc\0def") == false)
+        let nulIdentityResult = BookSummaryResult(summary: BookSummary(
+            localPK: 77,
+            assetID: "abc\0def",
+            title: "NUL Identity",
+            author: nil,
+            contentType: nil
+        ))
+        #expect(nulIdentityResult.assetID == nil)
+        #expect(nulIdentityResult.localPK == 77)
+        #expect(PublicStableTokenPolicy.isEligible(" leading") == false)
+        #expect(PublicStableTokenPolicy.isEligible("trailing ") == false)
+        #expect(PublicStableTokenPolicy.isEligible(String(repeating: "x", count: 2_048)))
+        #expect(PublicStableTokenPolicy.isEligible(String(repeating: "x", count: 2_049)) == false)
+
+        let hugeGrapheme = "e" + String(repeating: "\u{301}", count: 5_000)
+        let bounded = BoundedTextPolicy.truncate(hugeGrapheme, profile: .metadata)
+        #expect(bounded.truncated)
+        #expect(bounded.value == "")
+    }
+
+    @Test
+    func invalidUTF8DatabaseTextFailsWithSanitizedUnavailableError() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZTITLE TEXT
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(1, 'asset-safe', CAST(X'736563726574FF' AS TEXT));
+            """)
+        defer { fixture.remove() }
+
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["books", "list"] + fixture.globalArguments,
+            output: capture.output
         )
-        #expect(pkCode == CLIProcessExit.success.rawValue)
-        let pk = try decode(BookResult.self, pkCapture.stdout)
-        #expect(pk.localPK == 12)
-        #expect(pk.assetID == "asset-pk-12")
+
+        #expect(code == CLIProcessExit.unavailable.rawValue)
+        #expect(capture.stdout.isEmpty)
+        let error = try jsonObject(capture.stderr)
+        let payload = try #require(error["error"] as? [String: Any])
+        #expect(payload["code"] as? String == "unavailable")
+        #expect(payload["message"] as? String == "Apple Books database schema or data is unavailable.")
+        #expect(capture.stderr.contains("secret") == false)
+    }
+
+    @Test
+    func nonPositiveDatabasePKIsNeverPublishedAsFallbackIdentity() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZTITLE TEXT
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(0, NULL, 'Invalid Local Identity');
+            """)
+        defer { fixture.remove() }
+
+        let capture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "list"] + fixture.globalArguments,
+            output: capture.output
+        ) == CLIProcessExit.success.rawValue)
+        let page = try decode(BookSummaryPageResult.self, capture.stdout)
+        let item = try #require(page.items.first)
+        #expect(item.assetID == nil)
+        #expect(item.localPK == nil)
     }
 
     @Test
@@ -76,119 +330,22 @@ struct BooksCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let capture = Capture()
-
-        let code = CLIEntrypoint.run(
-            arguments: ["books", "get", "missing"] + fixture.globalArguments + ["--json"],
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "missing"] + fixture.globalArguments,
             output: capture.output
-        )
-
-        #expect(code == CLIProcessExit.notFound.rawValue)
-        #expect(capture.stderr.isEmpty)
-        let envelope = try decode(CLIErrorEnvelope.self, capture.stdout)
-        #expect(envelope.error.code == .notFound)
-        #expect(envelope.error.message == "Book not found.")
-    }
-
-    @Test
-    func searchAndGenreReuseCoreLiteralSemanticsAndReportTrueTotals() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let searchCapture = Capture()
-        let searchCode = CLIEntrypoint.run(
-            arguments: ["books", "search", "a", "--limit", "1", "--offset", "1"] + fixture.globalArguments + ["--json"],
-            output: searchCapture.output
-        )
-        #expect(searchCode == CLIProcessExit.success.rawValue)
-        let search = try decode(BookPageResult.self, searchCapture.stdout)
-        #expect(search.total == 4)
-        #expect(search.limit == 1)
-        #expect(search.offset == 1)
-        #expect(search.items.count == 1)
-
-        let genreCapture = Capture()
-        let genreCode = CLIEntrypoint.run(
-            arguments: ["books", "genre", "Fiction"] + fixture.globalArguments + ["--json"],
-            output: genreCapture.output
-        )
-        #expect(genreCode == CLIProcessExit.success.rawValue)
-        let genre = try decode(BookPageResult.self, genreCapture.stdout)
-        #expect(genre.total == 2)
-        #expect(genre.limit == nil)
-        #expect(Set(genre.items.compactMap(\.assetID)) == ["12", "null-content"])
-    }
-
-    @Test
-    func annotatedListUsesCanonicalUserAnnotationCounts() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let capture = Capture()
-
-        let code = CLIEntrypoint.run(
-            arguments: ["books", "list", "--annotated"] + fixture.globalArguments + ["--json"],
-            output: capture.output
-        )
-
-        #expect(code == CLIProcessExit.success.rawValue)
-        let page = try decode(BookPageResult.self, capture.stdout)
-        #expect(page.total == 2)
-        #expect(page.limit == 20)
-        let counts = Dictionary(uniqueKeysWithValues: page.items.compactMap { item in
-            item.assetID.flatMap { assetID in item.userAnnotationCount.map { (assetID, $0) } }
-        })
-        #expect(counts == ["12": 1, "history-id": 1])
-    }
-
-    @Test
-    func invalidSelectorAndPaginationFailBeforeDatabaseAccess() {
-        let missingGlobals = [
-            "--library-db", "/definitely/missing/library.sqlite",
-            "--annotations-db", "/definitely/missing/annotations.sqlite",
-            "--json",
-        ]
-
-        let conflictingSelector = Capture()
-        let selectorCode = CLIEntrypoint.run(
-            arguments: ["books", "get", "12", "--pk", "12"] + missingGlobals,
-            output: conflictingSelector.output
-        )
-        #expect(selectorCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(conflictingSelector.stderr.isEmpty)
-        #expect(conflictingSelector.stdout.contains("usage_invalid"))
-        #expect(conflictingSelector.stdout.contains("Database override") == false)
-
-        let conflictingPage = Capture()
-        let pageCode = CLIEntrypoint.run(
-            arguments: ["books", "list", "--all", "--limit", "1"] + missingGlobals,
-            output: conflictingPage.output
-        )
-        #expect(pageCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(conflictingPage.stderr.isEmpty)
-        #expect(conflictingPage.stdout.contains("usage_invalid"))
-        #expect(conflictingPage.stdout.contains("Database override") == false)
-    }
-
-    @Test
-    func humanListUsesStdoutOnly() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let capture = Capture()
-
-        let code = CLIEntrypoint.run(
-            arguments: ["books", "list"] + fixture.globalArguments,
-            output: capture.output
-        )
-
-        #expect(code == CLIProcessExit.success.rawValue)
-        #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("total: 3"))
-        #expect(capture.stdout.contains("Alpha"))
+        ) == CLIProcessExit.notFound.rawValue)
+        #expect(capture.stdout.isEmpty)
+        #expect(try decode(CLIErrorEnvelope.self, capture.stderr).error.code == .notFound)
     }
 
     private func decode<Value: Decodable>(_ type: Value.Type, _ text: String) throws -> Value {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(type, from: Data(text.utf8))
+    }
+
+    private func jsonObject(_ text: String) throws -> [String: Any] {
+        try #require(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
     private enum FixtureError: Error {
@@ -210,13 +367,13 @@ struct BooksCommandTests {
             ]
         }
 
-        init() throws {
+        init(librarySQL: String = Fixture.librarySQL) throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             library = root.appendingPathComponent("library.sqlite")
             annotations = root.appendingPathComponent("annotations.sqlite")
             config = root.appendingPathComponent("config.json")
-            try Self.createDatabase(library, sql: Self.librarySQL)
+            try Self.createDatabase(library, sql: librarySQL)
             try Self.createDatabase(annotations, sql: Self.annotationSQL)
             try Data("{}".utf8).write(to: config)
         }
@@ -228,60 +385,66 @@ struct BooksCommandTests {
         private static func createDatabase(_ url: URL, sql: String) throws {
             var handle: OpaquePointer?
             let open = sqlite3_open(url.path, &handle)
-            guard open == SQLITE_OK, let handle else {
-                throw FixtureError.sqliteOpen(open)
-            }
+            guard open == SQLITE_OK, let handle else { throw FixtureError.sqliteOpen(open) }
             defer { sqlite3_close_v2(handle) }
             let result = sqlite3_exec(handle, sql, nil, nil, nil)
-            guard result == SQLITE_OK else {
-                throw FixtureError.sqliteExec(result)
-            }
+            guard result == SQLITE_OK else { throw FixtureError.sqliteExec(result) }
         }
 
-        private static let librarySQL = """
-        CREATE TABLE ZBKLIBRARYASSET(
-          Z_PK INTEGER PRIMARY KEY,
-          ZASSETID TEXT,
-          ZTITLE TEXT,
-          ZAUTHOR TEXT,
-          ZBOOKDESCRIPTION TEXT,
-          ZEPUBID TEXT,
-          ZGENRE TEXT,
-          ZGENRES BLOB,
-          ZCOMMENTS TEXT,
-          ZLANGUAGE TEXT,
-          ZYEAR INTEGER,
-          ZCONTENTTYPE INTEGER,
-          ZPAGECOUNT INTEGER,
-          ZPATH TEXT,
-          ZFILESIZE INTEGER,
-          ZCOVERURL TEXT,
-          ZISFINISHED INTEGER,
-          ZREADINGPROGRESS REAL,
-          ZDURATION REAL,
-          ZCREATIONDATE REAL,
-          ZMODIFICATIONDATE REAL,
-          ZDATEFINISHED REAL,
-          ZLASTOPENDATE REAL,
-          ZPURCHASEDATE REAL,
-          ZRELEASEDATE REAL,
-          ZISEXPLICIT INTEGER,
-          ZISLOCKED INTEGER,
-          ZISEPHEMERAL INTEGER,
-          ZISHIDDEN INTEGER,
-          ZISSAMPLE INTEGER,
-          ZISSTOREAUDIOBOOK INTEGER,
-          ZRATING REAL
-        );
-        INSERT INTO ZBKLIBRARYASSET
-          (Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZBOOKDESCRIPTION,ZEPUBID,ZGENRE,ZGENRES,ZCOMMENTS,ZLANGUAGE,ZYEAR,ZCONTENTTYPE,ZPAGECOUNT,ZPATH,ZFILESIZE,ZCOVERURL,ZISFINISHED,ZREADINGPROGRESS,ZDURATION,ZCREATIONDATE,ZMODIFICATIONDATE,ZLASTOPENDATE,ZPURCHASEDATE,ZRELEASEDATE,ZISEXPLICIT,ZISLOCKED,ZISEPHEMERAL,ZISHIDDEN,ZISSAMPLE,ZISSTOREAUDIOBOOK,ZRATING)
-        VALUES
-          (1,'12','Alpha','Ada\u{E000} Author','Alpha description','epub-alpha','Fiction',X'0102','alpha comments','en',2024,1,100,'/tmp/alpha.epub',123,'cover-alpha',0,0.5,2000,10,20,30,40,50,0,0,0,0,0,0,4.5);
-        INSERT INTO ZBKLIBRARYASSET (Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZGENRE,ZCONTENTTYPE) VALUES
-          (12,'asset-pk-12','Numeric','Nora','Reference',1),
-          (3,'history-id','Beta','Bob','History',1),
-          (4,'null-content','Gamma','Cara','Fiction',NULL);
-        """
+        private static let librarySQL: String = {
+            let exactIdentity = String(repeating: "x", count: 2_048)
+            let oversizedIdentity = String(repeating: "y", count: 2_049)
+            let longTitle = String(repeating: "界", count: 513)
+            return """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZTITLE TEXT,
+              ZAUTHOR TEXT,
+              ZBOOKDESCRIPTION TEXT,
+              ZEPUBID TEXT,
+              ZGENRE TEXT,
+              ZGENRES BLOB,
+              ZCOMMENTS TEXT,
+              ZLANGUAGE TEXT,
+              ZYEAR INTEGER,
+              ZCONTENTTYPE INTEGER,
+              ZPAGECOUNT INTEGER,
+              ZPATH TEXT,
+              ZFILESIZE INTEGER,
+              ZCOVERURL TEXT,
+              ZISFINISHED INTEGER,
+              ZREADINGPROGRESS REAL,
+              ZDURATION REAL,
+              ZCREATIONDATE REAL,
+              ZMODIFICATIONDATE REAL,
+              ZDATEFINISHED REAL,
+              ZLASTOPENDATE REAL,
+              ZPURCHASEDATE REAL,
+              ZRELEASEDATE REAL,
+              ZISEXPLICIT INTEGER,
+              ZISLOCKED INTEGER,
+              ZISEPHEMERAL INTEGER,
+              ZISHIDDEN INTEGER,
+              ZISSAMPLE INTEGER,
+              ZISSTOREAUDIOBOOK INTEGER,
+              ZRATING REAL
+            );
+            INSERT INTO ZBKLIBRARYASSET
+              (Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZBOOKDESCRIPTION,ZEPUBID,ZGENRE,ZGENRES,ZCOMMENTS,ZLANGUAGE,ZYEAR,ZCONTENTTYPE,ZPAGECOUNT,ZPATH,ZFILESIZE,ZCOVERURL,ZISFINISHED,ZREADINGPROGRESS,ZDURATION,ZCREATIONDATE,ZMODIFICATIONDATE,ZLASTOPENDATE,ZPURCHASEDATE,ZRELEASEDATE,ZISEXPLICIT,ZISLOCKED,ZISEPHEMERAL,ZISHIDDEN,ZISSAMPLE,ZISSTOREAUDIOBOOK,ZRATING)
+            VALUES
+              (1,'12','Alpha','Ada\u{E000} Author','Alpha description','epub-alpha','Fiction',X'0102','alpha comments','en',2024,1,100,'/tmp/alpha.epub',123,'cover-alpha',0,0.5,2000,10,20,30,40,50,0,0,0,0,0,0,4.5);
+            INSERT INTO ZBKLIBRARYASSET (Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZGENRE,ZCONTENTTYPE,ZREADINGPROGRESS) VALUES
+              (12,'asset-pk-12','Numeric','UnknownAuthor','Reference',3,1.25),
+              (3,'history-id','Beta','Bob','History',1,-0.2),
+              (4,'null-content','Gamma','Cara','Fiction',NULL,NULL),
+              (5,NULL,'No Identity','Nia','Other',1,NULL),
+              (6,'\(oversizedIdentity)','Oversize Identity','Omar','Other',1,NULL),
+              (7,'\(exactIdentity)','Exact Identity Limit','Eve','Other',1,NULL),
+              (8,' leading-id','Whitespace Identity','Wes','Other',1,NULL),
+              (9,'long-title','\(longTitle)','Lina','Other',1,NULL);
+            """
+        }()
 
         private static let annotationSQL = """
         CREATE TABLE ZAEANNOTATION(

@@ -6,6 +6,74 @@ import Testing
 @Suite("JSONExporterTests")
 struct JSONExporterTests {
     @Test
+    func archivalJSONPreservesOversizedRawCFIWithoutDerivedFragment() throws {
+        let prefix = "epubcfi(/6/2["
+        let suffix = "]!/4/2,:1,:2)"
+        let targetBytes = CFIResourcePolicy.maximumStructuralBytes + 1
+        let rawCFI = prefix
+            + String(repeating: "x", count: targetBytes - prefix.utf8.count - suffix.utf8.count)
+            + suffix
+        let annotation = Annotation(
+            localPK: 1,
+            uuid: "uuid-archive",
+            rawAssetID: "asset-archive",
+            isDeleted: false,
+            isUnderline: false,
+            style: 1,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: nil,
+            selectedText: "quote",
+            note: nil,
+            location: Location(rawCFI: rawCFI),
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let group = ExportGroup(source: .epubUnmapped(assetID: "asset-archive"), records: [record])
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub, kinds: [.highlight]),
+            groups: [group],
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: 1,
+                epubDocumentCount: 1,
+                pdfDocumentCount: 0,
+                recordCount: 1,
+                epubAnnotationCount: 1,
+                pdfHighlightCount: 0,
+                highlightCount: 1,
+                noteCount: 0,
+                bookmarkCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: 1
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: 1,
+                epubAnnotationCount: 1,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
+
+        let root = try object(JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        let groups = try array(root["groups"])
+        let exportedGroup = try dictionary(groups[0])
+        let records = try array(exportedGroup["records"])
+        let exportedRecord = try dictionary(records[0])
+        let exportedAnnotation = try dictionary(exportedRecord["annotation"])
+        let location = try dictionary(exportedAnnotation["location"])
+
+        #expect(location["rawCFI"] as? String == rawCFI)
+        #expect(exportedAnnotation["appleBooksURL"] as? String == "ibooks://assetid/asset-archive")
+    }
+
+    @Test
     func singleFilePreservesSourceSpecificRawFieldsMetadataAndWarnings() throws {
         let fixture = try Fixture()
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)

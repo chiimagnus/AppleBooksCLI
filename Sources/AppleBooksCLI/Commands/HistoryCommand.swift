@@ -12,16 +12,11 @@ struct HistoryCommand: ParsableCommand {
     )
 }
 
-struct HistoryListCommand: ParsableCommand, JSONOutputProviding, CLIOutputRunnable {
+struct HistoryListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List summaries for operation history retained during the last 24 hours."
     )
-
-    @Flag(name: .long, help: "Emit machine-readable JSON.")
-    var json = false
-
-    var jsonRequested: Bool { json }
 
     mutating func run() throws {
         try run(output: .standard)
@@ -33,15 +28,11 @@ struct HistoryListCommand: ParsableCommand, JSONOutputProviding, CLIOutputRunnab
 
     func run(output: CLIOutput, store: OperationHistoryStore) throws {
         let result = try HistoryListResult(records: historyRecords(from: store))
-        if json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
-struct HistoryGetCommand: ParsableCommand, JSONOutputProviding, CLIOutputRunnable {
+struct HistoryGetCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "get",
         abstract: "Get the complete record for one operation history ID."
@@ -49,11 +40,6 @@ struct HistoryGetCommand: ParsableCommand, JSONOutputProviding, CLIOutputRunnabl
 
     @Argument(help: "Exact operation history ID from `history list`.")
     var id: String
-
-    @Flag(name: .long, help: "Emit machine-readable JSON.")
-    var json = false
-
-    var jsonRequested: Bool { json }
 
     mutating func run() throws {
         try run(output: .standard)
@@ -77,11 +63,7 @@ struct HistoryGetCommand: ParsableCommand, JSONOutputProviding, CLIOutputRunnabl
         }
 
         let result = HistoryDetailResult(record: record)
-        if json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -92,9 +74,6 @@ struct HistoryListResult: Codable, Equatable, Sendable {
         items = records.map(HistorySummary.init)
     }
 
-    var humanDescription: String {
-        items.isEmpty ? "No history." : items.map(\.humanDescription).joined(separator: "\n")
-    }
 }
 
 struct HistorySummary: Codable, Equatable, Sendable {
@@ -114,10 +93,6 @@ struct HistorySummary: Codable, Equatable, Sendable {
         exitCode = record.exitCode
     }
 
-    var humanDescription: String {
-        let exit = exitCode.map(String.init) ?? "-"
-        return "\(HistoryPresentation.timestamp(startedAt))  \(id)  \(operation)  \(status.rawValue)  exit=\(exit)"
-    }
 }
 
 struct HistoryDetailResult: Codable, Equatable, Sendable {
@@ -143,19 +118,6 @@ struct HistoryDetailResult: Codable, Equatable, Sendable {
         stderr = record.stderr
     }
 
-    var humanDescription: String {
-        [
-            "id: \(id)",
-            "started: \(HistoryPresentation.timestamp(startedAt))",
-            "completed: \(completedAt.map(HistoryPresentation.timestamp) ?? "-")",
-            "operation: \(operation)",
-            "status: \(status.rawValue)",
-            "exit: \(exitCode.map(String.init) ?? "-")",
-            "arguments: \(HistoryPresentation.jsonLiteral(arguments))",
-            "stdout: \(HistoryPresentation.optionalJSONLiteral(stdout))",
-            "stderr: \(HistoryPresentation.optionalJSONLiteral(stderr))",
-        ].joined(separator: "\n")
-    }
 }
 
 private func historyRecords(from store: OperationHistoryStore) throws -> [OperationHistoryRecord] {
@@ -163,22 +125,5 @@ private func historyRecords(from store: OperationHistoryStore) throws -> [Operat
         return try store.list()
     } catch {
         throw CLIError.unavailable("Operation history is unavailable.")
-    }
-}
-
-private enum HistoryPresentation {
-    static func timestamp(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
-    }
-
-    static func jsonLiteral<Value: Encodable>(_ value: Value) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(value) else { return "null" }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    static func optionalJSONLiteral(_ value: String?) -> String {
-        value.map(jsonLiteral) ?? "null"
     }
 }

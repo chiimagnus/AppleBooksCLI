@@ -38,13 +38,13 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionPageResult {
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks().listCollections(limit: limit, offset: offset)
+            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).semanticCollections(limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
     }
@@ -68,14 +68,14 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
-            guard let collection = try selector.resolve(in: books) else {
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+            guard let collection = try selector.resolveSemantic(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
             return CollectionResult(collection)
@@ -104,15 +104,15 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionPageResult {
         guard query.isEmpty == false else { throw ValidationError("Search query must not be empty.") }
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks()
-                .collections(matchingTitle: query, limit: limit, offset: offset)
+            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+                .semanticCollections(matchingTitle: query, limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
     }
@@ -136,17 +136,17 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionBooksResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
-            guard let members = try selector.resolveBooks(in: books) else {
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
+            guard let members = try selector.resolveBookSummaries(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
-            return CollectionBooksResult(items: members.map { BookResult(book: $0) })
+            return CollectionBooksResult(items: members.map { BookSummaryResult(summary: $0) })
         }
     }
 }
@@ -174,12 +174,12 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
         }
     }
@@ -211,13 +211,13 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
         }
     }
@@ -246,13 +246,13 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }
@@ -287,7 +287,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -298,7 +298,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
             bookPK: bookPK
         )
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
         }
     }
@@ -333,7 +333,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -344,7 +344,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
             bookPK: bookPK
         )
         return try CLIOperation.run {
-            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks()
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
         }
     }
@@ -355,19 +355,11 @@ struct CollectionPageResult: Codable, Equatable, Sendable {
     let limit: Int?
     let offset: Int
 
-    var humanDescription: String {
-        guard items.isEmpty == false else { return "No collections." }
-        return items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct CollectionBooksResult: Codable, Equatable, Sendable {
-    let items: [BookResult]
+    let items: [BookSummaryResult]
 
-    var humanDescription: String {
-        guard items.isEmpty == false else { return "No books." }
-        return items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct CollectionResult: Codable, Equatable, Sendable {
@@ -384,11 +376,24 @@ struct CollectionResult: Codable, Equatable, Sendable {
     let lastModificationDate: Date?
     let localModificationDate: Date?
 
-    init(_ collection: Collection) {
+    let truncatedFields: [String]
+
+    init(_ collection: SemanticCollection) {
         localPK = collection.localPK
         collectionID = collection.collectionID
-        title = collection.title
-        details = collection.details
+        var truncated = collection.byteTruncatedFields
+        title = boundedField(
+            collection.title,
+            field: "title",
+            profile: .metadata,
+            truncatedFields: &truncated
+        )
+        details = boundedField(
+            collection.details,
+            field: "details",
+            profile: .detail,
+            truncatedFields: &truncated
+        )
         isDeleted = collection.isDeleted
         isHidden = collection.isHidden
         isPlaceholder = collection.isPlaceholder
@@ -397,23 +402,9 @@ struct CollectionResult: Codable, Equatable, Sendable {
         viewMode = collection.viewMode
         lastModificationDate = collection.lastModificationDate
         localModificationDate = collection.localModificationDate
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 
-    var humanDescription: String {
-        [
-            "local PK: \(localPK)",
-            "collection ID: \(collectionID ?? "-")",
-            "title: \(title ?? "-")",
-            "details: \(details ?? "-")",
-            "hidden: \(isHidden.map(String.init) ?? "-")",
-            "sort key: \(sortKey.map(String.init) ?? "-")",
-            "last modification: \(lastModificationDate.map { $0.formatted(.iso8601) } ?? "-")",
-        ].joined(separator: "\n")
-    }
-
-    var humanSummary: String {
-        "\(localPK)\t\(collectionID ?? "-")\t\(title ?? "-")\t\(isHidden.map(String.init) ?? "-")"
-    }
 }
 
 private func parseCollectionMembershipSelectors(

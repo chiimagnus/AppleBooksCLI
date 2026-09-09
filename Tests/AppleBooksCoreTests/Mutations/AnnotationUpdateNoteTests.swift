@@ -29,6 +29,74 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func embeddedNULNoteRoundTripsWithoutTruncation() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        let note = "before\0after"
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: note)
+
+        #expect(result.changed)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
+    }
+
+    @Test
+    func writerDerivesDeeplinkFromAnnotationStoreWithoutLibraryOrConfiguration() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID='asset-synthetic', ZANNOTATIONLOCATION='epubcfi(/6/2[chapter]!/4/2,:1,:2)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(uuid: "uuid-1", note: "new note")
+
+        #expect(result.appleBooksURL == "ibooks://assetid/asset-synthetic#epubcfi(/6/2%5Bchapter%5D!/4/2,:1,:2)")
+    }
+
+    @Test
+    func oversizedCFIDegradesFocusWithoutReadingUnrelatedAnnotationBody() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+
+        let oversizedCFI = oversizedCFI()
+        var handle: OpaquePointer?
+        guard sqlite3_open(fixture.database.path, &handle) == SQLITE_OK, let handle else {
+            throw SQLiteBackupError.destinationOpenFailed
+        }
+        do {
+            defer { sqlite3_close_v2(handle) }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                handle,
+                "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID=?,ZANNOTATIONLOCATION=?,ZANNOTATIONSELECTEDTEXT=CAST(X'80' AS TEXT) WHERE Z_PK=1",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK,
+            let statement else {
+                throw AnnotationWriteError.writeFailed
+            }
+            defer { sqlite3_finalize(statement) }
+            guard bindSQLiteText("asset-synthetic", to: statement, at: 1) == SQLITE_OK,
+                  bindSQLiteText(oversizedCFI, to: statement, at: 2) == SQLITE_OK,
+                  sqlite3_step(statement) == SQLITE_DONE else {
+                throw AnnotationWriteError.writeFailed
+            }
+        }
+
+        let result = try fixture.writer.updateNote(uuid: "uuid-1", note: "new note")
+
+        #expect(result.appleBooksURL == "ibooks://assetid/asset-synthetic")
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONLOCATION FROM ZAEANNOTATION WHERE Z_PK=1") == oversizedCFI)
+        #expect(try text(fixture.database, "SELECT hex(ZANNOTATIONSELECTEDTEXT) FROM ZAEANNOTATION WHERE Z_PK=1") == "80")
+    }
+
+    @Test
     func localPKIsExplicitAndWhitespaceNoteIsNotTrimmed() throws {
         let fixture = try fixture()
         defer { fixture.remove() }
@@ -60,6 +128,29 @@ struct AnnotationUpdateNoteTests {
         defer { boundary.remove() }
         let result = try boundary.writer.updateNote(localPK: 1, note: String(repeating: "x", count: 10_000))
         #expect(result.changed)
+    }
+
+    @Test
+    func uuidWriterRejectsTenThousandDuplicatesBeforeBackup() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZAEANNOTATION(
+              Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONTYPE,ZANNOTATIONUUID,
+              ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZFUTUREPROOFING6
+            )
+            SELECT x,17,1,0,2,'uuid-1','duplicate',1,'duplicate','1' FROM seq;
+            """)
+
+        #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
+            _ = try fixture.writer.updateNote(uuid: "uuid-1", note: "must-not-write")
+        }
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
     }
 
     @Test
@@ -249,6 +340,14 @@ struct AnnotationUpdateNoteTests {
         }
     }
 
+    private func oversizedCFI() -> String {
+        let prefix = "epubcfi(/6/2["
+        let suffix = "]!/4/2,:1,:2)"
+        let targetBytes = CFIResourcePolicy.maximumStructuralBytes + 1
+        let fillerCount = targetBytes - prefix.utf8.count - suffix.utf8.count
+        return prefix + String(repeating: "x", count: fillerCount) + suffix
+    }
+
     private func closedController() -> BooksAppController {
         BooksAppController(
             isRunning: { false },
@@ -296,8 +395,9 @@ struct AnnotationUpdateNoteTests {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare(sql)
-        guard try statement.step(), let raw = sqlite3_column_text(statement.handle, 0) else { return nil }
-        return String(cString: raw)
+        guard try statement.step(),
+              let rawName = sqlite3_column_name(statement.handle, 0) else { return nil }
+        return try SQLiteRow(statement: statement).text(String(cString: rawName))
     }
 
     private func completedBackups(_ root: URL) throws -> [URL] {

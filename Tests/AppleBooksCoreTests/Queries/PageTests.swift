@@ -6,12 +6,12 @@ import Testing
 @Suite("PageTests")
 struct PageTests {
     @Test
-    func bookPageUsesContentScopeDefaultTwentyAndKeepsUnlimitedList() throws {
+    func bookPageUsesWholeLibraryUniverseAndKeepsUnlimitedList() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let first = try fixture.core.bookPage()
-        #expect(first.total == 22)
+        #expect(first.total == 23)
         #expect(first.limit == 20)
         #expect(first.offset == 0)
         #expect(first.items.count == 20)
@@ -19,8 +19,8 @@ struct PageTests {
         #expect(first.items.last?.localPK == 20)
 
         let tail = try fixture.core.bookPage(limit: 5, offset: 20)
-        #expect(tail.total == 22)
-        #expect(tail.items.map(\.localPK) == [21, 22])
+        #expect(tail.total == 23)
+        #expect(tail.items.map(\.localPK) == [21, 22, 99])
         #expect(try fixture.core.listBooks().count == 23)
     }
 

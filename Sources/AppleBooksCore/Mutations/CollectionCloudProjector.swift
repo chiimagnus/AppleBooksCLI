@@ -76,13 +76,27 @@ struct CollectionCloudProjector {
         return root.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 libraryDatabase.path.withCString { libraryPath in
-                    collectionID.withCString { collectionIDPath in
+                    withCloudBridgeUTF8Bytes(collectionID) { collectionIDBytes, collectionIDLength in
                         switch input {
                         case .collection:
-                            ABProjectCollectionState(rootPath, databasePath, libraryPath, collectionIDPath)
+                            ABProjectCollectionState(
+                                rootPath,
+                                databasePath,
+                                libraryPath,
+                                collectionIDBytes,
+                                collectionIDLength
+                            )
                         case let .member(_, assetID):
-                            assetID.withCString { assetIDPath in
-                                ABProjectCollectionMemberState(rootPath, databasePath, libraryPath, collectionIDPath, assetIDPath)
+                            withCloudBridgeUTF8Bytes(assetID) { assetIDBytes, assetIDLength in
+                                ABProjectCollectionMemberState(
+                                    rootPath,
+                                    databasePath,
+                                    libraryPath,
+                                    collectionIDBytes,
+                                    collectionIDLength,
+                                    assetIDBytes,
+                                    assetIDLength
+                                )
                             }
                         }
                     }

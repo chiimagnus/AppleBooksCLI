@@ -30,6 +30,16 @@ public struct AppleBooksConfiguration: Equatable, Sendable {
     let historicalAssets: HistoricalAssets
     public let epubRoot: URL?
 
+    static let empty = AppleBooksConfiguration(
+        historicalAssets: HistoricalAssets(),
+        epubRoot: nil
+    )
+
+    private init(historicalAssets: HistoricalAssets, epubRoot: URL?) {
+        self.historicalAssets = historicalAssets
+        self.epubRoot = epubRoot
+    }
+
     static func loadDefault() throws -> AppleBooksConfiguration {
         try AppleBooksConfiguration(fileURL: defaultFileURL)
     }

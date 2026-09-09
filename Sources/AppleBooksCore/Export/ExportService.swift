@@ -11,9 +11,9 @@ private enum ResolvedExportBookSelector {
 }
 
 struct ExportService {
-    let annotationQueries: AnnotationQueries
+    let annotationQueries: AnnotationQueries?
     let bookQueries: BookQueries
-    let configuration: AppleBooksConfiguration
+    let configuration: AppleBooksConfiguration?
     let pdfService: PDFHighlightService?
 
     func makeBundle(options: ExportOptions) throws -> ExportBundle {
@@ -28,7 +28,7 @@ struct ExportService {
         }
 
         var pdfResult: PDFHighlightServiceResult?
-        if options.source != .epub {
+        if shouldReadPDF(options: options, resolvedSelectors: resolvedSelectors) {
             guard let pdfService else { throw ExportServiceError.pdfWorkerUnavailable }
             let sources = try selectedPDFSources(
                 service: pdfService,
@@ -51,7 +51,7 @@ struct ExportService {
 
         if options.includeEPUBMetadata || options.cover != .none {
             for index in groups.indices {
-                let result = enrich(group: groups[index], options: options)
+                let result = try enrich(group: groups[index], options: options)
                 groups[index] = result.group
                 warnings.append(contentsOf: result.warnings)
             }
@@ -70,17 +70,37 @@ struct ExportService {
         options: ExportOptions,
         resolvedSelectors: [ResolvedExportBookSelector]
     ) throws -> [EnrichedAnnotation] {
-        guard options.bookSelectors.isEmpty == false else {
+        if options.bookSelectors.isEmpty {
+            guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
             return try annotationQueries.list(scope: .activeRaw)
         }
         let assetIDs = uniqueEPUBAssetIDs(resolvedSelectors)
         guard assetIDs.isEmpty == false else { return [] }
+        guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
 
         var annotations: [EnrichedAnnotation] = []
         for assetID in assetIDs {
             annotations.append(contentsOf: try annotationQueries.byAssetID(assetID, scope: .activeRaw))
         }
         return annotations
+    }
+
+    private func shouldReadPDF(
+        options: ExportOptions,
+        resolvedSelectors: [ResolvedExportBookSelector]
+    ) -> Bool {
+        guard options.source != .epub else { return false }
+        guard resolvedSelectors.isEmpty == false else { return true }
+        return resolvedSelectors.contains { selector in
+            switch selector {
+            case let .assetID(_, currentBook):
+                return currentBook?.contentType == 3
+            case let .localPK(book):
+                return book?.contentType == 3
+            case .pdfFile:
+                return true
+            }
+        }
     }
 
     private func selectedPDFSources(
@@ -169,8 +189,9 @@ struct ExportService {
     private func enrich(
         group: ExportGroup,
         options: ExportOptions
-    ) -> (group: ExportGroup, warnings: [ExportWarning]) {
+    ) throws -> (group: ExportGroup, warnings: [ExportWarning]) {
         guard case let .epubCurrent(book) = group.source else { return (group, []) }
+        guard let configuration else { throw AppleBooksDependencyError.unavailable(.configuration) }
 
         let content: BookContent
         do {

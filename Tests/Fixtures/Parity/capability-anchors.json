@@ -864,21 +864,6 @@
       ]
     ]
   },
-  "genre 查询": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/BookQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "books",
-        "genre"
-      ]
-    ]
-  },
   "get/describe annotation": {
     "owner": "core",
     "implementationPaths": [
@@ -980,7 +965,10 @@
   "library stats": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/AppleBooks.swift"
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationAggregateQueries.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationSourceClassifier.swift",
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/LibraryStatsTests.swift"
@@ -1026,7 +1014,9 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/BookOverview.swift"
+      "Sources/AppleBooksCore/Models/BookSummary.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationAggregateQueries.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
@@ -1214,8 +1204,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "update-note",
-        "--json"
+        "update-note"
       ]
     ]
   },
@@ -1343,10 +1332,11 @@
       ]
     ]
   },
-  "丰富书籍 metadata": {
+  "书籍 semantic metadata": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Book.swift"
+      "Sources/AppleBooksCore/Models/Book.swift",
+      "Sources/AppleBooksCore/Models/BookSummary.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"
@@ -1592,7 +1582,7 @@
       ]
     ]
   },
-  "人类输出与机器输出分离": {
+  "operational JSON output": {
     "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/CLIEntrypoint.swift",
@@ -1604,8 +1594,7 @@
     "cliHelpArgs": [
       [
         "books",
-        "list",
-        "--json"
+        "list"
       ]
     ]
   },

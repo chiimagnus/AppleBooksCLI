@@ -60,6 +60,27 @@ static BOOL ABWaitForCompletion(BOOL *completed) {
     return *completed;
 }
 
+static NSString *ABStringFromUTF8Bytes(const uint8_t *bytes, size_t length) {
+    if (bytes == NULL) return nil;
+    return [[NSString alloc] initWithBytes:bytes length:length encoding:NSUTF8StringEncoding];
+}
+
+static int ABBindText(sqlite3_stmt *statement, int index, NSString *value) {
+    if (statement == NULL || value == nil) return SQLITE_MISUSE;
+    NSData *encoded = [value dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
+    if (encoded == nil) return SQLITE_MISMATCH;
+    static const uint8_t empty = 0;
+    const void *bytes = encoded.length == 0 ? &empty : encoded.bytes;
+    return sqlite3_bind_text64(
+        statement,
+        index,
+        bytes,
+        (sqlite3_uint64)encoded.length,
+        SQLITE_TRANSIENT,
+        SQLITE_UTF8
+    );
+}
+
 static int ABExactRowCount(NSString *database, NSString *table, NSString *column, NSString *value) {
     sqlite3 *connection = NULL;
     int opened = sqlite3_open_v2(database.fileSystemRepresentation, &connection, SQLITE_OPEN_READONLY, NULL);
@@ -71,8 +92,9 @@ static int ABExactRowCount(NSString *database, NSString *table, NSString *column
     sqlite3_stmt *statement = NULL;
     int count = -1;
     if (sqlite3_prepare_v2(connection, sql.UTF8String, -1, &statement, NULL) == SQLITE_OK) {
-        sqlite3_bind_text(statement, 1, value.UTF8String, -1, SQLITE_TRANSIENT);
-        if (sqlite3_step(statement) == SQLITE_ROW) count = sqlite3_column_int(statement, 0);
+        if (ABBindText(statement, 1, value) == SQLITE_OK && sqlite3_step(statement) == SQLITE_ROW) {
+            count = sqlite3_column_int(statement, 0);
+        }
     }
     if (statement != NULL) sqlite3_finalize(statement);
     sqlite3_close_v2(connection);
@@ -153,8 +175,11 @@ static BOOL ABDeleteCloudData(id manager, NSPredicate *predicate) {
 static NSString *ABText(sqlite3_stmt *statement, int column) {
     if (sqlite3_column_type(statement, column) == SQLITE_NULL) return nil;
     if (sqlite3_column_type(statement, column) != SQLITE_TEXT) return nil;
+    int length = sqlite3_column_bytes(statement, column);
+    if (length == 0) return @"";
     const unsigned char *text = sqlite3_column_text(statement, column);
-    return text == NULL ? nil : [NSString stringWithUTF8String:(const char *)text];
+    if (text == NULL) return nil;
+    return [[NSString alloc] initWithBytes:text length:(NSUInteger)length encoding:NSUTF8StringEncoding];
 }
 
 static NSData *ABBlob(sqlite3_stmt *statement, int column) {
@@ -177,7 +202,11 @@ static NSDictionary *ABReadCollection(NSString *libraryDatabase, NSString *colle
         sqlite3_close_v2(connection);
         return nil;
     }
-    sqlite3_bind_text(statement, 1, collectionID.UTF8String, -1, SQLITE_TRANSIENT);
+    if (ABBindText(statement, 1, collectionID) != SQLITE_OK) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
     if (sqlite3_step(statement) != SQLITE_ROW
         || sqlite3_column_type(statement, 0) != SQLITE_INTEGER
         || sqlite3_column_type(statement, 1) != SQLITE_INTEGER
@@ -189,14 +218,33 @@ static NSDictionary *ABReadCollection(NSString *libraryDatabase, NSString *colle
         sqlite3_close_v2(connection);
         return nil;
     }
+    NSString *title = ABText(statement, 5);
+    if (title == nil) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
+    id details = [NSNull null];
+    if (sqlite3_column_type(statement, 6) == SQLITE_TEXT) {
+        details = ABText(statement, 6);
+        if (details == nil) {
+            sqlite3_finalize(statement);
+            sqlite3_close_v2(connection);
+            return nil;
+        }
+    } else if (sqlite3_column_type(statement, 6) != SQLITE_NULL) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
     NSDictionary *result = @{
         @"deleted": @(sqlite3_column_int(statement, 0) != 0),
         @"hidden": @(sqlite3_column_int(statement, 1) != 0),
         @"sortMode": @(sqlite3_column_int64(statement, 2)),
         @"sortOrder": @(sqlite3_column_int64(statement, 3)),
         @"modificationDate": @(sqlite3_column_double(statement, 4)),
-        @"title": ABText(statement, 5),
-        @"details": ABText(statement, 6) ?: [NSNull null],
+        @"title": title,
+        @"details": details,
     };
     BOOL duplicate = sqlite3_step(statement) == SQLITE_ROW;
     sqlite3_finalize(statement);
@@ -216,8 +264,11 @@ static NSDictionary *ABReadCollectionMember(NSString *libraryDatabase, NSString 
         sqlite3_close_v2(connection);
         return nil;
     }
-    sqlite3_bind_text(statement, 1, collectionID.UTF8String, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(statement, 2, assetID.UTF8String, -1, SQLITE_TRANSIENT);
+    if (ABBindText(statement, 1, collectionID) != SQLITE_OK || ABBindText(statement, 2, assetID) != SQLITE_OK) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
     int step = sqlite3_step(statement);
     if (step == SQLITE_DONE) {
         sqlite3_finalize(statement);
@@ -283,14 +334,15 @@ int32_t ABProjectCollectionState(
     const char *root_path,
     const char *canonical_cloud_database_path,
     const char *canonical_library_database_path,
-    const char *collection_id
+    const uint8_t *collection_id_bytes,
+    size_t collection_id_length
 ) {
     @autoreleasepool {
-        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id == NULL) return 1;
+        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id_bytes == NULL) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *libraryDatabase = [NSString stringWithUTF8String:canonical_library_database_path];
-        NSString *collectionID = [NSString stringWithUTF8String:collection_id];
+        NSString *collectionID = ABStringFromUTF8Bytes(collection_id_bytes, collection_id_length);
         if (root == nil || cloudDatabase == nil || libraryDatabase == nil || collectionID.length == 0 || !ABIsRegularFile(libraryDatabase)) return 1;
         if (!ABLayoutIsExact(root, cloudDatabase, @"BCCloudCollections")) return 2;
         NSDictionary *state = ABReadCollection(libraryDatabase, collectionID);
@@ -312,16 +364,18 @@ int32_t ABProjectCollectionMemberState(
     const char *root_path,
     const char *canonical_cloud_database_path,
     const char *canonical_library_database_path,
-    const char *collection_id,
-    const char *asset_id
+    const uint8_t *collection_id_bytes,
+    size_t collection_id_length,
+    const uint8_t *asset_id_bytes,
+    size_t asset_id_length
 ) {
     @autoreleasepool {
-        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id == NULL || asset_id == NULL) return 1;
+        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id_bytes == NULL || asset_id_bytes == NULL) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *libraryDatabase = [NSString stringWithUTF8String:canonical_library_database_path];
-        NSString *collectionID = [NSString stringWithUTF8String:collection_id];
-        NSString *assetID = [NSString stringWithUTF8String:asset_id];
+        NSString *collectionID = ABStringFromUTF8Bytes(collection_id_bytes, collection_id_length);
+        NSString *assetID = ABStringFromUTF8Bytes(asset_id_bytes, asset_id_length);
         if (root == nil || cloudDatabase == nil || libraryDatabase == nil || collectionID.length == 0 || assetID.length == 0 || !ABIsRegularFile(libraryDatabase)) return 1;
         if (!ABLayoutIsExact(root, cloudDatabase, @"BCCloudCollections")) return 2;
         NSDictionary *state = ABReadCollectionMember(libraryDatabase, collectionID, assetID);
@@ -363,8 +417,11 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         sqlite3_close_v2(connection);
         return nil;
     }
-    sqlite3_bind_text(statement, 1, assetID.UTF8String, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(statement, 2, annotationUUID.UTF8String, -1, SQLITE_TRANSIENT);
+    if (ABBindText(statement, 1, assetID) != SQLITE_OK || ABBindText(statement, 2, annotationUUID) != SQLITE_OK) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
     if (sqlite3_step(statement) != SQLITE_ROW
         || sqlite3_column_type(statement, 0) != SQLITE_INTEGER
         || (sqlite3_column_type(statement, 1) != SQLITE_FLOAT && sqlite3_column_type(statement, 1) != SQLITE_INTEGER)
@@ -374,8 +431,32 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         sqlite3_close_v2(connection);
         return nil;
     }
-    id note = ABText(statement, 2) ?: [NSNull null];
-    id userModificationDate = ABText(statement, 3) ?: [NSNull null];
+    id note = [NSNull null];
+    if (sqlite3_column_type(statement, 2) == SQLITE_TEXT) {
+        note = ABText(statement, 2);
+        if (note == nil) {
+            sqlite3_finalize(statement);
+            sqlite3_close_v2(connection);
+            return nil;
+        }
+    } else if (sqlite3_column_type(statement, 2) != SQLITE_NULL) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
+    id userModificationDate = [NSNull null];
+    if (sqlite3_column_type(statement, 3) == SQLITE_TEXT) {
+        userModificationDate = ABText(statement, 3);
+        if (userModificationDate == nil) {
+            sqlite3_finalize(statement);
+            sqlite3_close_v2(connection);
+            return nil;
+        }
+    } else if (sqlite3_column_type(statement, 3) != SQLITE_NULL) {
+        sqlite3_finalize(statement);
+        sqlite3_close_v2(connection);
+        return nil;
+    }
     NSDictionary *result = @{
         @"uuid": annotationUUID,
         @"deleted": @(sqlite3_column_int(statement, 0) != 0),
@@ -422,16 +503,18 @@ int32_t ABProjectAnnotationState(
     const char *root_path,
     const char *canonical_cloud_database_path,
     const char *canonical_annotations_database_path,
-    const char *asset_id,
-    const char *annotation_uuid
+    const uint8_t *asset_id_bytes,
+    size_t asset_id_length,
+    const uint8_t *annotation_uuid_bytes,
+    size_t annotation_uuid_length
 ) {
     @autoreleasepool {
-        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_annotations_database_path == NULL || asset_id == NULL || annotation_uuid == NULL) return 1;
+        if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_annotations_database_path == NULL || asset_id_bytes == NULL || annotation_uuid_bytes == NULL) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *annotationsDatabase = [NSString stringWithUTF8String:canonical_annotations_database_path];
-        NSString *assetID = [NSString stringWithUTF8String:asset_id];
-        NSString *annotationUUID = [NSString stringWithUTF8String:annotation_uuid];
+        NSString *assetID = ABStringFromUTF8Bytes(asset_id_bytes, asset_id_length);
+        NSString *annotationUUID = ABStringFromUTF8Bytes(annotation_uuid_bytes, annotation_uuid_length);
         if (root == nil || cloudDatabase == nil || annotationsDatabase == nil || assetID.length == 0 || annotationUUID.length == 0 || !ABIsRegularFile(annotationsDatabase)) return 1;
         if (!ABLayoutIsExact(root, cloudDatabase, @"BCAssetData")) return 2;
         NSDictionary *target = ABReadAnnotationTarget(annotationsDatabase, assetID, annotationUUID);

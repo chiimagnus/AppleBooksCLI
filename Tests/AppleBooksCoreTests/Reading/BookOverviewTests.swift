@@ -22,6 +22,25 @@ struct BookOverviewTests {
     }
 
     @Test
+    func annotatedBookSummaryCursorUsesTwoStoreGenerationAndStableContinuation() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let first = try fixture.core.annotatedBookSummaryPage(limit: 1)
+        #expect(first.total == nil)
+        #expect(first.items.map(\.book.localPK) == [2])
+        #expect(first.items.map(\.userAnnotationCount) == [2])
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
+
+        let second = try fixture.core.annotatedBookSummaryPage(limit: 100, cursor: cursor)
+        #expect(second.items.map(\.book.localPK) == [1])
+        #expect(second.items.map(\.userAnnotationCount) == [1])
+        #expect(second.hasMore == false)
+        #expect(second.nextCursor == nil)
+    }
+
+    @Test
     func overviewSelectorsShareStableIdentityAndNilAssetCountsZero() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

@@ -2,6 +2,12 @@ enum ReadingQueryConfigurationError: Error, Equatable, Sendable {
     case missingAnnotationConnection
 }
 
+struct ReadingPartitionCounts: Equatable, Sendable {
+    let finished: Int
+    let inProgress: Int
+    let unstarted: Int
+}
+
 struct ReadingQueries {
     private enum Kind {
         case finished
@@ -34,6 +40,90 @@ struct ReadingQueries {
         try query(.recentlyRead, capability: .readingRecentlyRead, limit: limit, offset: offset)
     }
 
+    func semanticFinished(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
+        try semanticQuery(.finished, capability: .readingFinished, limit: limit, offset: offset)
+    }
+
+    func semanticInProgress(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
+        try semanticQuery(.inProgress, capability: .readingInProgress, limit: limit, offset: offset)
+    }
+
+    func semanticUnstarted(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
+        try semanticQuery(.unstarted, capability: .readingUnstarted, limit: limit, offset: offset)
+    }
+
+    func semanticRecentlyRead(limit: Int = 10, offset: Int = 0) throws -> [BookSummary] {
+        try semanticQuery(.recentlyRead, capability: .readingRecentlyRead, limit: limit, offset: offset)
+    }
+
+    func partitionCounts() throws -> ReadingPartitionCounts {
+        _ = try AppleBooksSchema.inspect(.readingInProgress, on: connection)
+        let finished = AppleBooksSchema.Book.isFinished
+        let progress = SemanticSQLiteReal.finiteSQL(AppleBooksSchema.Book.readingProgress)
+        let statement = try connection.prepare("""
+        SELECT
+          SUM(CASE WHEN COALESCE(\(finished), 0) != 0 THEN 1 ELSE 0 END) AS finishedCount,
+          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND \(progress) > 0 THEN 1 ELSE 0 END) AS inProgressCount,
+          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND (\(progress) IS NULL OR \(progress) <= 0) THEN 1 ELSE 0 END) AS unstartedCount
+        FROM \(AppleBooksTable.books.rawValue)
+        """)
+        guard try statement.step() else {
+            throw QueryDecodingError.nullRequiredColumn("reading partition counts")
+        }
+        let row = try SQLiteRow(statement: statement)
+        let finishedCount = try row.int64("finishedCount") ?? 0
+        let inProgressCount = try row.int64("inProgressCount") ?? 0
+        let unstartedCount = try row.int64("unstartedCount") ?? 0
+        guard finishedCount >= 0, inProgressCount >= 0, unstartedCount >= 0,
+              try statement.step() == false else {
+            throw QueryDecodingError.nullRequiredColumn("reading partition counts")
+        }
+        return ReadingPartitionCounts(
+            finished: Int(finishedCount),
+            inProgress: Int(inProgressCount),
+            unstarted: Int(unstartedCount)
+        )
+    }
+
+    func semanticCurrentLocation(rawAssetID: String) throws -> Location? {
+        guard let annotationConnection else {
+            throw ReadingQueryConfigurationError.missingAnnotationConnection
+        }
+        let schema = try AppleBooksSchema.inspect(.currentPosition, on: annotationConnection)
+        var projection = [AppleBooksSchema.Annotation.localPK]
+        if schema.contains(AppleBooksSchema.Annotation.location) {
+            projection += SQLiteTextProjection.exact(
+                AppleBooksSchema.Annotation.location,
+                alias: "currentReadingLocation",
+                maximumUTF8Bytes: CFIResourcePolicy.maximumStructuralBytes
+            )
+        }
+        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.annotations.rawValue)"
+        sql += " WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0"
+        sql += " AND \(AppleBooksSchema.Annotation.type) = 3"
+        sql += " AND \(AppleBooksSchema.Annotation.assetID) = ? COLLATE BINARY"
+        if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
+            let modified = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
+            sql += " ORDER BY \(modified) IS NULL, \(modified) DESC, \(AppleBooksSchema.Annotation.localPK) DESC"
+        } else {
+            sql += " ORDER BY \(AppleBooksSchema.Annotation.localPK) DESC"
+        }
+        sql += " LIMIT 1"
+
+        let statement = try annotationConnection.prepare(sql)
+        try statement.bind(rawAssetID, at: 1)
+        guard try statement.step(), schema.contains(AppleBooksSchema.Annotation.location) else { return nil }
+        switch try SQLiteTextProjection.decodeExact(
+            SQLiteRow(statement: statement),
+            alias: "currentReadingLocation",
+            column: AppleBooksSchema.Annotation.location,
+            maximumUTF8Bytes: CFIResourcePolicy.maximumStructuralBytes
+        ) {
+        case let .value(rawCFI): return Location(rawCFI: rawCFI)
+        case .null, .oversized: return nil
+        }
+    }
+
     func currentPosition(rawAssetID: String) throws -> Annotation? {
         guard let annotationConnection else {
             throw ReadingQueryConfigurationError.missingAnnotationConnection
@@ -46,8 +136,9 @@ struct ReadingQueries {
         sql += " AND \(AppleBooksSchema.Annotation.type) = 3"
         sql += " AND \(AppleBooksSchema.Annotation.assetID) = ?"
         if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
-            sql += " ORDER BY \(AppleBooksSchema.Annotation.modificationDate) IS NULL,"
-            sql += " \(AppleBooksSchema.Annotation.modificationDate) DESC,"
+            let modified = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
+            sql += " ORDER BY \(modified) IS NULL,"
+            sql += " \(modified) DESC,"
             sql += " \(AppleBooksSchema.Annotation.localPK) DESC"
         } else {
             sql += " ORDER BY \(AppleBooksSchema.Annotation.localPK) DESC"
@@ -58,6 +149,37 @@ struct ReadingQueries {
         try statement.bind(rawAssetID, at: 1)
         guard try statement.step() else { return nil }
         return try AnnotationQueries.decode(SQLiteRow(statement: statement), schema: schema)
+    }
+
+    private func semanticQuery(
+        _ kind: Kind,
+        capability: SchemaCapability,
+        limit: Int?,
+        offset: Int
+    ) throws -> [BookSummary] {
+        try validatePagination(limit: limit, offset: offset)
+        let schema = try AppleBooksSchema.inspect(capability, on: connection)
+        let decoder = BookQueries(connection: connection)
+        let projection = decoder.summaryProjection(schema: schema, alias: "b")
+        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue) AS b"
+        appendSelectionAndOrder(kind, schema: schema, to: &sql)
+        if limit != nil {
+            sql += " LIMIT ? OFFSET ?"
+        } else if offset > 0 {
+            sql += " LIMIT -1 OFFSET ?"
+        }
+        let statement = try connection.prepare(sql)
+        if let limit {
+            try statement.bind(Int64(limit), at: 1)
+            try statement.bind(Int64(offset), at: 2)
+        } else if offset > 0 {
+            try statement.bind(Int64(offset), at: 1)
+        }
+        var books: [BookSummary] = []
+        while try statement.step() {
+            books.append(try decoder.decodeSummary(SQLiteRow(statement: statement), schema: schema))
+        }
+        return books
     }
 
     private func query(
@@ -71,41 +193,7 @@ struct ReadingQueries {
         let projection = [AppleBooksSchema.Book.localPK]
             + AppleBooksSchema.Book.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue)"
-
-        switch kind {
-        case .finished:
-            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) != 0"
-        case .inProgress:
-            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
-            sql += " AND COALESCE(\(AppleBooksSchema.Book.readingProgress), 0) > 0"
-        case .unstarted:
-            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
-            sql += " AND (\(AppleBooksSchema.Book.readingProgress) IS NULL OR \(AppleBooksSchema.Book.readingProgress) <= 0)"
-        case .recentlyRead:
-            sql += " WHERE \(AppleBooksSchema.Book.lastOpenDate) IS NOT NULL"
-        }
-
-        var order: [String] = []
-        switch kind {
-        case .finished:
-            if schema.contains(AppleBooksSchema.Book.finishedDate) {
-                order += [
-                    "\(AppleBooksSchema.Book.finishedDate) IS NULL",
-                    "\(AppleBooksSchema.Book.finishedDate) DESC",
-                ]
-            }
-        case .inProgress, .unstarted:
-            if schema.contains(AppleBooksSchema.Book.lastOpenDate) {
-                order += [
-                    "\(AppleBooksSchema.Book.lastOpenDate) IS NULL",
-                    "\(AppleBooksSchema.Book.lastOpenDate) DESC",
-                ]
-            }
-        case .recentlyRead:
-            order.append("\(AppleBooksSchema.Book.lastOpenDate) DESC")
-        }
-        order.append("\(AppleBooksSchema.Book.localPK) DESC")
-        sql += " ORDER BY \(order.joined(separator: ", "))"
+        appendSelectionAndOrder(kind, schema: schema, to: &sql)
 
         if limit != nil {
             sql += " LIMIT ? OFFSET ?"
@@ -127,5 +215,49 @@ struct ReadingQueries {
             books.append(try decoder.decode(SQLiteRow(statement: statement), schema: schema))
         }
         return books
+    }
+
+    private func appendSelectionAndOrder(
+        _ kind: Kind,
+        schema: SchemaAvailability,
+        to sql: inout String
+    ) {
+        let semanticProgress = SemanticSQLiteReal.finiteSQL(AppleBooksSchema.Book.readingProgress)
+        let semanticLastOpenDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Book.lastOpenDate)
+        switch kind {
+        case .finished:
+            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) != 0"
+        case .inProgress:
+            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
+            sql += " AND \(semanticProgress) > 0"
+        case .unstarted:
+            sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
+            sql += " AND (\(semanticProgress) IS NULL OR \(semanticProgress) <= 0)"
+        case .recentlyRead:
+            sql += " WHERE \(semanticLastOpenDate) IS NOT NULL"
+        }
+
+        var order: [String] = []
+        switch kind {
+        case .finished:
+            if schema.contains(AppleBooksSchema.Book.finishedDate) {
+                let finishedDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Book.finishedDate)
+                order += [
+                    "\(finishedDate) IS NULL",
+                    "\(finishedDate) DESC",
+                ]
+            }
+        case .inProgress, .unstarted:
+            if schema.contains(AppleBooksSchema.Book.lastOpenDate) {
+                order += [
+                    "\(semanticLastOpenDate) IS NULL",
+                    "\(semanticLastOpenDate) DESC",
+                ]
+            }
+        case .recentlyRead:
+            order.append("\(semanticLastOpenDate) DESC")
+        }
+        order.append("\(AppleBooksSchema.Book.localPK) DESC")
+        sql += " ORDER BY \(order.joined(separator: ", "))"
     }
 }

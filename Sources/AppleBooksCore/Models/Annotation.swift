@@ -25,6 +25,10 @@ public struct Annotation: Equatable, Sendable {
     public let rangeEnd: Int64?
 
     public var appleBooksURL: String? {
+        Self.appleBooksURL(rawAssetID: rawAssetID, rawCFI: location?.rawCFI)
+    }
+
+    static func appleBooksURL(rawAssetID: String?, rawCFI: String?) -> String? {
         guard let assetID = rawAssetID?.trimmingCharacters(in: .whitespacesAndNewlines),
               assetID.isEmpty == false else {
             return nil
@@ -34,8 +38,12 @@ public struct Annotation: Equatable, Sendable {
         components.scheme = "ibooks"
         components.host = "assetid"
         components.path = "/\(assetID)"
-        if let cfi = location?.rawCFI.trimmingCharacters(in: .whitespacesAndNewlines), cfi.isEmpty == false {
-            components.fragment = cfi
+        if let rawCFI,
+           CFIResourcePolicy.allowsStructuralParsing(rawCFI) {
+            let cfi = rawCFI.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cfi.isEmpty == false {
+                components.fragment = cfi
+            }
         }
         return components.url?.absoluteString
     }

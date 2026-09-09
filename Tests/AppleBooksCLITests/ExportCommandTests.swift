@@ -8,14 +8,18 @@ import Testing
 @Suite("ExportCommandTests")
 struct ExportCommandTests {
     @Test
-    func defaultsComeFromCoreExportOptions() throws {
-        let command = try ExportCommand.parse(["--format", "json"])
+    func defaultsComeFromCoreExportOptionsAndRequireExplicitOutput() throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("export-default.json")
+        let command = try ExportCommand.parse(["--format", "json", "--output", output.path])
         let request = try command.makeRequest()
 
         #expect(request.options == (try ExportOptions()))
         #expect(request.overwrite == .never)
-        #expect(request.outputURL == nil)
+        #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles == false)
+
+        let missing = try ExportCommand.parse(["--format", "json"])
+        #expect(throws: ValidationError.self) { _ = try missing.makeRequest() }
     }
 
     @Test
@@ -59,7 +63,7 @@ struct ExportCommandTests {
         #expect(request.options.includeEPUBMetadata)
         #expect(request.options.cover == .file)
         #expect(request.overwrite == .smart)
-        #expect(request.outputURL?.path == output.standardizedFileURL.path)
+        #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
     }
 
@@ -71,16 +75,25 @@ struct ExportCommandTests {
         let negativeSkip = try ExportCommand.parse([
             "--format", "json",
             "--skip-first", "-1",
+            "--output", "/tmp/export.json",
         ] + global)
         #expect(throws: CLIError.usageInvalid("--skip-first must not be negative.")) {
             _ = try negativeSkip.makeRequest()
         }
 
-        let noDirectory = try ExportCommand.parse([
+        let invalidPK = try ExportCommand.parse([
             "--format", "json",
-            "--grouping", "per-book",
+            "--book-pk", "1",
+            "--book-pk", "0",
+            "--book-pk", "2",
+            "--output", "/tmp/export.json",
         ] + global)
-        #expect(throws: ValidationError.self) { _ = try noDirectory.makeRequest() }
+        #expect(throws: CLIError.usageInvalid("--book-pk must be a positive local row identifier.")) {
+            _ = try invalidPK.makeRequest()
+        }
+
+        let noOutput = try ExportCommand.parse(["--format", "json"] + global)
+        #expect(throws: ValidationError.self) { _ = try noOutput.makeRequest() }
 
         let nonMarkdownFileCover = try ExportCommand.parse([
             "--format", "json",
@@ -91,50 +104,55 @@ struct ExportCommandTests {
     }
 
     @Test
-    func globalJSONIsRejectedInFavorOfExportFormatJSON() throws {
+    func removedGlobalJsonFlagIsSanitizedParseFailure() throws {
         let capture = Capture()
         let code = CLIEntrypoint.run(
-            arguments: ["export", "--format", "json", "--json"],
+            arguments: ["export", "--format", "json", "--output", "/tmp/export.json", "--json"],
             output: capture.output
         )
 
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        #expect(capture.stderr.isEmpty)
-        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(capture.stdout.utf8))
+        #expect(capture.stdout.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(capture.stderr.utf8))
         #expect(envelope.error.code == .usageInvalid)
-        #expect(envelope.error.message == "`export` does not accept --json; use --format json.")
+        #expect(envelope.error.message == "Invalid command-line arguments.")
+        #expect(capture.stderr.contains("--json") == false)
     }
 
     @Test
-    func everySingleRendererWritesNativePayloadToStdoutWithoutWrapper() throws {
+    func exactCurrentEPUBWithAllSourceDoesNotResolvePDFWorker() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
-        let core = try fixture.core()
-        let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let destination = fixture.root.appendingPathComponent("exact-epub.json")
+        let command = try ExportCommand.parse([
+            "--format", "json",
+            "--book", "asset-a",
+            "--source", "all",
+            "--output", destination.path,
+            "--library-db", fixture.library.path,
+            "--annotations-db", fixture.annotations.path,
+            "--config", fixture.configuration.path,
+        ])
+        var workerResolutionCount = 0
 
-        for format in ["json", "markdown"] {
-            let command = try ExportCommand.parse(["--format", format])
-            let capture = Capture()
-            let result = try command.execute(using: core, output: capture.output, exportedAt: exportedAt)
-
-            #expect(result == .stdout)
-            #expect(capture.stdout.isEmpty == false)
-            #expect(capture.stderr.isEmpty)
-            switch format {
-            case "json":
-                let object = try JSONSerialization.jsonObject(with: Data(capture.stdout.utf8))
-                #expect(object is [String: Any])
-                #expect(capture.stdout.contains("\"groups\""))
-            case "markdown":
-                #expect(capture.stdout.contains("Quote A"))
-            default:
-                Issue.record("unexpected test format")
+        let result = try command.execute(
+            workerURLProvider: {
+                workerResolutionCount += 1
+                throw FixtureError.workerMustNotBeResolved
             }
-        }
+        )
+
+        #expect(workerResolutionCount == 0)
+        #expect(result.destination == destination.standardizedFileURL.path)
+        #expect(result.disposition == .file)
+        #expect(result.documentCount == 1)
+        #expect(result.warningCount == 0)
+        #expect(result.complete)
+        #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 
     @Test
-    func exactSingleFileUsesExportFileWriterAndNeverWritesPayloadToStdout() throws {
+    func singleFileWritesArtifactAndOnlyCompactResultToStdout() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let destination = fixture.root.appendingPathComponent("annotations.json")
@@ -144,21 +162,24 @@ struct ExportCommandTests {
         ])
         let capture = Capture()
 
-        let result = try command.execute(using: fixture.core(), output: capture.output)
+        let direct = try command.execute(using: fixture.core())
+        try capture.output.writeJSON(direct)
 
-        #expect(result == .files(documentFileCount: 1, files: [destination]))
-        #expect(capture.stdout.isEmpty)
         #expect(capture.stderr.isEmpty)
-        let data = try Data(contentsOf: destination)
-        #expect(String(decoding: data, as: UTF8.self).contains("asset-a"))
-
-        #expect(throws: CLIError.writeSafety("Output path is unsafe or already exists.")) {
-            _ = try command.execute(using: fixture.core(), output: Capture().output)
-        }
+        let result = try JSONDecoder().decode(ExportRunResult.self, from: Data(capture.stdout.utf8))
+        #expect(result.destination == destination.standardizedFileURL.path)
+        #expect(result.disposition == .file)
+        #expect(result.documentCount == 1)
+        #expect(result.warningCount == 0)
+        #expect(result.complete)
+        #expect(capture.stdout.contains("\"groups\"") == false)
+        let artifact = String(decoding: try Data(contentsOf: destination), as: UTF8.self)
+        #expect(artifact.contains("\"groups\""))
+        #expect(artifact.contains("Quote A"))
     }
 
     @Test
-    func genericPerBookExportUsesWriterOwnedSafeDirectoryLayout() throws {
+    func genericPerBookExportReturnsDirectoryCountWithoutFileList() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let directory = fixture.root.appendingPathComponent("json-books", isDirectory: true)
@@ -168,16 +189,16 @@ struct ExportCommandTests {
             "--output", directory.path,
         ])
 
-        let result = try command.execute(using: fixture.core(), output: Capture().output)
+        let result = try command.execute(using: fixture.core())
 
-        guard case let .files(documentFileCount, files) = result else {
-            Issue.record("expected file result")
-            return
-        }
-        #expect(documentFileCount == 2)
-        #expect(files.count == 2)
-        #expect(files.allSatisfy { $0.deletingLastPathComponent() == directory.standardizedFileURL })
-        #expect(Set(files.map(\.pathExtension)) == ["json"])
+        #expect(result.destination == directory.standardizedFileURL.path)
+        #expect(result.disposition == .directory)
+        #expect(result.documentCount == 2)
+        #expect(result.warningCount == 0)
+        #expect(result.complete)
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(names.count == 2)
+        #expect(names.allSatisfy { $0.hasSuffix(".json") })
     }
 
     private final class Capture {
@@ -281,5 +302,6 @@ struct ExportCommandTests {
 
     private enum FixtureError: Error {
         case database
+        case workerMustNotBeResolved
     }
 }

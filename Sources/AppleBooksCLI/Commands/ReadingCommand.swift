@@ -22,25 +22,25 @@ enum ReadingStatusKind {
     case recent
 
     func fetch(from books: AppleBooks, limit: Int?, offset: Int) throws -> ReadingBooksResult {
-        let items: [Book]
+        let items: [BookSummary]
         let effectiveLimit: Int?
         switch self {
         case .inProgress:
-            items = try books.booksInProgress(limit: limit, offset: offset)
+            items = try books.semanticBooksInProgress(limit: limit, offset: offset)
             effectiveLimit = limit
         case .finished:
-            items = try books.finishedBooks(limit: limit, offset: offset)
+            items = try books.semanticFinishedBooks(limit: limit, offset: offset)
             effectiveLimit = limit
         case .unstarted:
-            items = try books.unstartedBooks(limit: limit, offset: offset)
+            items = try books.semanticUnstartedBooks(limit: limit, offset: offset)
             effectiveLimit = limit
         case .recent:
             let recentLimit = limit ?? 10
-            items = try books.recentlyReadBooks(limit: recentLimit, offset: offset)
+            items = try books.semanticRecentlyReadBooks(limit: recentLimit, offset: offset)
             effectiveLimit = recentLimit
         }
         return ReadingBooksResult(
-            items: items.map { BookResult(book: $0) },
+            items: items.map { BookSummaryResult(summary: $0) },
             limit: effectiveLimit,
             offset: offset
         )
@@ -67,14 +67,10 @@ extension ReadingStatusLeaf {
             throw ValidationError("--offset must be non-negative.")
         }
         let result = try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             return try statusKind.fetch(from: books, limit: limit, offset: offset)
         }
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -131,32 +127,25 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func run(output: CLIOutput) throws {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         let result = try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks()
-            guard let book = try selector.resolve(in: books) else {
+            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
+            guard let book = try selector.resolveSemanticDetail(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }
-            guard let position = try books.currentReadingPosition(forBookLocalPK: book.localPK) else {
+            guard let position = try books.semanticCurrentReadingPosition(forBookLocalPK: book.localPK) else {
                 throw CLIError.unavailable("Reading position is unavailable for this book.")
             }
             return ReadingPositionResult(book: book, position: position)
         }
 
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
 struct ReadingBooksResult: Codable, Equatable, Sendable {
-    let items: [BookResult]
+    let items: [BookSummaryResult]
     let limit: Int?
     let offset: Int
 
-    var humanDescription: String {
-        items.isEmpty ? "No books." : items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct ReadingPositionResult: Codable, Equatable, Sendable {
@@ -168,7 +157,7 @@ struct ReadingPositionResult: Codable, Equatable, Sendable {
     let totalChapters: Int?
     let source: ReadingPositionSource
 
-    init(book: Book, position: ReadingPosition) {
+    init(book: SemanticBookDetail, position: ReadingPosition) {
         bookLocalPK = book.localPK
         bookAssetID = book.assetID
         chapterID = position.chapterID
@@ -178,14 +167,4 @@ struct ReadingPositionResult: Codable, Equatable, Sendable {
         source = position.source
     }
 
-    var humanDescription: String {
-        [
-            "book: \(bookAssetID ?? String(bookLocalPK))",
-            "chapter: \(chapterID)",
-            "title: \(title ?? "-")",
-            "order: \(order.map(String.init) ?? "-")",
-            "total chapters: \(totalChapters.map(String.init) ?? "-")",
-            "source: \(source.rawValue)",
-        ].joined(separator: "\n")
-    }
 }

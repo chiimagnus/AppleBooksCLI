@@ -10,52 +10,42 @@ metadata:
 
 # AppleBooksCLI
 
-## Core workflow
+Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 
-1. Choose the smallest command family that answers the request; read only the relevant `--help` level when syntax is uncertain.
-2. Resolve stable identity before exact reads, exports, or writes. Prefer asset ID, annotation UUID, collection ID, or backup handle; title/name are search keys, not identity.
-3. Prefer `--json` for queries and writes. `export` uses `--format json` instead.
-4. Judge completion from returned data/status, not exit code alone.
+## Use the CLI
 
-## Routing
+1. Choose the smallest command family that answers the request. If syntax is uncertain, read only that command's `--help`.
+2. Prefer stable identity for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. Use a local PK only when it was explicitly supplied or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
+3. Operational commands return JSON by default. Do not add `--json`.
+4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged.
+5. If `truncatedFields` is present, those fields are valid but incomplete presentation text. Use archival export when the user explicitly needs the original full text/CFI.
+
+## Command routing
 
 | Goal | Command family |
 | --- | --- |
-| Books / search / reading / stats | `books`, `reading`, `stats` |
+| Books / search | `books` |
+| Reading state | `reading`, `stats` |
 | Annotations / notes / recent / search | `annotations` |
-| EPUB content / context | `content` |
+| EPUB content / annotation context | `content` |
 | PDF inventory / highlights | `pdf` |
 | Collections / membership | `collections` |
-| Export | `export` |
-| Backups / restore | `backups` |
-| Flush pending cloud records | `sync` |
-| Recent write/sync context | `history` |
-| Access/schema diagnosis | `doctor` |
+| Full JSON / Markdown artifact | `export` |
+| Backup / restore | `backups` |
+| Flush pending cloud changes | `sync` |
+| Recent CLI write/sync evidence | `history` |
+| Permission / database / capability diagnosis | `doctor` |
 
-## Query boundaries
+## Writes and sync
 
-- A local primary key (PK) is the current Core Data SQLite row identifier (`Z_PK`), not a stable cross-device identity. Use a PK selector only when the user supplied it explicitly or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
-- If several matches remain plausible, show candidates instead of choosing silently.
-- “Latest annotations” means creation time; “recently modified” means modification time. “Latest note” means the newest annotation with a non-empty `note`.
-- A single annotation may include `appleBooksURL`; request `content context` only when surrounding text is needed.
-- EPUB/PDF availability depends on local materialization, DRM, and readable local sources. Do not bypass DRM or intentionally hydrate unavailable iCloud content.
+- Run mutation or restore commands only when the user authorized that change. Use the CLI mutation commands; do not edit Apple Books SQLite directly.
+- `annotations update-note --note` replaces the whole note. Read the current note first when the user wants to append. `annotations delete` soft-deletes the annotation.
+- Use `--sync` on a single mutation only when the user wants current-Mac CloudKit acknowledgement; otherwise omit it. For several mutations that need acknowledgement, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch.
+- A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
+- Resolve the exact backup handle before restore.
 
-## Writes, restore, and sync
+## Export and failures
 
-- Run mutation/restore commands only when the user authorized that change. Never write Apple Books SQLite directly or manually manage Books.app around a CLI mutation; the guarded rail owns that lifecycle.
-- `annotations update-note --note` replaces the whole note. For append, read the current note first and submit the full replacement. `annotations delete` soft-deletes the annotation, not just its note.
-- Treat all Apple Books mutations needed for one user request as one write batch:
-  - exactly one real mutation → add `--sync` by default;
-  - multiple mutations → omit `--sync` on intermediate writes, then run `applebookscli sync --json` once after all local commits;
-  - all mutations `changed=false` → do not run root `sync`, because it could flush unrelated older pending changes.
-- If any mutation in the batch has `changed=true`, attempt current-Mac CloudKit acknowledgement before declaring the write task complete. Do not ask for separate confirmation for this sync step unless the user requested local-only behavior.
-- If acknowledgement cannot be completed, say explicitly that the local mutation committed but iCloud acknowledgement is unconfirmed. Never replay a committed mutation because of a post-commit warning.
-- `--sync` / root `sync` proves current-Mac acknowledgement only, not that another device already shows the change.
-- Before restore, resolve the exact backup handle. `applied-but-warning/unverified` is not the same as a clean restore success.
-
-## Export / history / failure handling
-
-- Honor destination and overwrite policy; default remains no overwrite.
-- Use `history list --json` to find a recent operation and `history get <id> --json` only for the relevant candidate. History is evidence, not authorization; `incomplete` means outcome unknown, so verify state before any new mutation.
-- Use `doctor --json` for permission, database-discovery, schema, or capability failures—not for a normal empty result.
-- Do not repeat a failed command without new evidence, changed input, permission, or environment.
+- `export` requires an explicit output destination. Full Markdown/archival JSON goes to files; stdout contains the compact command result.
+- Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.
+- Use `history` to inspect recent CLI writes/syncs when outcome evidence is needed; it is not an undo mechanism.

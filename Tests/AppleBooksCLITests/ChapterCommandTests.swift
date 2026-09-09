@@ -84,7 +84,6 @@ struct ChapterCommandTests {
         let missingGlobals = [
             "--library-db", missing,
             "--annotations-db", missing,
-            "--json",
         ]
 
         let maxCapture = Capture()
@@ -93,9 +92,9 @@ struct ChapterCommandTests {
             output: maxCapture.output
         )
         #expect(maxCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(maxCapture.stderr.isEmpty)
-        #expect(maxCapture.stdout.contains("usage_invalid"))
-        #expect(maxCapture.stdout.contains("Database override") == false)
+        #expect(maxCapture.stdout.isEmpty)
+        #expect(maxCapture.stderr.contains("usage_invalid"))
+        #expect(maxCapture.stderr.contains("Database override") == false)
 
         let negativeMaxCapture = Capture()
         let negativeMaxCode = CLIEntrypoint.run(
@@ -103,9 +102,9 @@ struct ChapterCommandTests {
             output: negativeMaxCapture.output
         )
         #expect(negativeMaxCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(negativeMaxCapture.stderr.isEmpty)
-        #expect(negativeMaxCapture.stdout.contains("--max-chars must be greater than zero."))
-        #expect(negativeMaxCapture.stdout.contains("Database override") == false)
+        #expect(negativeMaxCapture.stdout.isEmpty)
+        #expect(negativeMaxCapture.stderr.contains("--max-chars must be greater than zero."))
+        #expect(negativeMaxCapture.stderr.contains("Database override") == false)
 
         let grammarCapture = Capture()
         let grammarCode = CLIEntrypoint.run(
@@ -113,33 +112,35 @@ struct ChapterCommandTests {
             output: grammarCapture.output
         )
         #expect(grammarCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(grammarCapture.stderr.isEmpty)
-        #expect(grammarCapture.stdout.contains("Database override") == false)
+        #expect(grammarCapture.stdout.isEmpty)
+        #expect(grammarCapture.stderr.contains("Database override") == false)
 
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let rangeCapture = Capture()
         let rangeCode = CLIEntrypoint.run(
-            arguments: ["content", "chapter", "12", "1", "--offset", "6"] + fixture.globalArguments + ["--json"],
+            arguments: ["content", "chapter", "12", "1", "--offset", "6"] + fixture.globalArguments,
             output: rangeCapture.output
         )
         #expect(rangeCode == CLIProcessExit.usageInvalid.rawValue)
-        let rangeEnvelope = try fixture.decode(CLIErrorEnvelope.self, rangeCapture.stdout)
+        #expect(rangeCapture.stdout.isEmpty)
+        let rangeEnvelope = try fixture.decode(CLIErrorEnvelope.self, rangeCapture.stderr)
         #expect(rangeEnvelope.error.code == .usageInvalid)
         #expect(rangeEnvelope.error.message == "Chapter offset is out of range.")
 
         let secretSelector = "private-selector-that-must-not-be-reflected"
         let missingCapture = Capture()
         let missingCode = CLIEntrypoint.run(
-            arguments: ["content", "chapter", "12", secretSelector] + fixture.globalArguments + ["--json"],
+            arguments: ["content", "chapter", "12", secretSelector] + fixture.globalArguments,
             output: missingCapture.output
         )
         #expect(missingCode == CLIProcessExit.notFound.rawValue)
-        let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missingCapture.stdout)
+        #expect(missingCapture.stdout.isEmpty)
+        let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missingCapture.stderr)
         #expect(missingEnvelope.error.code == .notFound)
         #expect(missingEnvelope.error.message == "Chapter not found.")
-        #expect(missingCapture.stdout.contains(secretSelector) == false)
+        #expect(missingCapture.stderr.contains(secretSelector) == false)
     }
 
     @Test
@@ -166,18 +167,18 @@ struct ChapterCommandTests {
 
         let fallbackCapture = Capture()
         let fallbackCode = CLIEntrypoint.run(
-            arguments: ["content", "current-chapter", "fallback-only"] + fixture.globalArguments + ["--json"],
+            arguments: ["content", "current-chapter", "fallback-only"] + fixture.globalArguments,
             output: fallbackCapture.output
         )
         #expect(fallbackCode == CLIProcessExit.unavailable.rawValue)
-        let envelope = try fixture.decode(CLIErrorEnvelope.self, fallbackCapture.stdout)
+        #expect(fallbackCapture.stdout.isEmpty)
+        let envelope = try fixture.decode(CLIErrorEnvelope.self, fallbackCapture.stderr)
         #expect(envelope.error.code == .unavailable)
         #expect(envelope.error.message == "Current reading chapter is unavailable.")
-        #expect(fallbackCapture.stderr.isEmpty)
     }
 
     @Test
-    func explicitHumanChapterOutputMayContainBodyWhileDiagnosticsStayOnSuccessPath() throws {
+    func chapterDefaultsToJSONAndKeepsBodyOnSuccessPath() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -188,8 +189,9 @@ struct ChapterCommandTests {
         )
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("Second chapter body"))
-        #expect(capture.stdout.contains("effective offset: 0"))
+        let result = try fixture.decode(ContentChapterPageResult.self, capture.stdout)
+        #expect(result.content == "Second chapter body")
+        #expect(result.effectiveOffset == 0)
     }
 
     private final class Fixture {
@@ -227,7 +229,7 @@ struct ChapterCommandTests {
         func runJSON<Value: Decodable>(_ type: Value.Type, arguments: [String]) throws -> Value {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: arguments + globalArguments + ["--json"],
+                arguments: arguments + globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.success.rawValue)

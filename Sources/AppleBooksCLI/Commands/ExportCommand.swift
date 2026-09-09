@@ -79,16 +79,24 @@ struct ExportCLIRequest: Equatable, Sendable {
     let format: ExportFormatArgument
     let options: ExportOptions
     let overwrite: OverwritePolicy
-    let outputURL: URL?
+    let outputURL: URL
 
     var producesMultipleFiles: Bool {
         options.grouping == .perBook || (format == .markdown && options.cover == .file)
     }
 }
 
-enum ExportRunResult: Equatable, Sendable {
-    case stdout
-    case files(documentFileCount: Int, files: [URL])
+enum ExportRunDisposition: String, Codable, Equatable, Sendable {
+    case file
+    case directory
+}
+
+struct ExportRunResult: Codable, Equatable, Sendable {
+    let destination: String
+    let disposition: ExportRunDisposition
+    let documentCount: Int
+    let warningCount: Int
+    let complete: Bool
 }
 
 struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
@@ -136,7 +144,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Existing-file policy: never, smart, or always.")
     var overwrite: ExportOverwriteArgument?
 
-    @Option(name: .long, help: "Write to this file or directory instead of stdout.")
+    @Option(name: .long, help: "Write the export artifact to this file or directory.")
     var output: String?
 
     @OptionGroup var global: GlobalOptions
@@ -146,12 +154,12 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     }
 
     func run(output: CLIOutput) throws {
-        _ = try execute(output: output)
+        try output.writeJSON(try execute())
     }
 
     func makeRequest() throws -> ExportCLIRequest {
-        if global.json {
-            throw ValidationError("`export` does not accept --json; use --format json.")
+        for localPK in bookPK {
+            try LocalPKPolicy.validateInput(localPK, optionName: "--book-pk")
         }
         let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
@@ -181,7 +189,10 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         try validateFormatSpecificOptions(options: options)
 
         let overwritePolicy = overwrite?.coreValue ?? .never
-        let outputURL = output.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        guard let output else {
+            throw ValidationError("Export requires --output.")
+        }
+        let outputURL = URL(fileURLWithPath: output).standardizedFileURL
         let request = ExportCLIRequest(
             format: format,
             options: options,
@@ -195,21 +206,22 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @discardableResult
     func execute(
         using injectedBooks: AppleBooks? = nil,
-        output cliOutput: CLIOutput = .standard,
-        exportedAt: Date = Date()
+        exportedAt: Date = Date(),
+        workerURLProvider: () throws -> URL = { try installedPDFWorkerURL() }
     ) throws -> ExportRunResult {
         let request = try makeRequest()
         return try CLIOperation.run {
-            let books = try injectedBooks ?? makeAppleBooks(for: request.options.source)
+            let books = try injectedBooks ?? makeAppleBooks(
+                for: request.options,
+                workerURLProvider: workerURLProvider
+            )
             let bundle = try books.exportBundle(options: request.options)
-            if bundle.warnings.isEmpty == false {
-                cliOutput.stderr("Warning: export completed with \(bundle.warnings.count) source warning(s).")
-            }
-            guard let outputURL = request.outputURL else {
-                cliOutput.stdout(try renderSingle(bundle, request: request, exportedAt: exportedAt))
-                return .stdout
-            }
-            return try write(bundle, request: request, outputURL: outputURL, exportedAt: exportedAt)
+            return try write(
+                bundle,
+                request: request,
+                outputURL: request.outputURL,
+                exportedAt: exportedAt
+            )
         }
     }
 
@@ -220,20 +232,56 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     }
 
     private func validateOutputContract(_ request: ExportCLIRequest) throws {
-        if request.outputURL == nil {
-            if request.producesMultipleFiles {
-                throw ValidationError("Multi-file export requires --output <directory>.")
-            }
-            if overwrite != nil {
-                throw ValidationError("--overwrite requires --output.")
-            }
+        guard request.outputURL.lastPathComponent.isEmpty == false else {
+            throw ValidationError("--output must name a file or directory.")
         }
     }
 
-    private func makeAppleBooks(for source: ExportSourceScope) throws -> AppleBooks {
+    private func makeAppleBooks(
+        for options: ExportOptions,
+        workerURLProvider: () throws -> URL
+    ) throws -> AppleBooks {
         let context = CLIContext(global: global)
-        guard source != .epub else { return try context.makeAppleBooks() }
-        return try context.makeAppleBooks(pdfWorkerURL: try installedPDFWorkerURL())
+        var dependencies: AppleBooksDependencies = [.libraryRead]
+
+        if options.bookSelectors.isEmpty {
+            switch options.source {
+            case .epub:
+                dependencies.formUnion([.annotationsRead, .configuration])
+            case .pdf:
+                dependencies.insert(.pdfWorker)
+            case .all:
+                dependencies.formUnion([.annotationsRead, .configuration, .pdfWorker])
+            }
+        } else {
+            let probe = try context.makeAppleBooks(dependencies: .libraryRead)
+            for selector in options.bookSelectors {
+                switch selector {
+                case let .assetID(assetID):
+                    let current = try probe.book(assetID: assetID)
+                    if current?.contentType == 3 {
+                        if options.source != .epub { dependencies.insert(.pdfWorker) }
+                    } else if options.source != .pdf {
+                        dependencies.formUnion([.annotationsRead, .configuration])
+                    }
+                case let .localPK(localPK):
+                    guard let current = try probe.book(localPK: localPK) else { continue }
+                    if current.contentType == 3 {
+                        if options.source != .epub { dependencies.insert(.pdfWorker) }
+                    } else if options.source != .pdf {
+                        dependencies.formUnion([.annotationsRead, .configuration])
+                    }
+                case .pdfFile:
+                    if options.source != .epub { dependencies.insert(.pdfWorker) }
+                }
+            }
+        }
+
+        let workerURL = dependencies.contains(.pdfWorker) ? try workerURLProvider() : nil
+        return try context.makeAppleBooks(
+            dependencies: dependencies,
+            pdfWorkerURL: workerURL
+        )
     }
 
     private func renderSingle(
@@ -273,7 +321,13 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
-            return makeRunResult(result)
+            return ExportRunResult(
+                destination: outputURL.path,
+                disposition: .file,
+                documentCount: result.documentFileCount,
+                warningCount: bundle.warnings.count,
+                complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+            )
         }
 
         let data = try renderData(bundle, request: request, exportedAt: exportedAt)
@@ -282,7 +336,13 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             fileName: outputURL.lastPathComponent,
             overwrite: request.overwrite
         )
-        return .files(documentFileCount: 1, files: [file.destination])
+        return ExportRunResult(
+            destination: file.destination.path,
+            disposition: .file,
+            documentCount: 1,
+            warningCount: bundle.warnings.count,
+            complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+        )
     }
 
     private func writeMultiple(
@@ -312,7 +372,13 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 try renderDocumentData(group, bundle: bundle, request: request, exportedAt: exportedAt)
             }
         }
-        return makeRunResult(result)
+        return ExportRunResult(
+            destination: outputDirectory.path,
+            disposition: .directory,
+            documentCount: result.documentFileCount,
+            warningCount: bundle.warnings.count,
+            complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+        )
     }
 
     private func renderData(
@@ -342,7 +408,5 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
     }
 
-    private func makeRunResult(_ result: ExportDirectoryWriteResult) -> ExportRunResult {
-        .files(documentFileCount: result.documentFileCount, files: result.files)
-    }
+
 }

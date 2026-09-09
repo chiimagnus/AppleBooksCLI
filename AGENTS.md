@@ -28,6 +28,12 @@
 - 文档 owner 导航：[`docs/index.md`](docs/index.md)。`.github/features/` 中的 plan/audit/todo 是实施历史，不得用 superseded 中间态覆盖当前源码、tests 与 canonical docs。
 - dependency 变化同时维护 `Package.swift` / `Package.resolved`、`THIRD_PARTY_NOTICES.md` 与 `ThirdPartyLicenses/`。`dist/` 是生成产物；release 规则由 [`docs/release.md`](docs/release.md)、`.github/workflows/release.yml` 与现有 release scripts 拥有。
 
+## Repository Skill 规范
+
+- `skills/*/SKILL.md` 是给 AI **使用 `applebookscli`** 的运行说明，不是开发者设计文档。正文只保留会直接影响正确调用的内容：命令路由、`--help` 使用方式、stable selector、分页/JSON 结果解释，以及 state-changing 命令必要的授权、sync 与失败处理。
+- 不在 Skill 复制架构、SQLite/schema、内部 owner/type、具体资源预算、实现历史、task/commit 或测试清单。某个内部边界只有在调用者不知道它就会误用 CLI 时才保留最短的用户可见规则；详细事实回到 `docs/index.md` 指向的 canonical owner。
+- 新建 Skill 前先确认它有独立调用场景；已有 Skill 能覆盖就不要再建。创建或实质更新时遵循 `$skill-creator` 的最小化与渐进式披露原则，默认只维护必要的 `SKILL.md`，不为“文档齐全”新增 README/reference/changelog。中英文 AppleBooksCLI Skill 必须同步；修改后运行 `quick_validate.ts`，并由 `scripts/ci-gates.sh` 覆盖 packaging/runtime contract。
+
 ## 开发与验证
 
 - 在源码 checkout 中执行、测试或调用 CLI 前先 `swift build`，随后固定使用 `$(swift build --show-bin-path)/applebookscli`；不要混用 PATH 中可能更旧的全局安装版本，命令面以这个 binary 的 `--help` 为准。

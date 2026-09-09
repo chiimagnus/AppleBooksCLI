@@ -110,9 +110,14 @@ struct CLIContractTests {
         defer { fixture.remove() }
 
         let doctor = try fixture.runJSON(["doctor"])
-        #expect(doctor["libraryDatabaseReady"] as? Bool == true)
-        #expect(doctor["annotationsDatabaseReady"] as? Bool == true)
-        #expect(doctor["installedPDFWorkerReady"] as? Bool == true)
+        #expect(doctor["status"] as? String == "ready")
+        let doctorComponents = try #require(doctor["components"] as? [String: Any])
+        let doctorCapabilities = try #require(doctor["capabilities"] as? [String: Any])
+        #expect(doctorComponents["libraryDatabaseReady"] as? Bool == true)
+        #expect(doctorComponents["annotationsDatabaseReady"] as? Bool == true)
+        #expect(doctorComponents["pdfWorkerReady"] as? Bool == true)
+        #expect(doctorCapabilities["booksRead"] as? Bool == true)
+        #expect(doctorCapabilities["annotationsRead"] as? Bool == true)
 
         let list = try fixture.runJSON(["books", "list"])
         #expect(list["total"] as? Int == 3)

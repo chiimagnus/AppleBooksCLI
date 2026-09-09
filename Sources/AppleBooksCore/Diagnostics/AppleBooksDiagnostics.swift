@@ -42,6 +42,15 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let state: AppleBooksDiagnosticState
     public let libraryDatabaseReady: Bool
     public let annotationsDatabaseReady: Bool
+    public let libraryReadReady: Bool
+    public let annotationsReadReady: Bool
+    public let collectionsReadReady: Bool
+    public let collectionWriteReady: Bool
+    public let annotationWriteReady: Bool
+    public let contentReadPrerequisitesReady: Bool
+    public let pdfReadPrerequisitesReady: Bool
+    public let libraryOptionalSchemaComplete: Bool
+    public let annotationsOptionalSchemaComplete: Bool
     public let readSchemaReady: Bool
     public let optionalSchemaComplete: Bool
     public let writeSchemaReady: Bool
@@ -94,31 +103,52 @@ public enum AppleBooksDiagnostics {
             issues: &issues
         )
 
-        var readSchemaReady = true
-        var optionalSchemaComplete = true
-        var writeSchemaReady = true
+        var libraryReadReady = false
+        var annotationsReadReady = false
+        var collectionsReadReady = false
+        var collectionWriteReady = false
+        var annotationWriteReady = false
+        var contentReadPrerequisitesReady = false
+        var pdfReadPrerequisitesReady = false
+        var libraryLegacyReadReady = false
+        var annotationsLegacyReadReady = false
+        var libraryOptionalSchemaComplete = false
+        var annotationsOptionalSchemaComplete = false
 
         if let libraryConnection = library.connection {
             let schema = inspectReadSchema(
                 on: libraryConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table != .annotations }
             )
+            libraryLegacyReadReady = schema.requiredReady
+            libraryOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
-                readSchemaReady = false
                 issues.append(.init(code: .libraryReadSchemaIncompatible, state: .fatal))
             }
-            optionalSchemaComplete = optionalSchemaComplete && schema.optionalComplete
+
+            libraryReadReady = capabilitiesReady(
+                [.bookBase, .bookAssetLookup],
+                on: libraryConnection
+            )
+            collectionsReadReady = capabilitiesReady(
+                [.collectionBase, .collectionTitleSearch, .collectionIDLookup, .collectionMembers, .collectionMemberBooks],
+                on: libraryConnection
+            )
+            contentReadPrerequisitesReady = capabilitiesReady(
+                [.bookAssetLookup, .bookContentPathLookup],
+                on: libraryConnection
+            )
+            pdfReadPrerequisitesReady = capabilitiesReady(
+                [.bookAssetLookup, .bookPDF],
+                on: libraryConnection
+            )
 
             do {
                 try CollectionWriter.validateWriteReadiness(on: libraryConnection)
+                collectionWriteReady = true
             } catch {
-                writeSchemaReady = false
                 issues.append(.init(code: .libraryWriteSchemaIncompatible, state: .degraded))
             }
-        } else {
-            readSchemaReady = false
-            optionalSchemaComplete = false
-            writeSchemaReady = false
         }
 
         if let annotationConnection = annotations.connection {
@@ -126,23 +156,28 @@ public enum AppleBooksDiagnostics {
                 on: annotationConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table == .annotations }
             )
+            annotationsLegacyReadReady = schema.requiredReady
+            annotationsOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
-                readSchemaReady = false
                 issues.append(.init(code: .annotationsReadSchemaIncompatible, state: .fatal))
             }
-            optionalSchemaComplete = optionalSchemaComplete && schema.optionalComplete
+
+            annotationsReadReady = capabilitiesReady(
+                [.annotationUserBase, .annotationByUUID, .annotationByAssetID],
+                on: annotationConnection
+            )
 
             do {
                 try AnnotationWriter.validateWriteReadiness(on: annotationConnection)
+                annotationWriteReady = true
             } catch {
-                writeSchemaReady = false
                 issues.append(.init(code: .annotationsWriteSchemaIncompatible, state: .degraded))
             }
-        } else {
-            readSchemaReady = false
-            optionalSchemaComplete = false
-            writeSchemaReady = false
         }
+
+        let readSchemaReady = libraryLegacyReadReady && annotationsLegacyReadReady
+        let optionalSchemaComplete = libraryOptionalSchemaComplete && annotationsOptionalSchemaComplete
+        let writeSchemaReady = collectionWriteReady && annotationWriteReady
 
         let configuration: AppleBooksConfiguration?
         do {
@@ -182,6 +217,15 @@ public enum AppleBooksDiagnostics {
             state: finalState,
             libraryDatabaseReady: library.connection != nil,
             annotationsDatabaseReady: annotations.connection != nil,
+            libraryReadReady: libraryReadReady,
+            annotationsReadReady: annotationsReadReady,
+            collectionsReadReady: collectionsReadReady,
+            collectionWriteReady: collectionWriteReady,
+            annotationWriteReady: annotationWriteReady,
+            contentReadPrerequisitesReady: contentReadPrerequisitesReady,
+            pdfReadPrerequisitesReady: pdfReadPrerequisitesReady,
+            libraryOptionalSchemaComplete: libraryOptionalSchemaComplete,
+            annotationsOptionalSchemaComplete: annotationsOptionalSchemaComplete,
             readSchemaReady: readSchemaReady,
             optionalSchemaComplete: optionalSchemaComplete,
             writeSchemaReady: writeSchemaReady,
@@ -238,6 +282,20 @@ public enum AppleBooksDiagnostics {
         case (.annotations, .ambiguous): .annotationsDatabaseAmbiguous
         case (.annotations, .invalidOverride): .annotationsDatabaseInvalidOverride
         }
+    }
+
+    private static func capabilitiesReady(
+        _ capabilities: [SchemaCapability],
+        on connection: SQLiteConnection
+    ) -> Bool {
+        for capability in capabilities {
+            do {
+                _ = try AppleBooksSchema.inspect(capability, on: connection)
+            } catch {
+                return false
+            }
+        }
+        return true
     }
 
     private static func inspectReadSchema(

@@ -15,14 +15,20 @@ struct DoctorCommandTests {
 
         let command = try DoctorCommand.parse(fixture.arguments)
         let machine = Capture()
-        try command.execute(output: machine.output, backupRoot: backupRoot)
+        try command.execute(output: machine.output, backupRoot: backupRoot, installedPDFWorkerReady: true)
         #expect(machine.stderr.isEmpty)
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(machine.stdout.utf8))
         #expect(result.status == .ready)
-        #expect(result.libraryDatabaseReady)
-        #expect(result.annotationsDatabaseReady)
-        #expect(result.readSchemaReady)
-        #expect(result.writeSchemaReady)
+        #expect(result.components.libraryDatabaseReady)
+        #expect(result.components.annotationsDatabaseReady)
+        #expect(result.components.libraryReadReady)
+        #expect(result.components.annotationsReadReady)
+        #expect(result.components.collectionWriteReady)
+        #expect(result.components.annotationWriteReady)
+        #expect(result.components.pdfWorkerReady)
+        #expect(result.capabilities.all.allSatisfy { $0 })
+        #expect(machine.stdout.contains("readSchemaReady") == false)
+        #expect(machine.stdout.contains("writeSchemaReady") == false)
         #expect(machine.stdout.contains(fixture.root.path) == false)
         #expect(machine.stdout.contains("ZBKLIBRARYASSET") == false)
         #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
@@ -41,8 +47,10 @@ struct DoctorCommandTests {
         )
 
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.status == .degraded)
-        #expect(result.installedPDFWorkerReady == false)
+        #expect(result.status == .partial)
+        #expect(result.components.pdfWorkerReady == false)
+        #expect(result.capabilities.pdfReadPrerequisites == false)
+        #expect(result.capabilities.booksRead)
         #expect(result.issues.contains(.init(code: .pdfWorkerUnavailable, state: .degraded)))
         #expect(capture.stdout.contains(fixture.root.path) == false)
     }
@@ -64,8 +72,11 @@ struct DoctorCommandTests {
         )
 
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.status == .fatal)
-        #expect(result.libraryDatabaseReady == false)
+        #expect(result.status == .partial)
+        #expect(result.components.libraryDatabaseReady == false)
+        #expect(result.capabilities.booksRead == false)
+        #expect(result.capabilities.collectionsRead == false)
+        #expect(result.capabilities.annotationWrite)
         #expect(result.issues.contains(.init(code: .libraryDatabaseInvalidOverride, state: .fatal)))
         #expect(capture.stdout.contains(missing.path) == false)
         #expect(capture.stdout.contains("private-library.sqlite") == false)
@@ -82,15 +93,106 @@ struct DoctorCommandTests {
         let capture = Capture()
         try command.execute(
             output: capture.output,
-            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true)
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
+            installedPDFWorkerReady: true
         )
 
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.status == .degraded)
-        #expect(result.readSchemaReady)
-        #expect(result.writeSchemaReady == false)
+        #expect(result.status == .partial)
+        #expect(result.components.libraryReadReady)
+        #expect(result.components.collectionWriteReady == false)
+        #expect(result.capabilities.booksRead)
+        #expect(result.capabilities.collectionsWrite == false)
+        #expect(result.capabilities.annotationWrite)
         #expect(result.issues.contains(.init(code: .libraryWriteSchemaIncompatible, state: .degraded)))
         #expect(try Data(contentsOf: fixture.library) == before)
+    }
+
+    @Test
+    func componentFailuresOnlyDisableDependentCapabilities() throws {
+        do {
+            let fixture = try Fixture(
+                librarySQL: Self.librarySQL.replacingOccurrences(of: "  ZPATH TEXT,\n", with: "")
+            )
+            defer { fixture.remove() }
+            let result = try doctorResult(fixture, workerReady: true)
+            #expect(result.status == .partial)
+            #expect(result.capabilities.booksRead)
+            #expect(result.capabilities.collectionsRead)
+            #expect(result.capabilities.contentReadPrerequisites == false)
+            #expect(result.capabilities.annotationWrite)
+        }
+
+        do {
+            let fixture = try Fixture(
+                annotationsSQL: Self.annotationSQL.replacingOccurrences(
+                    of: "  ZANNOTATIONNOTE TEXT,\n  ZFUTUREPROOFING6 TEXT\n",
+                    with: "  ZANNOTATIONNOTE TEXT\n"
+                )
+            )
+            defer { fixture.remove() }
+            let result = try doctorResult(fixture, workerReady: true)
+            #expect(result.status == .partial)
+            #expect(result.components.annotationsReadReady)
+            #expect(result.components.annotationWriteReady == false)
+            #expect(result.capabilities.annotationsRead)
+            #expect(result.capabilities.annotationWrite == false)
+            #expect(result.capabilities.collectionsWrite)
+        }
+
+        do {
+            let fixture = try Fixture(configData: Data("not-json".utf8))
+            defer { fixture.remove() }
+            let result = try doctorResult(fixture, workerReady: true)
+            #expect(result.status == .partial)
+            #expect(result.components.configurationReady == false)
+            #expect(result.capabilities.booksRead)
+            #expect(result.capabilities.collectionsRead)
+            #expect(result.capabilities.annotationsRead == false)
+            #expect(result.capabilities.contentReadPrerequisites == false)
+            #expect(result.capabilities.annotationWrite)
+        }
+
+        do {
+            let fixture = try Fixture()
+            defer { fixture.remove() }
+            let badRoot = fixture.root.appendingPathComponent("backup-file")
+            try Data().write(to: badRoot)
+            let result = try doctorResult(fixture, backupRoot: badRoot, workerReady: true)
+            #expect(result.status == .partial)
+            #expect(result.components.backupLocationReady == false)
+            #expect(result.capabilities.backups == false)
+            #expect(result.capabilities.booksRead)
+        }
+
+        do {
+            let fixture = try Fixture()
+            defer { fixture.remove() }
+            var arguments = fixture.arguments
+            let index = arguments.firstIndex(of: fixture.annotations.path)!
+            arguments[index] = fixture.root.appendingPathComponent("missing-annotations.sqlite").path
+            let result = try doctorResult(fixture, arguments: arguments, workerReady: true)
+            #expect(result.status == .partial)
+            #expect(result.capabilities.booksRead)
+            #expect(result.capabilities.annotationsRead == false)
+            #expect(result.capabilities.annotationWrite == false)
+            #expect(result.capabilities.collectionsRead)
+        }
+    }
+
+    @Test
+    func bothDatabasesUnavailableMakesOverallUnavailable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var arguments = fixture.arguments
+        arguments[arguments.firstIndex(of: fixture.library.path)!] = fixture.root.appendingPathComponent("missing-library.sqlite").path
+        arguments[arguments.firstIndex(of: fixture.annotations.path)!] = fixture.root.appendingPathComponent("missing-annotations.sqlite").path
+
+        let result = try doctorResult(fixture, arguments: arguments, workerReady: true)
+        #expect(result.status == .unavailable)
+        #expect(result.capabilities.all.allSatisfy { $0 == false })
+        #expect(result.components.libraryDatabaseReady == false)
+        #expect(result.components.annotationsDatabaseReady == false)
     }
 
     @Test
@@ -107,7 +209,7 @@ struct DoctorCommandTests {
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.status == .ready || result.status == .degraded)
+        #expect([DoctorOverallStatus.ready, .partial, .unavailable].contains(result.status))
         #expect(capture.stdout.first == "{")
         #expect(capture.stdout.last == "}")
         #expect(capture.stdout.contains(fixture.root.path) == false)
@@ -146,19 +248,41 @@ struct DoctorCommandTests {
             ]
         }
 
-        init(librarySQL: String = DoctorCommandTests.librarySQL) throws {
+        init(
+            librarySQL: String = DoctorCommandTests.librarySQL,
+            annotationsSQL: String = DoctorCommandTests.annotationSQL,
+            configData: Data = Data("{\"historical_assets\":{}}".utf8)
+        ) throws {
             root = DoctorCommandTests().temporaryDirectory()
             library = root.appendingPathComponent("library.sqlite")
             annotations = root.appendingPathComponent("annotations.sqlite")
             config = root.appendingPathComponent("config.json")
             try DoctorCommandTests().createDatabase(library, sql: librarySQL)
-            try DoctorCommandTests().createDatabase(annotations, sql: DoctorCommandTests.annotationSQL)
-            try Data("{\"historical_assets\":{}}".utf8).write(to: config)
+            try DoctorCommandTests().createDatabase(annotations, sql: annotationsSQL)
+            try configData.write(to: config)
         }
 
         func remove() {
             try? FileManager.default.removeItem(at: root)
         }
+    }
+
+    private func doctorResult(
+        _ fixture: Fixture,
+        arguments: [String]? = nil,
+        backupRoot: URL? = nil,
+        workerReady: Bool
+    ) throws -> DoctorResult {
+        let command = try DoctorCommand.parse(arguments ?? fixture.arguments)
+        let capture = Capture()
+        try command.execute(
+            output: capture.output,
+            backupRoot: backupRoot ?? fixture.root.appendingPathComponent("backups", isDirectory: true),
+            installedPDFWorkerReady: workerReady
+        )
+        #expect(capture.stderr.isEmpty)
+        #expect(capture.stdout.contains(fixture.root.path) == false)
+        return try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
     }
 
     private final class Capture {

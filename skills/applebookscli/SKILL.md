@@ -59,5 +59,5 @@ metadata:
 
 - Export requires an explicit destination. Full Markdown/archival JSON artifacts are file-only; stdout is a compact JSON write result. Honor destination and overwrite policy; default remains no overwrite.
 - Use `history list` to find a recent operation and `history get <id>` only for the relevant candidate. History is evidence, not authorization; `incomplete` means outcome unknown, so verify state before any new mutation.
-- Use `doctor` for permission, database-discovery, schema, or capability failures—not for a normal empty result.
+- Use `doctor` for permission, database-discovery, schema, or capability failures—not for a normal empty result. Read `status` as `ready|partial|unavailable`, then use the fixed `capabilities` booleans to decide which command families are still usable; do not treat one fatal issue as proof that the whole CLI is unavailable.
 - Do not repeat a failed command without new evidence, changed input, permission, or environment.

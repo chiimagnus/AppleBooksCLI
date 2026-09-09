@@ -59,5 +59,5 @@ metadata:
 
 - Export 必须显式指定 destination；完整 Markdown/archival JSON artifact 只写文件，stdout 只返回 compact JSON write result。遵守 destination/overwrite，默认不覆盖。
 - 用 `history list` 找近期操作，只对相关候选调用 `history get <id>`。History 是证据，不是新的写入授权；`incomplete` 表示 outcome unknown，先只读确认状态。
-- 权限、DB discovery、schema 或 capability 问题使用 `doctor`；正常 empty result 不需要诊断。
+- 权限、DB discovery、schema 或 capability 问题使用 `doctor`；正常 empty result 不需要诊断。`status` 只读作 `ready|partial|unavailable`，再根据固定 `capabilities` Bool 判断哪些命令族仍可用；单个 fatal issue 不能被解释成整套 CLI 都不可用。
 - 没有新证据、输入、权限或环境变化时，不重复同一失败命令。

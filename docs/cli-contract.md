@@ -50,6 +50,12 @@ A cursor is a bounded versioned base64url token, at most 4,096 ASCII bytes. It c
 
 Cursor generation is conservative continuity evidence, not cross-process snapshot isolation. Owners compare the complete dependency generation before and after a page query; a change during the query invalidates the page rather than signing a mixed-generation continuation. On invalid/stale cursor, restart from the first page with the intended query instead of decoding, editing, or guessing token contents.
 
+## Doctor capability status
+
+`doctor` is an explicit broad diagnostic and returns a fixed, bounded capability report. Its canonical `status` is `ready`, `partial`, or `unavailable`: `ready` means every declared ordinary capability prerequisite is ready; `partial` means at least one ordinary capability is usable but not all; `unavailable` means none can be proven usable.
+
+Use `components` for the underlying library/annotations/config/backup/PDF-worker readiness and `capabilities` for direct command-level prerequisites such as `booksRead`, `annotationsRead`, `collectionsRead`, `collectionsWrite`, `annotationWrite`, `contentReadPrerequisites`, `pdfReadPrerequisites`, `backups`, and `syncPrerequisites`. A fatal issue for one store is diagnostic detail and does **not** by itself mean the whole CLI is unavailable. `doctor` never claims that every EPUB/PDF is materialized or DRM-readable; actual content commands remain the authority for per-book availability.
+
 ## Local operation history
 
 `history list` returns JSON summaries; `history get <id>` is the explicit full-record JSON read and may include original argv/stdout/stderr.

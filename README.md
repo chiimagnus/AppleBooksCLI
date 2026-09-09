@@ -47,6 +47,7 @@ applebookscli books search "history" --field all
 applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
 applebookscli stats
+applebookscli doctor   # ready / partial / unavailable + fixed capability map
 
 # Recent annotations
 applebookscli annotations recent

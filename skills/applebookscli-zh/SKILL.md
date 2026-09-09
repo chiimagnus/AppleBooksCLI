@@ -48,4 +48,4 @@ metadata:
 
 - `export` 必须显式指定 output destination；完整 Markdown/archival JSON 写文件，stdout 只返回 compact command result。
 - 权限、DB discovery、schema 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。
-- 需要确认近期 CLI 写入/同步 outcome 时使用 `history`；它不是 undo。
+- 需要确认近期 CLI 写入/同步 outcome 时使用 `history`；它不是 undo。`history list` 使用 cursor 分页，返回 `nextCursor` 时原样传给 `history list --cursor <nextCursor>`；需要完整详情时把 list 返回的 lowercase UUID 交给 `history get`。

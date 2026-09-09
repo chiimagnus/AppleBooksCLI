@@ -1,3 +1,4 @@
+import AppleBooksCore
 import ArgumentParser
 import Foundation
 
@@ -18,6 +19,12 @@ struct HistoryListCommand: ParsableCommand, CLIOutputRunnable {
         abstract: "List summaries for operation history retained during the last 24 hours."
     )
 
+    @Option(name: .long, help: "Maximum history summaries to return (default 20, maximum 100).")
+    var limit: Int?
+
+    @Option(name: .long, help: "Opaque continuation cursor returned by a previous history list page.")
+    var cursor: String?
+
     mutating func run() throws {
         try run(output: .standard)
     }
@@ -27,8 +34,10 @@ struct HistoryListCommand: ParsableCommand, CLIOutputRunnable {
     }
 
     func run(output: CLIOutput, store: OperationHistoryStore) throws {
-        let result = try HistoryListResult(records: historyRecords(from: store))
-        try output.writeJSON(result)
+        let page = try CLIOperation.run {
+            try store.listPage(limit: limit, cursor: cursor)
+        }
+        try output.writeJSON(HistoryListResult(page: page))
     }
 }
 
@@ -50,16 +59,11 @@ struct HistoryGetCommand: ParsableCommand, CLIOutputRunnable {
     }
 
     func run(output: CLIOutput, store: OperationHistoryStore) throws {
-        let record: OperationHistoryRecord
-        do {
+        let record = try CLIOperation.run {
             guard let value = try store.get(id: id) else {
                 throw CLIError.notFound("Operation history entry not found.")
             }
-            record = value
-        } catch let error as CLIError {
-            throw error
-        } catch {
-            throw CLIError.unavailable("Operation history is unavailable.")
+            return value
         }
 
         let result = HistoryDetailResult(record: record)
@@ -69,9 +73,13 @@ struct HistoryGetCommand: ParsableCommand, CLIOutputRunnable {
 
 struct HistoryListResult: Codable, Equatable, Sendable {
     let items: [HistorySummary]
+    let nextCursor: String?
+    let hasMore: Bool
 
-    init(records: [OperationHistoryRecord]) {
-        items = records.map(HistorySummary.init)
+    init(page: CursorPage<OperationHistorySummaryRecord>) {
+        items = page.items.map(HistorySummary.init)
+        nextCursor = page.nextCursor
+        hasMore = page.hasMore
     }
 
 }
@@ -84,7 +92,7 @@ struct HistorySummary: Codable, Equatable, Sendable {
     let status: OperationHistoryStatus
     let exitCode: Int32?
 
-    init(record: OperationHistoryRecord) {
+    init(record: OperationHistorySummaryRecord) {
         id = record.id
         startedAt = record.startedAt
         completedAt = record.completedAt
@@ -118,12 +126,4 @@ struct HistoryDetailResult: Codable, Equatable, Sendable {
         stderr = record.stderr
     }
 
-}
-
-private func historyRecords(from store: OperationHistoryStore) throws -> [OperationHistoryRecord] {
-    do {
-        return try store.list()
-    } catch {
-        throw CLIError.unavailable("Operation history is unavailable.")
-    }
 }

@@ -98,11 +98,11 @@ Current-Mac acknowledgement does not prove another device already displays the c
 ## Operation history
 
 ```sh
-applebookscli history list
+applebookscli history list   # continue with --cursor <nextCursor> when present
 applebookscli history get <history-id>
 ```
 
-History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
+History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history list` is bounded (default 20, maximum 100); `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
 
 ## Optional configuration
 

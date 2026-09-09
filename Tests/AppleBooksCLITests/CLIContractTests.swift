@@ -135,7 +135,7 @@ struct CLIContractTests {
         #expect(detail.id == token.id)
         #expect(detail.arguments.contains(privateArgument))
         #expect(detail.stdout == "{\"committed\":true}\n")
-        #expect(try store.list().count == 1)
+        #expect(try store.listPage(limit: 100).items.count == 1)
     }
 
     @Test
@@ -475,7 +475,7 @@ struct CLIContractTests {
 
         let lock = root.appendingPathComponent(".lock")
         try FileManager.default.removeItem(at: lock)
-        let records = try store.list()
+        let records = try store.listPage(limit: 100).items
         #expect(records.count == 1)
         #expect(records[0].operation == "test.success")
         #expect(records[0].status == .incomplete)
@@ -632,7 +632,17 @@ private final class ProcessHarness {
     }
 
     func historyRecords() throws -> [OperationHistoryRecord] {
-        try OperationHistoryStore(root: historyRoot).list()
+        let store = OperationHistoryStore(root: historyRoot)
+        var result: [OperationHistoryRecord] = []
+        var cursor: String?
+        repeat {
+            let page = try store.listPage(limit: 100, cursor: cursor)
+            for summary in page.items {
+                if let record = try store.get(id: summary.id) { result.append(record) }
+            }
+            cursor = page.nextCursor
+        } while cursor != nil
+        return result
     }
 
     func remove() {

@@ -48,4 +48,4 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 
 - `export` requires an explicit output destination. Full Markdown/archival JSON goes to files; stdout contains the compact command result.
 - Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.
-- Use `history` to inspect recent CLI writes/syncs when outcome evidence is needed; it is not an undo mechanism.
+- Use `history` to inspect recent CLI writes/syncs when outcome evidence is needed; it is not an undo mechanism. `history list` is cursor-paginated, so pass any returned `nextCursor` unchanged to `history list --cursor <nextCursor>`; use the returned lowercase UUID with `history get` for full detail.

@@ -97,11 +97,11 @@ applebookscli sync
 ## 操作历史
 
 ```sh
-applebookscli history list
+applebookscli history list   # 返回 nextCursor 时用 --cursor 继续
 applebookscli history get <history-id>
 ```
 
-History 是最近 AppleBooksCLI mutation/restore/sync 调用的本机私有证据，不是 undo engine。`history get` 是显式完整读取面，可能包含原始参数与捕获输出。详见 [`docs/cli-contract.md`](docs/cli-contract.md)。
+History 是最近 AppleBooksCLI mutation/restore/sync 调用的本机私有证据，不是 undo engine。`history list` 有界分页（默认 20、最大 100）；`history get` 是显式完整读取面，可能包含原始参数与捕获输出。详见 [`docs/cli-contract.md`](docs/cli-contract.md)。
 
 ## 可选配置
 

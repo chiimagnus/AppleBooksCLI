@@ -96,6 +96,14 @@ enum CLIOperation {
                 return .unavailable("PDF source identity is ambiguous. Run `applebookscli pdf list` again.")
             }
         }
+        if let historyError = error as? OperationHistoryStoreError {
+            switch historyError {
+            case .invalidID:
+                return .usageInvalid("Operation history ID must be a canonical lowercase UUID.")
+            case .unavailable:
+                return .unavailable("Operation history is unavailable.")
+            }
+        }
         if let searchError = error as? BookSearchError {
             switch searchError {
             case .emptyQuery:

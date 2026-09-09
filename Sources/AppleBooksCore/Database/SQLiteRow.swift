@@ -5,6 +5,7 @@ public enum SQLiteRowError: Error, Equatable, Sendable {
     case invalidStatement
     case missingColumn(String)
     case typeMismatch(column: String, expected: String, actual: String)
+    case invalidUTF8(column: String)
 }
 
 struct SQLiteRow {
@@ -55,8 +56,11 @@ struct SQLiteRow {
         case SQLITE_NULL:
             return nil
         case SQLITE_TEXT:
-            guard let value = sqlite3_column_text(statement, index) else { return nil }
-            return String(cString: value)
+            do {
+                return try decodeSQLiteText(statement, at: index)
+            } catch is SQLiteTextCodecError {
+                throw SQLiteRowError.invalidUTF8(column: column)
+            }
         default:
             throw mismatch(column, expected: "TEXT", index: index)
         }

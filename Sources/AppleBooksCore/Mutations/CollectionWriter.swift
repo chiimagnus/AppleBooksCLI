@@ -539,9 +539,16 @@ struct CollectionWriter {
             while true {
                 switch sqlite3_step(statement) {
                 case SQLITE_ROW:
-                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-                          let rawID = sqlite3_column_text(statement, 1),
-                          String(cString: rawID) == collectionID else {
+                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
+                        throw CollectionWriteError.collectionIdentityUnavailable
+                    }
+                    let storedID: String
+                    do {
+                        storedID = try decodeSQLiteText(statement, at: 1)
+                    } catch {
+                        throw CollectionWriteError.collectionIdentityUnavailable
+                    }
+                    guard storedID == collectionID else {
                         throw CollectionWriteError.collectionIdentityUnavailable
                     }
                     matches.append(sqlite3_column_int64(statement, 0))
@@ -591,9 +598,16 @@ struct CollectionWriter {
             while true {
                 switch sqlite3_step(statement) {
                 case SQLITE_ROW:
-                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-                          let rawID = sqlite3_column_text(statement, 1),
-                          String(cString: rawID) == assetID else {
+                    guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
+                        throw CollectionWriteError.bookAssetIDUnavailable
+                    }
+                    let storedID: String
+                    do {
+                        storedID = try decodeSQLiteText(statement, at: 1)
+                    } catch {
+                        throw CollectionWriteError.bookAssetIDUnavailable
+                    }
+                    guard storedID == assetID else {
                         throw CollectionWriteError.bookAssetIDUnavailable
                     }
                     matches.append(sqlite3_column_int64(statement, 0))
@@ -639,11 +653,15 @@ struct CollectionWriter {
               sqlite3_column_int64(statement, 2) == 0 else {
             throw CollectionWriteError.collectionDeletedOrUnknown
         }
-        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-              let rawID = sqlite3_column_text(statement, 1) else {
+        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
-        let collectionID = String(cString: rawID)
+        let collectionID: String
+        do {
+            collectionID = try decodeSQLiteText(statement, at: 1)
+        } catch {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
 
         if scope == .membership, collectionID == membershipEditableSystemID {
             return CollectionWriteTarget(localPK: localPK, stableID: nil)
@@ -823,11 +841,14 @@ struct CollectionWriter {
         }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
         guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
-        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT,
-              let text = sqlite3_column_text(statement, 0) else {
+        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
             throw CollectionWriteError.writeFailed
         }
-        return String(cString: text)
+        do {
+            return try decodeSQLiteText(statement, at: 0)
+        } catch {
+            throw CollectionWriteError.writeFailed
+        }
     }
 
     private static func validateMatchingMemberEntities(
@@ -1069,9 +1090,7 @@ struct CollectionWriter {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
-        value.withCString {
-            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        bindSQLiteText(value, to: statement, at: index)
     }
 
     private static func bindOptional(_ value: String?, to statement: OpaquePointer, index: Int32) -> Int32 {

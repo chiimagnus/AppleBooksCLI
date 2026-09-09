@@ -42,6 +42,29 @@ struct BookQueriesTests {
     }
 
     @Test
+    func exactAssetIdentityPreservesEmbeddedNULBytes() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, CAST(X'61626300646566' AS TEXT), 'NUL Identity');
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let exact = try queries.getUniqueByAssetID("abc\0def")
+        #expect(exact?.localPK == 1)
+        #expect(exact?.assetID == "abc\0def")
+        #expect(try queries.getUniqueByAssetID("abc") == nil)
+
+        let summary = try #require(try queries.summaryPage().items.first)
+        #expect(summary.assetID == "abc\0def")
+    }
+
+    @Test
     func summaryCursorUsesWholeLibraryCanonicalOrderAndMinimalProjection() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(

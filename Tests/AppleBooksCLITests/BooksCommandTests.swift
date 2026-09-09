@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 @testable import AppleBooksCLI
+@testable import AppleBooksCore
 
 @Suite("BooksCommandTests")
 struct BooksCommandTests {
@@ -223,6 +224,15 @@ struct BooksCommandTests {
         #expect(longTitle.truncatedFields == ["title"])
 
         #expect(PublicStableTokenPolicy.isEligible("abc\0def") == false)
+        let nulIdentityResult = BookSummaryResult(summary: BookSummary(
+            localPK: 77,
+            assetID: "abc\0def",
+            title: "NUL Identity",
+            author: nil,
+            contentType: nil
+        ))
+        #expect(nulIdentityResult.assetID == nil)
+        #expect(nulIdentityResult.localPK == 77)
         #expect(PublicStableTokenPolicy.isEligible(" leading") == false)
         #expect(PublicStableTokenPolicy.isEligible("trailing ") == false)
         #expect(PublicStableTokenPolicy.isEligible(String(repeating: "x", count: 2_048)))
@@ -232,6 +242,33 @@ struct BooksCommandTests {
         let bounded = BoundedTextPolicy.truncate(hugeGrapheme, profile: .metadata)
         #expect(bounded.truncated)
         #expect(bounded.value == "")
+    }
+
+    @Test
+    func invalidUTF8DatabaseTextFailsWithSanitizedUnavailableError() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZTITLE TEXT
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(1, 'asset-safe', CAST(X'736563726574FF' AS TEXT));
+            """)
+        defer { fixture.remove() }
+
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["books", "list"] + fixture.globalArguments,
+            output: capture.output
+        )
+
+        #expect(code == CLIProcessExit.unavailable.rawValue)
+        #expect(capture.stdout.isEmpty)
+        let error = try jsonObject(capture.stderr)
+        let payload = try #require(error["error"] as? [String: Any])
+        #expect(payload["code"] as? String == "unavailable")
+        #expect(payload["message"] as? String == "Apple Books database schema or data is unavailable.")
+        #expect(capture.stderr.contains("secret") == false)
     }
 
     @Test
@@ -276,13 +313,13 @@ struct BooksCommandTests {
             ]
         }
 
-        init() throws {
+        init(librarySQL: String = Fixture.librarySQL) throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             library = root.appendingPathComponent("library.sqlite")
             annotations = root.appendingPathComponent("annotations.sqlite")
             config = root.appendingPathComponent("config.json")
-            try Self.createDatabase(library, sql: Self.librarySQL)
+            try Self.createDatabase(library, sql: librarySQL)
             try Self.createDatabase(annotations, sql: Self.annotationSQL)
             try Data("{}".utf8).write(to: config)
         }

@@ -313,8 +313,7 @@ struct AnnotationWriter {
             case SQLITE_NULL:
                 return nil
             case SQLITE_TEXT:
-                guard let raw = sqlite3_column_text(statement, index) else { return nil }
-                return String(cString: raw)
+                return try? decodeSQLiteText(statement, at: index)
             default:
                 return nil
             }
@@ -375,9 +374,16 @@ struct AnnotationWriter {
               sqlite3_column_type(statement, 1) == SQLITE_INTEGER,
               sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
               sqlite3_column_int64(statement, 2) == 0,
-              sqlite3_column_type(statement, 3) == SQLITE_TEXT,
-              let rawNote = sqlite3_column_text(statement, 3),
-              String(cString: rawNote) == note,
+              sqlite3_column_type(statement, 3) == SQLITE_TEXT else {
+            throw AnnotationWriteError.writeFailed
+        }
+        let storedNote: String
+        do {
+            storedNote = try decodeSQLiteText(statement, at: 3)
+        } catch {
+            throw AnnotationWriteError.writeFailed
+        }
+        guard storedNote == note,
               sqlite3_column_type(statement, 4) == SQLITE_FLOAT,
               sqlite3_column_type(statement, 5) == SQLITE_TEXT,
               sqlite3_step(statement) == SQLITE_DONE else {
@@ -417,8 +423,6 @@ struct AnnotationWriter {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
-        value.withCString {
-            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        bindSQLiteText(value, to: statement, at: index)
     }
 }

@@ -77,9 +77,17 @@ struct AnnotationCloudProjector {
         root.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 annotationsDatabase.path.withCString { annotationsPath in
-                    identity.assetID.withCString { assetID in
-                        identity.uuid.withCString { uuid in
-                            ABProjectAnnotationState(rootPath, databasePath, annotationsPath, assetID, uuid)
+                    withCloudBridgeUTF8Bytes(identity.assetID) { assetID, assetIDLength in
+                        withCloudBridgeUTF8Bytes(identity.uuid) { uuid, uuidLength in
+                            ABProjectAnnotationState(
+                                rootPath,
+                                databasePath,
+                                annotationsPath,
+                                assetID,
+                                assetIDLength,
+                                uuid,
+                                uuidLength
+                            )
                         }
                     }
                 }

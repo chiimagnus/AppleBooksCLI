@@ -29,6 +29,18 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func embeddedNULNoteRoundTripsWithoutTruncation() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        let note = "before\0after"
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: note)
+
+        #expect(result.changed)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
+    }
+
+    @Test
     func writerDerivesDeeplinkFromAnnotationStoreWithoutLibraryOrConfiguration() throws {
         let fixture = try fixture()
         defer { fixture.remove() }
@@ -312,8 +324,9 @@ struct AnnotationUpdateNoteTests {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare(sql)
-        guard try statement.step(), let raw = sqlite3_column_text(statement.handle, 0) else { return nil }
-        return String(cString: raw)
+        guard try statement.step(),
+              let rawName = sqlite3_column_name(statement.handle, 0) else { return nil }
+        return try SQLiteRow(statement: statement).text(String(cString: rawName))
     }
 
     private func completedBackups(_ root: URL) throws -> [URL] {

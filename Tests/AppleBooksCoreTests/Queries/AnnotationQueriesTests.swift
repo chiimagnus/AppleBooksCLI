@@ -67,6 +67,39 @@ struct AnnotationQueriesTests {
     }
 
     @Test
+    func exactAnnotationIdentityPreservesEmbeddedNULBytes() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let annotations = try database(at: root.appendingPathComponent("nul-annotations.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZANNOTATIONUUID TEXT,
+            ZANNOTATIONASSETID TEXT,
+            ZANNOTATIONDELETED INTEGER,
+            ZANNOTATIONTYPE INTEGER
+        );
+        INSERT INTO ZAEANNOTATION VALUES
+            (1, CAST(X'750078' AS TEXT), CAST(X'610062' AS TEXT), 0, 1);
+        """)
+        let library = try database(at: root.appendingPathComponent("nul-library.sqlite"), sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZASSETID TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (9, CAST(X'610062' AS TEXT));
+        """)
+        let config = root.appendingPathComponent("config.json")
+        try Data("{\"historical_assets\":{}}".utf8).write(to: config)
+        let queries = try AnnotationQueries(
+            annotationConnection: SQLiteConnection.readOnly(path: annotations.path),
+            bookQueries: BookQueries(connection: SQLiteConnection.readOnly(path: library.path)),
+            historicalAssets: AppleBooksConfiguration(fileURL: config).historicalAssets
+        )
+
+        #expect(try queries.getByUUID("u\0x").map { $0.annotation.localPK } == [1])
+        #expect(try queries.getByUUID("u").isEmpty)
+        #expect(try queries.byAssetID("a\0b").map { $0.annotation.localPK } == [1])
+        #expect(try queries.byAssetID("a").isEmpty)
+    }
+
+    @Test
     func aggregateCountsNeedNoAnnotationBodyColumnsAndBatchCapPrecedesSchemaInspection() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -40,6 +40,110 @@ struct AnnotationCloudProjectorTests {
     }
 
     @Test
+    func identityPreservesEmbeddedNULFromDatabase() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("annotations.sqlite")
+        try execute(database, "CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT)")
+        try insertIdentity(database, assetID: "asset\0tail", uuid: "uuid\0tail")
+
+        let identity = try AnnotationCloudProjector.identity(annotationsDatabase: database, localPK: 7)
+        #expect(identity == .init(assetID: "asset\0tail", uuid: "uuid\0tail"))
+    }
+
+    @Test
+    func bridgeUsesExactLengthForDatabaseIdentityLookup() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeDirectory = root.appendingPathComponent("BCAssetData", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let cloudDatabase = storeDirectory.appendingPathComponent("BCAssetData")
+        try Data().write(to: cloudDatabase)
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        try execute(annotations, """
+            CREATE TABLE ZAEANNOTATION(
+              Z_PK INTEGER PRIMARY KEY,
+              ZANNOTATIONASSETID TEXT,
+              ZANNOTATIONUUID TEXT,
+              ZANNOTATIONDELETED INTEGER,
+              ZANNOTATIONMODIFICATIONDATE REAL,
+              ZANNOTATIONNOTE TEXT,
+              ZFUTUREPROOFING6 TEXT,
+              ZANNOTATIONTYPE INTEGER
+            )
+            """)
+        try insertBridgeTarget(annotations, assetID: "asset\0tail", uuid: "uuid\0tail")
+
+        let status = root.path.withCString { rootPath in
+            cloudDatabase.path.withCString { cloudPath in
+                annotations.path.withCString { annotationsPath in
+                    withCloudBridgeUTF8Bytes("asset\0tail") { assetID, assetIDLength in
+                        withCloudBridgeUTF8Bytes("uuid\0tail") { uuid, uuidLength in
+                            ABProjectAnnotationState(
+                                rootPath,
+                                cloudPath,
+                                annotationsPath,
+                                assetID,
+                                assetIDLength,
+                                uuid,
+                                uuidLength
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        #expect(status >= 4)
+    }
+
+    @Test
+    func bridgeRejectsInvalidUTF8AnnotationPayloadBeforePrivateFrameworkAccess() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeDirectory = root.appendingPathComponent("BCAssetData", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let cloudDatabase = storeDirectory.appendingPathComponent("BCAssetData")
+        try Data().write(to: cloudDatabase)
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        try execute(annotations, """
+            CREATE TABLE ZAEANNOTATION(
+              Z_PK INTEGER PRIMARY KEY,
+              ZANNOTATIONASSETID TEXT,
+              ZANNOTATIONUUID TEXT,
+              ZANNOTATIONDELETED INTEGER,
+              ZANNOTATIONMODIFICATIONDATE REAL,
+              ZANNOTATIONNOTE TEXT,
+              ZFUTUREPROOFING6 TEXT,
+              ZANNOTATIONTYPE INTEGER
+            );
+            INSERT INTO ZAEANNOTATION VALUES(
+              7,'asset-safe','uuid-safe',0,1,CAST(X'736563726574FF' AS TEXT),NULL,1
+            );
+            """)
+
+        let status = root.path.withCString { rootPath in
+            cloudDatabase.path.withCString { cloudPath in
+                annotations.path.withCString { annotationsPath in
+                    withCloudBridgeUTF8Bytes("asset-safe") { assetID, assetIDLength in
+                        withCloudBridgeUTF8Bytes("uuid-safe") { uuid, uuidLength in
+                            ABProjectAnnotationState(
+                                rootPath,
+                                cloudPath,
+                                annotationsPath,
+                                assetID,
+                                assetIDLength,
+                                uuid,
+                                uuidLength
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        #expect(status == 3)
+    }
+
+    @Test
     func nonCanonicalAnnotationsDatabaseDisablesLiveProjection() throws {
         let root = try fixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -72,15 +176,91 @@ struct AnnotationCloudProjectorTests {
         let status = storeDirectory.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 annotations.path.withCString { annotationsPath in
-                    "ASSET".withCString { assetID in
-                        "UUID".withCString { uuid in
-                            ABProjectAnnotationState(rootPath, databasePath, annotationsPath, assetID, uuid)
+                    withCloudBridgeUTF8Bytes("\0ASSET") { assetID, assetIDLength in
+                        withCloudBridgeUTF8Bytes("UUID") { uuid, uuidLength in
+                            ABProjectAnnotationState(
+                                rootPath,
+                                databasePath,
+                                annotationsPath,
+                                assetID,
+                                assetIDLength,
+                                uuid,
+                                uuidLength
+                            )
                         }
                     }
                 }
             }
         }
         #expect(status == 2)
+
+        let invalidBytes: [UInt8] = [0xFF]
+        let invalidStatus = storeDirectory.path.withCString { rootPath in
+            database.path.withCString { databasePath in
+                annotations.path.withCString { annotationsPath in
+                    invalidBytes.withUnsafeBufferPointer { invalid in
+                        withCloudBridgeUTF8Bytes("UUID") { uuid, uuidLength in
+                            ABProjectAnnotationState(
+                                rootPath,
+                                databasePath,
+                                annotationsPath,
+                                invalid.baseAddress!,
+                                invalid.count,
+                                uuid,
+                                uuidLength
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        #expect(invalidStatus == 1)
+    }
+
+    private func insertIdentity(_ database: URL, assetID: String, uuid: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
+        defer { sqlite3_close_v2(handle) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "INSERT INTO ZAEANNOTATION(Z_PK,ZANNOTATIONASSETID,ZANNOTATIONUUID) VALUES(7,?,?)", -1, &statement, nil) == SQLITE_OK,
+              let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
+        defer { sqlite3_finalize(statement) }
+        try bindExact(assetID, to: statement, index: 1, handle: handle)
+        try bindExact(uuid, to: statement, index: 2, handle: handle)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
+    }
+
+    private func insertBridgeTarget(_ database: URL, assetID: String, uuid: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
+        defer { sqlite3_close_v2(handle) }
+        var statement: OpaquePointer?
+        let sql = "INSERT INTO ZAEANNOTATION VALUES(7,?,?,0,1,NULL,NULL,1)"
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
+        defer { sqlite3_finalize(statement) }
+        try bindExact(assetID, to: statement, index: 1, handle: handle)
+        try bindExact(uuid, to: statement, index: 2, handle: handle)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
+    }
+
+    private func bindExact(_ value: String, to statement: OpaquePointer, index: Int32, handle: OpaquePointer) throws {
+        let bytes = Array(value.utf8)
+        let result = bytes.withUnsafeBytes { raw in
+            sqlite3_bind_text64(
+                statement,
+                index,
+                raw.baseAddress,
+                sqlite3_uint64(raw.count),
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self),
+                UInt8(SQLITE_UTF8)
+            )
+        }
+        guard result == SQLITE_OK else { throw SQLiteError.current(operation: .bind, code: result, handle: handle) }
     }
 
     private func fixtureRoot() throws -> URL {

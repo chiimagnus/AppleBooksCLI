@@ -202,8 +202,6 @@ enum WriteSchemaGuard {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {
-        value.withCString {
-            sqlite3_bind_text(statement, index, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        bindSQLiteText(value, to: statement, at: index)
     }
 }

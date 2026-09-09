@@ -38,6 +38,21 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
+    func embeddedNULTitleAndDetailsRoundTripWithoutTruncation() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let title = "Shelf\0Name"
+        let details = "left\0right"
+
+        let created = try fixture.writer.createCollection(title: title, details: details)
+        let pk = try #require(created.localPK)
+        let row = try collectionRow(fixture.database, pk: pk)
+
+        #expect(row.title == title)
+        #expect(row.details == details)
+    }
+
+    @Test
     func createProjectsCommittedCollectionByLocalIdentity() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

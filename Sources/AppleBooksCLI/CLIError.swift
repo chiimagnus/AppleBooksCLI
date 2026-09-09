@@ -159,7 +159,7 @@ enum CLIOperation {
         if error is AppleBooksConfigurationError {
             return .unavailable("AppleBooksCLI configuration is invalid.")
         }
-        if error is SchemaCompatibilityError || error is QueryDecodingError || error is SQLiteError {
+        if error is SchemaCompatibilityError || error is QueryDecodingError || error is SQLiteRowError || error is SQLiteError {
             return .unavailable("Apple Books database schema or data is unavailable.")
         }
         if error is StableIdentityError {

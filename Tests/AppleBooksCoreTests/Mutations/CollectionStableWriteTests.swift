@@ -60,6 +60,35 @@ struct CollectionStableWriteTests {
     }
 
     @Test
+    func stableBookSelectorPreservesEmbeddedNULBytes() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let collectionID = "550E8400-E29B-41D4-A716-446655440000"
+        try execute(
+            fixture.database,
+            "UPDATE ZBKLIBRARYASSET SET ZASSETID=CAST(X'6173736574006964' AS TEXT) WHERE Z_PK=1"
+        )
+
+        let added = try fixture.writer.addBook(assetID: "asset\0id", toCollectionID: collectionID)
+        #expect(added.changed)
+        #expect(try matchingMemberCount(
+            fixture.database,
+            collectionLocalPK: 10,
+            assetID: "asset\0id"
+        ) == 1)
+
+        let prefixOnly = try makeFixture()
+        defer { prefixOnly.remove() }
+        try execute(
+            prefixOnly.database,
+            "UPDATE ZBKLIBRARYASSET SET ZASSETID=CAST(X'6173736574006964' AS TEXT) WHERE Z_PK=1"
+        )
+        #expect(throws: CollectionWriteError.bookMissing) {
+            _ = try prefixOnly.writer.addBook(assetID: "asset", toCollectionID: collectionID)
+        }
+    }
+
+    @Test
     func duplicateStableIdentityFailsClosedBeforeBackup() throws {
         let duplicateCollection = try makeFixture()
         defer { duplicateCollection.remove() }
@@ -186,6 +215,24 @@ struct CollectionStableWriteTests {
         let statement = try connection.prepare(sql)
         guard try statement.step() else { return 0 }
         return sqlite3_column_int64(statement.handle, 0)
+    }
+
+    private func matchingMemberCount(
+        _ database: URL,
+        collectionLocalPK: Int64,
+        assetID: String
+    ) throws -> Int64 {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare("""
+        SELECT COUNT(*) AS count
+        FROM ZBKCOLLECTIONMEMBER
+        WHERE ZCOLLECTION=? AND ZASSETID=? COLLATE BINARY
+        """)
+        try statement.bind(collectionLocalPK, at: 1)
+        try statement.bind(assetID, at: 2)
+        guard try statement.step() else { return 0 }
+        return try SQLiteRow(statement: statement).int64("count") ?? 0
     }
 
     private struct Fixture {

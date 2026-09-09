@@ -671,41 +671,19 @@ public final class AppleBooks {
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? requiredAnnotationQueries().getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
-        return try requiredAnnotationWriter().updateNote(
-            localPK: localPK,
-            note: note,
-            syncCloud: syncCloud,
-            appleBooksURL: appleBooksURL
-        )
+        try requiredAnnotationWriter().updateNote(localPK: localPK, note: note, syncCloud: syncCloud)
     }
 
     public func updateAnnotationNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? requiredAnnotationQueries().getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
-        return try requiredAnnotationWriter().updateNote(
-            uuid: uuid,
-            note: note,
-            syncCloud: syncCloud,
-            appleBooksURL: appleBooksURL
-        )
+        try requiredAnnotationWriter().updateNote(uuid: uuid, note: note, syncCloud: syncCloud)
     }
 
     public func deleteAnnotation(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? requiredAnnotationQueries().getByLocalPK(localPK, scope: .user))?.annotation.appleBooksURL
-        return try requiredAnnotationWriter().delete(
-            localPK: localPK,
-            syncCloud: syncCloud,
-            appleBooksURL: appleBooksURL
-        )
+        try requiredAnnotationWriter().delete(localPK: localPK, syncCloud: syncCloud)
     }
 
     public func deleteAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
-        let appleBooksURL = (try? requiredAnnotationQueries().getUniqueByUUID(uuid, scope: .user))?.annotation.appleBooksURL
-        return try requiredAnnotationWriter().delete(
-            uuid: uuid,
-            syncCloud: syncCloud,
-            appleBooksURL: appleBooksURL
-        )
+        try requiredAnnotationWriter().delete(uuid: uuid, syncCloud: syncCloud)
     }
 
     public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {

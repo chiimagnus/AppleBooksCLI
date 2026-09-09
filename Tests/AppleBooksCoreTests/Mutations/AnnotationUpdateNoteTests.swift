@@ -29,6 +29,22 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func writerDerivesDeeplinkFromAnnotationStoreWithoutLibraryOrConfiguration() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID='asset-synthetic', ZANNOTATIONLOCATION='epubcfi(/6/2[chapter]!/4/2,:1,:2)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(uuid: "uuid-1", note: "new note")
+
+        #expect(result.appleBooksURL == "ibooks://assetid/asset-synthetic#epubcfi(/6/2%5Bchapter%5D!/4/2,:1,:2)")
+    }
+
+    @Test
     func localPKIsExplicitAndWhitespaceNoteIsNotTrimmed() throws {
         let fixture = try fixture()
         defer { fixture.remove() }

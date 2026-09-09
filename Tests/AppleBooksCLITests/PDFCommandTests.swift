@@ -9,10 +9,14 @@ import Testing
 @Suite("PDFCommandTests")
 struct PDFCommandTests {
     @Test
-    func fakeWorkerSuccessPayloadMatchesWorkerProtocol() throws {
+    func fakeWorkerSuccessPayloadMatchesPagedWorkerProtocol() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let request = try PDFWorkerProtocol.encodeRequest(PDFWorkerRequest(path: fixture.explicit.path))
+        let request = try PDFWorkerProtocol.encodeRequest(PDFWorkerRequest(
+            path: fixture.explicit.path,
+            mode: .agentSummary,
+            limit: 20
+        ))
         let process = Process()
         process.executableURL = fixture.worker
         let input = Pipe()
@@ -25,8 +29,11 @@ struct PDFCommandTests {
         process.waitUntilExit()
         let payload = try output.fileHandleForReading.readToEnd() ?? Data()
         let decoded = try PDFWorkerProtocol.decodeResponse(payload)
+        #expect(decoded.version == 2)
         #expect(decoded.status == .success)
-        #expect(decoded.highlights?.first?.note == "explicit")
+        #expect(decoded.mode == .agentSummary)
+        #expect(decoded.summaryHighlights?.first?.note == "explicit")
+        #expect(decoded.archiveHighlights == nil)
     }
 
     @Test
@@ -76,75 +83,71 @@ struct PDFCommandTests {
         let fallback = try #require(list.items.first { $0.provenance == "fallback" })
         let sourceID = try #require(fallback.pdfSourceID)
 
-        let command = try PDFHighlightsCommand.parse(["--pdf", sourceID])
-        let result = try command.execute(using: fixture.coreForInventory(worker: fixture.worker))
-        #expect(result.failures.isEmpty)
-        let document = try #require(result.documents.first)
-        #expect(document.source.pdfSourceID == sourceID)
-        #expect(document.source.bookAssetID == nil)
-        #expect(document.source.provenance == "fallback")
-        #expect(document.highlights.first?.note == "fallback")
+        let result = try PDFHighlightsCommand.parse(["--pdf", sourceID]).execute(
+            using: fixture.coreForInventory(worker: fixture.worker)
+        )
+        #expect(result.pdfSourceID == sourceID)
+        #expect(result.bookAssetID == nil)
+        #expect(result.items.first?.note == "fallback")
     }
 
     @Test
-    func numericLookingBookSelectorNeverGuessesPK() throws {
+    func highlightsUseStableBookIdentityOpaqueCursorAndCompactSummaryOnly() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let byAsset = try PDFHighlightsCommand.parse(["--book", "123"] + fixture.arguments)
-        let assetResult = try byAsset.execute(workerURL: fixture.worker)
-        #expect(assetResult.failures.isEmpty)
-        #expect(assetResult.documents.first?.highlights.first?.note == "asset")
 
-        let byPK = try PDFHighlightsCommand.parse(["--book-pk", "123"] + fixture.arguments)
-        let pkResult = try byPK.execute(workerURL: fixture.worker)
-        #expect(pkResult.documents.first?.highlights.first?.note == "pk")
+        let first = try PDFHighlightsCommand.parse(["--book", "123", "--limit", "1"] + fixture.arguments)
+            .execute(workerURL: fixture.worker)
+        #expect(first.bookAssetID == "123")
+        #expect(first.pdfSourceID == nil)
+        #expect(first.items.map(\.note) == ["asset-1"])
+        #expect(first.items.first?.text == "private text")
+        #expect(first.items.first?.textApproximate == true)
+        #expect(first.items.first?.presentationColor?.name == "yellow")
+        #expect(first.items.first?.presentationColor?.approximate == true)
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
+
+        let second = try PDFHighlightsCommand.parse([
+            "--book", "123", "--limit", "1", "--cursor", cursor,
+        ] + fixture.arguments).execute(workerURL: fixture.worker)
+        #expect(second.items.map(\.note) == ["asset-2"])
+        #expect(second.hasMore == false)
+        #expect(second.nextCursor == nil)
+
+        let encoded = String(decoding: try JSONEncoder().encode(first), as: UTF8.self)
+        for privateField in [
+            "traversalIndex", "bounds", "quadrilateralPoints", "pdfKitRGBA",
+            "textSource", "textUnavailableReason", "distance", "filePath", "provenance",
+        ] {
+            #expect(encoded.contains(privateField) == false)
+        }
     }
 
     @Test
-    func explicitPathRemainsCompatibilityOnlyAndDoesNotPublishThePath() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let command = try PDFHighlightsCommand.parse(["--path", fixture.explicit.path] + fixture.arguments)
-        let result = try command.execute(workerURL: fixture.worker)
-        #expect(result.failures.isEmpty)
-        let document = try #require(result.documents.first)
-        let highlight = try #require(document.highlights.first)
+    func removedPathPKAndTimeoutSurfaceStayRejected() throws {
+        let missing = "/definitely/missing/private.sqlite"
+        let base = ["--library-db", missing, "--annotations-db", missing]
+        for arguments in [
+            ["--book-pk", "1"] + base,
+            ["--path", "/tmp/private.pdf"] + base,
+            ["--book", "123", "--timeout", "1"] + base,
+        ] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: ["pdf", "highlights"] + arguments, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains(missing) == false)
+        }
 
-        #expect(document.source.provenance == "explicit")
-        #expect(document.source.bookAssetID == nil)
-        #expect(document.source.pdfSourceID == nil)
-        #expect(highlight.page == 2)
-        #expect(highlight.traversalIndex == 3)
-        #expect(highlight.pdfKitRGBA == [1, 1, 0, 1])
-        #expect(highlight.presentationColor?.color == "yellow")
-        #expect(highlight.text == "private text")
-        #expect(highlight.textSource == "quadSelection")
-        #expect(highlight.textIsApproximate)
-
-        let text = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
-        #expect(text.contains(fixture.explicit.path) == false)
+        let help = Capture()
+        #expect(CLIEntrypoint.run(arguments: ["pdf", "highlights", "--help"], output: help.output) == 0)
+        for present in ["--book", "--pdf", "--limit", "--cursor"] { #expect(help.stdout.contains(present)) }
+        for removed in ["--book-pk", "--path", "--timeout", "--offset"] { #expect(help.stdout.contains(removed) == false) }
     }
 
     @Test
-    func timeoutBecomesStructuredFailureAndDefaultHasOneCoreOwner() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let defaultCommand = try PDFHighlightsCommand.parse(["--path", fixture.explicit.path] + fixture.arguments)
-        #expect(defaultCommand.timeout == AppleBooks.defaultPDFWorkerTimeout)
-
-        let timeoutCommand = try PDFHighlightsCommand.parse([
-            "--path", fixture.timeoutPDF.path,
-            "--timeout", "0.05",
-        ] + fixture.arguments)
-        let result = try timeoutCommand.execute(workerURL: fixture.worker)
-        #expect(result.attemptedCount == 1)
-        #expect(result.failedCount == 1)
-        #expect(result.timeoutCount == 1)
-        #expect(result.failures.first?.reason == "timeout")
-    }
-
-    @Test
-    func selectorGrammarAndSourceIDValidationFailBeforeWorkerOrDatabaseIO() throws {
+    func selectorAndPaginationValidationFailBeforeWorkerOrDatabaseIO() throws {
         let missing = "/definitely/missing/private.sqlite"
         let base = ["--library-db", missing, "--annotations-db", missing]
         let validID = "pdf1_" + String(repeating: "0", count: 64)
@@ -152,8 +155,6 @@ struct PDFCommandTests {
         for arguments in [
             base,
             ["--book", "123", "--pdf", validID] + base,
-            ["--book-pk", "1", "--pdf", validID] + base,
-            ["--pdf", validID, "--path", "/missing.pdf"] + base,
         ] {
             let command = try PDFHighlightsCommand.parse(arguments)
             #expect(throws: ValidationError.self) {
@@ -177,9 +178,19 @@ struct PDFCommandTests {
             }
         }
 
-        let invalidTimeout = try PDFHighlightsCommand.parse(["--path", "/missing.pdf", "--timeout", "0"] + base)
-        #expect(throws: ValidationError.self) {
-            _ = try invalidTimeout.execute(workerURL: URL(fileURLWithPath: "/missing-worker"))
+        for arguments in [
+            ["--book", "123", "--limit", "0"] + base,
+            ["--book", "123", "--limit", "101"] + base,
+            ["--book", "123", "--cursor", "!"] + base,
+        ] {
+            let command = try PDFHighlightsCommand.parse(arguments)
+            do {
+                _ = try command.execute(workerURL: URL(fileURLWithPath: "/missing-worker"))
+                Issue.record("Expected invalid pagination input")
+            } catch let error as CLIError {
+                #expect(error.code == .usageInvalid)
+                #expect(error.message.contains(missing) == false)
+            }
         }
     }
 
@@ -200,6 +211,18 @@ struct PDFCommandTests {
                 #expect(error.code == .usageInvalid)
                 #expect(error.message.contains(missing) == false)
             }
+        }
+    }
+
+    private final class Capture {
+        var stdout = ""
+        var stderr = ""
+
+        var output: CLIOutput {
+            CLIOutput(
+                stdout: { [self] in stdout += $0 },
+                stderr: { [self] in stderr += $0 }
+            )
         }
     }
 
@@ -258,8 +281,13 @@ struct PDFCommandTests {
               *no-id.pdf*) note=noid ;;
               *) note=explicit ;;
             esac
-            if [ "${note-}" != "" ]; then
-              printf '{"version":1,"status":"success","highlights":[{"page":2,"traversalIndex":3,"bounds":{"x":1,"y":2,"width":3,"height":4},"quadrilateralPoints":[],"note":"%s","pdfKitRGBA":[1,1,0,1],"presentationColor":{"color":"yellow","distance":0,"isApproximate":true},"text":"private text","textSource":"quadSelection","textIsApproximate":true}]}' "$note"
+            generation='pdfg2_0000000000000000000000000000000000000000000000000000000000000000'
+            if printf '%s' "$request" | grep -q '"continuation"'; then
+              printf '{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":2,"note":"%s-2","text":"private text","textApproximate":true,"presentationColor":{"name":"yellow","approximate":true},"truncatedFields":[]}],"hasMore":false,"generation":"%s"}' "$note" "$generation"
+            elif printf '%s' "$request" | grep -q '"limit":1'; then
+              printf '{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":2,"note":"%s-1","text":"private text","textApproximate":true,"presentationColor":{"name":"yellow","approximate":true},"truncatedFields":[]}],"nextTraversal":{"pageIndex":0,"annotationIndex":1},"hasMore":true,"generation":"%s"}' "$note" "$generation"
+            else
+              printf '{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":2,"note":"%s","text":"private text","textApproximate":true,"presentationColor":{"name":"yellow","approximate":true},"truncatedFields":[]}],"hasMore":false,"generation":"%s"}' "$note" "$generation"
             fi
             """
             try Data(script.utf8).write(to: worker)

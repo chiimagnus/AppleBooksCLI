@@ -200,39 +200,6 @@ struct BookQueries {
         try query(.pdf, capability: .bookPDF, limit: nil, offset: 0)
     }
 
-    func semanticPDFResources() throws -> [BookPDFResource] {
-        _ = try AppleBooksSchema.inspect(.bookPDF, on: connection)
-        let schema = try AppleBooksSchema.inspect(.bookContentPathLookup, on: connection)
-        var projection = summaryProjection(schema: schema, alias: "b")
-        projection += SQLiteTextProjection.exact(
-            "b.\(AppleBooksSchema.Book.path)",
-            alias: "pdfResourcePath",
-            maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
-        )
-        let statement = try connection.prepare("""
-        SELECT \(projection.joined(separator: ", "))
-        FROM \(AppleBooksTable.books.rawValue) AS b
-        WHERE b.\(AppleBooksSchema.Book.contentType) = 3
-        ORDER BY \(summaryOrder(schema: schema, alias: "b").joined(separator: ", "))
-        """)
-        var result: [BookPDFResource] = []
-        while try statement.step() {
-            let row = try SQLiteRow(statement: statement)
-            let summary = try decodeSummary(row, schema: schema)
-            let path = try decodeResourcePath(row, alias: "pdfResourcePath")
-            result.append(BookPDFResource(
-                summary: summary,
-                target: BookResourceTarget(
-                    localPK: summary.localPK,
-                    assetID: summary.assetID,
-                    contentType: summary.contentType,
-                    path: path
-                )
-            ))
-        }
-        return result
-    }
-
     func forEachPDFResourceTarget(
         _ body: (BookResourceTarget, Int) throws -> Bool
     ) throws {

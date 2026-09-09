@@ -105,8 +105,8 @@ PDF 的长期边界：
 - fallback discovery 由 root directory FD 拥有 trust boundary：拒绝 root symlink/non-directory，随后只通过 `readdir` + `openat(..., O_NOFOLLOW)` + `fstat` 分类 direct regular `.pdf` entry；不递归、不 fuzzy、不用 symlink-resolved target path 建立 ordinary identity。
 - library Book path 只有满足 ordinary resource path budget、lexical absolute standardized grammar，并经 no-follow regular-file open/fstat 后才成为 PDF source；同 inode 的 library/fallback source只出现一次，symlink fail closed。
 - inventory cursor generation 同时绑定 library SQLite generation 与当前 library/fallback file inventory state；任一 mapping、entry 或 file metadata 变化都会使旧 cursor stale。
-- PDFKit 在独立 worker process 中运行；worker 对收到的 path 自己执行 no-follow open，并通过已打开 descriptor 读取，避免验证后重新跟随被替换的 path。timeout/crash/malformed output 都是结构化 failure。
-- 无法恢复 text 时仍保留 raw highlight/note/page/geometry；color mapping 只是 presentation approximation。
+- PDFKit 在独立 worker process 中运行；worker 对收到的 path 自己执行 no-follow open，并通过已打开 descriptor 读取，避免验证后重新跟随被替换的 path。worker protocol v2 以 traversal + source generation 原生分页，stdin 有 64 KiB hard cap；timeout/crash/malformed/oversize output 都是结构化 failure。
+- ordinary `pdf highlights` 只请求 bounded `agentSummary` page，公开 page、bounded Note/text、modified 与 approximate presentation color，不把 geometry/raw RGBA/traversal 先传回主进程。archive/export 使用独立 `archive` mode 并逐页遍历，保留 raw highlight/note/page/geometry fidelity；单页 worker envelope 超过 process hard cap 时该 source 明确失败，不静默截断。
 
 ## Export 分层
 

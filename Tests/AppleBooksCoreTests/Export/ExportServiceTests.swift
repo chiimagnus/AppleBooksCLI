@@ -309,6 +309,53 @@ struct ExportServiceTests {
     }
 
     @Test
+    func archivePDFExportTraversesEveryWorkerPage() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.pdf(name: "paged.pdf")
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([])
+        let worker = try fixture.pagedWorker()
+
+        let bundle = try fixture.service(worker: worker).makeBundle(
+            options: ExportOptions(source: .pdf)
+        )
+
+        #expect(bundle.groups.count == 1)
+        #expect(bundle.groups[0].records.count == 2)
+        #expect(bundle.statistics.pdfHighlightCount == 2)
+        #expect(bundle.sourceTotals.pdfHighlightCount == 2)
+        #expect(bundle.warnings.isEmpty)
+        #expect(try fixture.workerCallCount() == 2)
+    }
+
+    @Test
+    func oversizedArchiveWorkerEnvelopeBecomesWarningWithoutPartialExport() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.pdf(name: "oversized.pdf")
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([])
+        let worker = try fixture.oversizeWorker()
+
+        let bundle = try fixture.service(worker: worker, timeout: 10).makeBundle(
+            options: ExportOptions(source: .pdf)
+        )
+
+        #expect(bundle.groups.isEmpty)
+        #expect(bundle.statistics.pdfHighlightCount == 0)
+        #expect(bundle.sourceTotals.pdfAttemptedDocumentCount == 1)
+        #expect(bundle.sourceTotals.pdfSucceededDocumentCount == 0)
+        #expect(bundle.sourceTotals.pdfFailedDocumentCount == 1)
+        let warning = try #require(bundle.warnings.first)
+        guard case let .pdfFailure(failure) = warning else {
+            Issue.record("Expected PDF failure warning")
+            return
+        }
+        #expect(failure.reason == .worker(.stdoutLimitExceeded(capturedBytes: PDFWorkerClient.stdoutLimit)))
+    }
+
+    @Test
     func missingStableSelectorReturnsEmptyBundleWithoutWorker() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -476,12 +523,48 @@ struct ExportServiceTests {
             IFS= read -r request || true
             case "$request" in
               *bad.pdf*|*unselected-bad.pdf*)
-                printf '%s' '{"version":1,"status":"failure","errorCode":"unreadableDocument"}'
+                printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
                 ;;
               *)
-                printf '%s' '{"version":1,"status":"success","highlights":[{"page":2,"traversalIndex":3,"bounds":{"x":1,"y":2,"width":30,"height":4},"quadrilateralPoints":[],"note":null,"pdfKitRGBA":[1,1,0,1],"presentationColor":{"color":"yellow","distance":0,"isApproximate":true},"text":"pdf text","textSource":"quadSelection","textIsApproximate":true}]}'
+                printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":2,"traversalIndex":3,"bounds":{"x":1,"y":2,"width":30,"height":4},"quadrilateralPoints":[],"note":null,"pdfKitRGBA":[1,1,0,1],"presentationColor":{"color":"yellow","distance":0,"isApproximate":true},"text":"pdf text","textSource":"quadSelection","textIsApproximate":true}],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
                 ;;
             esac
+            """
+            try Data(script.utf8).write(to: worker)
+            guard chmod(worker.path, 0o700) == 0 else { throw FixtureError.permissions }
+            return worker
+        }
+
+        func pagedWorker() throws -> URL {
+            let worker = root.appendingPathComponent("paged-worker")
+            let counter = shellQuote(counterURL.path)
+            let generation = "pdfg2_" + String(repeating: "0", count: 64)
+            let script = """
+            #!/bin/sh
+            set -eu
+            printf 'x' >> \(counter)
+            calls=$(wc -c < \(counter) | tr -d ' ')
+            IFS= read -r request || true
+            if [ "$calls" -eq 1 ]; then
+              printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"note":"first","textIsApproximate":true}],"nextTraversal":{"pageIndex":0,"annotationIndex":1},"hasMore":true,"generation":"\(generation)"}'
+            else
+              printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":2,"traversalIndex":1,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"note":"second","textIsApproximate":true}],"hasMore":false,"generation":"\(generation)"}'
+            fi
+            """
+            try Data(script.utf8).write(to: worker)
+            guard chmod(worker.path, 0o700) == 0 else { throw FixtureError.permissions }
+            return worker
+        }
+
+        func oversizeWorker() throws -> URL {
+            let worker = root.appendingPathComponent("oversize-worker")
+            let chunk = shellQuote(String(repeating: "x", count: 4_096))
+            let script = """
+            #!/bin/sh
+            set -eu
+            IFS= read -r request || true
+            chunk=\(chunk)
+            while :; do printf '%s' "$chunk"; done
             """
             try Data(script.utf8).write(to: worker)
             guard chmod(worker.path, 0o700) == 0 else { throw FixtureError.permissions }
@@ -493,7 +576,7 @@ struct ExportServiceTests {
             return try String(contentsOf: counterURL, encoding: .utf8).count
         }
 
-        func service(worker: URL? = nil) throws -> ExportService {
+        func service(worker: URL? = nil, timeout: TimeInterval = 2) throws -> ExportService {
             let libraryConnection = try SQLiteConnection.readOnly(path: libraryURL.path)
             let bookQueries = BookQueries(connection: libraryConnection)
             let configuration = try AppleBooksConfiguration(fileURL: configurationURL)
@@ -506,7 +589,7 @@ struct ExportServiceTests {
                 PDFHighlightService(
                     bookQueries: bookQueries,
                     sourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
-                    workerClient: PDFWorkerClient(workerURL: $0, timeout: 2, terminationGrace: 0.05)
+                    workerClient: PDFWorkerClient(workerURL: $0, timeout: timeout, terminationGrace: 0.05)
                 )
             }
             return ExportService(

@@ -195,6 +195,9 @@ enum CLIOperation {
         if error is PDFHighlightFacadeError {
             return .unavailable("PDF worker is unavailable.")
         }
+        if error is PDFWorkerClientError {
+            return .unavailable("PDF highlight extraction is unavailable.")
+        }
         if let contextError = error as? AnnotationContextError {
             switch contextError {
             case .invalidWindow:

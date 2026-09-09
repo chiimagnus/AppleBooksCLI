@@ -130,6 +130,26 @@ struct PDFSourceResolver {
         return CursorPage(items: items, nextCursor: nextCursor, hasMore: hasMore)
     }
 
+    func resolve(bookAssetID: String, bookQueries: BookQueries) throws -> PDFSource? {
+        let library = try scanLibrary(bookQueries: bookQueries)
+        var match: PDFSource?
+        var matchCount = 0
+        for group in library.groups.values {
+            let candidate = try libraryCandidate(group)
+            guard candidate.key.kind == .book, candidate.key.value == bookAssetID else { continue }
+            matchCount += 1
+            guard matchCount == 1, let localPK = candidate.summaryLocalPK else {
+                throw StableIdentityError.ambiguousBookAssetID
+            }
+            match = PDFSource(
+                fileURL: candidate.fileURL,
+                bookSummary: try bookQueries.semanticSummary(localPK: localPK),
+                provenance: .library
+            )
+        }
+        return match
+    }
+
     func resolve(sourceID: PDFSourceID, bookQueries: BookQueries) throws -> PDFSource? {
         let library = try scanLibrary(bookQueries: bookQueries)
         var match: PDFSource?

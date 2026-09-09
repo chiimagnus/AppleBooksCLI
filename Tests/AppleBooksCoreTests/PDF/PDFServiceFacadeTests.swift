@@ -101,10 +101,10 @@ struct PDFServiceFacadeTests {
             IFS= read -r request || true
             case "$request" in
               *fallback.pdf*)
-                printf '%s' '{"version":1,"status":"success","highlights":[]}'
+                printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
                 ;;
               *)
-                printf '%s' '{"version":1,"status":"success","highlights":[{"page":1,"traversalIndex":0,"bounds":{"x":1,"y":2,"width":3,"height":4},"quadrilateralPoints":[],"note":"facade note","textIsApproximate":true}]}'
+                printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":1,"y":2,"width":3,"height":4},"quadrilateralPoints":[],"note":"facade note","textIsApproximate":true}],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
                 ;;
             esac
             """

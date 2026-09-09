@@ -724,21 +724,72 @@ public final class AppleBooks {
         )
     }
 
-    package func semanticPDFSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
-        let queries = try requiredBookQueries()
-        guard let target = try queries.pdfResourceTarget(localPK: localPK) else { return nil }
-        let summary = try queries.semanticSummary(localPK: localPK)
-        return pdfSourceResolver.resolve(target: target, summary: summary)
+    package func semanticPDFSource(bookAssetID assetID: String) throws -> PDFSource? {
+        try pdfSourceResolver.resolve(bookAssetID: assetID, bookQueries: requiredBookQueries())
     }
 
     package func semanticPDFSource(sourceID: PDFSourceID) throws -> PDFSource? {
         try pdfSourceResolver.resolve(sourceID: sourceID, bookQueries: requiredBookQueries())
     }
 
-    package func semanticPDFSource(fileURL: URL) throws -> PDFSource? {
-        pdfSourceResolver.resolve(
-            fileURL: fileURL,
-            pdfResources: try requiredBookQueries().semanticPDFResources()
+    package func semanticPDFHighlightPage(
+        source: PDFSource,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> SemanticPDFHighlightPage {
+        let effectiveLimit = try resolvedCursorPageLimit(limit)
+        let identity = try pdfHighlightCursorIdentity(source)
+        let cursorGeneration = try CursorGeneration.compose([
+            .synthetic(label: "pdf-highlight-cursor", value: "v2"),
+        ])
+        let fingerprint = try CursorQueryFingerprint.make(
+            kind: "pdf.highlights",
+            fields: [
+                CursorFingerprintField("order.version", .unsigned(1)),
+                CursorFingerprintField("source.kind", .string(identity.kind)),
+                CursorFingerprintField("source.value", .string(identity.value)),
+            ]
+        )
+        let session = try CursorPaginationSession(
+            cursor: cursor,
+            fingerprint: fingerprint,
+            generation: cursorGeneration
+        )
+        let state = try pdfHighlightWorkerState(from: session.locator)
+        let workerPage: PDFAgentWorkerPage
+        do {
+            workerPage = try pdfHighlightService().readAgentPage(
+                source: source,
+                limit: effectiveLimit,
+                continuation: state.traversal,
+                generation: state.generation
+            )
+        } catch PDFWorkerClientError.workerFailure(.staleSource) {
+            throw CursorPaginationError.staleCursor
+        }
+        let nextLocator: CursorLocator?
+        if workerPage.hasMore {
+            guard let traversal = workerPage.nextTraversal else {
+                throw CursorPaginationError.internalContractFailure
+            }
+            nextLocator = try pdfHighlightLocator(
+                traversal: traversal,
+                generation: workerPage.generation
+            )
+        } else {
+            nextLocator = nil
+        }
+        let nextCursor = try session.nextCursor(
+            after: cursorGeneration,
+            hasMore: workerPage.hasMore,
+            locator: nextLocator
+        )
+        return SemanticPDFHighlightPage(
+            bookAssetID: identity.kind == "book" ? identity.value : nil,
+            pdfSourceID: identity.kind == "source" ? identity.value : nil,
+            items: workerPage.items,
+            nextCursor: nextCursor,
+            hasMore: workerPage.hasMore
         )
     }
 
@@ -748,6 +799,66 @@ public final class AppleBooks {
 
     public func pdfHighlights(source: PDFSource) throws -> PDFHighlightServiceResult {
         try pdfHighlightService().readHighlights(sources: [source])
+    }
+
+    private func pdfHighlightCursorIdentity(_ source: PDFSource) throws -> (kind: String, value: String) {
+        if let rawSourceID = source.pdfSourceID {
+            _ = try PDFSourceID.parse(rawSourceID)
+            return ("source", rawSourceID)
+        }
+        let assetID = source.bookSummary?.assetID ?? source.book?.assetID
+        guard let assetID, PublicStableIdentityPolicy.isEligible(assetID) else {
+            throw CursorPaginationError.internalContractFailure
+        }
+        return ("book", assetID)
+    }
+
+    private func pdfHighlightWorkerState(
+        from locator: CursorLocator?
+    ) throws -> (traversal: PDFWorkerTraversal?, generation: String?) {
+        guard let locator else { return (nil, nil) }
+        let words = locator.words
+        guard words.count == 7, words[0] == 1,
+              words[1] <= UInt64(Int.max), words[2] <= UInt64(Int.max) else {
+            throw CursorPaginationError.invalidCursor
+        }
+        var digest: [UInt8] = []
+        digest.reserveCapacity(32)
+        for word in words[3...] {
+            for shift in stride(from: 56, through: 0, by: -8) {
+                digest.append(UInt8((word >> UInt64(shift)) & 0xff))
+            }
+        }
+        guard let generation = PDFWorkerProtocol.generationToken(digestBytes: digest) else {
+            throw CursorPaginationError.invalidCursor
+        }
+        return (
+            PDFWorkerTraversal(pageIndex: Int(words[1]), annotationIndex: Int(words[2])),
+            generation
+        )
+    }
+
+    private func pdfHighlightLocator(
+        traversal: PDFWorkerTraversal,
+        generation: String
+    ) throws -> CursorLocator {
+        guard traversal.pageIndex >= 0, traversal.annotationIndex >= 0,
+              let digest = PDFWorkerProtocol.generationDigestBytes(generation), digest.count == 32 else {
+            throw CursorPaginationError.internalContractFailure
+        }
+        var words: [UInt64] = [
+            1,
+            UInt64(traversal.pageIndex),
+            UInt64(traversal.annotationIndex),
+        ]
+        for start in stride(from: 0, to: digest.count, by: 8) {
+            var word: UInt64 = 0
+            for byte in digest[start..<(start + 8)] {
+                word = (word << 8) | UInt64(byte)
+            }
+            words.append(word)
+        }
+        return try CursorLocator(words: words)
     }
 
     private func pdfHighlightService() throws -> PDFHighlightService {

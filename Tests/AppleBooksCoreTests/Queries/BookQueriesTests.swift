@@ -129,37 +129,6 @@ struct BookQueriesTests {
     }
 
     @Test
-    func semanticPDFResourcesReuseBoundedSummaryAndExactPathGate() throws {
-        let fixture = try database(sql: """
-        CREATE TABLE ZBKLIBRARYASSET(
-            Z_PK INTEGER PRIMARY KEY,
-            ZASSETID TEXT,
-            ZTITLE TEXT,
-            ZAUTHOR TEXT,
-            ZPATH TEXT,
-            ZCONTENTTYPE INTEGER
-        );
-        INSERT INTO ZBKLIBRARYASSET VALUES
-            (1, 'pdf-ok', replace(hex(zeroblob(1048576)), '00', 't'), 'A', replace(hex(zeroblob(4096)), '00', 'p'), 3),
-            (2, 'pdf-too-long', 'B', 'B', replace(hex(zeroblob(4097)), '00', 'q'), 3),
-            (3, 'epub', 'C', 'C', '/tmp/book.epub', 1);
-        """)
-        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
-        let queries = try queries(for: fixture)
-
-        let resources = try queries.semanticPDFResources()
-        #expect(Set(resources.map { $0.summary.localPK }) == [1, 2])
-        let exact = try #require(resources.first { $0.summary.localPK == 1 })
-        #expect(exact.summary.title?.utf8.count == SQLiteSemanticTextBudget.metadata)
-        #expect(exact.summary.byteTruncatedFields == ["title"])
-        #expect(exact.target.path?.utf8.count == SQLiteSemanticTextBudget.resourcePath)
-
-        let oversized = try #require(resources.first { $0.summary.localPK == 2 })
-        #expect(oversized.target.path == nil)
-        #expect(try queries.getByLocalPK(2)?.path?.utf8.count == 4_097)
-    }
-
-    @Test
     func summaryCursorKeepsFullSQLiteSortKeysWhileProjectionAndTokenStayBounded() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(

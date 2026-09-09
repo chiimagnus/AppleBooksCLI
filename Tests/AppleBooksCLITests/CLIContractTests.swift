@@ -496,13 +496,16 @@ struct CLIContractTests {
             item["bookAssetID"] as? String == "asset-pdf" && item["pdfSourceID"] == nil
         })
 
-        let highlights = try fixture.runJSON(["pdf", "highlights", "--path", fixture.pdf.path])
-        #expect(highlights["failedCount"] as? Int == 0)
-        #expect(highlights["attemptedCount"] as? Int == 1)
-        let documents = try #require(highlights["documents"] as? [[String: Any]])
-        let first = try #require(documents.first)
-        let rows = try #require(first["highlights"] as? [[String: Any]])
+        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
+        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
+        #expect(highlights["pdfSourceID"] == nil)
+        #expect(highlights["hasMore"] as? Bool == false)
+        #expect(highlights["nextCursor"] == nil)
+        let rows = try #require(highlights["items"] as? [[String: Any]])
         #expect(rows.first?["note"] as? String == "black box pdf")
+        for internalKey in ["bounds", "quadrilateralPoints", "pdfKitRGBA", "traversalIndex", "textSource"] {
+            #expect(rows.first?[internalKey] == nil)
+        }
     }
 
     @Test

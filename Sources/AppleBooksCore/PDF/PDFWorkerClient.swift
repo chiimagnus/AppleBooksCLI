@@ -13,6 +13,14 @@ public enum PDFWorkerClientError: Error, Equatable, Sendable {
     case workerFailure(PDFWorkerErrorCode)
 }
 
+struct PDFWorkerPage: Equatable, Sendable {
+    let summaryHighlights: [PDFWorkerSummaryHighlight]
+    let archiveHighlights: [PDFWorkerArchiveHighlight]
+    let nextTraversal: PDFWorkerTraversal?
+    let hasMore: Bool
+    let generation: String
+}
+
 struct PDFWorkerClient {
     static let defaultTimeout: TimeInterval = 300
     // ponytail: 首版把单次 worker envelope 固定在 64 MiB；只有真实合法 PDF 证明会稳定超过它时才升级 streaming protocol。
@@ -34,11 +42,37 @@ struct PDFWorkerClient {
         self.terminationGrace = terminationGrace
     }
 
-    func read(fileURL: URL) throws -> [PDFWorkerHighlight] {
-        let request: Data
+    func readPage(
+        fileURL: URL,
+        mode: PDFWorkerMode,
+        limit: Int,
+        continuation: PDFWorkerTraversal? = nil,
+        generation: String? = nil
+    ) throws -> PDFWorkerPage {
+        guard (1...PDFWorkerProtocol.maximumPageLimit).contains(limit),
+              (continuation == nil) == (generation == nil),
+              generation.map({ PDFWorkerProtocol.generationDigestBytes($0) != nil }) ?? true else {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        let request = PDFWorkerRequest(
+            path: fileURL.path,
+            mode: mode,
+            limit: limit,
+            continuation: continuation,
+            generation: generation
+        )
+        let response = try invoke(request)
+        return try validatedPage(response, request: request)
+    }
+
+    private func invoke(_ request: PDFWorkerRequest) throws -> PDFWorkerResponse {
+        let requestData: Data
         do {
-            request = try PDFWorkerProtocol.encodeRequest(PDFWorkerRequest(path: fileURL.path))
+            requestData = try PDFWorkerProtocol.encodeRequest(request)
         } catch {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        guard requestData.count <= PDFWorkerProtocol.requestByteLimit else {
             throw PDFWorkerClientError.malformedResponse
         }
 
@@ -68,7 +102,7 @@ struct PDFWorkerClient {
         PipeDrainer(handle: stdoutPipe.fileHandleForReading, capture: stdoutCapture).start(group: drainGroup)
         PipeDrainer(handle: stderrPipe.fileHandleForReading, capture: stderrCapture).start(group: drainGroup)
 
-        stdinPipe.fileHandleForWriting.write(request)
+        stdinPipe.fileHandleForWriting.write(requestData)
         try? stdinPipe.fileHandleForWriting.close()
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -94,9 +128,7 @@ struct PDFWorkerClient {
         if stderrCapture.didOverflow {
             throw PDFWorkerClientError.stderrLimitExceeded(capturedBytes: stderrCapture.data.count)
         }
-        if timedOut {
-            throw PDFWorkerClientError.timedOut
-        }
+        if timedOut { throw PDFWorkerClientError.timedOut }
         if stdoutCapture.readFailed || stderrCapture.readFailed {
             throw PDFWorkerClientError.pipeReadFailed
         }
@@ -112,26 +144,143 @@ struct PDFWorkerClient {
             throw PDFWorkerClientError.nonzeroExit(process.terminationStatus)
         }
 
-        let response: PDFWorkerResponse
         do {
-            response = try PDFWorkerProtocol.decodeResponse(stdoutCapture.data)
+            return try PDFWorkerProtocol.decodeResponse(stdoutCapture.data)
         } catch {
             throw PDFWorkerClientError.malformedResponse
         }
+    }
+
+    private func validatedPage(
+        _ response: PDFWorkerResponse,
+        request: PDFWorkerRequest
+    ) throws -> PDFWorkerPage {
         guard response.version == PDFWorkerProtocol.version else {
             throw PDFWorkerClientError.malformedResponse
         }
         switch response.status {
-        case .success:
-            guard response.errorCode == nil, let highlights = response.highlights else {
-                throw PDFWorkerClientError.malformedResponse
-            }
-            return highlights
         case .failure:
-            guard response.highlights == nil, let code = response.errorCode else {
+            guard response.mode == nil,
+                  response.summaryHighlights == nil,
+                  response.archiveHighlights == nil,
+                  response.nextTraversal == nil,
+                  response.hasMore == nil,
+                  response.generation == nil,
+                  let code = response.errorCode else {
                 throw PDFWorkerClientError.malformedResponse
             }
             throw PDFWorkerClientError.workerFailure(code)
+        case .success:
+            guard response.errorCode == nil,
+                  response.mode == request.mode,
+                  let hasMore = response.hasMore,
+                  let generation = response.generation,
+                  PDFWorkerProtocol.generationDigestBytes(generation) != nil,
+                  request.generation.map({ $0 == generation }) ?? true else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+            if hasMore {
+                guard let next = response.nextTraversal,
+                      next.pageIndex >= 0, next.annotationIndex >= 0 else {
+                    throw PDFWorkerClientError.malformedResponse
+                }
+            } else if response.nextTraversal != nil {
+                throw PDFWorkerClientError.malformedResponse
+            }
+
+            switch request.mode {
+            case .agentSummary:
+                guard let items = response.summaryHighlights,
+                      response.archiveHighlights == nil,
+                      items.count <= request.limit else {
+                    throw PDFWorkerClientError.malformedResponse
+                }
+                try items.forEach(validateSummary)
+                return PDFWorkerPage(
+                    summaryHighlights: items,
+                    archiveHighlights: [],
+                    nextTraversal: response.nextTraversal,
+                    hasMore: hasMore,
+                    generation: generation
+                )
+            case .archive:
+                guard let items = response.archiveHighlights,
+                      response.summaryHighlights == nil,
+                      items.count <= request.limit else {
+                    throw PDFWorkerClientError.malformedResponse
+                }
+                try items.forEach(validateArchive)
+                return PDFWorkerPage(
+                    summaryHighlights: [],
+                    archiveHighlights: items,
+                    nextTraversal: response.nextTraversal,
+                    hasMore: hasMore,
+                    generation: generation
+                )
+            }
+        }
+    }
+
+    private func validateSummary(_ item: PDFWorkerSummaryHighlight) throws {
+        guard item.page > 0,
+              item.textApproximate,
+              Set(item.truncatedFields).count == item.truncatedFields.count,
+              item.truncatedFields.allSatisfy({ $0 == "note" || $0 == "text" }) else {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        for value in [item.note, item.text].compactMap({ $0 }) {
+            guard value.count <= PDFWorkerProtocol.agentPreviewMaximumGraphemes,
+                  value.utf8.count <= PDFWorkerProtocol.agentPreviewMaximumUTF8Bytes else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+        }
+        if let color = item.presentationColor {
+            guard PDFPresentationColor(rawValue: color.name) != nil, color.approximate else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+        }
+    }
+
+    private func validateArchive(_ item: PDFWorkerArchiveHighlight) throws {
+        let rect = item.bounds
+        guard item.page > 0,
+              item.traversalIndex >= 0,
+              rect.x.isFinite, rect.y.isFinite,
+              rect.width.isFinite, rect.height.isFinite,
+              rect.width >= 0, rect.height >= 0,
+              item.quadrilateralPoints.count <= 16_384,
+              item.quadrilateralPoints.count % 4 == 0,
+              item.quadrilateralPoints.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              item.textIsApproximate else {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        if let rgba = item.pdfKitRGBA {
+            guard rgba.count == 4,
+                  rgba.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+        }
+        if let color = item.presentationColor {
+            guard PDFPresentationColor(rawValue: color.color) != nil,
+                  color.distance.isFinite, color.distance >= 0,
+                  color.isApproximate else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+        }
+        if let source = item.textSource,
+           PDFHighlightTextSource(rawValue: source) == nil {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        if let reason = item.textUnavailableReason,
+           PDFHighlightTextUnavailableReason(rawValue: reason) == nil {
+            throw PDFWorkerClientError.malformedResponse
+        }
+        if item.text != nil {
+            guard item.textSource != nil, item.textUnavailableReason == nil else {
+                throw PDFWorkerClientError.malformedResponse
+            }
+        } else if item.textSource != nil {
+            throw PDFWorkerClientError.malformedResponse
         }
     }
 

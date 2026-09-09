@@ -393,8 +393,7 @@
     "cliHelpArgs": [
       [
         "pdf",
-        "highlights",
-        "--timeout"
+        "highlights"
       ]
     ]
   },

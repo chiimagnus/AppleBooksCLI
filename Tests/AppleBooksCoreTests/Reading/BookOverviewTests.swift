@@ -27,7 +27,7 @@ struct BookOverviewTests {
         defer { fixture.remove() }
 
         let first = try fixture.core.annotatedBookSummaryPage(limit: 1)
-        #expect(first.total == 2)
+        #expect(first.total == nil)
         #expect(first.items.map(\.book.localPK) == [2])
         #expect(first.items.map(\.userAnnotationCount) == [2])
         #expect(first.hasMore)

@@ -116,10 +116,13 @@ struct ReadingStatsCommandTests {
         #expect(result.inProgressBooks == 1)
         #expect(result.unstartedBooks == 1)
         #expect(result.totalUserAnnotations == 3)
-        #expect(result.orphanUserAnnotations == 1)
+        #expect(result.historicalAnnotationCount == 0)
+        #expect(result.unmappedAnnotationCount == 1)
+        #expect(result.ambiguousAnnotationCount == 0)
+        #expect(result.identityUnavailableAnnotationCount == 0)
         #expect(result.topAnnotatedBooks.count == 2)
         #expect(Set(result.topAnnotatedBooks.compactMap(\.assetID)) == ["12", "infer-id"])
-        #expect(result.topAnnotatedBooks.allSatisfy { $0.userAnnotationCount == 1 })
+        #expect(result.topAnnotatedBooks.allSatisfy { $0.annotationCount == 1 })
     }
 
     @Test

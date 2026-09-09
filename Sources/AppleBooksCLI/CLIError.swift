@@ -165,6 +165,9 @@ enum CLIOperation {
         if error is StableIdentityError {
             return .unavailable("Requested stable identity is ambiguous.")
         }
+        if error is AnnotationSourceClassificationError {
+            return .unavailable("Annotation source classification is unavailable.")
+        }
         if let cloudSyncError = error as? AppleBooksCloudSyncError {
             switch cloudSyncError {
             case .unavailable:

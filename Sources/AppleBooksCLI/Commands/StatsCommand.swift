@@ -21,14 +21,34 @@ struct StatsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable 
     }
 }
 
+struct TopAnnotatedBookResult: Codable, Equatable, Sendable {
+    let assetID: String?
+    let localPK: Int64?
+    let annotationCount: Int
+
+    init(_ summary: TopAnnotatedBookSummary) {
+        if PublicStableTokenPolicy.isEligible(summary.assetID) {
+            assetID = summary.assetID
+            localPK = nil
+        } else {
+            assetID = nil
+            localPK = summary.localPK > 0 ? summary.localPK : nil
+        }
+        annotationCount = summary.annotationCount
+    }
+}
+
 struct StatsResult: Codable, Equatable, Sendable {
     let totalBooks: Int
     let finishedBooks: Int
     let inProgressBooks: Int
     let unstartedBooks: Int
     let totalUserAnnotations: Int
-    let orphanUserAnnotations: Int
-    let topAnnotatedBooks: [BookResult]
+    let historicalAnnotationCount: Int
+    let unmappedAnnotationCount: Int
+    let ambiguousAnnotationCount: Int
+    let identityUnavailableAnnotationCount: Int
+    let topAnnotatedBooks: [TopAnnotatedBookResult]
 
     init(_ stats: LibraryStats) {
         totalBooks = stats.totalBooks
@@ -36,8 +56,10 @@ struct StatsResult: Codable, Equatable, Sendable {
         inProgressBooks = stats.inProgressBooks
         unstartedBooks = stats.unstartedBooks
         totalUserAnnotations = stats.totalUserAnnotations
-        orphanUserAnnotations = stats.orphanUserAnnotations
-        topAnnotatedBooks = stats.topAnnotatedBooks.map { BookResult(overview: $0) }
+        historicalAnnotationCount = stats.historicalAnnotationCount
+        unmappedAnnotationCount = stats.unmappedAnnotationCount
+        ambiguousAnnotationCount = stats.ambiguousAnnotationCount
+        identityUnavailableAnnotationCount = stats.identityUnavailableAnnotationCount
+        topAnnotatedBooks = stats.topAnnotatedBookSummaries.map(TopAnnotatedBookResult.init)
     }
-
 }

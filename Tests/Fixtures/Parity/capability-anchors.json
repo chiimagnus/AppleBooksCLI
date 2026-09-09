@@ -965,7 +965,10 @@
   "library stats": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/AppleBooks.swift"
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationAggregateQueries.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationSourceClassifier.swift",
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/LibraryStatsTests.swift"
@@ -1011,7 +1014,9 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/BookSummary.swift"
+      "Sources/AppleBooksCore/Models/BookSummary.swift",
+      "Sources/AppleBooksCore/Queries/AnnotationAggregateQueries.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"

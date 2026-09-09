@@ -24,6 +24,16 @@ func validatePagination(limit: Int?, offset: Int) throws {
     }
 }
 
+struct BookIdentityMultiplicity: Equatable, Sendable {
+    let count: Int
+    let uniqueLocalPK: Int64?
+}
+
+struct BookIdentityRow: Equatable, Sendable {
+    let localPK: Int64
+    let assetID: String?
+}
+
 struct BookQueries {
     private enum Filter {
         case none
@@ -60,6 +70,115 @@ struct BookQueries {
     ) throws -> CursorPage<BookSummary> {
         guard text.isEmpty == false else { throw BookSearchError.emptyQuery }
         return try summaryPage(searchText: text, field: field, limit: limit, cursor: cursor)
+    }
+
+    func forEachSummary(
+        afterLocalPK: Int64?,
+        _ body: (BookSummary) throws -> Bool
+    ) throws {
+        let schema = try AppleBooksSchema.inspect(.bookBase, on: connection)
+        let statement = try canonicalScanStatement(
+            projection: summaryProjection(schema: schema, alias: "b"),
+            schema: schema,
+            afterLocalPK: afterLocalPK
+        )
+        while try statement.step() {
+            if try body(decodeSummary(SQLiteRow(statement: statement), schema: schema)) == false {
+                break
+            }
+        }
+    }
+
+    func forEachIdentity(
+        afterLocalPK: Int64? = nil,
+        _ body: (BookIdentityRow) throws -> Bool
+    ) throws {
+        let schema = try AppleBooksSchema.inspect(.bookBase, on: connection)
+        let projection = ["b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)"]
+            + (schema.contains(AppleBooksSchema.Book.assetID)
+                ? ["b.\(AppleBooksSchema.Book.assetID) AS \(AppleBooksSchema.Book.assetID)"]
+                : [])
+        let statement = try canonicalScanStatement(
+            projection: projection,
+            schema: schema,
+            afterLocalPK: afterLocalPK
+        )
+        while try statement.step() {
+            let row = try SQLiteRow(statement: statement)
+            guard let localPK = try row.int64(AppleBooksSchema.Book.localPK) else {
+                throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Book.localPK)
+            }
+            let item = BookIdentityRow(
+                localPK: localPK,
+                assetID: schema.contains(AppleBooksSchema.Book.assetID)
+                    ? try row.text(AppleBooksSchema.Book.assetID)
+                    : nil
+            )
+            if try body(item) == false { break }
+        }
+    }
+
+    private func canonicalScanStatement(
+        projection: [String],
+        schema: SchemaAvailability,
+        afterLocalPK: Int64?
+    ) throws -> SQLiteStatement {
+        let selection = SummarySelection(searchText: nil, field: nil, searchColumns: [])
+        if let afterLocalPK,
+           try summaryCursorRowExists(localPK: afterLocalPK, selection: selection) == false {
+            throw CursorPaginationError.staleCursor
+        }
+        var sql = ""
+        if afterLocalPK != nil {
+            sql += "WITH cursor_row AS (SELECT \(summaryCursorProjection(schema: schema)) FROM \(AppleBooksTable.books.rawValue) WHERE \(AppleBooksSchema.Book.localPK) = ?) "
+        }
+        sql += "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue) AS b"
+        if afterLocalPK != nil {
+            sql += " CROSS JOIN cursor_row AS c WHERE \(summaryKeysetPredicate(schema: schema, bookAlias: "b", cursorAlias: "c"))"
+        }
+        sql += " ORDER BY \(summaryOrder(schema: schema, alias: "b").joined(separator: ", "))"
+        let statement = try connection.prepare(sql)
+        if let afterLocalPK { try statement.bind(afterLocalPK, at: 1) }
+        return statement
+    }
+
+    func identityMultiplicity(assetIDs: [String]) throws -> [String: BookIdentityMultiplicity] {
+        guard assetIDs.count <= 100 else { throw AnnotationAggregateQueryError.batchTooLarge }
+        let unique = Array(Set(assetIDs))
+        guard unique.isEmpty == false else { return [:] }
+        _ = try AppleBooksSchema.inspect(.bookAssetLookup, on: connection)
+        let placeholders = Array(repeating: "?", count: unique.count).joined(separator: ",")
+        let statement = try connection.prepare("""
+        SELECT \(AppleBooksSchema.Book.assetID) AS assetID,
+               COUNT(*) AS count,
+               MIN(\(AppleBooksSchema.Book.localPK)) AS minPK
+        FROM \(AppleBooksTable.books.rawValue)
+        WHERE \(AppleBooksSchema.Book.assetID) COLLATE BINARY IN (\(placeholders))
+        GROUP BY \(AppleBooksSchema.Book.assetID) COLLATE BINARY
+        """)
+        for (offset, assetID) in unique.enumerated() {
+            try statement.bind(assetID, at: Int32(offset + 1))
+        }
+        var result: [String: BookIdentityMultiplicity] = [:]
+        result.reserveCapacity(unique.count)
+        while try statement.step() {
+            let row = try SQLiteRow(statement: statement)
+            guard let assetID = try row.text("assetID"),
+                  let rawCount = try row.int64("count"), rawCount > 0,
+                  let minPK = try row.int64("minPK") else {
+                throw QueryDecodingError.nullRequiredColumn("book identity multiplicity")
+            }
+            let count = Int(rawCount)
+            result[assetID] = BookIdentityMultiplicity(
+                count: count,
+                uniqueLocalPK: count == 1 ? minPK : nil
+            )
+        }
+        return result
+    }
+
+    func totalCount() throws -> Int {
+        try baseTotal()
     }
 
     func pdfBooks() throws -> [Book] {

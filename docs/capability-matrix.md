@@ -22,7 +22,7 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | list books | 已实现 | 整个 BKLibrary universe；opaque cursor 分页，默认 20、单页最多 100；summary 只返回下一步所需字段 |
-| list books with annotations | 已实现 | `books list --annotated`；同样使用 cursor，并附 user annotation count |
+| list books with annotations | 已实现 | `books list --annotated`；library + annotations 双源 cursor，按≤100本一批做聚合计数，不构造全库 annotation map；附 user annotation count |
 | get/describe book | 已实现 | stable asset ID 优先、显式 local PK fallback；返回 bounded semantic detail，不暴露数据库路径/raw blob/internal flags |
 | title search | 已实现 | `books search --field title` literal substring；多结果不猜第一项，使用 opaque cursor |
 | title/author/genre 综合搜索 | 已实现 | `books search --field all|title|author|genre`；case-insensitive literal partial match |
@@ -39,7 +39,7 @@
 | finished books | 已实现 | finished 状态查询 |
 | unstarted books | 已实现 | 未开始阅读查询 |
 | recently read books | 已实现 | 按 last-opened 排序并可 limit |
-| library stats | 已实现 | 核心书库/阅读/annotation 统计 |
+| library stats | 已实现 | SQL aggregate + bounded cross-store classifier；分别报告 historical / unmapped / ambiguous / identity-unavailable annotation counts；top-5 只返回可消费书籍 identity + count |
 | current reading position | 已实现 | type=3 current-reading bookmark 单独读取 |
 | current reading chapter | 已实现 | current position 的 CFI hint 映射 ToC chapter |
 | current-position fallback | 已实现 | 无可用 auto bookmark 时可用最近 user highlight，并明确 inferred |

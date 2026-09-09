@@ -2,6 +2,12 @@ enum ReadingQueryConfigurationError: Error, Equatable, Sendable {
     case missingAnnotationConnection
 }
 
+struct ReadingPartitionCounts: Equatable, Sendable {
+    let finished: Int
+    let inProgress: Int
+    let unstarted: Int
+}
+
 struct ReadingQueries {
     private enum Kind {
         case finished
@@ -32,6 +38,35 @@ struct ReadingQueries {
 
     func recentlyRead(limit: Int = 10, offset: Int = 0) throws -> [Book] {
         try query(.recentlyRead, capability: .readingRecentlyRead, limit: limit, offset: offset)
+    }
+
+    func partitionCounts() throws -> ReadingPartitionCounts {
+        _ = try AppleBooksSchema.inspect(.readingInProgress, on: connection)
+        let finished = AppleBooksSchema.Book.isFinished
+        let progress = AppleBooksSchema.Book.readingProgress
+        let statement = try connection.prepare("""
+        SELECT
+          SUM(CASE WHEN COALESCE(\(finished), 0) != 0 THEN 1 ELSE 0 END) AS finishedCount,
+          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND COALESCE(\(progress), 0) > 0 THEN 1 ELSE 0 END) AS inProgressCount,
+          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND (\(progress) IS NULL OR \(progress) <= 0) THEN 1 ELSE 0 END) AS unstartedCount
+        FROM \(AppleBooksTable.books.rawValue)
+        """)
+        guard try statement.step() else {
+            throw QueryDecodingError.nullRequiredColumn("reading partition counts")
+        }
+        let row = try SQLiteRow(statement: statement)
+        let finishedCount = try row.int64("finishedCount") ?? 0
+        let inProgressCount = try row.int64("inProgressCount") ?? 0
+        let unstartedCount = try row.int64("unstartedCount") ?? 0
+        guard finishedCount >= 0, inProgressCount >= 0, unstartedCount >= 0,
+              try statement.step() == false else {
+            throw QueryDecodingError.nullRequiredColumn("reading partition counts")
+        }
+        return ReadingPartitionCounts(
+            finished: Int(finishedCount),
+            inProgress: Int(inProgressCount),
+            unstarted: Int(unstartedCount)
+        )
     }
 
     func currentPosition(rawAssetID: String) throws -> Annotation? {

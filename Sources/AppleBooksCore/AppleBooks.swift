@@ -476,66 +476,45 @@ public final class AppleBooks {
 
     public func bookOverview(localPK: Int64) throws -> BookOverview? {
         guard let book = try requiredBookQueries().getByLocalPK(localPK) else { return nil }
-        let counts = try userAnnotationCountsByAssetID()
-        let count = book.assetID.flatMap { counts[$0] } ?? 0
+        let count = try book.assetID.map(requiredAnnotationAggregateQueries().userAnnotationCount(assetID:)) ?? 0
         return BookOverview(book: book, userAnnotationCount: count)
     }
 
     public func bookOverview(assetID: String) throws -> BookOverview? {
         guard let book = try requiredBookQueries().getUniqueByAssetID(assetID) else { return nil }
-        let counts = try userAnnotationCountsByAssetID()
-        return BookOverview(book: book, userAnnotationCount: counts[assetID] ?? 0)
+        let count = try requiredAnnotationAggregateQueries().userAnnotationCount(assetID: assetID)
+        return BookOverview(book: book, userAnnotationCount: count)
     }
 
     public func libraryStats() throws -> LibraryStats {
-        let books = try requiredBookQueries().list()
-        let finished = try requiredReadingQueries().finished()
-        let inProgress = try requiredReadingQueries().inProgress()
-        let unstarted = try requiredReadingQueries().unstarted()
-        let annotations = try requiredAnnotationQueries().list(scope: .user)
-
-        var booksByAssetID: [String: [Book]] = [:]
-        var bookByLocalPK: [Int64: Book] = [:]
-        var orderByLocalPK: [Int64: Int] = [:]
-        for (index, book) in books.enumerated() {
-            bookByLocalPK[book.localPK] = book
-            orderByLocalPK[book.localPK] = index
-            if let assetID = book.assetID {
-                booksByAssetID[assetID, default: []].append(book)
-            }
+        let bookQueries = try requiredBookQueries()
+        let aggregate = try requiredAnnotationAggregateQueries()
+        let partitions = try requiredReadingQueries().partitionCounts()
+        let classification = try annotationClassificationCounts(
+            aggregate: aggregate,
+            bookQueries: bookQueries
+        )
+        let topSummaries = try topAnnotatedBookSummaries(
+            aggregate: aggregate,
+            bookQueries: bookQueries
+        )
+        let richTop = try topSummaries.compactMap { summary -> BookOverview? in
+            guard let book = try bookQueries.getByLocalPK(summary.localPK) else { return nil }
+            return BookOverview(book: book, userAnnotationCount: summary.annotationCount)
         }
-
-        var countsByLocalPK: [Int64: Int] = [:]
-        var orphanCount = 0
-        for enriched in annotations {
-            guard let assetID = enriched.annotation.rawAssetID,
-                  let matches = booksByAssetID[assetID],
-                  matches.count == 1,
-                  let book = matches.first else {
-                orphanCount += 1
-                continue
-            }
-            countsByLocalPK[book.localPK, default: 0] += 1
-        }
-
-        let topAnnotated = countsByLocalPK.compactMap { localPK, count -> BookOverview? in
-            guard let book = bookByLocalPK[localPK] else { return nil }
-            return BookOverview(book: book, userAnnotationCount: count)
-        }.sorted { lhs, rhs in
-            if lhs.userAnnotationCount != rhs.userAnnotationCount {
-                return lhs.userAnnotationCount > rhs.userAnnotationCount
-            }
-            return (orderByLocalPK[lhs.book.localPK] ?? .max) < (orderByLocalPK[rhs.book.localPK] ?? .max)
-        }.prefix(5)
 
         return LibraryStats(
-            totalBooks: books.count,
-            finishedBooks: finished.count,
-            inProgressBooks: inProgress.count,
-            unstartedBooks: unstarted.count,
-            totalUserAnnotations: annotations.count,
-            orphanUserAnnotations: orphanCount,
-            topAnnotatedBooks: Array(topAnnotated)
+            totalBooks: try bookQueries.totalCount(),
+            finishedBooks: partitions.finished,
+            inProgressBooks: partitions.inProgress,
+            unstartedBooks: partitions.unstarted,
+            totalUserAnnotations: classification.total,
+            historicalAnnotationCount: classification.historical,
+            unmappedAnnotationCount: classification.unmapped,
+            ambiguousAnnotationCount: classification.ambiguous,
+            identityUnavailableAnnotationCount: classification.identityUnavailable,
+            topAnnotatedBooks: richTop,
+            topAnnotatedBookSummaries: topSummaries
         )
     }
 
@@ -571,30 +550,63 @@ public final class AppleBooks {
             fingerprint: fingerprint,
             generation: beforeGeneration
         )
-        let all = try annotatedBooks()
-
-        let suffix: ArraySlice<BookOverview>
+        let startPK: Int64?
         if let locator = session.locator {
             guard locator.words.count == 1 else { throw CursorPaginationError.invalidCursor }
-            let localPK = Int64(bitPattern: locator.words[0])
-            guard let index = all.firstIndex(where: { $0.book.localPK == localPK }) else {
-                throw CursorPaginationError.staleCursor
-            }
-            suffix = all.dropFirst(index + 1)
+            startPK = Int64(bitPattern: locator.words[0])
         } else {
-            suffix = all[...]
+            startPK = nil
         }
-        let candidates = suffix.prefix(effectiveLimit + 1).map {
-            AnnotatedBookSummary(
-                book: BookSummary(book: $0.book),
-                userAnnotationCount: $0.userAnnotationCount
-            )
+
+        let bookQueries = try requiredBookQueries()
+        let aggregate = try requiredAnnotationAggregateQueries()
+        var candidates: [AnnotatedBookSummary] = []
+        candidates.reserveCapacity(effectiveLimit + 1)
+        var batch: [BookSummary] = []
+        batch.reserveCapacity(AnnotationAggregateQueries.maximumIdentityBatch)
+        var pageFilled = false
+
+        func flushBatch() throws {
+            guard batch.isEmpty == false else { return }
+            let eligibleIDs = batch.compactMap { book in
+                PublicStableIdentityPolicy.isEligible(book.assetID) ? book.assetID : nil
+            }
+            let multiplicity = try bookQueries.identityMultiplicity(assetIDs: eligibleIDs)
+            let counts = try aggregate.userAnnotationCounts(assetIDs: eligibleIDs)
+            for book in batch {
+                guard let assetID = book.assetID,
+                      PublicStableIdentityPolicy.isEligible(assetID),
+                      let match = multiplicity[assetID],
+                      match.count == 1,
+                      match.uniqueLocalPK == book.localPK,
+                      let count = counts[assetID], count > 0 else {
+                    continue
+                }
+                candidates.append(AnnotatedBookSummary(book: book, userAnnotationCount: count))
+                if candidates.count > effectiveLimit {
+                    pageFilled = true
+                    break
+                }
+            }
+            batch.removeAll(keepingCapacity: true)
         }
+
+        try bookQueries.forEachSummary(afterLocalPK: startPK) { book in
+            batch.append(book)
+            if batch.count == AnnotationAggregateQueries.maximumIdentityBatch {
+                try flushBatch()
+            }
+            return pageFilled == false
+        }
+        if pageFilled == false {
+            try flushBatch()
+        }
+
         let afterGeneration = try annotatedBookCursorGeneration()
         return try makeCursorPage(
             candidates: candidates,
             limit: effectiveLimit,
-            total: all.count,
+            total: nil,
             session: session,
             afterGeneration: afterGeneration,
             locator: { try .rowID($0.book.localPK) }
@@ -969,27 +981,147 @@ public final class AppleBooks {
     }
 
     private func userAnnotationCountsByAssetID() throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        try requiredAnnotationAggregateQueries().forEachUserAnnotationAssetCount { group in
+            guard let assetID = group.rawAssetID else { return }
+            counts[assetID] = group.count
+        }
+        return counts
+    }
+
+    private func requiredAnnotationAggregateQueries() throws -> AnnotationAggregateQueries {
         guard let annotationConnection else {
             throw AppleBooksDependencyError.unavailable(.annotationsRead)
         }
-        let schema = try AppleBooksSchema.inspect(.annotationUserBase, on: annotationConnection)
-        guard schema.contains(AppleBooksSchema.Annotation.assetID) else { return [:] }
+        return AnnotationAggregateQueries(connection: annotationConnection)
+    }
 
-        let statement = try annotationConnection.prepare("""
-        SELECT \(AppleBooksSchema.Annotation.assetID)
-        FROM \(AppleBooksTable.annotations.rawValue)
-        WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0
-          AND \(AppleBooksSchema.Annotation.type) != 3
-          AND \(AppleBooksSchema.Annotation.assetID) IS NOT NULL
-        """)
-        var counts: [String: Int] = [:]
-        while try statement.step() {
-            let row = try SQLiteRow(statement: statement)
-            if let assetID = try row.text(AppleBooksSchema.Annotation.assetID) {
-                counts[assetID, default: 0] += 1
+    private struct AnnotationClassificationCounts {
+        var total = 0
+        var historical = 0
+        var unmapped = 0
+        var ambiguous = 0
+        var identityUnavailable = 0
+    }
+
+    private func annotationClassificationCounts(
+        aggregate: AnnotationAggregateQueries,
+        bookQueries: BookQueries
+    ) throws -> AnnotationClassificationCounts {
+        let classifier = AnnotationSourceClassifier(
+            bookQueries: bookQueries,
+            historicalAssets: configuration.historicalAssets
+        )
+        var result = AnnotationClassificationCounts()
+        var batch: [UserAnnotationAssetCount] = []
+        batch.reserveCapacity(AnnotationSourceClassifier.maximumBatch)
+
+        func apply(_ state: AnnotationAssetSourceState, count: Int, to result: inout AnnotationClassificationCounts) throws {
+            switch state {
+            case .current:
+                break
+            case .historical:
+                result.historical += count
+            case .unmapped:
+                result.unmapped += count
+            case .ambiguousCurrent:
+                result.ambiguous += count
+            case .identityUnavailable:
+                result.identityUnavailable += count
+            case .schemaUnavailable:
+                throw AnnotationSourceClassificationError.schemaUnavailable
             }
         }
-        return counts
+
+        func flush(_ groups: inout [UserAnnotationAssetCount], into result: inout AnnotationClassificationCounts) throws {
+            guard groups.isEmpty == false else { return }
+            let assetIDs = groups.compactMap(\.rawAssetID)
+            let classified = try classifier.classifyEligible(assetIDs)
+            for group in groups {
+                guard let assetID = group.rawAssetID,
+                      let state = classified[assetID] else {
+                    throw AnnotationSourceClassificationError.schemaUnavailable
+                }
+                try apply(state, count: group.count, to: &result)
+            }
+            groups.removeAll(keepingCapacity: true)
+        }
+
+        try aggregate.forEachUserAnnotationAssetCount { group in
+            result.total += group.count
+            if let immediate = classifier.classifyRawIdentity(group.rawAssetID) {
+                try apply(immediate, count: group.count, to: &result)
+                return
+            }
+            batch.append(group)
+            if batch.count == AnnotationSourceClassifier.maximumBatch {
+                try flush(&batch, into: &result)
+            }
+        }
+        try flush(&batch, into: &result)
+        return result
+    }
+
+    private struct RankedTopAnnotatedBook {
+        let summary: TopAnnotatedBookSummary
+        let canonicalOrder: Int
+    }
+
+    private func topAnnotatedBookSummaries(
+        aggregate: AnnotationAggregateQueries,
+        bookQueries: BookQueries
+    ) throws -> [TopAnnotatedBookSummary] {
+        var top: [RankedTopAnnotatedBook] = []
+        top.reserveCapacity(5)
+        var canonicalOrder = 0
+        var batch: [BookIdentityRow] = []
+        batch.reserveCapacity(AnnotationAggregateQueries.maximumIdentityBatch)
+
+        func flushBatch() throws {
+            guard batch.isEmpty == false else { return }
+            let eligibleIDs = batch.compactMap { row in
+                PublicStableIdentityPolicy.isEligible(row.assetID) ? row.assetID : nil
+            }
+            let multiplicity = try bookQueries.identityMultiplicity(assetIDs: eligibleIDs)
+            let counts = try aggregate.userAnnotationCounts(assetIDs: eligibleIDs)
+            for row in batch {
+                defer { canonicalOrder += 1 }
+                guard let assetID = row.assetID,
+                      PublicStableIdentityPolicy.isEligible(assetID),
+                      let match = multiplicity[assetID],
+                      match.count == 1,
+                      match.uniqueLocalPK == row.localPK,
+                      let count = counts[assetID], count > 0 else {
+                    continue
+                }
+                top.append(RankedTopAnnotatedBook(
+                    summary: TopAnnotatedBookSummary(
+                        localPK: row.localPK,
+                        assetID: assetID,
+                        annotationCount: count
+                    ),
+                    canonicalOrder: canonicalOrder
+                ))
+                top.sort { lhs, rhs in
+                    if lhs.summary.annotationCount != rhs.summary.annotationCount {
+                        return lhs.summary.annotationCount > rhs.summary.annotationCount
+                    }
+                    return lhs.canonicalOrder < rhs.canonicalOrder
+                }
+                if top.count > 5 { top.removeLast() }
+            }
+            batch.removeAll(keepingCapacity: true)
+        }
+
+        try bookQueries.forEachIdentity { row in
+            batch.append(row)
+            if batch.count == AnnotationAggregateQueries.maximumIdentityBatch {
+                try flushBatch()
+            }
+            return true
+        }
+        try flushBatch()
+        return top.map(\.summary)
     }
 
     public func currentReadingChapter(forBookLocalPK localPK: Int64) throws -> Chapter? {

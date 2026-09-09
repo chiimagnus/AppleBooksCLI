@@ -142,7 +142,7 @@ struct BooksCommandTests {
             output: firstCapture.output
         ) == CLIProcessExit.success.rawValue)
         let first = try decode(BookSummaryPageResult.self, firstCapture.stdout)
-        #expect(first.total == 2)
+        #expect(first.total == nil)
         #expect(first.items.count == 1)
         #expect(first.items[0].userAnnotationCount == 1)
         let cursor = try #require(first.nextCursor)

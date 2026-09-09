@@ -67,6 +67,52 @@ struct AnnotationQueriesTests {
     }
 
     @Test
+    func aggregateCountsNeedNoAnnotationBodyColumnsAndBatchCapPrecedesSchemaInspection() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let annotations = try database(at: root.appendingPathComponent("aggregate.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZANNOTATIONASSETID TEXT,
+            ZANNOTATIONDELETED INTEGER,
+            ZANNOTATIONTYPE INTEGER
+        );
+        INSERT INTO ZAEANNOTATION VALUES
+          (1,'asset-a',0,1),
+          (2,'asset-a',0,2),
+          (3,'asset-a',0,3),
+          (4,'asset-a',1,1),
+          (5,NULL,0,1);
+        """)
+        let aggregate = AnnotationAggregateQueries(
+            connection: try SQLiteConnection.readOnly(path: annotations.path)
+        )
+
+        #expect(try aggregate.totalUserAnnotations() == 3)
+        #expect(try aggregate.userAnnotationCount(assetID: "asset-a") == 2)
+        #expect(try aggregate.userAnnotationCounts(assetIDs: ["asset-a", "missing"]) == ["asset-a": 2])
+        var groups: [UserAnnotationAssetCount] = []
+        try aggregate.forEachUserAnnotationAssetCount { groups.append($0) }
+        #expect(groups == [
+            UserAnnotationAssetCount(rawAssetID: nil, count: 1),
+            UserAnnotationAssetCount(rawAssetID: "asset-a", count: 2),
+        ])
+
+        let unrelated = try database(
+            at: root.appendingPathComponent("unrelated.sqlite"),
+            sql: "CREATE TABLE unrelated(id INTEGER);"
+        )
+        let invalid = AnnotationAggregateQueries(
+            connection: try SQLiteConnection.readOnly(path: unrelated.path)
+        )
+        #expect(throws: AnnotationAggregateQueryError.batchTooLarge) {
+            _ = try invalid.userAnnotationCounts(
+                assetIDs: (0...100).map { "asset-\($0)" }
+            )
+        }
+    }
+
+    @Test
     func missingOptionalSortAndAssetColumnsDoNotDropCanonicalRows() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

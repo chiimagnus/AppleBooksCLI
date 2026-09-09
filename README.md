@@ -60,7 +60,7 @@ applebookscli pdf list
 applebookscli pdf highlights --help
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly.
+Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
 
 ## Export
 

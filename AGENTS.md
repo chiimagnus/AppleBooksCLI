@@ -32,7 +32,8 @@
 
 - `skills/*/SKILL.md` 是给 AI **使用 `applebookscli`** 的运行说明，不是开发者设计文档。正文只保留会直接影响正确调用的内容：命令路由、`--help` 使用方式、stable selector、分页/JSON 结果解释，以及 state-changing 命令必要的授权、sync 与失败处理。
 - 不在 Skill 复制架构、SQLite/schema、内部 owner/type、具体资源预算、实现历史、task/commit 或测试清单。某个内部边界只有在调用者不知道它就会误用 CLI 时才保留最短的用户可见规则；详细事实回到 `docs/index.md` 指向的 canonical owner。
-- 新建 Skill 前先确认它有独立调用场景；已有 Skill 能覆盖就不要再建。创建或实质更新时遵循 `$skill-creator` 的最小化与渐进式披露原则，默认只维护必要的 `SKILL.md`，不为“文档齐全”新增 README/reference/changelog。中英文 AppleBooksCLI Skill 必须同步；修改后运行 `quick_validate.ts`，并由 `scripts/ci-gates.sh` 覆盖 packaging/runtime contract。
+- 新建 Skill 前先确认它有独立调用场景；已有 Skill 能覆盖就不要再建。创建或实质更新时遵循 `$skill-creator` 的最小化与渐进式披露原则，默认只维护必要的 `SKILL.md`，不为“文档齐全”新增 README/reference/changelog。
+- 只有命令路由、selector、输出解释、写入/sync 或其它会改变 AI 调用方式的用户可见行为变化才触发 Skill 更新；纯内部实现、架构重构、schema/资源预算或测试变化不触发。中英文 AppleBooksCLI Skill 必须同步。修改后按 `$skill-creator` 运行 `quick_validate.ts`，并用 `scripts/ci-gates.sh` 验证 packaging/runtime contract。
 
 ## 开发与验证
 

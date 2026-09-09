@@ -40,7 +40,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 
 - Run mutation or restore commands only when the user authorized that change. Use the CLI mutation commands; do not edit Apple Books SQLite directly.
 - `annotations update-note --note` replaces the whole note. Read the current note first when the user wants to append. `annotations delete` soft-deletes the annotation.
-- For a single mutation request, add `--sync` by default unless the user requested local-only behavior; the CLI handles no-op writes safely. For several mutations, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch.
+- Use `--sync` on a single mutation only when the user wants current-Mac CloudKit acknowledgement; otherwise omit it. For several mutations that need acknowledgement, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch.
 - A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
 - Resolve the exact backup handle before restore.
 
@@ -49,4 +49,3 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 - `export` requires an explicit output destination. Full Markdown/archival JSON goes to files; stdout contains the compact command result.
 - Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.
 - Use `history` to inspect recent CLI writes/syncs when outcome evidence is needed; it is not an undo mechanism.
-- Do not repeat the same failed command without new evidence, changed input, permission, or environment.

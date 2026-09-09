@@ -40,7 +40,7 @@ metadata:
 
 - 只有用户授权修改时才执行 mutation/restore。使用 CLI 的 mutation 命令，不要直接修改 Apple Books SQLite。
 - `annotations update-note --note` 会整段替换 note；用户要追加时先读取当前 note。`annotations delete` 是 soft-delete 整条批注。
-- 单条 mutation 请求默认加 `--sync`，除非用户明确要求仅本地修改；CLI 会安全处理 no-op。多条 mutation 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。
+- 单条 mutation 只有在用户需要当前 Mac CloudKit acknowledgement 时才加 `--sync`，否则省略。多条 mutation 需要 acknowledgement 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。
 - 已 commit 后出现 warning 不能触发自动重放。sync acknowledgement 只确认当前 Mac，不代表另一台设备已经显示。
 - restore 前先解析精确 backup handle。
 
@@ -49,4 +49,3 @@ metadata:
 - `export` 必须显式指定 output destination；完整 Markdown/archival JSON 写文件，stdout 只返回 compact command result。
 - 权限、DB discovery、schema 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。
 - 需要确认近期 CLI 写入/同步 outcome 时使用 `history`；它不是 undo。
-- 没有新证据、输入、权限或环境变化时，不重复同一失败命令。

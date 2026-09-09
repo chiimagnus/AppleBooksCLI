@@ -10,20 +10,19 @@ struct CLIContextTests {
     @Test
     func globalOptionsAreLeafLocalAndParseAfterTheCommandPath() throws {
         let parsed = try TestLeaf.parse([
-            "--json",
-            "--verbose",
             "--config", "/tmp/config.json",
             "--library-db", "/tmp/library.sqlite",
             "--annotations-db", "/tmp/annotations.sqlite",
         ])
 
-        #expect(parsed.global.json)
-        #expect(parsed.global.verbose)
         #expect(parsed.global.config == "/tmp/config.json")
         #expect(parsed.global.libraryDB == "/tmp/library.sqlite")
         #expect(parsed.global.annotationsDB == "/tmp/annotations.sqlite")
         #expect(throws: (any Error).self) {
-            _ = try AppleBooksCLI.parseAsRoot(["--json"])
+            _ = try TestLeaf.parse(["--json"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try TestLeaf.parse(["--verbose"])
         }
     }
 

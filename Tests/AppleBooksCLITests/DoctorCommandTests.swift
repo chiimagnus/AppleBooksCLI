@@ -8,25 +8,14 @@ import Testing
 @Suite("DoctorCommandTests")
 struct DoctorCommandTests {
     @Test
-    func readyHumanAndJSONResultsShareTheSameSanitizedModel() throws {
+    func readyResultIsSanitizedAndDoesNotCreateBackupRoot() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let backupRoot = fixture.root.appendingPathComponent("missing/backups", isDirectory: true)
 
-        let humanCommand = try DoctorCommand.parse(fixture.arguments)
-        let human = Capture()
-        try humanCommand.execute(output: human.output, backupRoot: backupRoot)
-        #expect(human.stderr.isEmpty)
-        #expect(human.stdout.contains("AppleBooksCLI doctor: ready"))
-        #expect(human.stdout.contains("library database: ready"))
-        #expect(human.stdout.contains(fixture.root.path) == false)
-        #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
-
-        var jsonArguments = fixture.arguments
-        jsonArguments.append("--json")
-        let jsonCommand = try DoctorCommand.parse(jsonArguments)
+        let command = try DoctorCommand.parse(fixture.arguments)
         let machine = Capture()
-        try jsonCommand.execute(output: machine.output, backupRoot: backupRoot)
+        try command.execute(output: machine.output, backupRoot: backupRoot)
         #expect(machine.stderr.isEmpty)
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(machine.stdout.utf8))
         #expect(result.status == .ready)
@@ -43,7 +32,7 @@ struct DoctorCommandTests {
     func missingInstalledPDFWorkerIsDegradedOnlyWhenPackagingProbeIsExplicit() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let command = try DoctorCommand.parse(fixture.arguments + ["--json"])
+        let command = try DoctorCommand.parse(fixture.arguments)
         let capture = Capture()
         try command.execute(
             output: capture.output,
@@ -66,7 +55,6 @@ struct DoctorCommandTests {
         var arguments = fixture.arguments
         let libraryIndex = arguments.firstIndex(of: fixture.library.path)!
         arguments[libraryIndex] = missing.path
-        arguments.append("--json")
 
         let command = try DoctorCommand.parse(arguments)
         let capture = Capture()
@@ -90,7 +78,7 @@ struct DoctorCommandTests {
         )
         defer { fixture.remove() }
         let before = try Data(contentsOf: fixture.library)
-        let command = try DoctorCommand.parse(fixture.arguments + ["--json"])
+        let command = try DoctorCommand.parse(fixture.arguments)
         let capture = Capture()
         try command.execute(
             output: capture.output,
@@ -112,7 +100,7 @@ struct DoctorCommandTests {
         let capture = Capture()
 
         let code = CLIEntrypoint.run(
-            arguments: ["doctor"] + fixture.arguments + ["--json"],
+            arguments: ["doctor"] + fixture.arguments,
             output: capture.output
         )
 
@@ -134,8 +122,9 @@ struct DoctorCommandTests {
         )
 
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains(#""code":"usage_invalid""#))
+        #expect(capture.stdout.isEmpty)
+        #expect(capture.stderr.contains(#""code":"usage_invalid""#))
+        #expect(capture.stderr.contains("--json") == false)
     }
 
     private enum FixtureError: Error {

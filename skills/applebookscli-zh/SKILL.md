@@ -14,7 +14,7 @@ metadata:
 
 1. 选择能完成请求的最小命令族；不确定语法时只读取相关层级的 `--help`。
 2. 精确读取、导出或写入前先解析 stable identity。优先 asset ID、annotation UUID、collection ID、backup handle；title/name 只是搜索键。
-3. 查询和写入优先 `--json`；`export` 的 JSON 使用 `--format json`。
+3. Operational command 默认返回 JSON，不要添加 `--json`；`export --format json` 只选择 archival artifact 格式，不改变 stdout transport。
 4. 以返回数据/状态判断是否完成，不能只看 exit code。
 
 ## 路由
@@ -46,7 +46,7 @@ metadata:
 - `annotations update-note --note` 会整段替换 note。追加时先读当前 note，再提交完整新文本。`annotations delete` 是 soft-delete 整条批注，不只是清空 note。
 - 把完成一个用户请求所需的 Apple Books mutation 视为一个写入批次：
   - 只有一条真实 mutation → 默认给这条加 `--sync`；
-  - 多条 mutation → 中间不加 `--sync`，全部本地 commit 后只运行一次 `applebookscli sync --json`；
+  - 多条 mutation → 中间不加 `--sync`，全部本地 commit 后只运行一次 `applebookscli sync`；
   - 全部 `changed=false` → 不运行根 `sync`，避免顺带 flush 与本任务无关的旧 pending changes。
 - 本批只要有一条 `changed=true`，任务结束前就应尝试 current-Mac CloudKit acknowledgement；除非用户明确要求仅本地修改，不为这个同步收尾再单独询问。
 - acknowledgement 无法完成时，明确说明“本地 mutation 已提交，但 iCloud acknowledgement 尚未确认”。post-commit warning 不能触发 mutation 重放。
@@ -55,7 +55,7 @@ metadata:
 
 ## 导出 / history / 失败处理
 
-- 遵守 destination/overwrite，默认不覆盖。
-- 用 `history list --json` 找近期操作，只对相关候选调用 `history get <id> --json`。History 是证据，不是新的写入授权；`incomplete` 表示 outcome unknown，先只读确认状态。
-- 权限、DB discovery、schema 或 capability 问题使用 `doctor --json`；正常 empty result 不需要诊断。
+- Export 必须显式指定 destination；完整 Markdown/archival JSON artifact 只写文件，stdout 只返回 compact JSON write result。遵守 destination/overwrite，默认不覆盖。
+- 用 `history list` 找近期操作，只对相关候选调用 `history get <id>`。History 是证据，不是新的写入授权；`incomplete` 表示 outcome unknown，先只读确认状态。
+- 权限、DB discovery、schema 或 capability 问题使用 `doctor`；正常 empty result 不需要诊断。
 - 没有新证据、输入、权限或环境变化时，不重复同一失败命令。

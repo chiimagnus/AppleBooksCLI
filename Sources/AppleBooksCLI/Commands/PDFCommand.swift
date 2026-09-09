@@ -23,7 +23,7 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
@@ -58,7 +58,7 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(workerURL injectedWorkerURL: URL? = nil) throws -> PDFHighlightsResult {
@@ -127,9 +127,6 @@ private enum PDFCLISelection {
 struct PDFSourceListResult: Codable, Equatable, Sendable {
     let items: [PDFSourceResult]
 
-    var humanDescription: String {
-        (["total: \(items.count)"] + items.map(\.humanSummary)).joined(separator: "\n")
-    }
 }
 
 struct PDFSourceResult: Codable, Equatable, Sendable {
@@ -145,9 +142,6 @@ struct PDFSourceResult: Codable, Equatable, Sendable {
         book = source.book.map { BookResult(book: $0) }
     }
 
-    var humanSummary: String {
-        "\(provenance)\t\(book?.assetID ?? "-")\t\(displayTitle)\t\(filePath)"
-    }
 }
 
 struct PDFHighlightsResult: Codable, Equatable, Sendable {
@@ -169,18 +163,6 @@ struct PDFHighlightsResult: Codable, Equatable, Sendable {
         timeoutCount = result.timeoutCount
     }
 
-    var humanDescription: String {
-        var lines = [
-            "attempted: \(attemptedCount)",
-            "succeeded: \(succeededCount)",
-            "failed: \(failedCount)",
-            "timeouts: \(timeoutCount)",
-        ]
-        for document in documents {
-            lines.append("\(document.source.displayTitle): \(document.highlights.count) highlights")
-        }
-        return lines.joined(separator: "\n")
-    }
 }
 
 struct PDFDocumentHighlightsResult: Codable, Equatable, Sendable {

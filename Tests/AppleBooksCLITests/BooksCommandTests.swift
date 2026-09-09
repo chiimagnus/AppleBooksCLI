@@ -12,7 +12,7 @@ struct BooksCommandTests {
 
         let paged = Capture()
         let pagedCode = CLIEntrypoint.run(
-            arguments: ["books", "list"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "list"] + fixture.globalArguments,
             output: paged.output
         )
         #expect(pagedCode == CLIProcessExit.success.rawValue)
@@ -25,7 +25,7 @@ struct BooksCommandTests {
 
         let unlimited = Capture()
         let unlimitedCode = CLIEntrypoint.run(
-            arguments: ["books", "list", "--all"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "list", "--all"] + fixture.globalArguments,
             output: unlimited.output
         )
         #expect(unlimitedCode == CLIProcessExit.success.rawValue)
@@ -42,7 +42,7 @@ struct BooksCommandTests {
 
         let assetCapture = Capture()
         let assetCode = CLIEntrypoint.run(
-            arguments: ["books", "get", "12"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "get", "12"] + fixture.globalArguments,
             output: assetCapture.output
         )
         #expect(assetCode == CLIProcessExit.success.rawValue)
@@ -62,7 +62,7 @@ struct BooksCommandTests {
 
         let pkCapture = Capture()
         let pkCode = CLIEntrypoint.run(
-            arguments: ["books", "get", "--pk", "12"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "get", "--pk", "12"] + fixture.globalArguments,
             output: pkCapture.output
         )
         #expect(pkCode == CLIProcessExit.success.rawValue)
@@ -78,13 +78,13 @@ struct BooksCommandTests {
         let capture = Capture()
 
         let code = CLIEntrypoint.run(
-            arguments: ["books", "get", "missing"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "get", "missing"] + fixture.globalArguments,
             output: capture.output
         )
 
         #expect(code == CLIProcessExit.notFound.rawValue)
-        #expect(capture.stderr.isEmpty)
-        let envelope = try decode(CLIErrorEnvelope.self, capture.stdout)
+        #expect(capture.stdout.isEmpty)
+        let envelope = try decode(CLIErrorEnvelope.self, capture.stderr)
         #expect(envelope.error.code == .notFound)
         #expect(envelope.error.message == "Book not found.")
     }
@@ -96,7 +96,7 @@ struct BooksCommandTests {
 
         let searchCapture = Capture()
         let searchCode = CLIEntrypoint.run(
-            arguments: ["books", "search", "a", "--limit", "1", "--offset", "1"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "search", "a", "--limit", "1", "--offset", "1"] + fixture.globalArguments,
             output: searchCapture.output
         )
         #expect(searchCode == CLIProcessExit.success.rawValue)
@@ -108,7 +108,7 @@ struct BooksCommandTests {
 
         let genreCapture = Capture()
         let genreCode = CLIEntrypoint.run(
-            arguments: ["books", "genre", "Fiction"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "genre", "Fiction"] + fixture.globalArguments,
             output: genreCapture.output
         )
         #expect(genreCode == CLIProcessExit.success.rawValue)
@@ -125,7 +125,7 @@ struct BooksCommandTests {
         let capture = Capture()
 
         let code = CLIEntrypoint.run(
-            arguments: ["books", "list", "--annotated"] + fixture.globalArguments + ["--json"],
+            arguments: ["books", "list", "--annotated"] + fixture.globalArguments,
             output: capture.output
         )
 
@@ -144,7 +144,6 @@ struct BooksCommandTests {
         let missingGlobals = [
             "--library-db", "/definitely/missing/library.sqlite",
             "--annotations-db", "/definitely/missing/annotations.sqlite",
-            "--json",
         ]
 
         let conflictingSelector = Capture()
@@ -153,9 +152,9 @@ struct BooksCommandTests {
             output: conflictingSelector.output
         )
         #expect(selectorCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(conflictingSelector.stderr.isEmpty)
-        #expect(conflictingSelector.stdout.contains("usage_invalid"))
-        #expect(conflictingSelector.stdout.contains("Database override") == false)
+        #expect(conflictingSelector.stdout.isEmpty)
+        #expect(conflictingSelector.stderr.contains("usage_invalid"))
+        #expect(conflictingSelector.stderr.contains("Database override") == false)
 
         let conflictingPage = Capture()
         let pageCode = CLIEntrypoint.run(
@@ -163,13 +162,13 @@ struct BooksCommandTests {
             output: conflictingPage.output
         )
         #expect(pageCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(conflictingPage.stderr.isEmpty)
-        #expect(conflictingPage.stdout.contains("usage_invalid"))
-        #expect(conflictingPage.stdout.contains("Database override") == false)
+        #expect(conflictingPage.stdout.isEmpty)
+        #expect(conflictingPage.stderr.contains("usage_invalid"))
+        #expect(conflictingPage.stderr.contains("Database override") == false)
     }
 
     @Test
-    func humanListUsesStdoutOnly() throws {
+    func defaultListIsSingleJSONValueOnStdout() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let capture = Capture()
@@ -181,8 +180,9 @@ struct BooksCommandTests {
 
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("total: 3"))
-        #expect(capture.stdout.contains("Alpha"))
+        let result = try decode(BookPageResult.self, capture.stdout)
+        #expect(result.total == 3)
+        #expect(result.items.contains { $0.title == "Alpha" })
     }
 
     private func decode<Value: Decodable>(_ type: Value.Type, _ text: String) throws -> Value {

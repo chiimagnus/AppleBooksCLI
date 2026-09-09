@@ -25,7 +25,7 @@ struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> BackupListResult {
@@ -53,7 +53,7 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> RestoreCommandResult {
@@ -67,9 +67,6 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 struct BackupListResult: Codable, Equatable, Sendable {
     let items: [BackupResult]
 
-    var humanDescription: String {
-        items.isEmpty ? "No backups." : items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct BackupResult: Codable, Equatable, Sendable {
@@ -83,9 +80,6 @@ struct BackupResult: Codable, Equatable, Sendable {
         sizeBytes = backup.sizeBytes
     }
 
-    var humanSummary: String {
-        "\(handle)\t\(createdAt.formatted(.iso8601))\t\(sizeBytes)"
-    }
 }
 
 enum RestoreCLIStatus: String, Codable, Equatable, Sendable {
@@ -110,17 +104,4 @@ struct RestoreCommandResult: Codable, Equatable, Sendable {
         warningCodes = result.warnings.map(\.rawValue)
     }
 
-    var humanDescription: String {
-        var lines = [
-            "changed: \(changed)",
-            "status: \(status.rawValue)",
-            "verified: \(verified)",
-            "restored from: \(restoredFromHandle)",
-            "safety backup: \(safetyBackupHandle)",
-        ]
-        if warningCodes.isEmpty == false {
-            lines.append("warnings: \(warningCodes.joined(separator: ","))")
-        }
-        return lines.joined(separator: "\n")
-    }
 }

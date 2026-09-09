@@ -35,7 +35,6 @@ struct BackupsCommandTests {
         #expect(result.items.count == 1)
         #expect(result.items[0].handle == backup.lastPathComponent)
         #expect(result.items[0].sizeBytes > 0)
-        #expect(result.humanDescription.contains(fixture.root.path) == false)
     }
 
     @Test

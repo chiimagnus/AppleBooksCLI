@@ -19,14 +19,4 @@ struct MutationCommandResult: Codable, Equatable, Sendable {
         appleBooksURL = result.appleBooksURL
     }
 
-    var humanDescription: String {
-        var lines = [changed ? "Mutation committed." : "No change."]
-        if warningCodes.isEmpty == false {
-            lines.append("warnings: \(warningCodes.joined(separator: ","))")
-        }
-        if let appleBooksURL {
-            lines.append(appleBooksURL)
-        }
-        return lines.joined(separator: "\n")
-    }
 }

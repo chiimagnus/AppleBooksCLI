@@ -1,15 +1,7 @@
 import ArgumentParser
 
-protocol JSONOutputProviding {
-    var jsonRequested: Bool { get }
-}
-
-protocol GlobalOptionsProviding: JSONOutputProviding {
+protocol GlobalOptionsProviding {
     var global: GlobalOptions { get }
-}
-
-extension GlobalOptionsProviding {
-    var jsonRequested: Bool { global.json }
 }
 
 protocol CLIOutputRunnable {
@@ -38,12 +30,25 @@ enum CLIEntrypoint {
         do {
             command = try AppleBooksCLI.parseAsRoot(arguments)
         } catch {
-            return presentParseError(error, arguments: arguments, output: output)
+            return presentParseError(error, output: output)
         }
 
-        let jsonRequested = (command as? any JSONOutputProviding)?.jsonRequested ?? false
+        return runParsed(
+            command,
+            arguments: arguments,
+            output: output,
+            historyStore: historyStore
+        )
+    }
+
+    static func runParsed(
+        _ command: any ParsableCommand,
+        arguments: [String],
+        output: CLIOutput,
+        historyStore: OperationHistoryStore? = nil
+    ) -> Int32 {
         guard let recordable = command as? any OperationHistoryRecordable else {
-            return dispatch(command, jsonRequested: jsonRequested, output: output)
+            return dispatch(command, output: output)
         }
 
         let activeHistoryStore = historyStore ?? OperationHistoryStore()
@@ -53,7 +58,6 @@ enum CLIEntrypoint {
         } catch {
             return presentRunError(
                 CLIError.unavailable("Operation history is unavailable."),
-                jsonRequested: jsonRequested,
                 output: output
             )
         }
@@ -70,7 +74,7 @@ enum CLIEntrypoint {
                 capturedStderr += normalizedHistoryStreamText(text)
             }
         )
-        let exitCode = dispatch(command, jsonRequested: jsonRequested, output: historyOutput)
+        let exitCode = dispatch(command, output: historyOutput)
         do {
             try activeHistoryStore.complete(
                 token,
@@ -79,14 +83,17 @@ enum CLIEntrypoint {
                 stderr: capturedStderr
             )
         } catch {
-            output.stderr("Warning: Operation history completion was not recorded.")
+            do {
+                try output.writeDiagnostic(.historyCompletionFailed)
+            } catch {
+                output.stderr(#"{"diagnostic":{"code":"history_completion_failed","message":"Operation history completion was not recorded.","severity":"warning"}}"# + "\n")
+            }
         }
         return exitCode
     }
 
     private static func dispatch(
         _ command: any ParsableCommand,
-        jsonRequested: Bool,
         output: CLIOutput
     ) -> Int32 {
         do {
@@ -98,24 +105,19 @@ enum CLIEntrypoint {
             }
             return CLIProcessExit.success.rawValue
         } catch {
-            return presentRunError(error, jsonRequested: jsonRequested, output: output)
+            return presentRunError(error, output: output)
         }
     }
 
     static func presentRunError(
         _ error: Error,
-        jsonRequested: Bool,
         output: CLIOutput
     ) -> Int32 {
         if let error = error as? CLIError {
-            return present(error, jsonRequested: jsonRequested, output: output)
+            return present(error, output: output)
         }
         if let error = error as? ValidationError {
-            return present(
-                .usageInvalid(error.description),
-                jsonRequested: jsonRequested,
-                output: output
-            )
+            return present(.usageInvalid(error.description), output: output)
         }
 
         let argumentParserExit = AppleBooksCLI.exitCode(for: error)
@@ -125,12 +127,11 @@ enum CLIEntrypoint {
             return CLIProcessExit.success.rawValue
         }
 
-        return present(.internalFailure, jsonRequested: jsonRequested, output: output)
+        return present(.internalFailure, output: output)
     }
 
     private static func presentParseError(
         _ error: Error,
-        arguments: [String],
         output: CLIOutput
     ) -> Int32 {
         let argumentParserExit = AppleBooksCLI.exitCode(for: error)
@@ -140,47 +141,26 @@ enum CLIEntrypoint {
             return CLIProcessExit.success.rawValue
         }
 
-        guard rawJSONRequested(arguments) else {
-            let message = AppleBooksCLI.fullMessage(for: error)
-            if message.isEmpty == false { output.stderr(message) }
-            return CLIProcessExit.usageInvalid.rawValue
-        }
-
-        let message = AppleBooksCLI.message(for: error)
         return present(
-            .usageInvalid(message.isEmpty ? "Invalid command-line arguments." : message),
-            jsonRequested: true,
+            .usageInvalid("Invalid command-line arguments."),
             output: output
         )
     }
 
     private static func present(
         _ error: CLIError,
-        jsonRequested: Bool,
         output: CLIOutput
     ) -> Int32 {
-        if jsonRequested {
-            do {
-                try output.writeJSON(CLIErrorEnvelope(error))
-            } catch {
-                output.stderr("Error: Internal error.")
-                return CLIProcessExit.internal.rawValue
-            }
-        } else {
-            output.stderr("Error: \(error.message)")
+        do {
+            try output.writeErrorJSON(CLIErrorEnvelope(error))
+        } catch {
+            output.stderr(#"{"error":{"code":"internal","message":"Internal error.","reason":null,"recoveryHint":null},"ok":false}"#)
+            return CLIProcessExit.internal.rawValue
         }
         return error.exitCode.rawValue
     }
 
     private static func normalizedHistoryStreamText(_ text: String) -> String {
         text.hasSuffix("\n") ? text : text + "\n"
-    }
-
-    private static func rawJSONRequested(_ arguments: [String]) -> Bool {
-        for argument in arguments {
-            if argument == "--" { return false }
-            if argument == "--json" { return true }
-        }
-        return false
     }
 }

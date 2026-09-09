@@ -17,11 +17,7 @@ struct StatsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable 
         let result = try CLIOperation.run {
             StatsResult(try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration]).libraryStats())
         }
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -44,14 +40,4 @@ struct StatsResult: Codable, Equatable, Sendable {
         topAnnotatedBooks = stats.topAnnotatedBooks.map { BookResult(overview: $0) }
     }
 
-    var humanDescription: String {
-        [
-            "books: \(totalBooks)",
-            "finished: \(finishedBooks)",
-            "in progress: \(inProgressBooks)",
-            "unstarted: \(unstartedBooks)",
-            "user annotations: \(totalUserAnnotations)",
-            "orphan annotations: \(orphanUserAnnotations)",
-        ].joined(separator: "\n")
-    }
 }

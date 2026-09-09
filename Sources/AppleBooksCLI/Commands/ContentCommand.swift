@@ -34,11 +34,7 @@ struct ContentStatusCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentStatusResult {
@@ -69,11 +65,7 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentMetadataResult {
@@ -107,11 +99,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentCoverResult {
@@ -156,11 +144,7 @@ struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentLocationResult {
@@ -194,11 +178,7 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentChaptersResult {
@@ -236,11 +216,7 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentChapterPageResult {
@@ -289,11 +265,7 @@ struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CL
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentCurrentChapterResult {
@@ -333,11 +305,7 @@ struct ContentContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> ContentContextResult {
@@ -408,18 +376,6 @@ struct ContentStatusResult: Codable, Equatable, Sendable {
         ready = status.isReady
     }
 
-    var humanDescription: String {
-        [
-            "book: \(bookAssetID ?? String(bookLocalPK))",
-            "ready: \(ready)",
-            "current availability: \(currentAvailability?.rawValue ?? "unconfigured")",
-            "supplemental availability: \(supplementalAvailability?.rawValue ?? "unconfigured")",
-            "selected source: \(selectedSource?.rawValue ?? "-")",
-            "materialization: \(materialization.rawValue)",
-            "encryption: \(encryption?.rawValue ?? "-")",
-            "unavailable reason: \(unavailableReason?.rawValue ?? "-")",
-        ].joined(separator: "\n")
-    }
 }
 
 struct ContentMetadataResult: Codable, Equatable, Sendable {
@@ -492,18 +448,6 @@ struct ContentMetadataResult: Codable, Equatable, Sendable {
         )
     }
 
-    var humanDescription: String {
-        [
-            "book: \(database.assetID ?? String(database.localPK))",
-            "title: \(database.title ?? "-")",
-            "author: \(database.author ?? "-")",
-            "source: \(source.rawValue)",
-            "EPUB title: \(epub.title ?? "-")",
-            "EPUB creator: \(epub.creator ?? "-")",
-            "ISBN: \(enrichment.isbn ?? "-")",
-            "publisher: \(enrichment.publisher ?? "-")",
-        ].joined(separator: "\n")
-    }
 }
 
 struct ContentCoverResult: Codable, Equatable, Sendable {
@@ -525,16 +469,6 @@ struct ContentCoverResult: Codable, Equatable, Sendable {
         outputStatus = disposition
     }
 
-    var humanDescription: String {
-        [
-            "book: \(bookAssetID ?? String(bookLocalPK))",
-            "source: \(contentSource.rawValue)",
-            "cover source: \(coverSource.rawValue)",
-            "media type: \(mediaType ?? "unknown")",
-            "bytes: \(byteCount)",
-            "output: \(outputStatus.rawValue)",
-        ].joined(separator: "\n")
-    }
 }
 
 struct ContentChapterResult: Codable, Equatable, Sendable {
@@ -554,9 +488,6 @@ struct ContentChapterResult: Codable, Equatable, Sendable {
         depth = chapter.depth
     }
 
-    var humanDescription: String {
-        "order=\(order) depth=\(depth) id=\(id) title=\(title) href=\(href) fragment=\(fragment)"
-    }
 }
 
 struct ContentChaptersResult: Codable, Equatable, Sendable {
@@ -570,10 +501,6 @@ struct ContentChaptersResult: Codable, Equatable, Sendable {
         self.chapters = chapters.map(ContentChapterResult.init)
     }
 
-    var humanDescription: String {
-        guard chapters.isEmpty == false else { return "No chapters." }
-        return chapters.map(\.humanDescription).joined(separator: "\n")
-    }
 }
 
 struct ContentChapterPageResult: Codable, Equatable, Sendable {
@@ -601,19 +528,6 @@ struct ContentChapterPageResult: Codable, Equatable, Sendable {
         content = page.content
     }
 
-    var humanDescription: String {
-        [
-            "chapter: \(chapterSelector)",
-            "requested offset: \(requestedOffset)",
-            "effective offset: \(effectiveOffset)",
-            "end offset: \(endOffset)",
-            "total characters: \(totalCharacters)",
-            "has more: \(hasMore)",
-            "next offset: \(nextOffset.map(String.init) ?? "-")",
-            "",
-            content,
-        ].joined(separator: "\n")
-    }
 }
 
 struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
@@ -627,7 +541,6 @@ struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
         self.chapter = ContentChapterResult(chapter)
     }
 
-    var humanDescription: String { chapter.humanDescription }
 }
 
 struct ContentContextResult: Codable, Equatable, Sendable {
@@ -656,7 +569,6 @@ struct ContentContextResult: Codable, Equatable, Sendable {
         presentationText = presentation.text
     }
 
-    var humanDescription: String { presentationText }
 }
 
 struct ContentLocationResult: Codable, Equatable, Sendable {
@@ -685,13 +597,4 @@ struct ContentLocationResult: Codable, Equatable, Sendable {
         resolvedChapter = inspection.chapter.map(ContentChapterResult.init)
     }
 
-    var humanDescription: String {
-        [
-            "book: \(bookAssetID ?? String(bookLocalPK))",
-            "chapter hint: \(chapterID ?? "-")",
-            "range: \(characterRange.map { "\($0.start)..<\($0.end)" } ?? "-")",
-            "source: \(source?.rawValue ?? "-")",
-            "resolved chapter: \(resolvedChapter?.id ?? "-")",
-        ].joined(separator: "\n")
-    }
 }

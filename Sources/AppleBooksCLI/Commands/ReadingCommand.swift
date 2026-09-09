@@ -70,11 +70,7 @@ extension ReadingStatusLeaf {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             return try statusKind.fetch(from: books, limit: limit, offset: offset)
         }
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -141,11 +137,7 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             return ReadingPositionResult(book: book, position: position)
         }
 
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -154,9 +146,6 @@ struct ReadingBooksResult: Codable, Equatable, Sendable {
     let limit: Int?
     let offset: Int
 
-    var humanDescription: String {
-        items.isEmpty ? "No books." : items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct ReadingPositionResult: Codable, Equatable, Sendable {
@@ -178,14 +167,4 @@ struct ReadingPositionResult: Codable, Equatable, Sendable {
         source = position.source
     }
 
-    var humanDescription: String {
-        [
-            "book: \(bookAssetID ?? String(bookLocalPK))",
-            "chapter: \(chapterID)",
-            "title: \(title ?? "-")",
-            "order: \(order.map(String.init) ?? "-")",
-            "total chapters: \(totalChapters.map(String.init) ?? "-")",
-            "source: \(source.rawValue)",
-        ].joined(separator: "\n")
-    }
 }

@@ -50,7 +50,6 @@ struct AnnotationWriteCommandTests {
         let result = try command.execute(using: books)
         #expect(result.committed)
         #expect(result.warningCodes == ["cloud_sync_failed"])
-        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed")
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "sync me")
     }
 
@@ -68,9 +67,7 @@ struct AnnotationWriteCommandTests {
         #expect(uuidResult.localPK == 1)
         #expect(uuidResult.stableID == "123")
         #expect(uuidResult.warningCodes.isEmpty)
-        #expect(uuidResult.humanDescription == "Mutation committed.")
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == privateNote)
-        #expect(uuidResult.humanDescription.contains(privateNote) == false)
         let encoded = String(decoding: try JSONEncoder().encode(uuidResult), as: UTF8.self)
         #expect(encoded.contains(privateNote) == false)
         #expect(encoded.contains("appleBooksURL") == false)
@@ -83,7 +80,7 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
-    func sharedMutationPresentationKeepsMetadataInJSONAndDeeplinkAsLastHumanLine() throws {
+    func sharedMutationJSONKeepsMetadataAndDeeplink() throws {
         let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
         let result = MutationCommandResult(
             MutationResult(
@@ -96,11 +93,6 @@ struct AnnotationWriteCommandTests {
             )
         )
 
-        #expect(result.humanDescription == "Mutation committed.\nwarnings: cloud_sync_failed\n\(deeplink)")
-        #expect(result.humanDescription.split(separator: "\n").last == Substring(deeplink))
-        #expect(result.humanDescription.contains("backup") == false)
-        #expect(result.humanDescription.contains("local PK") == false)
-        #expect(result.humanDescription.contains("uuid-7") == false)
 
         let data = try JSONEncoder().encode(result)
         let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: data)

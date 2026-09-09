@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 import Testing
 @testable import AppleBooksCLI
 
@@ -38,7 +39,7 @@ struct RootCommandTests {
     }
 
     @Test
-    func unknownInputUsesArgumentParserFailureWithoutOperationalState() {
+    func unknownInputUsesSanitizedJSONFailureWithoutOperationalState() throws {
         var stdout = ""
         var stderr = ""
 
@@ -49,7 +50,11 @@ struct RootCommandTests {
 
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
         #expect(stdout.isEmpty)
-        #expect(stderr.contains("Error:"))
-        #expect(stderr.contains("unknown-command"))
+        #expect(stderr.contains("unknown-command") == false)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(stderr.utf8))
+        #expect(envelope.error.code == .usageInvalid)
+        #expect(envelope.error.message == "Invalid command-line arguments.")
+        #expect(envelope.error.reason == nil)
+        #expect(envelope.error.recoveryHint == nil)
     }
 }

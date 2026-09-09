@@ -12,10 +12,22 @@ struct CLIOutput {
     }
 
     func writeJSON<Value: Encodable>(_ value: Value) throws {
+        stdout(String(decoding: try Self.encode(value), as: UTF8.self))
+    }
+
+    func writeErrorJSON<Value: Encodable>(_ value: Value) throws {
+        stderr(String(decoding: try Self.encode(value), as: UTF8.self))
+    }
+
+    func writeDiagnostic(_ diagnostic: CLIDiagnosticEnvelope) throws {
+        stderr(String(decoding: try Self.encode(diagnostic), as: UTF8.self) + "\n")
+    }
+
+    private static func encode<Value: Encodable>(_ value: Value) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        stdout(String(decoding: try encoder.encode(value), as: UTF8.self))
+        return try encoder.encode(value)
     }
 
     private static func write(_ text: String, to handle: FileHandle) {
@@ -27,7 +39,47 @@ struct CLIOutput {
 struct CLIErrorEnvelope: Codable, Equatable, Sendable {
     struct Payload: Codable, Equatable, Sendable {
         let code: CLIErrorCode
+        let reason: String?
         let message: String
+        let recoveryHint: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case code
+            case reason
+            case message
+            case recoveryHint
+        }
+
+        init(code: CLIErrorCode, reason: String?, message: String, recoveryHint: String?) {
+            self.code = code
+            self.reason = reason
+            self.message = message
+            self.recoveryHint = recoveryHint
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            code = try container.decode(CLIErrorCode.self, forKey: .code)
+            reason = try container.decodeIfPresent(String.self, forKey: .reason)
+            message = try container.decode(String.self, forKey: .message)
+            recoveryHint = try container.decodeIfPresent(String.self, forKey: .recoveryHint)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(code, forKey: .code)
+            if let reason {
+                try container.encode(reason, forKey: .reason)
+            } else {
+                try container.encodeNil(forKey: .reason)
+            }
+            try container.encode(message, forKey: .message)
+            if let recoveryHint {
+                try container.encode(recoveryHint, forKey: .recoveryHint)
+            } else {
+                try container.encodeNil(forKey: .recoveryHint)
+            }
+        }
     }
 
     let ok: Bool
@@ -35,6 +87,33 @@ struct CLIErrorEnvelope: Codable, Equatable, Sendable {
 
     init(_ error: CLIError) {
         ok = false
-        self.error = Payload(code: error.code, message: error.message)
+        self.error = Payload(
+            code: error.code,
+            reason: nil,
+            message: error.message,
+            recoveryHint: nil
+        )
     }
+}
+
+enum CLIDiagnosticSeverity: String, Codable, Equatable, Sendable {
+    case warning
+}
+
+struct CLIDiagnosticEnvelope: Codable, Equatable, Sendable {
+    struct Payload: Codable, Equatable, Sendable {
+        let severity: CLIDiagnosticSeverity
+        let code: String
+        let message: String
+    }
+
+    let diagnostic: Payload
+
+    static let historyCompletionFailed = CLIDiagnosticEnvelope(
+        diagnostic: Payload(
+            severity: .warning,
+            code: "history_completion_failed",
+            message: "Operation history completion was not recorded."
+        )
+    )
 }

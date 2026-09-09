@@ -14,7 +14,7 @@
 | 读取 schema capability detection | 已实现 | optional column 缺失按能力降级 |
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |
-| 人类输出与机器输出分离 | 已实现 | structured JSON 与 human presentation 分轨 |
+| operational JSON output | 已实现（强化） | operational success固定stdout单个JSON；fatal error固定stderr JSON；help/version保持plain text；无public `--json`/`--verbose`双轨 |
 | operation history | 已实现（强化） | 最近 24h 记录目标写入/sync；list 摘要、get 完整本地记录；不是 undo |
 
 ## Books
@@ -101,7 +101,7 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| export output destination | 已实现 | confined file/dir output；默认不覆盖 unsafe/existing target |
+| export output destination | 已实现（强化） | 完整artifact只写显式confined file/dir；stdout仅compact JSON write result；默认不覆盖 unsafe/existing target |
 | Markdown export | 已实现 | plain Markdown；使用 canonical records |
 | JSON export | 已实现 | schemaVersion=2；保留 source-specific raw fields/warnings/statistics |
 | export 类型过滤 | 已实现（强化） | presentation kind 纯派生，不改 raw annotation type/style |

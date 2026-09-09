@@ -93,11 +93,7 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> AnnotationCollectionResult {
@@ -224,11 +220,7 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> AnnotationResult {
@@ -272,11 +264,7 @@ struct AnnotationsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> AnnotationCollectionResult {
@@ -333,11 +321,7 @@ struct AnnotationsRecentCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> AnnotationCollectionResult {
@@ -381,11 +365,7 @@ struct AnnotationsRangeCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute(calendar: Calendar = .autoupdatingCurrent) throws -> AnnotationCollectionResult {
@@ -432,11 +412,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -473,11 +449,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -587,19 +559,6 @@ struct AnnotationCollectionResult: Codable, Equatable, Sendable {
         groups = groupedByBook ? makeAnnotationGroups(enriched) : nil
     }
 
-    var humanDescription: String {
-        guard items.isEmpty == false else { return "No annotations." }
-        guard let groups else {
-            return items.map(\.humanSummary).joined(separator: "\n")
-        }
-
-        let byPK = Dictionary(uniqueKeysWithValues: items.map { ($0.localPK, $0) })
-        return groups.map { group in
-            var lines = ["[\(group.humanTitle)]"]
-            lines.append(contentsOf: group.annotationLocalPKs.compactMap { byPK[$0]?.humanSummary })
-            return lines.joined(separator: "\n")
-        }.joined(separator: "\n\n")
-    }
 }
 
 struct AnnotationGroupResult: Codable, Equatable, Sendable {
@@ -694,27 +653,6 @@ struct AnnotationResult: Codable, Equatable, Sendable {
         source = AnnotationSourceResult(enriched.source)
     }
 
-    var humanDescription: String {
-        [
-            "local PK: \(localPK)",
-            "UUID: \(uuid ?? "-")",
-            "asset ID: \(rawAssetID ?? "-")",
-            "type: \(type.map(String.init) ?? "-")",
-            "style: \(style.map(String.init) ?? "-")",
-            "underline: \(isUnderline.map(String.init) ?? "-")",
-            "CFI: \(rawCFI ?? "-")",
-            "Apple Books URL: \(appleBooksURL ?? "-")",
-            "selected text: \(selectedText ?? "-")",
-            "note: \(note ?? "-")",
-            "source: \(source.kind)",
-        ].joined(separator: "\n")
-    }
-
-    var humanSummary: String {
-        let text = firstNonEmpty(selectedText, representativeText, note)?
-            .replacingOccurrences(of: "\n", with: " ") ?? "-"
-        return "\(localPK)\t\(uuid ?? "-")\t\(rawAssetID ?? "-")\t\(text)"
-    }
 }
 
 private enum AnnotationBookGroupKey: Hashable {

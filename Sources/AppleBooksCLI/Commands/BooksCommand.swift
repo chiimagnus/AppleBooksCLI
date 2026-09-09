@@ -41,11 +41,7 @@ struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunna
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> BookPageResult {
@@ -135,11 +131,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> BookResult {
@@ -177,11 +169,7 @@ struct BooksSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> BookPageResult {
@@ -228,11 +216,7 @@ struct BooksGenreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunn
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> BookPageResult {
@@ -274,11 +258,6 @@ struct BookPageResult: Codable, Equatable, Sendable {
     let limit: Int?
     let offset: Int
 
-    var humanDescription: String {
-        var lines = ["total: \(total)"]
-        lines.append(contentsOf: items.map(\.humanSummary))
-        return lines.joined(separator: "\n")
-    }
 }
 
 struct BookResult: Codable, Equatable, Sendable {
@@ -362,18 +341,5 @@ struct BookResult: Codable, Equatable, Sendable {
         self.init(book: overview.book, userAnnotationCount: overview.userAnnotationCount)
     }
 
-    var humanDescription: String {
-        [
-            "local PK: \(localPK)",
-            "asset ID: \(assetID ?? "-")",
-            "title: \(title ?? "-")",
-            "author: \(author ?? "-")",
-            "user annotations: \(userAnnotationCount.map(String.init) ?? "-")",
-        ].joined(separator: "\n")
-    }
-
-    var humanSummary: String {
-        "\(localPK)\t\(assetID ?? "-")\t\(title ?? "-")\t\(author ?? "-")"
-    }
 }
 

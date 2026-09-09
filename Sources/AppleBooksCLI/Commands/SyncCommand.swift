@@ -15,7 +15,7 @@ struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, 
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> CloudSyncCommandResult {
@@ -37,11 +37,4 @@ struct CloudSyncCommandResult: Codable, Equatable, Sendable {
         annotationPendingBefore = summary.annotationPendingBefore
     }
 
-    var humanDescription: String {
-        [
-            "acknowledged: true",
-            "collection pending before: \(collectionPendingBefore)",
-            "annotation pending before: \(annotationPendingBefore)",
-        ].joined(separator: "\n")
-    }
 }

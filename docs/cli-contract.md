@@ -16,39 +16,37 @@
 
 ## stdout / stderr / JSON
 
-Operational `--json` success writes exactly one JSON value to stdout. Human success also uses stdout; progress/verbose diagnostics stay off machine stdout.
+Operational commands have one public presentation: success writes exactly one JSON value to stdout. There is no public `--json` or `--verbose` mode switch.
 
-Human errors use stderr. Machine errors use one stdout JSON envelope:
+Fatal parse/runtime errors write exactly one JSON error envelope to stderr and leave stdout empty:
 
 ```json
-{"ok":false,"error":{"code":"usage_invalid","message":"..."}}
+{"ok":false,"error":{"code":"usage_invalid","reason":null,"message":"Invalid command-line arguments.","recoveryHint":null}}
 ```
 
-Stable error codes: `usage_invalid`, `not_found`, `unavailable`, `internal`, `write_safety`, `permission`. Unexpected errors expose only `Internal error.` rather than private payloads.
+The envelope always contains `code`, `reason`, `message`, and `recoveryHint`; optional fields are encoded as JSON `null`, not omitted. Stable coarse error codes are `usage_invalid`, `not_found`, `unavailable`, `internal`, `write_safety`, and `permission`. Unexpected failures expose only `Internal error.` rather than private payloads. Parse failures are synthetic and must not replay ArgumentParser text, raw argv values, paths, selectors, or search text.
+
+Post-outcome diagnostics that cannot change the primary command result use JSON Lines on stderr. Each diagnostic is one sanitized line shaped as `{"diagnostic":{"severity":"warning","code":"...","message":"..."}}`. A successful command with no transport diagnostic leaves stderr empty.
 
 ### Mutation output
 
-Human mutation output is intentionally small:
+Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, `backupHandle`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
 
-1. `Mutation committed.` or `No change.`
-2. optional `warnings: code1,code2`
-3. optional annotation `appleBooksURL` as the final line
+### Export output
 
-It does not print backup handle, local primary key (PK), stable ID, note, or details.
-
-Mutation JSON keeps `committed`, `changed`, `backupHandle`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. `--sync` changes acknowledgement behavior, not this result shape.
+`export` requires explicit `--output`. Full Markdown or archival JSON payloads are written only through the guarded file/directory writer and never streamed to stdout. Stdout contains only the compact write result (`destination`, `disposition`, `documentCount`, `warningCount`, `complete`); multi-document results do not enumerate every generated path.
 
 ## Parse / help behavior
 
-Before `GlobalOptions` exists, parse failure treats only an exact `--json` before `--` as a request for the machine error envelope; otherwise ArgumentParser owns the error text.
+Any non-clean parse failure uses the sanitized stderr JSON envelope above. Removed `--json` and `--verbose` tokens are invalid options, not compatibility aliases.
 
-Help, version, completion, and `help` remain ArgumentParser plain-text clean exits on stdout with status `0`, even when raw argv also contains `--json`.
+Help, version, completion, and `help` remain ArgumentParser plain-text clean exits on stdout with status `0`.
 
 ## Local operation history
 
-`history list --json` returns summaries; `history get <id> --json` is the explicit full-record read and may include original argv/stdout/stderr. Human `history get` escapes control characters instead of replaying terminal control bytes.
+`history list` returns JSON summaries; `history get <id>` is the explicit full-record JSON read and may include original argv/stdout/stderr.
 
-History persistence is part of the state-changing CLI boundary: failure to persist `started` blocks dispatch; failure to persist completion happens after the command outcome and must not change its exit status or machine stdout. `incomplete` means outcome unknown, not permission to replay the mutation.
+History persistence is part of the state-changing CLI boundary: failure to persist `started` blocks dispatch; failure to persist completion happens after the command outcome and must not change its exit status or primary stdout. Completion failure emits one sanitized `history_completion_failed` diagnostic JSONL line on stderr. `incomplete` means outcome unknown, not permission to replay the mutation.
 
 ## Edit trigger / evidence
 

@@ -52,11 +52,19 @@ struct CLICapabilityReachabilityTests {
         let items = try #require(books["items"] as? [[String: Any]])
         #expect(items.first?["assetID"] as? String == "reachability-book")
 
-        let export = try fixture.run(["export", "--format", "json"] + fixture.globalArguments)
+        let destination = fixture.root.appendingPathComponent("reachability-export.json")
+        let export = try fixture.run([
+            "export", "--format", "json", "--output", destination.path,
+        ] + fixture.globalArguments)
         #expect(export.status == CLIProcessExit.success.rawValue)
         #expect(export.stderr.isEmpty)
-        let root = try jsonObject(export.stdout)
-        let groups = try #require(root["groups"] as? [[String: Any]])
+        let writeResult = try jsonObject(export.stdout)
+        #expect(writeResult["destination"] as? String == destination.standardizedFileURL.path)
+        #expect(writeResult["documentCount"] as? Int == 1)
+        #expect(writeResult["disposition"] as? String == "file")
+        #expect(writeResult["groups"] == nil)
+        let artifact = try jsonObject(String(decoding: Data(contentsOf: destination), as: UTF8.self))
+        let groups = try #require(artifact["groups"] as? [[String: Any]])
         #expect(groups.count == 1)
     }
 
@@ -263,7 +271,7 @@ private final class ReachabilityBehaviorFixture {
     }
 
     func runJSON(_ arguments: [String]) throws -> [String: Any] {
-        let invocation = try run(arguments + globalArguments + ["--json"])
+        let invocation = try run(arguments + globalArguments)
         #expect(invocation.status == CLIProcessExit.success.rawValue)
         #expect(invocation.stderr.isEmpty)
         return try jsonObject(invocation.stdout)

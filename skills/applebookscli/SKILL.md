@@ -14,7 +14,7 @@ metadata:
 
 1. Choose the smallest command family that answers the request; read only the relevant `--help` level when syntax is uncertain.
 2. Resolve stable identity before exact reads, exports, or writes. Prefer asset ID, annotation UUID, collection ID, or backup handle; title/name are search keys, not identity.
-3. Prefer `--json` for queries and writes. `export` uses `--format json` instead.
+3. Operational commands return JSON by default; do not add a `--json` flag. `export --format json` selects the archival artifact format, not the stdout transport.
 4. Judge completion from returned data/status, not exit code alone.
 
 ## Routing
@@ -46,7 +46,7 @@ metadata:
 - `annotations update-note --note` replaces the whole note. For append, read the current note first and submit the full replacement. `annotations delete` soft-deletes the annotation, not just its note.
 - Treat all Apple Books mutations needed for one user request as one write batch:
   - exactly one real mutation → add `--sync` by default;
-  - multiple mutations → omit `--sync` on intermediate writes, then run `applebookscli sync --json` once after all local commits;
+  - multiple mutations → omit `--sync` on intermediate writes, then run `applebookscli sync` once after all local commits;
   - all mutations `changed=false` → do not run root `sync`, because it could flush unrelated older pending changes.
 - If any mutation in the batch has `changed=true`, attempt current-Mac CloudKit acknowledgement before declaring the write task complete. Do not ask for separate confirmation for this sync step unless the user requested local-only behavior.
 - If acknowledgement cannot be completed, say explicitly that the local mutation committed but iCloud acknowledgement is unconfirmed. Never replay a committed mutation because of a post-commit warning.
@@ -55,7 +55,7 @@ metadata:
 
 ## Export / history / failure handling
 
-- Honor destination and overwrite policy; default remains no overwrite.
-- Use `history list --json` to find a recent operation and `history get <id> --json` only for the relevant candidate. History is evidence, not authorization; `incomplete` means outcome unknown, so verify state before any new mutation.
-- Use `doctor --json` for permission, database-discovery, schema, or capability failures—not for a normal empty result.
+- Export requires an explicit destination. Full Markdown/archival JSON artifacts are file-only; stdout is a compact JSON write result. Honor destination and overwrite policy; default remains no overwrite.
+- Use `history list` to find a recent operation and `history get <id>` only for the relevant candidate. History is evidence, not authorization; `incomplete` means outcome unknown, so verify state before any new mutation.
+- Use `doctor` for permission, database-discovery, schema, or capability failures—not for a normal empty result.
 - Do not repeat a failed command without new evidence, changed input, permission, or environment.

@@ -30,11 +30,7 @@ struct DoctorCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             report: context.diagnostics(backupRoot: backupRoot),
             installedPDFWorkerReady: installedPDFWorkerReady
         )
-        if global.json {
-            try output.writeJSON(result)
-        } else {
-            output.stdout(result.humanDescription)
-        }
+        try output.writeJSON(result)
     }
 }
 
@@ -75,32 +71,5 @@ struct DoctorResult: Codable, Equatable, Sendable {
         } else {
             issues = report.issues
         }
-    }
-
-    var humanDescription: String {
-        var lines = [
-            "AppleBooksCLI doctor: \(status.rawValue)",
-            "library database: \(ready(libraryDatabaseReady))",
-            "annotations database: \(ready(annotationsDatabaseReady))",
-            "read schema: \(ready(readSchemaReady))",
-            "optional schema: \(optionalSchemaComplete ? "complete" : "partial")",
-            "write schema: \(ready(writeSchemaReady))",
-            "configuration: \(ready(configurationReady))",
-            "supplemental root: \(supplementalRootConfigured ? ready(supplementalRootReady) : "not configured")",
-            "backup location: \(ready(backupLocationReady))",
-            "Books.app: \(booksAppRunning ? "running" : "not running")",
-        ]
-        if let installedPDFWorkerReady {
-            lines.append("PDF worker: \(ready(installedPDFWorkerReady))")
-        }
-        if issues.isEmpty == false {
-            lines.append("issues:")
-            lines.append(contentsOf: issues.map { "- \($0.code.rawValue)" })
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private func ready(_ value: Bool) -> String {
-        value ? "ready" : "not ready"
     }
 }

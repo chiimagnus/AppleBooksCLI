@@ -38,7 +38,7 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionPageResult {
@@ -68,7 +68,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionResult {
@@ -104,7 +104,7 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionPageResult {
@@ -136,7 +136,7 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute() throws -> CollectionBooksResult {
@@ -174,7 +174,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -211,7 +211,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -246,7 +246,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -287,7 +287,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -333,7 +333,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
 
     func run(output: CLIOutput) throws {
         let result = try execute()
-        if global.json { try output.writeJSON(result) } else { output.stdout(result.humanDescription) }
+        try output.writeJSON(result)
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
@@ -355,19 +355,11 @@ struct CollectionPageResult: Codable, Equatable, Sendable {
     let limit: Int?
     let offset: Int
 
-    var humanDescription: String {
-        guard items.isEmpty == false else { return "No collections." }
-        return items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct CollectionBooksResult: Codable, Equatable, Sendable {
     let items: [BookResult]
 
-    var humanDescription: String {
-        guard items.isEmpty == false else { return "No books." }
-        return items.map(\.humanSummary).joined(separator: "\n")
-    }
 }
 
 struct CollectionResult: Codable, Equatable, Sendable {
@@ -399,21 +391,6 @@ struct CollectionResult: Codable, Equatable, Sendable {
         localModificationDate = collection.localModificationDate
     }
 
-    var humanDescription: String {
-        [
-            "local PK: \(localPK)",
-            "collection ID: \(collectionID ?? "-")",
-            "title: \(title ?? "-")",
-            "details: \(details ?? "-")",
-            "hidden: \(isHidden.map(String.init) ?? "-")",
-            "sort key: \(sortKey.map(String.init) ?? "-")",
-            "last modification: \(lastModificationDate.map { $0.formatted(.iso8601) } ?? "-")",
-        ].joined(separator: "\n")
-    }
-
-    var humanSummary: String {
-        "\(localPK)\t\(collectionID ?? "-")\t\(title ?? "-")\t\(isHidden.map(String.init) ?? "-")"
-    }
 }
 
 private func parseCollectionMembershipSelectors(

@@ -62,7 +62,8 @@ struct CollectionReadCommandTests {
             output: capture.output
         )
         #expect(code == CLIProcessExit.usageInvalid.rawValue)
-        #expect(capture.stdout.contains("Database override") == false)
+        #expect(capture.stdout.isEmpty)
+        #expect(capture.stderr.contains("Database override") == false)
     }
 
     @Test
@@ -115,7 +116,6 @@ struct CollectionReadCommandTests {
         static let missingGlobals = [
             "--library-db", "/definitely/missing/applebookscli-t12-library.sqlite",
             "--annotations-db", "/definitely/missing/applebookscli-t12-annotations.sqlite",
-            "--json",
         ]
 
         var globals: [String] {
@@ -133,7 +133,7 @@ struct CollectionReadCommandTests {
 
         func runJSON<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) throws -> Value {
             let capture = Capture()
-            let code = CLIEntrypoint.run(arguments: arguments + globals + ["--json"], output: capture.output)
+            let code = CLIEntrypoint.run(arguments: arguments + globals, output: capture.output)
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(capture.stderr.isEmpty)
             let decoder = JSONDecoder()

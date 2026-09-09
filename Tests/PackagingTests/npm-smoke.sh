@@ -89,7 +89,6 @@ HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" \
     --path "$PDF_FIXTURE" \
     --library-db "$LIBRARY_DB" \
     --annotations-db "$ANNOTATIONS_DB" \
-    --json \
   > "$SMOKE_ROOT/pdf.stdout.json" \
   2> "$SMOKE_ROOT/pdf.stderr.txt"
 [ ! -s "$SMOKE_ROOT/pdf.stderr.txt" ] || fail "npm-installed PDF smoke wrote unexpected diagnostics."

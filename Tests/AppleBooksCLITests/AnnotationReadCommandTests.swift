@@ -99,8 +99,8 @@ struct AnnotationReadCommandTests {
             let capture = Capture()
             let code = CLIEntrypoint.run(arguments: arguments + missingGlobals, output: capture.output)
             #expect(code == CLIProcessExit.usageInvalid.rawValue)
-            #expect(capture.stderr.isEmpty)
-            #expect(capture.stdout.contains("Database override") == false)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
         }
     }
 
@@ -132,11 +132,12 @@ struct AnnotationReadCommandTests {
 
         let hidden = Capture()
         let hiddenCode = CLIEntrypoint.run(
-            arguments: ["annotations", "get", "type3-private"] + fixture.globalArguments + ["--json"],
+            arguments: ["annotations", "get", "type3-private"] + fixture.globalArguments,
             output: hidden.output
         )
         #expect(hiddenCode == CLIProcessExit.notFound.rawValue)
-        #expect(hidden.stdout.contains("type3-private") == false)
+        #expect(hidden.stdout.isEmpty)
+        #expect(hidden.stderr.contains("type3-private") == false)
 
         let raw = try fixture.runJSON(
             AnnotationResult.self,
@@ -147,20 +148,22 @@ struct AnnotationReadCommandTests {
 
         let deleted = Capture()
         let deletedCode = CLIEntrypoint.run(
-            arguments: ["annotations", "get", "deleted-private", "--scope", "active-raw"] + fixture.globalArguments + ["--json"],
+            arguments: ["annotations", "get", "deleted-private", "--scope", "active-raw"] + fixture.globalArguments,
             output: deleted.output
         )
         #expect(deletedCode == CLIProcessExit.notFound.rawValue)
-        #expect(deleted.stdout.contains("deleted-private") == false)
+        #expect(deleted.stdout.isEmpty)
+        #expect(deleted.stderr.contains("deleted-private") == false)
 
-        let human = Capture()
-        let humanCode = CLIEntrypoint.run(
+        let defaultOutput = Capture()
+        let defaultCode = CLIEntrypoint.run(
             arguments: ["annotations", "get", "123"] + fixture.globalArguments,
-            output: human.output
+            output: defaultOutput.output
         )
-        #expect(humanCode == CLIProcessExit.success.rawValue)
-        #expect(human.stderr.isEmpty)
-        #expect(human.stdout.contains("Apple Books URL: ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)"))
+        #expect(defaultCode == CLIProcessExit.success.rawValue)
+        #expect(defaultOutput.stderr.isEmpty)
+        let defaultResult = try fixture.decode(AnnotationResult.self, defaultOutput.stdout)
+        #expect(defaultResult.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
     }
 
     @Test
@@ -196,8 +199,8 @@ struct AnnotationReadCommandTests {
             let capture = Capture()
             let code = CLIEntrypoint.run(arguments: arguments + missing, output: capture.output)
             #expect(code == CLIProcessExit.usageInvalid.rawValue)
-            #expect(capture.stderr.isEmpty)
-            #expect(capture.stdout.contains("Database override") == false)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
         }
     }
 
@@ -276,8 +279,8 @@ struct AnnotationReadCommandTests {
                 output: capture.output
             )
             #expect(code == CLIProcessExit.usageInvalid.rawValue)
-            #expect(capture.stderr.isEmpty)
-            #expect(capture.stdout.contains("Database override") == false)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
         }
     }
 
@@ -290,7 +293,6 @@ struct AnnotationReadCommandTests {
         static let missingGlobalArguments = [
             "--library-db", "/definitely/missing/applebookscli-t10-library.sqlite",
             "--annotations-db", "/definitely/missing/applebookscli-t10-annotations.sqlite",
-            "--json",
         ]
 
         var globalArguments: [String] {
@@ -321,7 +323,7 @@ struct AnnotationReadCommandTests {
         func runJSON<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) throws -> Value {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: arguments + globalArguments + ["--json"],
+                arguments: arguments + globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.success.rawValue)
@@ -329,7 +331,7 @@ struct AnnotationReadCommandTests {
             return try decode(type, capture.stdout)
         }
 
-        private func decode<Value: Decodable>(_ type: Value.Type, _ text: String) throws -> Value {
+        func decode<Value: Decodable>(_ type: Value.Type, _ text: String) throws -> Value {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode(type, from: Data(text.utf8))

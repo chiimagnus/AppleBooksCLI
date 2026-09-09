@@ -1214,8 +1214,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "update-note",
-        "--json"
+        "update-note"
       ]
     ]
   },
@@ -1592,7 +1591,7 @@
       ]
     ]
   },
-  "人类输出与机器输出分离": {
+  "operational JSON output": {
     "owner": "cli",
     "implementationPaths": [
       "Sources/AppleBooksCLI/CLIEntrypoint.swift",
@@ -1604,8 +1603,7 @@
     "cliHelpArgs": [
       [
         "books",
-        "list",
-        "--json"
+        "list"
       ]
     ]
   },

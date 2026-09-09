@@ -47,11 +47,11 @@ applebookscli reading in-progress
 applebookscli stats
 
 # 最近批注
-applebookscli annotations recent --json
+applebookscli annotations recent
 
 # 单条批注与对应 EPUB 上下文
-applebookscli annotations get <annotation-uuid> --json
-applebookscli content context <annotation-uuid> --json
+applebookscli annotations get <annotation-uuid>
+applebookscli content context <annotation-uuid>
 
 # PDF inventory / 提取
 applebookscli pdf list
@@ -68,7 +68,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-文件输出统一经过 destination/overwrite 安全边界。
+完整导出 artifact 只写入显式 output file/directory；stdout 返回 compact JSON write result。其它 operational command 也统一直接在 stdout 返回 JSON。
 
 ## 安全写入与 iCloud 同步
 
@@ -77,15 +77,15 @@ AppleBooksCLI 的写入只能经过 guarded mutation/restore rail；普通查询
 单条 mutation 可以显式等待当前 Mac 的 CloudKit acknowledgement：
 
 ```sh
-applebookscli collections create "My Shelf" --sync --json
+applebookscli collections create "My Shelf" --sync
 ```
 
 连续多条 mutation 时，先正常提交，最后统一 flush 一次：
 
 ```sh
-applebookscli collections create "Shelf A" --json
-applebookscli annotations update-note <annotation-uuid> --note "New note" --json
-applebookscli sync --json
+applebookscli collections create "Shelf A"
+applebookscli annotations update-note <annotation-uuid> --note "New note"
+applebookscli sync
 ```
 
 当前 Mac acknowledgement 不代表另一台设备已经显示。post-commit sync/restore warning 也不能当成重放 mutation 的授权。完整安全与生命周期契约见 [`docs/write-safety.md`](docs/write-safety.md)。
@@ -93,8 +93,8 @@ applebookscli sync --json
 ## 操作历史
 
 ```sh
-applebookscli history list --json
-applebookscli history get <history-id> --json
+applebookscli history list
+applebookscli history get <history-id>
 ```
 
 History 是最近 AppleBooksCLI mutation/restore/sync 调用的本机私有证据，不是 undo engine。`history get` 是显式完整读取面，可能包含原始参数与捕获输出。详见 [`docs/cli-contract.md`](docs/cli-contract.md)。

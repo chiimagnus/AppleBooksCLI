@@ -127,7 +127,6 @@ struct ReadingStatsCommandTests {
         let missingGlobals = [
             "--library-db", "/definitely/missing/library.sqlite",
             "--annotations-db", "/definitely/missing/annotations.sqlite",
-            "--json",
         ]
 
         let limitCapture = Capture()
@@ -136,9 +135,9 @@ struct ReadingStatsCommandTests {
             output: limitCapture.output
         )
         #expect(limitCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(limitCapture.stderr.isEmpty)
-        #expect(limitCapture.stdout.contains("usage_invalid"))
-        #expect(limitCapture.stdout.contains("Database override") == false)
+        #expect(limitCapture.stdout.isEmpty)
+        #expect(limitCapture.stderr.contains("usage_invalid"))
+        #expect(limitCapture.stderr.contains("Database override") == false)
 
         let selectorCapture = Capture()
         let selectorCode = CLIEntrypoint.run(
@@ -146,9 +145,9 @@ struct ReadingStatsCommandTests {
             output: selectorCapture.output
         )
         #expect(selectorCode == CLIProcessExit.usageInvalid.rawValue)
-        #expect(selectorCapture.stderr.isEmpty)
-        #expect(selectorCapture.stdout.contains("usage_invalid"))
-        #expect(selectorCapture.stdout.contains("Database override") == false)
+        #expect(selectorCapture.stdout.isEmpty)
+        #expect(selectorCapture.stderr.contains("usage_invalid"))
+        #expect(selectorCapture.stderr.contains("Database override") == false)
     }
 
     @Test
@@ -158,11 +157,12 @@ struct ReadingStatsCommandTests {
 
         let missing = Capture()
         let missingCode = CLIEntrypoint.run(
-            arguments: ["reading", "position", "missing"] + fixture.globalArguments + ["--json"],
+            arguments: ["reading", "position", "missing"] + fixture.globalArguments,
             output: missing.output
         )
         #expect(missingCode == CLIProcessExit.notFound.rawValue)
-        let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missing.stdout)
+        #expect(missing.stdout.isEmpty)
+        let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missing.stderr)
         #expect(missingEnvelope.error.code == .notFound)
         #expect(missingEnvelope.error.message == "Book not found.")
 
@@ -179,18 +179,18 @@ struct ReadingStatsCommandTests {
         defer { malformed.remove() }
         let malformedCapture = Capture()
         let malformedCode = CLIEntrypoint.run(
-            arguments: ["reading", "position", "12"] + malformed.globalArguments + ["--json"],
+            arguments: ["reading", "position", "12"] + malformed.globalArguments,
             output: malformedCapture.output
         )
         #expect(malformedCode == CLIProcessExit.unavailable.rawValue)
-        let malformedEnvelope = try malformed.decode(CLIErrorEnvelope.self, malformedCapture.stdout)
+        #expect(malformedCapture.stdout.isEmpty)
+        let malformedEnvelope = try malformed.decode(CLIErrorEnvelope.self, malformedCapture.stderr)
         #expect(malformedEnvelope.error.code == .unavailable)
         #expect(malformedEnvelope.error.message == "Book content is unavailable.")
-        #expect(malformedCapture.stderr.isEmpty)
     }
 
     @Test
-    func humanStatusAndStatsWriteOnlyToStdout() throws {
+    func statusAndStatsDefaultToJSONOnStdout() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -202,7 +202,7 @@ struct ReadingStatsCommandTests {
             )
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(capture.stderr.isEmpty)
-            #expect(capture.stdout.isEmpty == false)
+            #expect((try JSONSerialization.jsonObject(with: Data(capture.stdout.utf8))) is [String: Any])
         }
     }
 
@@ -245,7 +245,7 @@ struct ReadingStatsCommandTests {
         func runJSON<Value: Decodable>(_ type: Value.Type, arguments: [String]) throws -> Value {
             let capture = Capture()
             let code = CLIEntrypoint.run(
-                arguments: arguments + globalArguments + ["--json"],
+                arguments: arguments + globalArguments,
                 output: capture.output
             )
             #expect(code == CLIProcessExit.success.rawValue)

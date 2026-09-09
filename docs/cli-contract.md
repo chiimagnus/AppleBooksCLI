@@ -42,6 +42,14 @@ Any non-clean parse failure uses the sanitized stderr JSON envelope above. Remov
 
 Help, version, completion, and `help` remain ArgumentParser plain-text clean exits on stdout with status `0`.
 
+## Cursor continuation
+
+For any record query that returns `nextCursor`, treat that token as opaque. Continue by invoking the **same command** with the same query-defining selectors, filters, and ordering plus `--cursor <nextCursor>`. `--limit` is only the requested page size and may change between pages within `1...100`; cursor-capable record queries default to 20 items per page.
+
+A cursor is a bounded versioned base64url token, at most 4,096 ASCII bytes. It contains only digests plus a bounded numeric continuation locator: raw search text, note bodies, titles, database/config/source paths, and other private text are not embedded. Tokens are bound to command/query semantics and the ordered set of mutable dependencies that affect selection, order, identity, or classification. Reusing a token with a different command/filter/order is invalid; changing a participating database, WAL, config/file, or source inventory makes the token stale. `-shm` metadata is deliberately not a SQLite generation input.
+
+Cursor generation is conservative continuity evidence, not cross-process snapshot isolation. Owners compare the complete dependency generation before and after a page query; a change during the query invalidates the page rather than signing a mixed-generation continuation. On invalid/stale cursor, restart from the first page with the intended query instead of decoding, editing, or guessing token contents.
+
 ## Local operation history
 
 `history list` returns JSON summaries; `history get <id>` is the explicit full-record JSON read and may include original argv/stdout/stderr.
@@ -50,4 +58,4 @@ History persistence is part of the state-changing CLI boundary: failure to persi
 
 ## Edit trigger / evidence
 
-Update this page when exit codes, public error codes, stdout/stderr placement, JSON envelope, mutation presentation, parse/help behavior, or history read/persistence semantics change. Evidence: CLI output/history/contract tests.
+Update this page when exit codes, public error codes, stdout/stderr placement, JSON envelope, mutation presentation, parse/help behavior, cursor continuation, or history read/persistence semantics change. Evidence: CLI output/history/cursor/contract tests.

@@ -435,6 +435,25 @@ struct BookQueries {
         return try semanticDetail(localPK: localPK)
     }
 
+    func uniqueResourceTarget(assetID: String) throws -> BookResourceTarget? {
+        _ = try AppleBooksSchema.inspect(.bookAssetLookup, on: connection)
+        let statement = try connection.prepare("""
+            SELECT \(AppleBooksSchema.Book.localPK)
+            FROM \(AppleBooksTable.books.rawValue)
+            WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY
+            ORDER BY \(AppleBooksSchema.Book.localPK)
+            LIMIT 2
+            """)
+        try statement.bind(assetID, at: 1)
+        guard try statement.step(),
+              let localPK = try SQLiteRow(statement: statement).int64(AppleBooksSchema.Book.localPK),
+              localPK > 0 else {
+            return nil
+        }
+        if try statement.step() { throw StableIdentityError.ambiguousBookAssetID }
+        return try resourceTarget(localPK: localPK)
+    }
+
     func resourceTarget(localPK: Int64) throws -> BookResourceTarget? {
         let schema = try AppleBooksSchema.inspect(.bookContentPathLookup, on: connection)
         var projection = ["b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)"]

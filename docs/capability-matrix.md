@@ -60,8 +60,8 @@
 | recent annotations by creation | 已实现 | `annotations list --order created`；user annotations creation newest-first |
 | recent annotations by modification | 已实现 | `annotations list --order modified`；user annotations modification newest-first（默认 order） |
 | annotations by date range | 已实现（强化） | `annotations list --created-after/--created-before` 或 modified 对应 flags；只接受带时区 RFC3339 instant |
-| annotation context window | 已实现（强化） | current content + CFI/anchor 精确定位；anchor miss 不伪造 context |
-| context 中精确标出 highlight | 已实现（展示） | normalized anchor 首次命中，保留原 source whitespace |
+| annotation context window | 已实现（强化） | `annotations context`；minimal annotation/book projection + bounded before/matched/after，oversize anchor/location/path fail closed，raw CFI 不进入 ordinary JSON |
+| context 中精确标出 highlight | 已实现（强化） | `annotations context` 的 `matched` 返回 normalized anchor 首次精确命中的 source span，并保留原 source whitespace |
 | annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |
 | 保留 raw annotation 字段 | 已实现（强化） | canonical list/get 只输出 semantic summary/detail；raw type/style/CFI/range 由 archival export/raw Core 保持 full fidelity |
 

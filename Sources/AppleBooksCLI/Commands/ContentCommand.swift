@@ -5,7 +5,7 @@ import Foundation
 struct ContentCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "content",
-        abstract: "Inspect EPUB content and annotation context.",
+        abstract: "Inspect EPUB content.",
         subcommands: [
             ContentStatusCommand.self,
             ContentMetadataCommand.self,
@@ -14,7 +14,6 @@ struct ContentCommand: ParsableCommand {
             ContentChaptersCommand.self,
             ContentChapterCommand.self,
             ContentCurrentChapterCommand.self,
-            ContentContextCommand.self,
         ]
     )
 }
@@ -300,54 +299,6 @@ struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CL
     }
 }
 
-struct ContentContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(
-        commandName: "context",
-        abstract: "Resolve canonical context around one user annotation."
-    )
-
-    @Argument(help: "Exact annotation UUID.")
-    var uuid: String?
-
-    @Option(name: .long, help: "Use an explicit local Core Data primary key instead of a UUID.")
-    var pk: Int64?
-
-    @Option(name: .long, parsing: .unconditional, help: "Maximum graphemes before the matched annotation anchor.")
-    var before = 300
-
-    @Option(name: .long, parsing: .unconditional, help: "Maximum graphemes after the matched annotation anchor.")
-    var after = 300
-
-    @OptionGroup var global: GlobalOptions
-
-    mutating func run() throws { try run(output: .standard) }
-
-    func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
-    }
-
-    func execute() throws -> ContentContextResult {
-        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
-        guard before >= 0, after >= 0 else {
-            throw ValidationError("--before and --after must be non-negative.")
-        }
-
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            guard let annotation = try selector.resolveSemantic(in: books) else {
-                throw CLIError.notFound("Annotation not found.")
-            }
-            let context = try books.semanticAnnotationContext(
-                localPK: annotation.localPK,
-                charsBefore: before,
-                charsAfter: after
-            )
-            return ContentContextResult(annotation: annotation, context: context)
-        }
-    }
-}
-
 private func parseBookSelectorAndValue(
     values: [String],
     localPK: Int64?,
@@ -549,34 +500,6 @@ struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
         bookLocalPK = book.localPK
         bookAssetID = book.assetID
         self.chapter = ContentChapterResult(chapter)
-    }
-
-}
-
-struct ContentContextResult: Codable, Equatable, Sendable {
-    let annotationLocalPK: Int64
-    let annotationUUID: String?
-    let before: String
-    let matched: String
-    let after: String
-    let leadingTruncated: Bool
-    let trailingTruncated: Bool
-    let canonicalText: String
-    let matchFound: Bool
-    let presentationText: String
-
-    init(annotation: SemanticAnnotation, context: AnnotationContext) {
-        let presentation = context.markedPresentation
-        annotationLocalPK = annotation.localPK
-        annotationUUID = annotation.uuid
-        before = context.before
-        matched = context.matched
-        after = context.after
-        leadingTruncated = context.leadingTruncated
-        trailingTruncated = context.trailingTruncated
-        canonicalText = context.text
-        matchFound = presentation.matched
-        presentationText = presentation.text
     }
 
 }

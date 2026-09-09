@@ -26,8 +26,8 @@ metadata:
 | --- | --- |
 | 书籍 / 搜索 | `books` |
 | 阅读状态 | `reading`、`stats` |
-| 批注 / 笔记 / 最近记录 / 搜索 | 查询、搜索、最近记录统一用 `annotations list`，exact detail 用 `annotations get`，写入才使用 mutation subcommand |
-| EPUB 内容 / 批注上下文 | `content` |
+| 批注 / 笔记 / 最近记录 / 搜索 / 上下文 | 查询、搜索、最近记录统一用 `annotations list`，exact detail 用 `annotations get`，bounded 周边正文用 `annotations context`，写入才使用 mutation subcommand |
+| EPUB 内容 | `content` |
 | PDF inventory / highlights | `pdf`；exact extraction 使用 inventory 返回的 `bookAssetID` 搭配 `--book`，或 `pdfSourceID` 搭配 `--pdf` |
 | 藏书 / membership | `collections` |
 | 完整 JSON / Markdown artifact | `export` |
@@ -36,7 +36,7 @@ metadata:
 | 最近 CLI 写入/同步证据 | `history` |
 | 权限 / 数据库 / capability 诊断 | `doctor` |
 
-批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读周边 EPUB 正文用 `content context`，要原始 CFI/完整正文用 archival export。
+批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读 bounded 周边 EPUB 正文用 `annotations context <uuid>`（或显式 `--pk`），要原始 CFI/完整正文用 archival export。
 
 ## 写入与同步
 

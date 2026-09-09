@@ -275,6 +275,9 @@ struct BookQueriesTests {
         #expect(throws: StableIdentityError.ambiguousBookAssetID) {
             _ = try queries.getUniqueByAssetID("duplicate-asset")
         }
+        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
+            _ = try queries.uniqueResourceTarget(assetID: "duplicate-asset")
+        }
         #expect(throws: SQLiteRowError.invalidUTF8(column: "ZTITLE")) {
             _ = try queries.getByAssetID("duplicate-asset")
         }

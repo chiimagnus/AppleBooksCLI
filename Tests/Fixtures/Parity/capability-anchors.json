@@ -444,12 +444,12 @@
     ],
     "cliHelpArgs": [
       [
-        "content",
+        "annotations",
         "context",
         "--before"
       ],
       [
-        "content",
+        "annotations",
         "context",
         "--after"
       ]
@@ -612,7 +612,7 @@
     ],
     "cliHelpArgs": [
       [
-        "content",
+        "annotations",
         "context"
       ]
     ]

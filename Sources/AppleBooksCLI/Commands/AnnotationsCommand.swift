@@ -9,6 +9,7 @@ struct AnnotationsCommand: ParsableCommand {
         subcommands: [
             AnnotationsListCommand.self,
             AnnotationsGetCommand.self,
+            AnnotationsContextCommand.self,
             AnnotationsUpdateNoteCommand.self,
             AnnotationsDeleteCommand.self,
         ]
@@ -191,6 +192,55 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
                 throw CLIError.notFound("Annotation not found.")
             }
             return AnnotationDetailResult(row)
+        }
+    }
+}
+
+struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "context",
+        abstract: "Resolve bounded context around one annotation."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
+    var pk: Int64?
+
+    @Option(name: .long, parsing: .unconditional, help: "Context graphemes before the match (0 through 2000; default 300).")
+    var before = 300
+
+    @Option(name: .long, parsing: .unconditional, help: "Context graphemes after the match (0 through 2000; default 300).")
+    var after = 300
+
+    @OptionGroup var global: GlobalOptions
+
+    mutating func run() throws {
+        try run(output: .standard)
+    }
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(try execute())
+    }
+
+    func execute() throws -> AnnotationContextResult {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        guard (0...2_000).contains(before), (0...2_000).contains(after) else {
+            throw ValidationError("--before and --after must be between 0 and 2000.")
+        }
+        return try CLIOperation.run {
+            let books = try CLIContext(global: global).makeAppleBooks(
+                dependencies: [.libraryRead, .annotationsRead, .configuration]
+            )
+            guard let result = try selector.resolveContext(
+                in: books,
+                charsBefore: before,
+                charsAfter: after
+            ) else {
+                throw CLIError.notFound("Annotation not found.")
+            }
+            return AnnotationContextResult(result, requestedBefore: before, requestedAfter: after)
         }
     }
 }
@@ -472,6 +522,76 @@ struct AnnotationSummaryResult: Codable, Equatable, Sendable {
         source = AnnotationPublicSourceResult(annotation, truncatedFields: &truncated)
         truncatedFields = uniqueAnnotationTruncatedFields(truncated)
     }
+}
+
+struct AnnotationContextResult: Codable, Equatable, Sendable {
+    let uuid: String?
+    let localPK: Int64?
+    let before: String
+    let matched: String
+    let after: String
+    let leadingTruncated: Bool
+    let trailingTruncated: Bool
+    let truncatedFields: [String]
+
+    init(
+        _ result: SemanticAnnotationContextResult,
+        requestedBefore: Int,
+        requestedAfter: Int
+    ) {
+        let stableUUID = PublicStableTokenPolicy.isEligible(result.annotationUUID) ? result.annotationUUID : nil
+        uuid = stableUUID
+        localPK = stableUUID == nil && LocalPKPolicy.isEligible(result.annotationLocalPK)
+            ? result.annotationLocalPK
+            : nil
+
+        let beforeProfile = annotationContextSideProfile(requestedGraphemes: requestedBefore)
+        let afterProfile = annotationContextSideProfile(requestedGraphemes: requestedAfter)
+        let boundedBefore = boundedContextBefore(result.context.before, profile: beforeProfile)
+        let boundedMatched = BoundedTextPolicy.truncate(result.context.matched, profile: .detail)
+        let boundedAfter = BoundedTextPolicy.truncate(result.context.after, profile: afterProfile)
+
+        before = boundedBefore.value
+        matched = boundedMatched.value ?? ""
+        after = boundedAfter.value ?? ""
+        leadingTruncated = result.context.leadingTruncated || boundedBefore.truncated
+        trailingTruncated = result.context.trailingTruncated || boundedAfter.truncated
+
+        var truncated: [String] = []
+        if boundedBefore.truncated { truncated.append("before") }
+        if boundedMatched.truncated { truncated.append("matched") }
+        if boundedAfter.truncated { truncated.append("after") }
+        truncatedFields = truncated
+    }
+}
+
+private func annotationContextSideProfile(requestedGraphemes: Int) -> BoundedTextProfile {
+    BoundedTextProfile(
+        maximumGraphemes: requestedGraphemes,
+        maximumUTF8Bytes: requestedGraphemes == 300 ? 4 * 1_024 : 16 * 1_024
+    )
+}
+
+private func boundedContextBefore(
+    _ value: String,
+    profile: BoundedTextProfile
+) -> (value: String, truncated: Bool) {
+    guard value.count > profile.maximumGraphemes || value.utf8.count > profile.maximumUTF8Bytes else {
+        return (value, false)
+    }
+    var reversed: [Character] = []
+    reversed.reserveCapacity(min(value.count, profile.maximumGraphemes))
+    var bytes = 0
+    for character in value.reversed() {
+        let characterBytes = character.utf8.count
+        guard reversed.count < profile.maximumGraphemes,
+              bytes <= profile.maximumUTF8Bytes - characterBytes else {
+            break
+        }
+        reversed.append(character)
+        bytes += characterBytes
+    }
+    return (String(reversed.reversed()), true)
 }
 
 struct AnnotationDetailResult: Codable, Equatable, Sendable {

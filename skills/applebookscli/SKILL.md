@@ -26,8 +26,8 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | --- | --- |
 | Books / search | `books` |
 | Reading state | `reading`, `stats` |
-| Annotations / notes / recent / search | Use `annotations list` for queries/search/recent filters, `annotations get` for exact detail, and mutation subcommands only for writes |
-| EPUB content / annotation context | `content` |
+| Annotations / notes / recent / search / context | Use `annotations list` for queries/search/recent filters, `annotations get` for exact detail, `annotations context` for bounded surrounding text, and mutation subcommands only for writes |
+| EPUB content | `content` |
 | PDF inventory / highlights | `pdf`; use inventory `bookAssetID` with `--book` or `pdfSourceID` with `--pdf` for exact extraction |
 | Collections / membership | `collections` |
 | Full JSON / Markdown artifact | `export` |
@@ -36,7 +36,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | Recent CLI write/sync evidence | `history` |
 | Permission / database / capability diagnosis | `doctor` |
 
-For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `content context` for surrounding EPUB text or archival export when raw CFI/full text is required.
+For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `annotations context <uuid>` (or explicit `--pk`) for bounded surrounding EPUB text, or archival export when raw CFI/full text is required.
 
 ## Writes and sync
 

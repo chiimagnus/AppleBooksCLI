@@ -202,10 +202,12 @@ struct CLIContractTests {
         #expect((chapter["content"] as? String)?.isEmpty == false)
 
         let context = try fixture.runJSON([
-            "content", "context", "uuid-a", "--before", "8", "--after", "8",
+            "annotations", "context", "uuid-a", "--before", "8", "--after", "8",
         ])
-        #expect(context["matchFound"] as? Bool == true)
+        #expect(context["uuid"] as? String == "uuid-a")
         #expect(context["matched"] as? String == "First & 😀")
+        #expect(context["canonicalText"] == nil)
+        #expect(context["presentationText"] == nil)
 
         let annotations = try fixture.runJSON(["annotations", "list", "--book", "asset-a"])
         let annotationItems = try #require(annotations["items"] as? [[String: Any]])

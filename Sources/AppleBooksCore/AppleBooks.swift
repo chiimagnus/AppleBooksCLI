@@ -1218,55 +1218,81 @@ public final class AppleBooks {
         return Array(paged.prefix(limit))
     }
 
-    package func semanticAnnotationContext(
+    package func semanticAnnotationContextResult(
         localPK: Int64,
         charsBefore: Int = 300,
         charsAfter: Int = 300
-    ) throws -> AnnotationContext {
-        guard charsBefore >= 0, charsAfter >= 0 else {
+    ) throws -> SemanticAnnotationContextResult? {
+        guard (0...2_000).contains(charsBefore), (0...2_000).contains(charsAfter) else {
             throw AnnotationContextError.invalidWindow
         }
-        guard let annotation = try requiredAnnotationQueries().semanticGetByLocalPK(localPK) else {
-            throw AnnotationContextError.annotationUnavailable
+        guard let target = try requiredAnnotationQueries().contextTarget(localPK: localPK) else { return nil }
+        return try semanticAnnotationContextResult(
+            target: target,
+            charsBefore: charsBefore,
+            charsAfter: charsAfter
+        )
+    }
+
+    package func semanticAnnotationContextResult(
+        uuid: String,
+        charsBefore: Int = 300,
+        charsAfter: Int = 300
+    ) throws -> SemanticAnnotationContextResult? {
+        guard (0...2_000).contains(charsBefore), (0...2_000).contains(charsAfter) else {
+            throw AnnotationContextError.invalidWindow
         }
+        guard let target = try requiredAnnotationQueries().contextTarget(uuid: uuid) else { return nil }
+        return try semanticAnnotationContextResult(
+            target: target,
+            charsBefore: charsBefore,
+            charsAfter: charsAfter
+        )
+    }
+
+    private func semanticAnnotationContextResult(
+        target annotation: AnnotationContextTarget,
+        charsBefore: Int,
+        charsAfter: Int
+    ) throws -> SemanticAnnotationContextResult {
         guard let assetID = annotation.rawAssetID else {
             throw AnnotationContextError.assetIdentityUnavailable
-        }
-        let queries = try requiredBookQueries()
-        let book: SemanticBookDetail
-        do {
-            guard let resolved = try queries.semanticDetail(assetID: assetID) else {
-                throw AnnotationContextError.currentBookUnavailable
-            }
-            book = resolved
-        } catch StableIdentityError.ambiguousBookAssetID {
-            throw AnnotationContextError.currentBookAmbiguous
-        }
-        guard let target = try queries.resourceTarget(localPK: book.localPK), target.path != nil else {
-            throw AnnotationContextError.contentPathUnavailable
         }
         guard let chapterID = annotation.chapterID else {
             throw AnnotationContextError.chapterUnavailable
         }
+        let bookTarget: BookResourceTarget
+        do {
+            guard let resolved = try requiredBookQueries().uniqueResourceTarget(assetID: assetID) else {
+                throw AnnotationContextError.currentBookUnavailable
+            }
+            bookTarget = resolved
+        } catch StableIdentityError.ambiguousBookAssetID {
+            throw AnnotationContextError.currentBookAmbiguous
+        }
+        guard bookTarget.path != nil else {
+            throw AnnotationContextError.contentPathUnavailable
+        }
 
-        let content = try semanticBookContent(forBookLocalPK: book.localPK)
+        let content = try BookContent(
+            reader: EPUBSourceResolver.reader(for: bookTarget, configuration: try requiredConfiguration())
+        )
         let chapterText: String
         do {
             chapterText = try content.getChapter(chapterID)
         } catch BookContentError.chapterNotFound {
             throw AnnotationContextError.chapterUnavailable
         }
-        let selected = annotation.selectedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let representative = annotation.representativeText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let anchor = selected.isEmpty ? representative : selected
-        guard anchor.isEmpty == false else {
-            throw AnnotationContextError.anchorUnavailable
-        }
-        return try AnnotationContextMatcher.match(
+        let context = try AnnotationContextMatcher.match(
             chapterText: chapterText,
-            anchor: anchor,
+            anchor: annotation.anchor,
             charsBefore: charsBefore,
             charsAfter: charsAfter
+        )
+        return SemanticAnnotationContextResult(
+            annotationLocalPK: annotation.localPK,
+            annotationUUID: annotation.uuid,
+            context: context
         )
     }
 

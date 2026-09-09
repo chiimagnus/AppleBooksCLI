@@ -55,7 +55,7 @@ applebookscli doctor   # ready / partial / unavailable + fixed capability map
 applebookscli annotations list --has-note true --order modified   # default 20; continue with --cursor <nextCursor>
 applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
-applebookscli content context <annotation-uuid>
+applebookscli annotations context <annotation-uuid>
 applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
 
 # PDF inventory / extraction

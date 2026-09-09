@@ -207,6 +207,7 @@ enum CLIOperation {
                  .contentPathUnavailable,
                  .chapterUnavailable,
                  .anchorUnavailable,
+                 .anchorTooLarge,
                  .anchorNotFound:
                 return .unavailable("Annotation context is unavailable.")
             }

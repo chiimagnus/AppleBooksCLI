@@ -9,7 +9,20 @@ public enum AnnotationContextError: Error, Equatable, Sendable {
     case contentPathUnavailable
     case chapterUnavailable
     case anchorUnavailable
+    case anchorTooLarge
     case anchorNotFound
+}
+
+package struct SemanticAnnotationContextResult: Equatable, Sendable {
+    package let annotationLocalPK: Int64
+    package let annotationUUID: String?
+    package let context: AnnotationContext
+
+    package init(annotationLocalPK: Int64, annotationUUID: String?, context: AnnotationContext) {
+        self.annotationLocalPK = annotationLocalPK
+        self.annotationUUID = annotationUUID
+        self.context = context
+    }
 }
 
 public struct AnnotationContext: Equatable, Sendable {

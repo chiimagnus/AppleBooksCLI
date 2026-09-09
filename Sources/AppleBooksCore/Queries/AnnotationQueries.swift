@@ -1,5 +1,13 @@
 import Foundation
 
+struct AnnotationContextTarget: Equatable, Sendable {
+    let localPK: Int64
+    let uuid: String?
+    let rawAssetID: String?
+    let anchor: String
+    let chapterID: String?
+}
+
 struct AnnotationQueries {
     private enum QueryOrder {
         case standard
@@ -286,6 +294,163 @@ struct AnnotationQueries {
         }
         if try statement.step() { throw StableIdentityError.ambiguousAnnotationUUID }
         return try semanticGetByLocalPK(localPK, scope: scope)
+    }
+
+    func contextTarget(localPK: Int64) throws -> AnnotationContextTarget? {
+        let schema = try AppleBooksSchema.inspect(.annotationUserBase, on: annotationConnection)
+        return try contextTarget(localPK: localPK, schema: schema)
+    }
+
+    func contextTarget(uuid: String) throws -> AnnotationContextTarget? {
+        let schema = try AppleBooksSchema.inspect(.annotationByUUID, on: annotationConnection)
+        let statement = try annotationConnection.prepare("""
+            SELECT \(AppleBooksSchema.Annotation.localPK)
+            FROM \(AppleBooksTable.annotations.rawValue)
+            WHERE \(Self.scopePredicate(.user))
+              AND \(AppleBooksSchema.Annotation.uuid) = ? COLLATE BINARY
+            ORDER BY \(AppleBooksSchema.Annotation.localPK)
+            LIMIT 2
+            """)
+        try statement.bind(uuid, at: 1)
+        guard try statement.step(),
+              let localPK = try SQLiteRow(statement: statement).int64(AppleBooksSchema.Annotation.localPK) else {
+            return nil
+        }
+        if try statement.step() { throw StableIdentityError.ambiguousAnnotationUUID }
+        return try contextTarget(localPK: localPK, schema: schema)
+    }
+
+    private func contextTarget(localPK: Int64, schema: SchemaAvailability) throws -> AnnotationContextTarget? {
+        var projection = [AppleBooksSchema.Annotation.localPK]
+        if schema.contains(AppleBooksSchema.Annotation.uuid) {
+            projection += SQLiteTextProjection.exact(
+                AppleBooksSchema.Annotation.uuid,
+                alias: "contextUUID",
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            )
+        }
+        if schema.contains(AppleBooksSchema.Annotation.assetID) {
+            projection += SQLiteTextProjection.exact(
+                AppleBooksSchema.Annotation.assetID,
+                alias: "contextAssetID",
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
+            )
+        }
+
+        let selectedHasContent = schema.contains(AppleBooksSchema.Annotation.selectedText)
+            ? AnnotationContentSemantics.hasContentSQL(AppleBooksSchema.Annotation.selectedText)
+            : "0"
+        let representativeHasContent = schema.contains(AppleBooksSchema.Annotation.representativeText)
+            ? AnnotationContentSemantics.hasContentSQL(AppleBooksSchema.Annotation.representativeText)
+            : "0"
+        let anchorExpression: String
+        if schema.contains(AppleBooksSchema.Annotation.selectedText),
+           schema.contains(AppleBooksSchema.Annotation.representativeText) {
+            anchorExpression = "CASE WHEN \(selectedHasContent) THEN \(AppleBooksSchema.Annotation.selectedText) WHEN \(representativeHasContent) THEN \(AppleBooksSchema.Annotation.representativeText) END"
+        } else if schema.contains(AppleBooksSchema.Annotation.selectedText) {
+            anchorExpression = "CASE WHEN \(selectedHasContent) THEN \(AppleBooksSchema.Annotation.selectedText) END"
+        } else if schema.contains(AppleBooksSchema.Annotation.representativeText) {
+            anchorExpression = "CASE WHEN \(representativeHasContent) THEN \(AppleBooksSchema.Annotation.representativeText) END"
+        } else {
+            anchorExpression = "NULL"
+        }
+        projection += SQLiteTextProjection.exact(
+            anchorExpression,
+            alias: "contextAnchor",
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.detail
+        )
+        if schema.contains(AppleBooksSchema.Annotation.location) {
+            projection += SQLiteTextProjection.exact(
+                AppleBooksSchema.Annotation.location,
+                alias: "contextLocation",
+                maximumUTF8Bytes: CFIResourcePolicy.maximumStructuralBytes
+            )
+        }
+
+        let statement = try annotationConnection.prepare("""
+            SELECT \(projection.joined(separator: ", "))
+            FROM \(AppleBooksTable.annotations.rawValue)
+            WHERE \(Self.scopePredicate(.user))
+              AND \(AppleBooksSchema.Annotation.localPK) = ?
+            LIMIT 1
+            """)
+        try statement.bind(localPK, at: 1)
+        guard try statement.step() else { return nil }
+        let row = try SQLiteRow(statement: statement)
+
+        let uuid: String?
+        if schema.contains(AppleBooksSchema.Annotation.uuid) {
+            switch try SQLiteTextProjection.decodeExact(
+                row,
+                alias: "contextUUID",
+                column: AppleBooksSchema.Annotation.uuid,
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            ) {
+            case let .value(value) where PublicStableIdentityPolicy.isEligible(value): uuid = value
+            case .value, .null, .oversized: uuid = nil
+            }
+        } else {
+            uuid = nil
+        }
+
+        let rawAssetID: String?
+        if schema.contains(AppleBooksSchema.Annotation.assetID) {
+            switch try SQLiteTextProjection.decodeExact(
+                row,
+                alias: "contextAssetID",
+                column: AppleBooksSchema.Annotation.assetID,
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
+            ) {
+            case let .value(value): rawAssetID = value
+            case .null, .oversized: rawAssetID = nil
+            }
+        } else {
+            rawAssetID = nil
+        }
+
+        let anchor: String
+        switch try SQLiteTextProjection.decodeExact(
+            row,
+            alias: "contextAnchor",
+            column: "context anchor",
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.detail
+        ) {
+        case let .value(value):
+            guard AnnotationContentSemantics.hasContent(value) else {
+                throw AnnotationContextError.anchorUnavailable
+            }
+            guard value.count <= 4_000 else {
+                throw AnnotationContextError.anchorTooLarge
+            }
+            anchor = value
+        case .null:
+            throw AnnotationContextError.anchorUnavailable
+        case .oversized:
+            throw AnnotationContextError.anchorTooLarge
+        }
+
+        let chapterID: String?
+        if schema.contains(AppleBooksSchema.Annotation.location) {
+            switch try SQLiteTextProjection.decodeExact(
+                row,
+                alias: "contextLocation",
+                column: AppleBooksSchema.Annotation.location,
+                maximumUTF8Bytes: CFIResourcePolicy.maximumStructuralBytes
+            ) {
+            case let .value(value): chapterID = CFIStructureParser.parse(value)?.chapterID
+            case .null, .oversized: chapterID = nil
+            }
+        } else {
+            chapterID = nil
+        }
+
+        return AnnotationContextTarget(
+            localPK: localPK,
+            uuid: uuid,
+            rawAssetID: rawAssetID,
+            anchor: anchor,
+            chapterID: chapterID
+        )
     }
 
     func semanticByAssetID(

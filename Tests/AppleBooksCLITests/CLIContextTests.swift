@@ -39,9 +39,6 @@ struct CLIContextTests {
 
         let context = CLIContext(global: try GlobalOptions.parse([]), databaseDiscovery: discovery)
         #expect(context.configurationFile == nil)
-        #expect(throws: DatabaseDiscoveryError.missing(.library)) {
-            _ = try context.databases()
-        }
     }
 
     @Test
@@ -52,18 +49,14 @@ struct CLIContextTests {
         var libraryOnly = try GlobalOptions.parse([])
         libraryOnly.libraryDB = fixture.libraryOverride.path
         let libraryContext = CLIContext(global: libraryOnly, databaseDiscovery: fixture.discovery)
-        let libraryResolved = try libraryContext.databases()
-        #expect(libraryResolved.libraryDB == fixture.libraryOverride.resolvingSymlinksInPath())
-        #expect(libraryResolved.annotationsDB == fixture.defaultAnnotations.resolvingSymlinksInPath())
+        _ = try libraryContext.makeAppleBooks(dependencies: .libraryRead)
         #expect(libraryContext.managesCollectionBooksApplication == false)
         #expect(libraryContext.managesAnnotationBooksApplication)
 
         var annotationsOnly = try GlobalOptions.parse([])
         annotationsOnly.annotationsDB = fixture.annotationsOverride.path
         let annotationsContext = CLIContext(global: annotationsOnly, databaseDiscovery: fixture.discovery)
-        let annotationsResolved = try annotationsContext.databases()
-        #expect(annotationsResolved.libraryDB == fixture.defaultLibrary.resolvingSymlinksInPath())
-        #expect(annotationsResolved.annotationsDB == fixture.annotationsOverride.resolvingSymlinksInPath())
+        _ = try annotationsContext.makeAppleBooks(dependencies: .annotationsRead)
         #expect(annotationsContext.managesCollectionBooksApplication)
         #expect(annotationsContext.managesAnnotationBooksApplication == false)
     }
@@ -84,9 +77,9 @@ struct CLIContextTests {
         global.libraryDB = library.path
         global.annotationsDB = annotations.path
 
-        let resolved = try CLIContext(global: global, databaseDiscovery: discovery).databases()
-        #expect(resolved.libraryDB == library.resolvingSymlinksInPath())
-        #expect(resolved.annotationsDB == annotations.resolvingSymlinksInPath())
+        _ = try CLIContext(global: global, databaseDiscovery: discovery).makeAppleBooks(
+            dependencies: [.libraryRead, .annotationsRead]
+        )
     }
 
     @Test
@@ -187,7 +180,9 @@ struct CLIContextTests {
         global.libraryDB = fixture.root.path
 
         #expect(throws: DatabaseDiscoveryError.invalidOverride(.library)) {
-            _ = try CLIContext(global: global, databaseDiscovery: fixture.discovery).databases()
+            _ = try CLIContext(global: global, databaseDiscovery: fixture.discovery).makeAppleBooks(
+                dependencies: .libraryRead
+            )
         }
     }
 

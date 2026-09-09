@@ -25,13 +25,6 @@ struct CLIContext {
         global.annotationsDB == nil
     }
 
-    func databases() throws -> DiscoveredAppleBooksDatabases {
-        try databaseDiscovery.discover(
-            libraryOverride: global.libraryDB.map(URL.init(fileURLWithPath:)),
-            annotationsOverride: global.annotationsDB.map(URL.init(fileURLWithPath:))
-        )
-    }
-
     func diagnostics(backupRoot: URL = SQLiteBackup.defaultRoot()) -> AppleBooksDiagnosticReport {
         AppleBooksDiagnostics.inspect(
             libraryOverride: global.libraryDB.map(URL.init(fileURLWithPath:)),

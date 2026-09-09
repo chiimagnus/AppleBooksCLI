@@ -7,7 +7,7 @@ import Testing
 @Suite("ReadingStatsCommandTests")
 struct ReadingStatsCommandTests {
     @Test
-    func statusCommandsPreserveCorePartitionsAsBoundedSummariesAndRecentDefault() throws {
+    func statusCommandsPreserveCorePartitionsAsCursorPages() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -18,7 +18,8 @@ struct ReadingStatsCommandTests {
         #expect(inProgress.items.map(\.assetID) == ["12"])
         #expect(inProgress.items.first?.title == "Alpha")
         #expect(inProgress.items.first?.truncatedFields.isEmpty == true)
-        #expect(inProgress.limit == nil)
+        #expect(inProgress.nextCursor == nil)
+        #expect(inProgress.hasMore == false)
 
         let finished = try fixture.runJSON(
             ReadingBooksResult.self,
@@ -38,16 +39,25 @@ struct ReadingStatsCommandTests {
             ReadingBooksResult.self,
             arguments: ["reading", "recent"]
         )
-        #expect(recentDefault.limit == 10)
         #expect(recentDefault.items.map(\.assetID) == ["finished-id", "12", "infer-id"])
+        #expect(recentDefault.nextCursor == nil)
+        #expect(recentDefault.hasMore == false)
 
-        let recentPage = try fixture.runJSON(
+        let recentFirst = try fixture.runJSON(
             ReadingBooksResult.self,
-            arguments: ["reading", "recent", "--limit", "2", "--offset", "1"]
+            arguments: ["reading", "recent", "--limit", "2"]
         )
-        #expect(recentPage.limit == 2)
-        #expect(recentPage.offset == 1)
-        #expect(recentPage.items.map(\.assetID) == ["12", "infer-id"])
+        #expect(recentFirst.items.map(\.assetID) == ["finished-id", "12"])
+        #expect(recentFirst.hasMore == true)
+        let cursor = try #require(recentFirst.nextCursor)
+
+        let recentSecond = try fixture.runJSON(
+            ReadingBooksResult.self,
+            arguments: ["reading", "recent", "--limit", "2", "--cursor", cursor]
+        )
+        #expect(recentSecond.items.map(\.assetID) == ["infer-id"])
+        #expect(recentSecond.nextCursor == nil)
+        #expect(recentSecond.hasMore == false)
     }
 
     @Test
@@ -84,7 +94,7 @@ struct ReadingStatsCommandTests {
             ReadingPositionResult.self,
             arguments: ["reading", "position", "12"]
         )
-        #expect(toc.bookLocalPK == 1)
+        #expect(toc.bookLocalPK == nil)
         #expect(toc.bookAssetID == "12")
         #expect(toc.chapterID == "chapter")
         #expect(toc.title == "Section 1")
@@ -97,6 +107,7 @@ struct ReadingStatsCommandTests {
             arguments: ["reading", "position", "--pk", "2"]
         )
         #expect(hint.bookLocalPK == 2)
+        #expect(hint.bookAssetID == "finished-id")
         #expect(hint.chapterID == "outside")
         #expect(hint.title == nil)
         #expect(hint.source == .bookmarkHint)
@@ -105,7 +116,8 @@ struct ReadingStatsCommandTests {
             ReadingPositionResult.self,
             arguments: ["reading", "position", "infer-id"]
         )
-        #expect(inferred.bookLocalPK == 3)
+        #expect(inferred.bookLocalPK == nil)
+        #expect(inferred.bookAssetID == "infer-id")
         #expect(inferred.chapterID == "chapter")
         #expect(inferred.title == "Section 1")
         #expect(inferred.order == nil)
@@ -164,6 +176,16 @@ struct ReadingStatsCommandTests {
         #expect(limitCapture.stdout.isEmpty)
         #expect(limitCapture.stderr.contains("usage_invalid"))
         #expect(limitCapture.stderr.contains("Database override") == false)
+
+        let offsetCapture = Capture()
+        let offsetCode = CLIEntrypoint.run(
+            arguments: ["reading", "recent", "--offset", "1"] + missingGlobals,
+            output: offsetCapture.output
+        )
+        #expect(offsetCode == CLIProcessExit.usageInvalid.rawValue)
+        #expect(offsetCapture.stdout.isEmpty)
+        #expect(offsetCapture.stderr.contains("usage_invalid"))
+        #expect(offsetCapture.stderr.contains("Database override") == false)
 
         let selectorCapture = Capture()
         let selectorCode = CLIEntrypoint.run(

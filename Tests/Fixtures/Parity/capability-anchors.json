@@ -845,6 +845,11 @@
       [
         "reading",
         "finished"
+      ],
+      [
+        "reading",
+        "finished",
+        "--cursor"
       ]
     ]
   },
@@ -959,6 +964,11 @@
       [
         "reading",
         "in-progress"
+      ],
+      [
+        "reading",
+        "in-progress",
+        "--cursor"
       ]
     ]
   },
@@ -1136,6 +1146,11 @@
       [
         "reading",
         "recent"
+      ],
+      [
+        "reading",
+        "recent",
+        "--cursor"
       ]
     ]
   },
@@ -1329,6 +1344,11 @@
       [
         "reading",
         "unstarted"
+      ],
+      [
+        "reading",
+        "unstarted",
+        "--cursor"
       ]
     ]
   },

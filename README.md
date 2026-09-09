@@ -46,6 +46,7 @@ applebookscli books list
 applebookscli books search "history" --field all
 applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
+applebookscli reading recent --limit 20   # continue with --cursor <nextCursor> when present
 applebookscli stats
 applebookscli doctor   # ready / partial / unavailable + fixed capability map
 

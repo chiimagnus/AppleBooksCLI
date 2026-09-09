@@ -1288,6 +1288,22 @@ public final class AppleBooks {
         try requiredReadingQueries().semanticRecentlyRead(limit: limit, offset: offset)
     }
 
+    package func semanticBooksInProgressPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try requiredReadingQueries().semanticInProgressPage(limit: limit, cursor: cursor)
+    }
+
+    package func semanticFinishedBooksPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try requiredReadingQueries().semanticFinishedPage(limit: limit, cursor: cursor)
+    }
+
+    package func semanticUnstartedBooksPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try requiredReadingQueries().semanticUnstartedPage(limit: limit, cursor: cursor)
+    }
+
+    package func semanticRecentlyReadBooksPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try requiredReadingQueries().semanticRecentlyReadPage(limit: limit, cursor: cursor)
+    }
+
     public func currentReadingLocation(forBookLocalPK localPK: Int64) throws -> Annotation? {
         guard let assetID = try requiredBookQueries().semanticAssetID(localPK: localPK) else {
             return nil

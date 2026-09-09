@@ -75,6 +75,37 @@ struct ReadingQueriesTests {
     }
 
     @Test
+    func semanticCursorPagesPreserveNullBucketsAndStableTies() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZISFINISHED INTEGER,
+            ZREADINGPROGRESS REAL,
+            ZDATEFINISHED REAL,
+            ZLASTOPENDATE REAL
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+          (1,1,0,500,100),
+          (2,1,0,500,110),
+          (3,1,0,NULL,120),
+          (4,1,0,NULL,130),
+          (5,0,0.5,NULL,300),
+          (6,0,0.5,NULL,300),
+          (7,0,0.5,NULL,NULL),
+          (8,0,0,NULL,200),
+          (9,0,0,NULL,200),
+          (10,0,0,NULL,NULL);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try ReadingQueries(connection: SQLiteConnection.readOnly(path: fixture.path))
+
+        #expect(try collectPages(limit: 1) { try queries.semanticFinishedPage(limit: $0, cursor: $1) } == [2, 1, 4, 3])
+        #expect(try collectPages(limit: 2) { try queries.semanticInProgressPage(limit: $0, cursor: $1) } == [6, 5, 7])
+        #expect(try collectPages(limit: 1) { try queries.semanticUnstartedPage(limit: $0, cursor: $1) } == [9, 8, 10])
+        #expect(try collectPages(limit: 2) { try queries.semanticRecentlyReadPage(limit: $0, cursor: $1) } == [6, 5, 9, 8, 4, 3, 2, 1])
+    }
+
+    @Test
     func recentlyReadHasParityDefaultLimitAndStableTies() throws {
         var values: [String] = []
         for pk in 1...12 {
@@ -98,6 +129,21 @@ struct ReadingQueriesTests {
         #expect(recent.count == 10)
         #expect(recent.prefix(2).map(\.localPK) == [2, 1])
         #expect(try queries.recentlyRead(limit: 2, offset: 1).map(\.localPK) == [1, 12])
+    }
+
+    private func collectPages(
+        limit: Int,
+        fetch: (Int, String?) throws -> CursorPage<BookSummary>
+    ) throws -> [Int64] {
+        var cursor: String?
+        var result: [Int64] = []
+        repeat {
+            let page = try fetch(limit, cursor)
+            result += page.items.map(\.localPK)
+            cursor = page.nextCursor
+            #expect(page.hasMore == (cursor != nil))
+        } while cursor != nil
+        return result
     }
 
     private func setReal(_ value: Double, column: String, localPK: Int64, database: URL) throws {

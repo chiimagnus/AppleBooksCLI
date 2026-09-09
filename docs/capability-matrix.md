@@ -35,10 +35,10 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| in-progress books | 已实现 | 按 reading progress 查询 |
-| finished books | 已实现 | finished 状态查询 |
-| unstarted books | 已实现 | 未开始阅读查询 |
-| recently read books | 已实现 | 按 last-opened 排序并可 limit |
+| in-progress books | 已实现 | 按 reading progress 查询；cursor 分页，默认 20、最大 100 |
+| finished books | 已实现 | finished 状态查询；cursor 分页，默认 20、最大 100 |
+| unstarted books | 已实现 | 未开始阅读查询；cursor 分页，默认 20、最大 100 |
+| recently read books | 已实现 | 按 last-opened 排序；cursor 分页，默认 20、最大 100 |
 | library stats | 已实现 | SQL aggregate + bounded cross-store classifier；分别报告 historical / unmapped / ambiguous / identity-unavailable annotation counts；top-5 只返回可消费书籍 identity + count |
 | current reading position | 已实现 | type=3 current-reading bookmark 单独读取 |
 | current reading chapter | 已实现 | current position 的 CFI hint 映射 ToC chapter |

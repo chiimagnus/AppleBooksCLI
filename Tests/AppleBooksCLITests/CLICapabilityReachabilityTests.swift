@@ -47,7 +47,7 @@ struct CLICapabilityReachabilityTests {
         let fixture = try ReachabilityBehaviorFixture(repositoryRoot: repositoryRoot())
         defer { fixture.remove() }
 
-        let books = try fixture.runJSON(["books", "list", "--all"])
+        let books = try fixture.runJSON(["books", "list"])
         #expect(books["total"] as? Int == 1)
         let items = try #require(books["items"] as? [[String: Any]])
         #expect(items.first?["assetID"] as? String == "reachability-book")

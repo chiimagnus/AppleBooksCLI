@@ -78,12 +78,24 @@ enum CLIOperation {
         if error is QueryPaginationError || error is PageInputError {
             return .usageInvalid("Invalid pagination parameters.")
         }
+        if let cursorError = error as? CursorPaginationError {
+            switch cursorError {
+            case .limitOutOfRange, .invalidCursor, .filterMismatch:
+                return .usageInvalid("Invalid pagination cursor or limit.")
+            case .staleCursor, .generationUnavailable:
+                return .unavailable("Pagination cursor is stale. Restart from the first page.")
+            case .internalContractFailure:
+                return .internalFailure
+            }
+        }
         if let searchError = error as? BookSearchError {
             switch searchError {
             case .emptyQuery:
                 return .usageInvalid("Search query must not be empty.")
             case .noSearchableColumns:
                 return .unavailable("Apple Books search schema is unavailable.")
+            case .fieldUnavailable:
+                return .unavailable("Requested Apple Books search field is unavailable.")
             }
         }
         if let annotationInputError = error as? AnnotationQueryInputError {

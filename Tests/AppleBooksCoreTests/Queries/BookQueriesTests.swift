@@ -42,6 +42,90 @@ struct BookQueriesTests {
     }
 
     @Test
+    func summaryCursorUsesWholeLibraryCanonicalOrderAndMinimalProjection() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZAUTHOR TEXT,
+            ZCONTENTTYPE INTEGER,
+            ZPATH INTEGER
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, 'asset-z', 'alpha', 'Unknown', 1, 101),
+            (2, 'asset-a', 'Alpha', 'Ada\u{E000} Author', 3, 102),
+            (3, NULL, 'ALPHA', 'Cara', NULL, 103),
+            (4, 'asset-b', NULL, 'Bob', 1, 104),
+            (5, 'asset-a', 'alpha', 'Ann', 1, 105);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let first = try queries.summaryPage(limit: 2)
+        #expect(first.total == 5)
+        #expect(first.items.map(\.localPK) == [2, 5])
+        #expect(first.items[0].author == "Ada Author")
+        #expect(first.items[0].isPDF == true)
+        #expect(first.hasMore)
+        let second = try queries.summaryPage(limit: 2, cursor: first.nextCursor)
+        #expect(second.items.map(\.localPK) == [1, 3])
+        #expect(second.items[0].author == nil)
+        #expect(second.items[1].isPDF == nil)
+        let last = try queries.summaryPage(limit: 100, cursor: second.nextCursor)
+        #expect(last.items.map(\.localPK) == [4])
+        #expect(last.hasMore == false)
+        #expect(last.nextCursor == nil)
+    }
+
+    @Test
+    func summarySearchSupportsExplicitFieldsAndBindsCursorToField() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZAUTHOR TEXT,
+            ZGENRE TEXT
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, 'a-1', 'Ada Notes', 'Writer', 'Reference'),
+            (2, 'a-2', 'Second', 'Ada Author', 'Fiction'),
+            (3, 'a-3', 'Third', 'Other', 'Ada Genre');
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        #expect(try queries.searchSummaryPage("Ada", field: .all).items.map(\.localPK) == [1, 2, 3])
+        #expect(try queries.searchSummaryPage("Ada", field: .title).items.map(\.localPK) == [1])
+        #expect(try queries.searchSummaryPage("Ada", field: .author).items.map(\.localPK) == [2])
+        #expect(try queries.searchSummaryPage("Ada", field: .genre).items.map(\.localPK) == [3])
+
+        let first = try queries.searchSummaryPage("a", field: .all, limit: 1)
+        #expect(throws: CursorPaginationError.filterMismatch) {
+            _ = try queries.searchSummaryPage("a", field: .title, limit: 1, cursor: first.nextCursor)
+        }
+    }
+
+    @Test
+    func explicitMissingSearchFieldFailsWhileAllUsesAvailableColumns() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZTITLE TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (1, 'Alpha');
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        #expect(try queries.searchSummaryPage("alp", field: .all).items.map(\.localPK) == [1])
+        #expect(throws: BookSearchError.fieldUnavailable(.author)) {
+            _ = try queries.searchSummaryPage("alp", field: .author)
+        }
+        #expect(throws: BookSearchError.fieldUnavailable(.genre)) {
+            _ = try queries.searchSummaryPage("alp", field: .genre)
+        }
+    }
+
+    @Test
     func baseListSurvivesMissingOptionalColumns() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);

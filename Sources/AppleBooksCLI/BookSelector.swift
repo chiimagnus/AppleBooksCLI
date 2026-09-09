@@ -38,9 +38,7 @@ func parseOptionalBookSelector(
 ) throws -> BookSelector? {
     switch (assetID, localPK) {
     case let (.some(assetID), nil):
-        guard assetID.isEmpty == false else {
-            throw ValidationError("Asset ID must not be empty.")
-        }
+        try PublicStableTokenPolicy.validateInput(assetID)
         return .assetID(assetID)
     case let (nil, .some(localPK)):
         return .localPK(localPK)

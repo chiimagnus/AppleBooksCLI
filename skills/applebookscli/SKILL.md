@@ -35,7 +35,7 @@ metadata:
 ## Query boundaries
 
 - A local primary key (PK) is the current Core Data SQLite row identifier (`Z_PK`), not a stable cross-device identity. Use a PK selector only when the user supplied it explicitly or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
-- If several matches remain plausible, show candidates instead of choosing silently.
+- If several matches remain plausible, show candidates instead of choosing silently. For books, use `books search <query> --field all|title|author|genre`; there is no standalone genre command.
 - When a result returns `nextCursor`, continue the same command with the same selectors/filters/order plus `--cursor <nextCursor>`. Treat the token as opaque; do not decode or modify it. `--limit` may change between pages. If the CLI reports an invalid/stale cursor, restart from the first page with the intended query instead of guessing continuation state.
 - “Latest annotations” means creation time; “recently modified” means modification time. “Latest note” means the newest annotation with a non-empty `note`.
 - A single annotation may include `appleBooksURL`; request `content context` only when surrounding text is needed.

@@ -21,16 +21,15 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| list books | 已实现 | 支持分页与显式全量 |
-| list books with annotations | 已实现 | annotated-only view + annotation count |
-| get/describe book | 已实现 | asset ID / local primary key（PK，本机数据库行号）精确定位并返回当前可用 metadata |
-| title search | 已实现 | substring search；多结果不猜第一项 |
-| title/author/genre 综合搜索 | 已实现 | case-insensitive partial match |
-| genre 查询 | 已实现 | 独立 genre filter |
-| 丰富书籍 metadata | 已实现 | 返回实时 schema 可提供的 raw/derived metadata；未知 BLOB 不猜编码 |
+| list books | 已实现 | 整个 BKLibrary universe；opaque cursor 分页，默认 20、单页最多 100；summary 只返回下一步所需字段 |
+| list books with annotations | 已实现 | `books list --annotated`；同样使用 cursor，并附 user annotation count |
+| get/describe book | 已实现 | stable asset ID 优先、显式 local PK fallback；返回 bounded semantic detail，不暴露数据库路径/raw blob/internal flags |
+| title search | 已实现 | `books search --field title` literal substring；多结果不猜第一项，使用 opaque cursor |
+| title/author/genre 综合搜索 | 已实现 | `books search --field all|title|author|genre`；case-insensitive literal partial match |
+| 书籍 semantic metadata | 已实现 | title/author/description/genre/language/year/pageCount/reading state 等 Agent 可理解字段；超限文本有 `truncatedFields` |
 | EPUB OPF / iTunes metadata enrichment | 已实现 | OPF 为主，plist 只补缺失 enrichment，不覆盖 current-library identity |
 | cover 提取 | 已实现 | EPUB 声明优先，有限 exact fallback；保留 bytes/media type/source |
-| author sentinel normalization | 已实现 | raw author 保留；derived author 可去除 Apple sentinel/private chars |
+| author sentinel normalization | 已实现 | ordinary book summary/detail 只返回 canonical author；Apple sentinel/private-use 标记归一化为清理值或 null |
 
 ## Reading status / stats
 

@@ -22,6 +22,11 @@ package func resolvedCursorPageLimit(_ limit: Int?) throws -> Int {
     return effective
 }
 
+package func validateCursorInputSyntax(_ cursor: String?) throws {
+    guard let cursor else { return }
+    try CursorTokenCodec.validateSyntax(cursor)
+}
+
 package enum CursorFingerprintValue: Equatable, Sendable {
     case null
     case bool(Bool)
@@ -357,17 +362,21 @@ private enum CursorTokenCodec {
         return token
     }
 
-    static func decode(
-        _ token: String,
-        expectedFingerprint: CursorQueryFingerprint,
-        expectedGeneration: CursorGeneration
-    ) throws -> CursorLocator {
+    static func validateSyntax(_ token: String) throws {
         let utf8 = token.utf8
         guard utf8.isEmpty == false,
               utf8.count <= cursorMaximumTokenBytes,
               utf8.allSatisfy(isBase64URLByte) else {
             throw CursorPaginationError.invalidCursor
         }
+    }
+
+    static func decode(
+        _ token: String,
+        expectedFingerprint: CursorQueryFingerprint,
+        expectedGeneration: CursorGeneration
+    ) throws -> CursorLocator {
+        try validateSyntax(token)
 
         var encoded = token.replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")

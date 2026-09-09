@@ -114,14 +114,14 @@ struct CLIContractTests {
         #expect(doctor["annotationsDatabaseReady"] as? Bool == true)
         #expect(doctor["installedPDFWorkerReady"] as? Bool == true)
 
-        let list = try fixture.runJSON(["books", "list", "--all"])
+        let list = try fixture.runJSON(["books", "list"])
         #expect(list["total"] as? Int == 3)
         let listedBooks = try #require(list["items"] as? [[String: Any]])
         #expect(Set(listedBooks.compactMap { $0["assetID"] as? String }) == ["asset-a", "asset-b", "asset-pdf"])
 
         let get = try fixture.runJSON(["books", "get", "asset-a"])
-        #expect(get["localPK"] as? Int == 1)
         #expect(get["assetID"] as? String == "asset-a")
+        #expect(get["localPK"] == nil)
 
         let search = try fixture.runJSON(["books", "search", "Book A"])
         #expect(search["total"] as? Int == 1)

@@ -37,6 +37,7 @@ public final class AppleBooks {
     private let annotationWriter: AnnotationWriter?
     private let restoreCoordinator: MutationCoordinator?
     private let libraryDatabase: URL?
+    private let annotationsDatabase: URL?
     private let libraryBackupRoot: URL
     private let pdfSourceResolver: PDFSourceResolver
     private let pdfWorkerClient: PDFWorkerClient?
@@ -241,6 +242,7 @@ public final class AppleBooks {
         }
 
         libraryDatabase = libraryDB
+        annotationsDatabase = annotationsDB
         self.libraryBackupRoot = libraryBackupRoot
         self.pdfSourceResolver = pdfSourceResolver
         self.pdfWorkerClient = dependencies.contains(.pdfWorker) ? pdfWorkerClient : nil
@@ -539,6 +541,74 @@ public final class AppleBooks {
 
     public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
         try requiredBookQueries().page(limit: limit, offset: offset)
+    }
+
+    public func bookSummaryPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try requiredBookQueries().summaryPage(limit: limit, cursor: cursor)
+    }
+
+    public func searchBookSummaries(
+        _ text: String,
+        field: BookSearchField = .all,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<BookSummary> {
+        try requiredBookQueries().searchSummaryPage(text, field: field, limit: limit, cursor: cursor)
+    }
+
+    public func annotatedBookSummaryPage(
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<AnnotatedBookSummary> {
+        let effectiveLimit = try resolvedCursorPageLimit(limit)
+        let beforeGeneration = try annotatedBookCursorGeneration()
+        let fingerprint = try CursorQueryFingerprint.make(
+            kind: "books.annotated",
+            fields: [CursorFingerprintField("order.version", .unsigned(1))]
+        )
+        let session = try CursorPaginationSession(
+            cursor: cursor,
+            fingerprint: fingerprint,
+            generation: beforeGeneration
+        )
+        let all = try annotatedBooks()
+
+        let suffix: ArraySlice<BookOverview>
+        if let locator = session.locator {
+            guard locator.words.count == 1 else { throw CursorPaginationError.invalidCursor }
+            let localPK = Int64(bitPattern: locator.words[0])
+            guard let index = all.firstIndex(where: { $0.book.localPK == localPK }) else {
+                throw CursorPaginationError.staleCursor
+            }
+            suffix = all.dropFirst(index + 1)
+        } else {
+            suffix = all[...]
+        }
+        let candidates = suffix.prefix(effectiveLimit + 1).map {
+            AnnotatedBookSummary(
+                book: BookSummary(book: $0.book),
+                userAnnotationCount: $0.userAnnotationCount
+            )
+        }
+        let afterGeneration = try annotatedBookCursorGeneration()
+        return try makeCursorPage(
+            candidates: candidates,
+            limit: effectiveLimit,
+            total: all.count,
+            session: session,
+            afterGeneration: afterGeneration,
+            locator: { try .rowID($0.book.localPK) }
+        )
+    }
+
+    private func annotatedBookCursorGeneration() throws -> CursorGeneration {
+        guard let libraryDatabase, let annotationsDatabase else {
+            throw CursorPaginationError.generationUnavailable
+        }
+        return try CursorGeneration.compose([
+            .sqlite(label: "library", databaseURL: libraryDatabase),
+            .sqlite(label: "annotations", databaseURL: annotationsDatabase),
+        ])
     }
 
     public func book(localPK: Int64) throws -> Book? {

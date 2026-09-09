@@ -43,6 +43,8 @@ applebookscli <group> <subcommand> --help
 ```sh
 # 书库与阅读状态
 applebookscli books list
+applebookscli books search "history" --field all
+applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
 applebookscli stats
 

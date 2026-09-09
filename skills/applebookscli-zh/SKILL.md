@@ -35,7 +35,7 @@ metadata:
 ## 查询边界
 
 - local primary key（PK）指当前 Core Data SQLite 行的 `Z_PK`，不是跨设备稳定 identity。只有用户明确提供 PK，或确实没有 stable identity 时才用 PK selector；数字形式的 stable ID 不能被猜成 PK。
-- 多个候选都合理时展示候选，不静默选第一项。
+- 多个候选都合理时展示候选，不静默选第一项。书籍搜索统一使用 `books search <query> --field all|title|author|genre`，不再有独立 genre 命令。
 - 返回 `nextCursor` 时，使用同一命令、相同 selector/filter/order，再附加 `--cursor <nextCursor>` 继续。把 token 当作 opaque，不解析也不修改；翻页时可以调整 `--limit`。若 CLI 报 invalid/stale cursor，从目标查询第一页重新开始，不猜 continuation state。
 - “最新批注”按创建时间；“最近修改”按修改时间；“最新笔记”只统计 `note` 非空的批注。
 - 单条批注可能包含 `appleBooksURL`；只有需要前后正文时才调用 `content context`。

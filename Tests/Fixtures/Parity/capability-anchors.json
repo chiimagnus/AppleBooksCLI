@@ -864,21 +864,6 @@
       ]
     ]
   },
-  "genre 查询": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/BookQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "books",
-        "genre"
-      ]
-    ]
-  },
   "get/describe annotation": {
     "owner": "core",
     "implementationPaths": [
@@ -1026,7 +1011,7 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/BookOverview.swift"
+      "Sources/AppleBooksCore/Models/BookSummary.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
@@ -1342,10 +1327,11 @@
       ]
     ]
   },
-  "丰富书籍 metadata": {
+  "书籍 semantic metadata": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Book.swift"
+      "Sources/AppleBooksCore/Models/Book.swift",
+      "Sources/AppleBooksCore/Models/BookSummary.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/RichBookMetadataTests.swift"

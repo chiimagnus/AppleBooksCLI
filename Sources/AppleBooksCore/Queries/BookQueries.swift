@@ -12,6 +12,7 @@ public enum QueryDecodingError: Error, Equatable, Sendable {
 public enum BookSearchError: Error, Equatable, Sendable {
     case emptyQuery
     case noSearchableColumns
+    case fieldUnavailable(BookSearchField)
 }
 
 func validatePagination(limit: Int?, offset: Int) throws {
@@ -30,12 +31,9 @@ struct BookQueries {
         case title(String)
         case genre(String)
         case combinedText(String)
-        case contentPage
         case pdf
         case assetID(String)
     }
-
-    private static let contentPagePredicate = "\(AppleBooksSchema.Book.contentType) IS NOT NULL"
 
     let connection: SQLiteConnection
 
@@ -45,9 +43,23 @@ struct BookQueries {
 
     func page(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
         let effectiveLimit = try resolvedPageLimit(limit, default: 20, offset: offset)
-        let total = try contentPageTotal()
-        let items = try query(.contentPage, capability: .bookPage, limit: effectiveLimit, offset: offset)
+        let total = try baseTotal()
+        let items = try query(.none, capability: .bookBase, limit: effectiveLimit, offset: offset)
         return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
+    }
+
+    func summaryPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
+        try summaryPage(searchText: nil, field: nil, limit: limit, cursor: cursor)
+    }
+
+    func searchSummaryPage(
+        _ text: String,
+        field: BookSearchField = .all,
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<BookSummary> {
+        guard text.isEmpty == false else { throw BookSearchError.emptyQuery }
+        return try summaryPage(searchText: text, field: field, limit: limit, cursor: cursor)
     }
 
     func pdfBooks() throws -> [Book] {
@@ -120,8 +132,6 @@ struct BookQueries {
         case .combinedText:
             let clauses = combinedSearchColumns.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
             sql += " WHERE (\(clauses.joined(separator: " OR ")))"
-        case .contentPage:
-            sql += " WHERE \(Self.contentPagePredicate)"
         case .pdf:
             sql += " WHERE \(AppleBooksSchema.Book.contentType) = 3"
         case .assetID:
@@ -167,7 +177,7 @@ struct BookQueries {
                 try statement.bind(pattern, at: index)
                 index += 1
             }
-        case .contentPage, .pdf:
+        case .pdf:
             break
         case let .assetID(value):
             try statement.bind(value, at: index)
@@ -187,10 +197,307 @@ struct BookQueries {
         return books
     }
 
-    private func contentPageTotal() throws -> Int {
-        _ = try AppleBooksSchema.inspect(.bookPage, on: connection)
+    private struct SummarySelection {
+        let searchText: String?
+        let field: BookSearchField?
+        let searchColumns: [String]
+    }
+
+    private func summaryPage(
+        searchText: String?,
+        field: BookSearchField?,
+        limit: Int?,
+        cursor: String?
+    ) throws -> CursorPage<BookSummary> {
+        let effectiveLimit = try resolvedCursorPageLimit(limit)
+        let beforeGeneration = try bookCursorGeneration()
+        let schema = try AppleBooksSchema.inspect(.bookBase, on: connection)
+        let selection = try summarySelection(searchText: searchText, field: field, schema: schema)
+        let fingerprint = try summaryFingerprint(selection: selection, schema: schema)
+        let session = try CursorPaginationSession(
+            cursor: cursor,
+            fingerprint: fingerprint,
+            generation: beforeGeneration
+        )
+
+        let cursorPK: Int64?
+        if let locator = session.locator {
+            guard locator.words.count == 1 else { throw CursorPaginationError.invalidCursor }
+            cursorPK = Int64(bitPattern: locator.words[0])
+            guard try summaryCursorRowExists(localPK: cursorPK!, selection: selection) else {
+                throw CursorPaginationError.staleCursor
+            }
+        } else {
+            cursorPK = nil
+        }
+
+        let total = try summaryCount(selection: selection)
+        let candidates = try summaryCandidates(
+            selection: selection,
+            schema: schema,
+            cursorPK: cursorPK,
+            limit: effectiveLimit + 1
+        )
+        let afterGeneration = try bookCursorGeneration()
+        return try makeCursorPage(
+            candidates: candidates,
+            limit: effectiveLimit,
+            total: total,
+            session: session,
+            afterGeneration: afterGeneration,
+            locator: { try .rowID($0.localPK) }
+        )
+    }
+
+    private func summarySelection(
+        searchText: String?,
+        field: BookSearchField?,
+        schema: SchemaAvailability
+    ) throws -> SummarySelection {
+        guard let searchText else {
+            return SummarySelection(searchText: nil, field: nil, searchColumns: [])
+        }
+        let resolvedField = field ?? .all
+        let columns: [String]
+        switch resolvedField {
+        case .all:
+            columns = [
+                AppleBooksSchema.Book.title,
+                AppleBooksSchema.Book.author,
+                AppleBooksSchema.Book.genre,
+            ].filter(schema.contains)
+            guard columns.isEmpty == false else { throw BookSearchError.noSearchableColumns }
+        case .title:
+            guard schema.contains(AppleBooksSchema.Book.title) else {
+                throw BookSearchError.fieldUnavailable(.title)
+            }
+            columns = [AppleBooksSchema.Book.title]
+        case .author:
+            guard schema.contains(AppleBooksSchema.Book.author) else {
+                throw BookSearchError.fieldUnavailable(.author)
+            }
+            columns = [AppleBooksSchema.Book.author]
+        case .genre:
+            guard schema.contains(AppleBooksSchema.Book.genre) else {
+                throw BookSearchError.fieldUnavailable(.genre)
+            }
+            columns = [AppleBooksSchema.Book.genre]
+        }
+        return SummarySelection(searchText: searchText, field: resolvedField, searchColumns: columns)
+    }
+
+    private func summaryFingerprint(
+        selection: SummarySelection,
+        schema: SchemaAvailability
+    ) throws -> CursorQueryFingerprint {
+        var fields = [
+            CursorFingerprintField("order.version", .unsigned(1)),
+            CursorFingerprintField("order.title", .bool(schema.contains(AppleBooksSchema.Book.title))),
+            CursorFingerprintField("order.assetID", .bool(schema.contains(AppleBooksSchema.Book.assetID))),
+        ]
+        let kind: String
+        if let searchText = selection.searchText, let field = selection.field {
+            kind = "books.search"
+            fields += [
+                CursorFingerprintField("field", .string(field.rawValue)),
+                CursorFingerprintField("query", .string(searchText)),
+                CursorFingerprintField("searchColumns", .strings(selection.searchColumns)),
+            ]
+        } else {
+            kind = "books.list"
+        }
+        return try CursorQueryFingerprint.make(kind: kind, fields: fields)
+    }
+
+    private func bookCursorGeneration() throws -> CursorGeneration {
+        try CursorGeneration.compose([
+            CursorGenerationComponent.sqlite(label: "library", databaseURL: connection.databaseURL),
+        ])
+    }
+
+    private func summaryCount(selection: SummarySelection) throws -> Int {
+        var sql = "SELECT COUNT(*) AS count FROM \(AppleBooksTable.books.rawValue) AS b"
+        if let predicate = summarySearchPredicate(selection: selection, alias: "b") {
+            sql += " WHERE \(predicate)"
+        }
+        let statement = try connection.prepare(sql)
+        try bindSummarySearch(selection: selection, to: statement, startingAt: 1)
+        guard try statement.step(),
+              let count = try SQLiteRow(statement: statement).int64("count"),
+              count >= 0,
+              try statement.step() == false else {
+            throw QueryDecodingError.nullRequiredColumn("count")
+        }
+        return Int(count)
+    }
+
+    private func summaryCursorRowExists(localPK: Int64, selection: SummarySelection) throws -> Bool {
+        var sql = "SELECT 1 AS present FROM \(AppleBooksTable.books.rawValue) AS b WHERE b.\(AppleBooksSchema.Book.localPK) = ?"
+        if let predicate = summarySearchPredicate(selection: selection, alias: "b") {
+            sql += " AND \(predicate)"
+        }
+        let statement = try connection.prepare(sql)
+        try statement.bind(localPK, at: 1)
+        try bindSummarySearch(selection: selection, to: statement, startingAt: 2)
+        guard try statement.step() else { return false }
+        guard try statement.step() == false else { throw CursorPaginationError.internalContractFailure }
+        return true
+    }
+
+    private func summaryCandidates(
+        selection: SummarySelection,
+        schema: SchemaAvailability,
+        cursorPK: Int64?,
+        limit: Int
+    ) throws -> [BookSummary] {
+        let projection = summaryProjection(schema: schema, alias: "b")
+        var sql = ""
+        if cursorPK != nil {
+            sql += "WITH cursor_row AS (SELECT \(summaryCursorProjection(schema: schema)) FROM \(AppleBooksTable.books.rawValue) WHERE \(AppleBooksSchema.Book.localPK) = ?) "
+        }
+        sql += "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue) AS b"
+        if cursorPK != nil {
+            sql += " CROSS JOIN cursor_row AS c"
+        }
+
+        var predicates: [String] = []
+        if let search = summarySearchPredicate(selection: selection, alias: "b") {
+            predicates.append(search)
+        }
+        if cursorPK != nil {
+            predicates.append(summaryKeysetPredicate(schema: schema, bookAlias: "b", cursorAlias: "c"))
+        }
+        if predicates.isEmpty == false {
+            sql += " WHERE " + predicates.map { "(\($0))" }.joined(separator: " AND ")
+        }
+        sql += " ORDER BY " + summaryOrder(schema: schema, alias: "b").joined(separator: ", ")
+        sql += " LIMIT ?"
+
+        let statement = try connection.prepare(sql)
+        var index: Int32 = 1
+        if let cursorPK {
+            try statement.bind(cursorPK, at: index)
+            index += 1
+        }
+        index = try bindSummarySearch(selection: selection, to: statement, startingAt: index)
+        try statement.bind(Int64(limit), at: index)
+
+        var result: [BookSummary] = []
+        result.reserveCapacity(limit)
+        while try statement.step() {
+            result.append(try decodeSummary(SQLiteRow(statement: statement), schema: schema))
+        }
+        return result
+    }
+
+    private func summaryProjection(schema: SchemaAvailability, alias: String) -> [String] {
+        ["\(alias).\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)"] + [
+            AppleBooksSchema.Book.assetID,
+            AppleBooksSchema.Book.title,
+            AppleBooksSchema.Book.author,
+            AppleBooksSchema.Book.contentType,
+        ].filter(schema.contains).map { "\(alias).\($0) AS \($0)" }
+    }
+
+    private func summaryCursorProjection(schema: SchemaAvailability) -> String {
+        var columns = ["\(AppleBooksSchema.Book.localPK) AS cursorPK"]
+        if schema.contains(AppleBooksSchema.Book.title) {
+            columns.append("\(AppleBooksSchema.Book.title) AS cursorTitle")
+        }
+        if schema.contains(AppleBooksSchema.Book.assetID) {
+            columns.append("\(AppleBooksSchema.Book.assetID) AS cursorAssetID")
+        }
+        return columns.joined(separator: ", ")
+    }
+
+    private func summaryOrder(schema: SchemaAvailability, alias: String) -> [String] {
+        var order: [String] = []
+        if schema.contains(AppleBooksSchema.Book.title) {
+            order += [
+                "\(alias).\(AppleBooksSchema.Book.title) IS NULL",
+                "\(alias).\(AppleBooksSchema.Book.title) COLLATE NOCASE ASC",
+            ]
+        }
+        if schema.contains(AppleBooksSchema.Book.assetID) {
+            order += [
+                "\(alias).\(AppleBooksSchema.Book.assetID) IS NULL",
+                "\(alias).\(AppleBooksSchema.Book.assetID) COLLATE BINARY ASC",
+            ]
+        }
+        order.append("\(alias).\(AppleBooksSchema.Book.localPK) ASC")
+        return order
+    }
+
+    private func summaryKeysetPredicate(
+        schema: SchemaAvailability,
+        bookAlias: String,
+        cursorAlias: String
+    ) -> String {
+        let bookPK = "\(bookAlias).\(AppleBooksSchema.Book.localPK)"
+        let cursorPK = "\(cursorAlias).cursorPK"
+        let pkAfter = "\(bookPK) > \(cursorPK)"
+
+        let assetAfter: String
+        if schema.contains(AppleBooksSchema.Book.assetID) {
+            let bookAsset = "\(bookAlias).\(AppleBooksSchema.Book.assetID)"
+            let cursorAsset = "\(cursorAlias).cursorAssetID"
+            assetAfter = "((\(cursorAsset) IS NULL AND \(bookAsset) IS NULL AND \(pkAfter)) OR (\(cursorAsset) IS NOT NULL AND (\(bookAsset) IS NULL OR (\(bookAsset) IS NOT NULL AND (\(bookAsset) COLLATE BINARY > \(cursorAsset) COLLATE BINARY OR (\(bookAsset) COLLATE BINARY = \(cursorAsset) COLLATE BINARY AND \(pkAfter)))))))"
+        } else {
+            assetAfter = pkAfter
+        }
+
+        guard schema.contains(AppleBooksSchema.Book.title) else { return assetAfter }
+        let bookTitle = "\(bookAlias).\(AppleBooksSchema.Book.title)"
+        let cursorTitle = "\(cursorAlias).cursorTitle"
+        return "((\(cursorTitle) IS NULL AND \(bookTitle) IS NULL AND (\(assetAfter))) OR (\(cursorTitle) IS NOT NULL AND (\(bookTitle) IS NULL OR (\(bookTitle) IS NOT NULL AND (\(bookTitle) COLLATE NOCASE > \(cursorTitle) COLLATE NOCASE OR (\(bookTitle) COLLATE NOCASE = \(cursorTitle) COLLATE NOCASE AND (\(assetAfter))))))))"
+    }
+
+    private func summarySearchPredicate(selection: SummarySelection, alias: String) -> String? {
+        guard selection.searchText != nil else { return nil }
+        return selection.searchColumns
+            .map { "\(alias).\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
+            .joined(separator: " OR ")
+    }
+
+    @discardableResult
+    private func bindSummarySearch(
+        selection: SummarySelection,
+        to statement: SQLiteStatement,
+        startingAt startIndex: Int32
+    ) throws -> Int32 {
+        guard let searchText = selection.searchText else { return startIndex }
+        let pattern = literalContainsPattern(searchText)
+        var index = startIndex
+        for _ in selection.searchColumns {
+            try statement.bind(pattern, at: index)
+            index += 1
+        }
+        return index
+    }
+
+    private func decodeSummary(_ row: SQLiteRow, schema: SchemaAvailability) throws -> BookSummary {
+        guard let localPK = try row.int64(AppleBooksSchema.Book.localPK) else {
+            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Book.localPK)
+        }
+        func text(_ column: String) throws -> String? {
+            schema.contains(column) ? try row.text(column) : nil
+        }
+        func int64(_ column: String) throws -> Int64? {
+            schema.contains(column) ? try row.int64(column) : nil
+        }
+        return BookSummary(
+            localPK: localPK,
+            assetID: try text(AppleBooksSchema.Book.assetID),
+            title: try text(AppleBooksSchema.Book.title),
+            author: try text(AppleBooksSchema.Book.author),
+            contentType: try int64(AppleBooksSchema.Book.contentType)
+        )
+    }
+
+    private func baseTotal() throws -> Int {
+        _ = try AppleBooksSchema.inspect(.bookBase, on: connection)
         let statement = try connection.prepare(
-            "SELECT COUNT(*) AS count FROM \(AppleBooksTable.books.rawValue) WHERE \(Self.contentPagePredicate)"
+            "SELECT COUNT(*) AS count FROM \(AppleBooksTable.books.rawValue)"
         )
         guard try statement.step(),
               let count = try SQLiteRow(statement: statement).int64("count"),

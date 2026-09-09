@@ -92,8 +92,8 @@
 | create collection | 已实现 | title + optional details，走 guarded write rail |
 | rename collection | 已实现 | system collection fail closed |
 | delete collection | 已实现 | soft-delete |
-| add book | 已实现 | idempotent membership add |
-| remove book | 已实现 | idempotent membership remove；system collection guard |
+| add book | 已实现（强化） | idempotent membership add；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk` |
+| remove book | 已实现（强化） | idempotent membership remove；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk`；system collection guard |
 
 ## Export / presentation
 

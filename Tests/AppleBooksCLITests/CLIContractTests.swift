@@ -28,7 +28,7 @@ struct CLIContractTests {
             ["annotations", "list", "--book-pk", "0"],
             ["collections", "get", "--pk", "0"],
             ["collections", "add-book", "--collection-pk", "-1", "--book-pk", "1"],
-            ["collections", "add-book", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
+            ["collections", "add-book", "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
             ["pdf", "highlights", "--book-pk", "0"],
         ]
 
@@ -82,8 +82,8 @@ struct CLIContractTests {
             (["collections", "create", "Shelf"], "collections.create"),
             (["collections", "rename", "collection-id", "--title", "Renamed"], "collections.rename"),
             (["collections", "delete", "collection-id"], "collections.delete"),
-            (["collections", "add-book", "collection-id", "asset-id"], "collections.add-book"),
-            (["collections", "remove-book", "collection-id", "asset-id"], "collections.remove-book"),
+            (["collections", "add-book", "--collection", "collection-id", "--book", "asset-id"], "collections.add-book"),
+            (["collections", "remove-book", "--collection", "collection-id", "--book", "asset-id"], "collections.remove-book"),
             (["backups", "restore", "library__20000101T000000Z__00000000-0000-4000-8000-000000000000.sqlite"], "backups.restore"),
             (["sync"], "sync"),
         ]
@@ -315,7 +315,7 @@ struct CLIContractTests {
         #expect(annotationURL.contains("%5Bshared%5D"))
 
         let noOp = try fixture.run([
-            "collections", "add-book", ProcessFixture.shelfID, "asset-a", "--sync",
+            "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a", "--sync",
         ] + fixture.globals)
         #expect(noOp.status == 0)
         #expect(noOp.stderr.isEmpty)
@@ -349,7 +349,7 @@ struct CLIContractTests {
         ) == privateNote)
 
         let noOpArguments = [
-            "collections", "add-book", ProcessFixture.shelfID, "asset-a",
+            "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a",
         ] + fixture.globals
         let noOp = try fixture.run(noOpArguments)
         #expect(noOp.status == 0)

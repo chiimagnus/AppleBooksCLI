@@ -284,10 +284,10 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         abstract: "Add one exact book to one exact collection through the guarded mutation rail."
     )
 
-    @Argument(help: "Exact Apple Books collection ID.")
+    @Option(name: .customLong("collection"), help: "Exact Apple Books collection ID.")
     var collectionID: String?
 
-    @Argument(help: "Exact Apple Books asset ID.")
+    @Option(name: .customLong("book"), help: "Exact Apple Books asset ID.")
     var assetID: String?
 
     @Option(name: .customLong("collection-pk"), parsing: .unconditional, help: "Use an explicit local collection primary key.")
@@ -330,10 +330,10 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         abstract: "Remove one exact book from one exact collection through the guarded mutation rail."
     )
 
-    @Argument(help: "Exact Apple Books collection ID.")
+    @Option(name: .customLong("collection"), help: "Exact Apple Books collection ID.")
     var collectionID: String?
 
-    @Argument(help: "Exact Apple Books asset ID.")
+    @Option(name: .customLong("book"), help: "Exact Apple Books asset ID.")
     var assetID: String?
 
     @Option(name: .customLong("collection-pk"), parsing: .unconditional, help: "Use an explicit local collection primary key.")
@@ -432,22 +432,18 @@ private func parseCollectionMembershipSelectors(
     collectionPK: Int64?,
     bookPK: Int64?
 ) throws -> (collection: CollectionSelector, book: BookSelector) {
-    var effectiveCollectionID = collectionID
-    var effectiveAssetID = assetID
-
-    // ArgumentParser assigns a single positional to the first optional argument.
-    // With an explicit collection PK, that positional semantically belongs to the book selector.
-    if collectionPK != nil, effectiveAssetID == nil, let positional = effectiveCollectionID {
-        effectiveCollectionID = nil
-        effectiveAssetID = positional
-    }
-
     let collection = try parseCollectionSelector(
-        collectionID: effectiveCollectionID,
+        collectionID: collectionID,
         localPK: collectionPK,
         localPKOptionName: "--collection-pk"
     )
-    let book = try parseBookSelector(assetID: effectiveAssetID, localPK: bookPK)
+    guard let book = try parseOptionalBookSelector(
+        assetID: assetID,
+        localPK: bookPK,
+        localPKOptionName: "--book-pk"
+    ) else {
+        throw ValidationError("Provide --book or --book-pk.")
+    }
     return (collection, book)
 }
 

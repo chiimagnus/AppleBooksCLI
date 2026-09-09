@@ -88,6 +88,7 @@ For several mutations, commit them normally and flush pending changes once at th
 
 ```sh
 applebookscli collections create "Shelf A"
+applebookscli collections add-book --collection <collection-id> --book <asset-id>
 applebookscli annotations update-note <annotation-uuid> --note "New note"
 applebookscli sync
 ```

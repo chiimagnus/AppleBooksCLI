@@ -415,6 +415,16 @@
       [
         "collections",
         "add-book",
+        "--book"
+      ],
+      [
+        "collections",
+        "add-book",
+        "--collection"
+      ],
+      [
+        "collections",
+        "add-book",
         "--book-pk"
       ],
       [
@@ -1198,6 +1208,16 @@
       "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
     ],
     "cliHelpArgs": [
+      [
+        "collections",
+        "remove-book",
+        "--book"
+      ],
+      [
+        "collections",
+        "remove-book",
+        "--collection"
+      ],
       [
         "collections",
         "remove-book",

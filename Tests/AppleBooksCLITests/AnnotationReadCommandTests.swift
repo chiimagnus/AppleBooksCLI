@@ -69,10 +69,10 @@ struct AnnotationReadCommandTests {
             AnnotationCollectionResult.self,
             ["annotations", "list", "--group-by", "book", "--order", "reading"]
         )
-        #expect(grouped.items.map(\.localPK) == [2, 1, 5, 123, 6, 7])
+        #expect(grouped.items.map(\.localPK) == [1, 2, 5, 123, 6, 7])
         #expect(Set(grouped.items.map(\.localPK)).count == grouped.items.count)
         let groups = try #require(grouped.groups)
-        #expect(groups.map(\.annotationLocalPKs) == [[2, 1], [5], [123], [6], [7]])
+        #expect(groups.map(\.annotationLocalPKs) == [[1, 2], [5], [123], [6], [7]])
         #expect(groups.map(\.source.kind) == [
             "currentLibrary",
             "currentLibrary",
@@ -85,8 +85,8 @@ struct AnnotationReadCommandTests {
             AnnotationCollectionResult.self,
             ["annotations", "list", "--group-by", "book", "--order", "reading", "--limit", "3", "--offset", "1"]
         )
-        #expect(page.items.map(\.localPK) == [1, 5, 123])
-        #expect(page.groups?.map(\.annotationLocalPKs) == [[1], [5], [123]])
+        #expect(page.items.map(\.localPK) == [2, 5, 123])
+        #expect(page.groups?.map(\.annotationLocalPKs) == [[2], [5], [123]])
 
         let missingGlobals = Fixture.missingGlobalArguments
         for arguments in [

@@ -9,6 +9,7 @@ final class ZIPEPUBResourceReader: EPUBResourceReader {
     private let archive: Archive
     private let indexedPaths: Set<String>
     private let retainedIndexedPathBytes: Int
+    let fileURL: URL
 
     init(
         fileURL: URL,
@@ -19,6 +20,7 @@ final class ZIPEPUBResourceReader: EPUBResourceReader {
             throw EPUBResourceError.tooManyEntries
         }
         let canonicalURL = fileURL.standardizedFileURL
+        self.fileURL = canonicalURL
         guard canonicalURL.pathExtension.lowercased() == "epub" else {
             throw ContentError.unsupportedFormat
         }

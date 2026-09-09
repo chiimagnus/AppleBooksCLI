@@ -16,14 +16,10 @@ public struct ExportRecord: Equatable, Sendable {
         switch payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
-            if let note = annotation.note,
-               note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            if AnnotationContentSemantics.hasContent(annotation.note) {
                 return .note
             }
-            guard let selected = annotation.selectedText, selected.isEmpty == false else {
-                return .bookmark
-            }
-            return .highlight
+            return AnnotationContentSemantics.hasContent(annotation.selectedText) ? .highlight : .bookmark
         case let .pdf(_, highlight):
             if let note = highlight.note,
                note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
@@ -97,11 +93,12 @@ public struct ExportRecord: Equatable, Sendable {
     fileprivate var readingKey: ReadingKey {
         switch payload {
         case let .epub(enriched):
-            let rawCFI: String? = enriched.annotation.location?.rawCFI
-            let numbers = rawCFI.flatMap { raw in
-                CFIStructureParser.parse(raw, collectReadingNumbers: true)?.readingNumbers
-            }
-            return .epub(numbers)
+            let annotation = enriched.annotation
+            return .epub(EPUBAnnotationReadingKey.make(
+                rawCFI: annotation.location?.rawCFI,
+                createdAt: annotation.createdAt,
+                localPK: annotation.localPK
+            ))
         case let .pdf(_, highlight):
             return .pdf(
                 page: highlight.page,
@@ -162,14 +159,7 @@ enum ExportSelection {
     private static func readingOrder(_ lhs: IndexedRecord, _ rhs: IndexedRecord) -> Bool {
         switch (lhs.record.readingKey, rhs.record.readingKey) {
         case let (.epub(left), .epub(right)):
-            switch (left, right) {
-            case let (left?, right?):
-                let comparison = lexicographicCompare(left, right)
-                return comparison == 0 ? lhs.index < rhs.index : comparison < 0
-            case (.some, nil): return true
-            case (nil, .some): return false
-            case (nil, nil): return lhs.index < rhs.index
-            }
+            return EPUBAnnotationReadingKey.lessThan(left, right)
         case let (.pdf(lp, ly, lx, li), .pdf(rp, ry, rx, ri)):
             if lp != rp { return lp < rp }
             if ly != ry { return ly > ry }
@@ -181,13 +171,6 @@ enum ExportSelection {
         }
     }
 
-    private static func lexicographicCompare(_ lhs: [Int], _ rhs: [Int]) -> Int {
-        for index in 0..<min(lhs.count, rhs.count) {
-            if lhs[index] != rhs[index] { return lhs[index] < rhs[index] ? -1 : 1 }
-        }
-        if lhs.count == rhs.count { return 0 }
-        return lhs.count < rhs.count ? -1 : 1
-    }
 }
 
 private struct IndexedRecord {
@@ -202,6 +185,6 @@ enum ExportDocumentKey: Hashable, Sendable {
 }
 
 private enum ReadingKey {
-    case epub([Int]?)
+    case epub(EPUBAnnotationReadingKey)
     case pdf(page: Int, maxY: Double, minX: Double, traversalIndex: Int)
 }

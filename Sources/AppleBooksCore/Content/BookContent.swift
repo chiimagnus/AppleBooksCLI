@@ -52,6 +52,33 @@ public final class BookContent {
         }
     }
 
+    func annotationReadingContext() throws -> (chapterOrder: [String: Int], generation: CursorGenerationComponent) {
+        var chapterOrder: [String: Int] = [:]
+        for chapter in try listChapters() {
+            chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
+        }
+
+        let generation: CursorGenerationComponent
+        if let directory = package.reader as? DirectoryEPUBResourceReader {
+            var paths = [
+                try EPUBPath.resolve(reference: "META-INF/container.xml"),
+                package.packageDocument,
+            ]
+            for item in package.manifest.values where
+                item.properties.contains("nav") || item.mediaType == "application/x-dtbncx+xml" {
+                if try directory.contains(item.path) { paths.append(item.path) }
+            }
+            let encryption = try EPUBPath.resolve(reference: "META-INF/encryption.xml")
+            if try directory.contains(encryption) { paths.append(encryption) }
+            generation = try directory.cursorGenerationComponent(label: "reading-context", paths: paths)
+        } else if let archive = package.reader as? ZIPEPUBResourceReader {
+            generation = try .regularFile(label: "reading-context", url: archive.fileURL)
+        } else {
+            generation = try .synthetic(label: "reading-context", value: "parsed")
+        }
+        return (chapterOrder, generation)
+    }
+
     public func getChapter(_ selector: String) throws -> String {
         let chapter = try resolveChapter(selector)
         let data = try readChapterBytes(chapter)

@@ -505,6 +505,33 @@ struct BookQueries {
         }
     }
 
+    func annotationAssetID(localPK: Int64) throws -> String? {
+        let schema = try AppleBooksSchema.inspect(.bookCurrentReadingAssetLookup, on: connection)
+        guard schema.contains(AppleBooksSchema.Book.assetID) else { return nil }
+        let projection = SQLiteTextProjection.exact(
+            AppleBooksSchema.Book.assetID,
+            alias: "annotationLookupAssetID",
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+        )
+        let statement = try connection.prepare("""
+        SELECT \(projection.joined(separator: ", "))
+        FROM \(AppleBooksTable.books.rawValue)
+        WHERE \(AppleBooksSchema.Book.localPK) = ?
+        LIMIT 1
+        """)
+        try statement.bind(localPK, at: 1)
+        guard try statement.step() else { return nil }
+        switch try SQLiteTextProjection.decodeExact(
+            SQLiteRow(statement: statement),
+            alias: "annotationLookupAssetID",
+            column: AppleBooksSchema.Book.assetID,
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+        ) {
+        case let .value(value): return value
+        case .null, .oversized: return nil
+        }
+    }
+
     func semanticAssetID(localPK: Int64) throws -> String? {
         let schema = try AppleBooksSchema.inspect(.bookCurrentReadingAssetLookup, on: connection)
         guard schema.contains(AppleBooksSchema.Book.assetID) else { return nil }

@@ -173,8 +173,9 @@ public final class AppleBooks {
         let annotationConnection = try dependencies.contains(.annotationsRead)
             ? SQLiteConnection.readOnly(path: annotationsDB!.path)
             : nil
+        let selectedConfigurationFile = configurationFile ?? AppleBooksConfiguration.defaultFileURL
         let configuration = try dependencies.contains(.configuration)
-            ? configurationFile.map(AppleBooksConfiguration.init(fileURL:)) ?? AppleBooksConfiguration.loadDefault()
+            ? AppleBooksConfiguration(fileURL: selectedConfigurationFile)
             : .empty
 
         let books = libraryConnection.map(BookQueries.init(connection:))
@@ -185,7 +186,9 @@ public final class AppleBooks {
             annotationQueries = AnnotationQueries(
                 annotationConnection: annotationConnection,
                 bookQueries: books,
-                historicalAssets: configuration.historicalAssets
+                historicalAssets: configuration.historicalAssets,
+                configuration: configuration,
+                configurationFileURL: selectedConfigurationFile
             )
         } else {
             annotationQueries = nil
@@ -873,6 +876,12 @@ public final class AppleBooks {
         try requiredAnnotationQueries().semanticList(scope: scope, limit: limit, offset: offset)
     }
 
+    package func semanticAnnotationPage(
+        _ request: AnnotationQueryRequest
+    ) throws -> CursorPage<SemanticAnnotation> {
+        try requiredAnnotationQueries().semanticPage(request)
+    }
+
     package func semanticAnnotation(
         localPK: Int64,
         scope: AnnotationScope = .user
@@ -994,16 +1003,19 @@ public final class AppleBooks {
         }
 
         let sorted = annotations.sorted { lhs, rhs in
-            let lhsOrder = lhs.chapterID.flatMap { chapterOrder[$0] } ?? .max
-            let rhsOrder = rhs.chapterID.flatMap { chapterOrder[$0] } ?? .max
-            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
-            switch (lhs.createdAt, rhs.createdAt) {
-            case (nil, nil): return lhs.localPK < rhs.localPK
-            case (nil, _): return true
-            case (_, nil): return false
-            case let (left?, right?) where left != right: return left < right
-            default: return lhs.localPK < rhs.localPK
-            }
+            let left = EPUBAnnotationReadingKey.make(
+                rawCFI: lhs.rawCFI,
+                chapterOrder: chapterOrder,
+                createdAt: lhs.createdAt,
+                localPK: lhs.localPK
+            )
+            let right = EPUBAnnotationReadingKey.make(
+                rawCFI: rhs.rawCFI,
+                chapterOrder: chapterOrder,
+                createdAt: rhs.createdAt,
+                localPK: rhs.localPK
+            )
+            return EPUBAnnotationReadingKey.lessThan(left, right)
         }
         let paged = sorted.dropFirst(offset)
         guard let limit else { return Array(paged) }
@@ -1049,22 +1061,19 @@ public final class AppleBooks {
         }
 
         let sorted = annotations.sorted { lhs, rhs in
-            let lhsOrder = lhs.annotation.location?.chapterID.flatMap { chapterOrder[$0] } ?? .max
-            let rhsOrder = rhs.annotation.location?.chapterID.flatMap { chapterOrder[$0] } ?? .max
-            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
-
-            switch (lhs.annotation.createdAt, rhs.annotation.createdAt) {
-            case (nil, nil):
-                return lhs.annotation.localPK < rhs.annotation.localPK
-            case (nil, _):
-                return true
-            case (_, nil):
-                return false
-            case let (left?, right?) where left != right:
-                return left < right
-            default:
-                return lhs.annotation.localPK < rhs.annotation.localPK
-            }
+            let left = EPUBAnnotationReadingKey.make(
+                rawCFI: lhs.annotation.location?.rawCFI,
+                chapterOrder: chapterOrder,
+                createdAt: lhs.annotation.createdAt,
+                localPK: lhs.annotation.localPK
+            )
+            let right = EPUBAnnotationReadingKey.make(
+                rawCFI: rhs.annotation.location?.rawCFI,
+                chapterOrder: chapterOrder,
+                createdAt: rhs.annotation.createdAt,
+                localPK: rhs.annotation.localPK
+            )
+            return EPUBAnnotationReadingKey.lessThan(left, right)
         }
         let paged = sorted.dropFirst(offset)
         guard let limit else { return Array(paged) }

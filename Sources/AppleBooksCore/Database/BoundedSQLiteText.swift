@@ -33,7 +33,7 @@ enum SQLiteTextProjection {
         return [
             "\(type) AS \(storageAlias(alias))",
             "CASE WHEN \(type) = 'text' THEN length(\(blob)) END AS \(lengthAlias(alias))",
-            "CASE WHEN \(type) = 'text' THEN substr(\(blob), 1, \(maximumUTF8Bytes + 4)) END AS \(payloadAlias(alias))",
+            "CASE WHEN \(type) = 'text' THEN COALESCE(substr(\(blob), 1, \(maximumUTF8Bytes + 4)), X'') END AS \(payloadAlias(alias))",
         ]
     }
 

@@ -22,7 +22,7 @@ AppleBooksCore
         │
         ▼
 applebookscli
-├── human / JSON process contract
+├── JSON operational transport + plain help/version
 ├── files
 └── local operation history
 ```
@@ -35,7 +35,7 @@ BKLibrary 与 AEAnnotation 是独立 store，必须分别发现、override 和�
 
 CLI 以命令实际能力声明组合 Core 依赖，而不是先构造“全能力 AppleBooks”：library-only 命令不发现 AEAnnotation、不加载 config、不解析 PDF worker；annotation-only mutation 不发现 BKLibrary；content 只组合 library + config；需要 enrichment/reading-position/context 的命令才组合 library + annotations + config。Export exact selector 先用 library identity 判定 source，再只装配该 source 真正需要的 annotation/config 或 PDF worker。公开 `AppleBooks` 双 DB initializer 继续表示调用方显式请求完整兼容能力；CLI 的 partial composition 只是 package-internal 装配边界，误调用未装配能力必须明确失败，不能通过 dummy path 或静默空结果伪装。
 
-普通读取使用 read-only SQLite。写入 required schema 漂移时 fail closed；读取 optional 字段缺失可以降级。
+普通读取使用 read-only SQLite。写入 required schema 漂移时 fail closed；读取 optional 字段缺失可以降级。默认 DB discovery 逐目录项流式扫描，不构造完整目录列表；ambiguity 只保留最多 8 个按 UTF-8 byte lexicographic 排序的 witness。
 
 本地 SQLite commit、Apple-native cloud projection、当前 Mac CloudKit acknowledgement 是不同层次：
 
@@ -74,9 +74,11 @@ PDF highlight 不伪装成 EPUB annotation：不用 annotation UUID/CFI，保留
 
 普通 Agent read 与 archival/raw Core 是两条不同的数据边界，不能用“先完整读取、最后在 CLI 截断”混在一起：
 
-- ordinary book/collection/annotation query 只把完成当前命令所需的 semantic projection 从 SQLite 带入 Swift。可展示 TEXT 在 SQL 层先证明 storage class 与原始 UTF-8 byte length，只读取 `byteCap + 4` 的 prefix；Core strict-decode 后按完整 Swift `Character` 收敛到 byte cap，并把原始长度造成的截断作为 evidence 传给 CLI。CLI 只再应用既有 grapheme cap，并与 Core evidence 合并为一个 `truncatedFields`。
-- stable asset ID、annotation UUID、collection ID 等 identity 不是 presentation 文本：只有完整 TEXT 在 SQL 层证明 UTF-8 长度不超过 2,048 bytes 后才 materialize，再交给 stable-token validator。oversize identity 不取 prefix、不猜 identity；annotation source 明确进入 `identityUnavailable` 等有限状态。
-- canonical content/PDF filesystem resolution 只消费 `BookResourceTarget` 这类最小 capability view。`Book.path` 只有完整 TEXT 严格 UTF-8、无 NUL 且不超过 4,096 bytes 时才进入 URL/filesystem owner；超过上限或非法 storage/UTF-8 直接视为 path unavailable，绝不把截断 prefix 当路径打开。`BookResourceTarget` 不是新的 raw Book model。
+- ordinary book/collection/annotation query 只把完成当前命令所需的 semantic projection 从 SQLite 带入 Swift。可展示 TEXT 在 SQL 层先证明 storage class 与原始 UTF-8 byte length，只读取 `byteCap + 4` 的 prefix；Core strict-decode 后按完整 Swift `Character` 收敛到 byte cap，并把原始长度造成的截断作为 evidence 传给 CLI。CLI 只再应用 grapheme cap，并与 Core evidence 合并为一个 `truncatedFields`。
+- hard SQL semantic budgets：stable identity `2 KiB`；short metadata `2 KiB`；preview `4 KiB`；ordinary metadata `8 KiB`；detail body `32 KiB`。Book language 使用 short-metadata budget；Book title/author/genre、Collection title、annotation chapter hint 使用 metadata budget；Book description/Collection details 与 exact annotation selectedText/note 使用 detail budget；annotation list/search body 使用 preview budget。超限 presentation TEXT 可以截断，但必须留下 `truncatedFields` evidence。
+- stable asset ID、annotation UUID、collection ID 等 identity 不是 presentation 文本：只有完整 TEXT 在 SQL 层证明 UTF-8 长度不超过 `2 KiB` 后才 materialize，再交给 stable-token validator。oversize identity 不取 prefix、不猜 identity；annotation source 明确进入 `identityUnavailable` 等有限状态。
+- canonical content/PDF filesystem resolution 只消费 `BookResourceTarget` 这类最小 capability view。`Book.path` 只有完整 TEXT 严格 UTF-8、无 NUL 且不超过 `4 KiB` 时才进入 URL/filesystem owner；超过上限或非法 storage/UTF-8 直接视为 path unavailable，绝不把截断 prefix 当路径打开。`BookResourceTarget` 不是新的 raw Book model。
+- raw CFI 可完整保留，但任何 derived structural parsing 只接受最多 `64 KiB` UTF-8；oversize CFI 不参与 chapter/fragment 推导，也不能作为 deeplink fragment。
 - search、filter、collation、ORDER/keyset 可以继续在 SQLite 内部对完整 source TEXT 运算；cursor 只携带 locator/evidence，不把完整 sort key materialize 到 Swift 或写进 token/history。
 - public rich Core compatibility API 与 explicit archival export 继续拥有 full fidelity：raw `SQLiteRow.text()`、rich `Book`/`Collection`/`Annotation` 和 export bundle 不套 ordinary byte budget。新增 ordinary caller 不得为了省事回到 rich decoder；反过来也不得把 ordinary resource gate 偷偷变成 raw/export 截断。
 
@@ -92,6 +94,7 @@ EPUB 的长期边界：
 - materialization probe 不主动触发 iCloud hydration；DRM 明确失败；
 - directory 与 packed EPUB 共享 package/navigation/content 语义；
 - path canonicalization 阻止 root escape，URI decode 不重复执行；
+- 结构解析 hard budget 为最大 nesting depth `256`；manifest/spine/navigation/metadata-list/encryption/XHTML-node/ZIP-entry 各最多 `20,000`；packed EPUB retained path index 总计最多 `32 MiB`。超过上限直接 fail closed，不返回部分结构；
 - navigation 按 nav → NCX → spine fallback；raw CFI 永久保留；
 - annotation context 必须实际命中 anchor，不能返回章节开头冒充成功。
 
@@ -122,4 +125,4 @@ CLI 负责 transport/presentation 与 operation history，AppleBooksCore 不依�
 
 ## Edit trigger / evidence
 
-修改 store/source/identity、Core↔CLI ownership、EPUB/PDF source model、export ownership 或 cloud layering 时更新本文。当前实现证据来自 `Sources/AppleBooksCore/**`、`Sources/AppleBooksCLI/**` 与对应 executable tests；用户能力变化同时更新 [`capability-matrix.md`](capability-matrix.md)，mutation/restore 变化同时更新 [`write-safety.md`](write-safety.md)。
+修改 store/source/identity、Core↔CLI ownership、ordinary/raw projection、hard resource budget、EPUB/PDF source model、export ownership 或 cloud layering 时更新本文。当前实现证据来自 `Sources/AppleBooksCore/**`、`Sources/AppleBooksCLI/**` 与对应 executable tests；用户能力变化同时更新 [`capability-matrix.md`](capability-matrix.md)，mutation/restore 变化同时更新 [`write-safety.md`](write-safety.md)。

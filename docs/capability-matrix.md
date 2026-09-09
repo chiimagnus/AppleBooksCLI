@@ -8,7 +8,7 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| SQLite DB 自动发现 | 已实现 | 固定 Apple Books 目录内确定性发现；读取连接只读 |
+| SQLite DB 自动发现 | 已实现（强化） | 固定 Apple Books 目录内流式确定性发现；读取连接只读；ambiguity 只保留有限 witness，不构造全目录列表 |
 | 自定义 annotations/library DB 路径 | 已实现（强化） | 两个 store 可独立 override；无效 override 明确失败 |
 | Full Disk Access / DB 可访问性诊断 | 已实现（强化） | `doctor` 返回固定 `components` + command-level `capabilities`，overall 仅为 `ready/partial/unavailable`；写能力同时要求 write schema + backup root 可用，`syncPrerequisites` 直接探测两侧 live client-side CloudKit pending-state；单个 store/config/worker 失败不会把无关能力判死 |
 | 读取 schema capability detection | 已实现 | optional column 缺失按能力降级 |
@@ -48,7 +48,7 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| list annotations | 已实现 | 默认 active user rows；可显式 raw/system scope、分页/排序 |
+| list annotations | 已实现 | 默认 active user rows；可显式 raw/system scope；ordinary body 使用 bounded preview，超限字段返回 `truncatedFields` evidence |
 | list all / group by book | 已实现（展示） | 分组不改变 canonical ordering/identity，orphan/null-location 不丢 |
 | annotations by book | 已实现 | 精确 book selector；可读内容时按阅读顺序，否则稳定降级 |
 | get/describe annotation | 已实现 | UUID 优先，local PK 可显式使用 |
@@ -64,7 +64,7 @@
 | annotation context window | 已实现（强化） | current content + CFI/anchor 精确定位；anchor miss 不伪造 context |
 | context 中精确标出 highlight | 已实现（展示） | normalized anchor 首次命中，保留原 source whitespace |
 | annotation identity | 已实现 | UUID 为 stable identity；PK 仅本机 selector |
-| 保留 raw annotation 字段 | 已实现 | identity/type/style/text/CFI/range/time raw fields 保留 |
+| 保留 raw annotation 字段 | 已实现（强化） | ordinary read 保留需要的 raw identity/type/style/location 语义但 TEXT 受 semantic budget；archival export/raw Core 保持 source text/CFI full fidelity |
 
 ## EPUB / CFI content
 
@@ -77,8 +77,8 @@
 | chapter text pagination | 已实现 | 按 Swift Character 分页，不拆 grapheme cluster |
 | 细粒度 spine entry | 已实现 | ToC 外 spine item 仍可读取 |
 | current-library packed EPUB fallback | 已实现 | primary 不可用时只在显式 root 做 exact-basename fallback；unsafe primary 不掩盖 |
-| directory / packed parser 等价 | 已实现 | 两种 source 共用 package/content 语义与 path safety |
-| CFI raw round-trip | 已实现 | raw CFI 永久保留 |
+| directory / packed parser 等价 | 已实现（强化） | 两种 source 共用 package/content 语义与 path safety；结构深度/节点/ZIP inventory 有固定 hard budget，超限 fail closed |
+| CFI raw round-trip | 已实现（强化） | archival/raw Core 永久保留 source CFI；ordinary derived parsing 最多处理 64 KiB，超限不伪造 chapter/fragment |
 | CFI chapter hint | 已实现 | optimistic hint，不冒充完整 validator |
 | CFI char range diagnostics | 已实现 | offset 明确属于 leaf XHTML text node |
 
@@ -87,7 +87,7 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | list collections | 已实现 | 默认排除 deleted |
-| get/describe collection | 已实现 | detail + books + public raw metadata |
+| get/describe collection | 已实现（强化） | stable collection ID 优先、显式 local PK fallback；返回 bounded semantic detail，超限 title/details 带 `truncatedFields` |
 | search collections by title | 已实现 | substring search |
 | list collection books | 已实现 | collection membership 查询 |
 | create collection | 已实现 | title + optional details，走 guarded write rail |

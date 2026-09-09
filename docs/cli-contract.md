@@ -28,6 +28,8 @@ The envelope always contains `code`, `reason`, `message`, and `recoveryHint`; op
 
 Post-outcome diagnostics that cannot change the primary command result use JSON Lines on stderr. Each diagnostic is one sanitized line shaped as `{"diagnostic":{"severity":"warning","code":"...","message":"..."}}`. A successful command with no transport diagnostic leaves stderr empty.
 
+Ordinary read DTOs may include `truncatedFields`. Each entry names a field whose published presentation was shortened by a Core byte budget or CLI grapheme budget; the shortened value is valid UTF-8 and ends on a complete Swift `Character`. Absence of `truncatedFields` is not an archival-fidelity guarantee—raw/full-fidelity reads belong to explicit export/Core compatibility surfaces.
+
 ### Mutation output
 
 Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, `backupHandle`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
@@ -64,4 +66,4 @@ History persistence is part of the state-changing CLI boundary: failure to persi
 
 ## Edit trigger / evidence
 
-Update this page when exit codes, public error codes, stdout/stderr placement, JSON envelope, mutation presentation, parse/help behavior, cursor continuation, or history read/persistence semantics change. Evidence: CLI output/history/cursor/contract tests.
+Update this page when exit codes, public error codes, stdout/stderr placement, JSON envelope/common truncation evidence, mutation presentation, parse/help behavior, cursor continuation, doctor capability presentation, or history read/persistence semantics change. Evidence: CLI output/history/cursor/doctor/contract tests.

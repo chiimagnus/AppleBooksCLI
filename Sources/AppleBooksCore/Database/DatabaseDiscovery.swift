@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum AppleBooksStore: String, Equatable, Sendable {
@@ -23,11 +24,76 @@ enum DatabaseStoreProbeError: Error, Equatable {
     case invalidOverride
 }
 
+protocol DatabaseDirectoryAccess: Sendable {
+    func forEachEntryName(in directory: URL, _ body: (String) -> Void) throws
+    func isRegularVisibleFile(_ url: URL) throws -> Bool
+}
+
+struct POSIXDatabaseDirectoryAccess: DatabaseDirectoryAccess {
+    func forEachEntryName(in directory: URL, _ body: (String) -> Void) throws {
+        errno = 0
+        guard let handle = opendir(directory.path) else {
+            throw Self.error(errno)
+        }
+        defer { closedir(handle) }
+
+        while true {
+            errno = 0
+            guard let entry = readdir(handle) else {
+                if errno != 0 { throw Self.error(errno) }
+                return
+            }
+            let length = Int(entry.pointee.d_namlen)
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: length + 1) {
+                    FileManager.default.string(withFileSystemRepresentation: $0, length: length)
+                }
+            }
+            guard name != ".", name != "..", name.hasPrefix(".") == false else { continue }
+            body(name)
+        }
+    }
+
+    func isRegularVisibleFile(_ url: URL) throws -> Bool {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isHiddenKey])
+        return values.isRegularFile == true && values.isHidden != true
+    }
+
+    private static func error(_ code: Int32) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+    }
+}
+
+struct DatabaseCandidateAccumulator: Equatable {
+    static let maximumWitnesses = 8
+
+    private(set) var candidateCount = 0
+    private(set) var witnesses: [String] = []
+
+    mutating func record(_ name: String) {
+        candidateCount = min(2, candidateCount + 1)
+        let insertion = witnesses.firstIndex(where: { name.utf8.lexicographicallyPrecedes($0.utf8) }) ?? witnesses.endIndex
+        if insertion < Self.maximumWitnesses {
+            witnesses.insert(name, at: insertion)
+            if witnesses.count > Self.maximumWitnesses { witnesses.removeLast() }
+        } else if witnesses.count < Self.maximumWitnesses {
+            witnesses.append(name)
+        }
+    }
+}
+
 public struct DatabaseDiscovery: Sendable {
     public let paths: AppleBooksDatabasePaths
+    private let directoryAccess: any DatabaseDirectoryAccess
 
     public init(paths: AppleBooksDatabasePaths = .defaults()) {
         self.paths = paths
+        directoryAccess = POSIXDatabaseDirectoryAccess()
+    }
+
+    init(paths: AppleBooksDatabasePaths, directoryAccess: any DatabaseDirectoryAccess) {
+        self.paths = paths
+        self.directoryAccess = directoryAccess
     }
 
     public func discover(
@@ -78,39 +144,35 @@ public struct DatabaseDiscovery: Sendable {
         in directory: URL,
         prefix: String
     ) -> Result<URL, DatabaseStoreProbeError> {
-        let entries: [URL]
+        var sawPermissionFailure = false
+        var candidates = DatabaseCandidateAccumulator()
         do {
-            entries = try FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
+            try directoryAccess.forEachEntryName(in: directory) { name in
+                guard name.hasPrefix(prefix), name.hasSuffix(".sqlite") else { return }
+                let entry = directory.appendingPathComponent(name, isDirectory: false)
+                do {
+                    guard try directoryAccess.isRegularVisibleFile(entry) else { return }
+                    candidates.record(name)
+                } catch {
+                    if Self.isPermissionError(error) { sawPermissionFailure = true }
+                }
+            }
         } catch {
             return .failure(Self.isPermissionError(error) ? .permission : .missing)
         }
 
-        var sawPermissionFailure = false
-        let candidates = entries.compactMap { entry -> URL? in
-            let name = entry.lastPathComponent
-            guard name.hasPrefix(prefix), name.hasSuffix(".sqlite") else { return nil }
-            do {
-                let values = try entry.resourceValues(forKeys: [.isRegularFileKey])
-                guard values.isRegularFile == true else { return nil }
-                return entry.standardizedFileURL.resolvingSymlinksInPath()
-            } catch {
-                if Self.isPermissionError(error) { sawPermissionFailure = true }
-                return nil
-            }
-        }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
-
-        switch candidates.count {
+        switch candidates.candidateCount {
         case 0:
             return .failure(sawPermissionFailure ? .permission : .missing)
         case 1:
-            return .success(candidates[0])
+            guard let name = candidates.witnesses.first else { return .failure(.missing) }
+            return .success(
+                directory.appendingPathComponent(name, isDirectory: false)
+                    .standardizedFileURL
+                    .resolvingSymlinksInPath()
+            )
         default:
-            return .failure(.ambiguous(candidates: candidates.map(\.lastPathComponent)))
+            return .failure(.ambiguous(candidates: candidates.witnesses))
         }
     }
 

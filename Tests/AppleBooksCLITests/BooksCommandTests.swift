@@ -93,6 +93,37 @@ struct BooksCommandTests {
     }
 
     @Test
+    func getSanitizesNonFiniteSemanticRealWhileCoreKeepsRawFidelity() throws {
+        let fixture = try Fixture(librarySQL: """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZREADINGPROGRESS REAL,
+              ZDURATION REAL,
+              ZRATING REAL
+            );
+            INSERT INTO ZBKLIBRARYASSET VALUES(1, 'non-finite', 9e999, 9e999, 9e999);
+            """)
+        defer { fixture.remove() }
+
+        let connection = try SQLiteConnection.readOnly(path: fixture.library.path)
+        let raw = try #require(BookQueries(connection: connection).getByAssetID("non-finite").first)
+        #expect(raw.readingProgressRaw?.isInfinite == true)
+        #expect(raw.durationRawMilliseconds?.isInfinite == true)
+        #expect(raw.rating?.isInfinite == true)
+
+        let capture = Capture()
+        #expect(CLIEntrypoint.run(
+            arguments: ["books", "get", "non-finite"] + fixture.globalArguments,
+            output: capture.output
+        ) == CLIProcessExit.success.rawValue)
+        #expect(capture.stderr.isEmpty)
+        #expect(try decode(BookDetailResult.self, capture.stdout).readingProgressPercent == nil)
+        let object = try jsonObject(capture.stdout)
+        #expect(object["readingProgressPercent"] == nil)
+    }
+
+    @Test
     func searchUsesFieldAndCursorAndGenreRouteIsGone() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

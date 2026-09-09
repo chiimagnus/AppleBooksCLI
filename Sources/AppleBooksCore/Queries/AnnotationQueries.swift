@@ -192,11 +192,14 @@ struct AnnotationQueries {
         if let lowerInclusive, let upperExclusive, lowerInclusive >= upperExclusive {
             throw AnnotationQueryInputError.invalidDateRange
         }
+        let lowerSeconds = CoreDataTime.seconds(from: lowerInclusive)
+        let upperSeconds = CoreDataTime.seconds(from: upperExclusive)
+        guard lowerInclusive == nil || lowerSeconds != nil,
+              upperExclusive == nil || upperSeconds != nil else {
+            throw AnnotationQueryInputError.invalidDateRange
+        }
         return try query(
-            .creationRange(
-                lower: CoreDataTime.seconds(from: lowerInclusive),
-                upper: CoreDataTime.seconds(from: upperExclusive)
-            ),
+            .creationRange(lower: lowerSeconds, upper: upperSeconds),
             capability: .annotationByCreationDate,
             scope: scope,
             limit: limit,
@@ -252,11 +255,12 @@ struct AnnotationQueries {
             sql += " OR \(AppleBooksSchema.Annotation.representativeText) LIKE ? ESCAPE '\\' COLLATE NOCASE"
             sql += " OR \(AppleBooksSchema.Annotation.note) LIKE ? ESCAPE '\\' COLLATE NOCASE)"
         case let .creationRange(lower, upper):
+            let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
             if lower != nil {
-                sql += " AND \(AppleBooksSchema.Annotation.creationDate) >= ?"
+                sql += " AND \(creationDate) >= ?"
             }
             if upper != nil {
-                sql += " AND \(AppleBooksSchema.Annotation.creationDate) < ?"
+                sql += " AND \(creationDate) < ?"
             }
         }
         if styleConstraint != nil {
@@ -268,28 +272,33 @@ struct AnnotationQueries {
         case .standard:
             var standard: [String] = []
             if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
+                let modificationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
                 standard += [
-                    "\(AppleBooksSchema.Annotation.modificationDate) IS NULL",
-                    "\(AppleBooksSchema.Annotation.modificationDate) DESC",
+                    "\(modificationDate) IS NULL",
+                    "\(modificationDate) DESC",
                 ]
             }
             if schema.contains(AppleBooksSchema.Annotation.creationDate) {
+                let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
                 standard += [
-                    "\(AppleBooksSchema.Annotation.creationDate) IS NULL",
-                    "\(AppleBooksSchema.Annotation.creationDate) DESC",
+                    "\(creationDate) IS NULL",
+                    "\(creationDate) DESC",
                 ]
             }
             standard.append("\(AppleBooksSchema.Annotation.localPK) DESC")
             order = standard
         case .modificationRecent:
+            let modificationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
             order = [
-                "\(AppleBooksSchema.Annotation.modificationDate) IS NULL",
-                "\(AppleBooksSchema.Annotation.modificationDate) DESC",
+                "\(modificationDate) IS NULL",
+                "\(modificationDate) DESC",
                 "\(AppleBooksSchema.Annotation.localPK) DESC",
             ]
         case .creationRecent:
+            let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
             order = [
-                "\(AppleBooksSchema.Annotation.creationDate) DESC",
+                "\(creationDate) IS NULL",
+                "\(creationDate) DESC",
                 "\(AppleBooksSchema.Annotation.localPK) DESC",
             ]
         }

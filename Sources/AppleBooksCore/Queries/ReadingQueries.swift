@@ -43,11 +43,11 @@ struct ReadingQueries {
     func partitionCounts() throws -> ReadingPartitionCounts {
         _ = try AppleBooksSchema.inspect(.readingInProgress, on: connection)
         let finished = AppleBooksSchema.Book.isFinished
-        let progress = AppleBooksSchema.Book.readingProgress
+        let progress = SemanticSQLiteReal.finiteSQL(AppleBooksSchema.Book.readingProgress)
         let statement = try connection.prepare("""
         SELECT
           SUM(CASE WHEN COALESCE(\(finished), 0) != 0 THEN 1 ELSE 0 END) AS finishedCount,
-          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND COALESCE(\(progress), 0) > 0 THEN 1 ELSE 0 END) AS inProgressCount,
+          SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND \(progress) > 0 THEN 1 ELSE 0 END) AS inProgressCount,
           SUM(CASE WHEN COALESCE(\(finished), 0) = 0 AND (\(progress) IS NULL OR \(progress) <= 0) THEN 1 ELSE 0 END) AS unstartedCount
         FROM \(AppleBooksTable.books.rawValue)
         """)
@@ -81,8 +81,9 @@ struct ReadingQueries {
         sql += " AND \(AppleBooksSchema.Annotation.type) = 3"
         sql += " AND \(AppleBooksSchema.Annotation.assetID) = ?"
         if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
-            sql += " ORDER BY \(AppleBooksSchema.Annotation.modificationDate) IS NULL,"
-            sql += " \(AppleBooksSchema.Annotation.modificationDate) DESC,"
+            let modified = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
+            sql += " ORDER BY \(modified) IS NULL,"
+            sql += " \(modified) DESC,"
             sql += " \(AppleBooksSchema.Annotation.localPK) DESC"
         } else {
             sql += " ORDER BY \(AppleBooksSchema.Annotation.localPK) DESC"
@@ -107,37 +108,40 @@ struct ReadingQueries {
             + AppleBooksSchema.Book.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue)"
 
+        let semanticProgress = SemanticSQLiteReal.finiteSQL(AppleBooksSchema.Book.readingProgress)
+        let semanticLastOpenDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Book.lastOpenDate)
         switch kind {
         case .finished:
             sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) != 0"
         case .inProgress:
             sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
-            sql += " AND COALESCE(\(AppleBooksSchema.Book.readingProgress), 0) > 0"
+            sql += " AND \(semanticProgress) > 0"
         case .unstarted:
             sql += " WHERE COALESCE(\(AppleBooksSchema.Book.isFinished), 0) = 0"
-            sql += " AND (\(AppleBooksSchema.Book.readingProgress) IS NULL OR \(AppleBooksSchema.Book.readingProgress) <= 0)"
+            sql += " AND (\(semanticProgress) IS NULL OR \(semanticProgress) <= 0)"
         case .recentlyRead:
-            sql += " WHERE \(AppleBooksSchema.Book.lastOpenDate) IS NOT NULL"
+            sql += " WHERE \(semanticLastOpenDate) IS NOT NULL"
         }
 
         var order: [String] = []
         switch kind {
         case .finished:
             if schema.contains(AppleBooksSchema.Book.finishedDate) {
+                let finishedDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Book.finishedDate)
                 order += [
-                    "\(AppleBooksSchema.Book.finishedDate) IS NULL",
-                    "\(AppleBooksSchema.Book.finishedDate) DESC",
+                    "\(finishedDate) IS NULL",
+                    "\(finishedDate) DESC",
                 ]
             }
         case .inProgress, .unstarted:
             if schema.contains(AppleBooksSchema.Book.lastOpenDate) {
                 order += [
-                    "\(AppleBooksSchema.Book.lastOpenDate) IS NULL",
-                    "\(AppleBooksSchema.Book.lastOpenDate) DESC",
+                    "\(semanticLastOpenDate) IS NULL",
+                    "\(semanticLastOpenDate) DESC",
                 ]
             }
         case .recentlyRead:
-            order.append("\(AppleBooksSchema.Book.lastOpenDate) DESC")
+            order.append("\(semanticLastOpenDate) DESC")
         }
         order.append("\(AppleBooksSchema.Book.localPK) DESC")
         sql += " ORDER BY \(order.joined(separator: ", "))"

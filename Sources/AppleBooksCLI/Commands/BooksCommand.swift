@@ -242,11 +242,7 @@ struct BookDetailResult: Codable, Equatable, Sendable {
         year = book.year
         pageCount = book.pageCount
         isPDF = book.contentType.map { $0 == 3 }
-        if let raw = book.readingProgressRaw, raw.isFinite {
-            readingProgressPercent = min(max(raw, 0), 1) * 100
-        } else {
-            readingProgressPercent = nil
-        }
+        readingProgressPercent = SemanticSQLiteReal.readingProgressPercent(book.readingProgressRaw)
         isFinished = book.isFinished
         finishedDate = book.finishedDate
         lastOpenDate = book.lastOpenDate
@@ -312,10 +308,10 @@ struct BookResult: Codable, Equatable, Sendable {
         fileSize = book.fileSize
         coverURL = book.coverURL
         isFinished = book.isFinished
-        readingProgressRaw = book.readingProgressRaw
-        readingProgressPercent = book.readingProgressPercent
-        durationRawMilliseconds = book.durationRawMilliseconds
-        durationSeconds = book.durationSeconds
+        readingProgressRaw = SemanticSQLiteReal.finite(book.readingProgressRaw)
+        readingProgressPercent = SemanticSQLiteReal.readingProgressPercent(book.readingProgressRaw)
+        durationRawMilliseconds = SemanticSQLiteReal.finite(book.durationRawMilliseconds)
+        durationSeconds = SemanticSQLiteReal.finite(book.durationRawMilliseconds).map { $0 / 1_000 }
         creationDate = book.creationDate
         modificationDate = book.modificationDate
         finishedDate = book.finishedDate
@@ -328,7 +324,7 @@ struct BookResult: Codable, Equatable, Sendable {
         isHidden = book.isHidden
         isSample = book.isSample
         isStoreAudiobook = book.isStoreAudiobook
-        rating = book.rating
+        rating = SemanticSQLiteReal.finite(book.rating)
         self.userAnnotationCount = userAnnotationCount
     }
 

@@ -67,6 +67,29 @@ struct AnnotationQueriesTests {
     }
 
     @Test
+    func semanticDatesSortInvalidRealAsNullAndExcludeItFromRanges() throws {
+        let fixture = try fullFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try setReal(.infinity, column: "ZANNOTATIONCREATIONDATE", localPK: 9, database: fixture.annotations)
+        try setReal(.infinity, column: "ZANNOTATIONMODIFICATIONDATE", localPK: 9, database: fixture.annotations)
+        let queries = try makeQueries(fixture)
+
+        let listed = try queries.list()
+        #expect(listed.map { $0.annotation.localPK } == [6, 7, 8, 1, 9])
+        #expect(listed.last?.annotation.createdAt == nil)
+        #expect(listed.last?.annotation.modifiedAt == nil)
+        #expect(try queries.recentlyModified().last?.annotation.localPK == 9)
+        #expect(try queries.recentlyCreated().last?.annotation.localPK == 9)
+
+        let lower = try #require(CoreDataTime.date(from: 90))
+        let upper = try #require(CoreDataTime.date(from: 200))
+        #expect(try queries.created(lowerInclusive: lower, upperExclusive: upper).map { $0.annotation.localPK } == [6, 7, 8, 1])
+        #expect(throws: AnnotationQueryInputError.invalidDateRange) {
+            _ = try queries.created(lowerInclusive: Date(timeIntervalSince1970: CoreDataTime.maximumUnixSecondsExclusive))
+        }
+    }
+
+    @Test
     func exactAnnotationIdentityPreservesEmbeddedNULBytes() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -290,6 +313,26 @@ struct AnnotationQueriesTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func setReal(_ value: Double, column: String, localPK: Int64, database: URL) throws {
+        var handle: OpaquePointer?
+        let open = sqlite3_open(database.path, &handle)
+        guard open == SQLITE_OK, let handle else {
+            throw SQLiteError.current(operation: .open, code: open, handle: handle)
+        }
+        defer { sqlite3_close(handle) }
+        var statement: OpaquePointer?
+        let prepare = sqlite3_prepare_v2(handle, "UPDATE ZAEANNOTATION SET \(column) = ? WHERE Z_PK = ?", -1, &statement, nil)
+        guard prepare == SQLITE_OK, let statement else {
+            throw SQLiteError.current(operation: .prepare, code: prepare, handle: handle)
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_double(statement, 1, value) == SQLITE_OK,
+              sqlite3_bind_int64(statement, 2, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw SQLiteError.current(operation: .step, code: sqlite3_errcode(handle), handle: handle)
+        }
     }
 
     private func database(at url: URL, sql: String) throws -> URL {

@@ -53,6 +53,32 @@ struct ReadingStatsCommandTests {
     }
 
     @Test
+    func nonFiniteProgressIsUnstartedAndCannotBreakReadingJSONOrStats() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.makeInferBookProgressNonFinite()
+
+        let unstarted = try fixture.runJSON(
+            ReadingBooksResult.self,
+            arguments: ["reading", "unstarted"]
+        )
+        #expect(unstarted.items.map(\.assetID) == ["infer-id"])
+        #expect(unstarted.items.first?.readingProgressRaw == nil)
+        #expect(unstarted.items.first?.readingProgressPercent == nil)
+
+        let recent = try fixture.runJSON(
+            ReadingBooksResult.self,
+            arguments: ["reading", "recent"]
+        )
+        #expect(recent.items.map(\.assetID) == ["finished-id", "12"])
+
+        let stats = try fixture.runJSON(StatsResult.self, arguments: ["stats"])
+        #expect(stats.finishedBooks == 1)
+        #expect(stats.inProgressBooks == 1)
+        #expect(stats.unstartedBooks == 1)
+    }
+
+    @Test
     func positionUsesSharedExactBookSelectorAndCanonicalCoreSourceValues() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -243,6 +269,32 @@ struct ReadingStatsCommandTests {
 
         func remove() {
             try? FileManager.default.removeItem(at: root)
+        }
+
+        func makeInferBookProgressNonFinite() throws {
+            var handle: OpaquePointer?
+            let open = sqlite3_open(library.path, &handle)
+            guard open == SQLITE_OK, let handle else {
+                throw FixtureError.sqliteOpen(open)
+            }
+            defer { sqlite3_close_v2(handle) }
+            var statement: OpaquePointer?
+            let prepare = sqlite3_prepare_v2(
+                handle,
+                "UPDATE ZBKLIBRARYASSET SET ZREADINGPROGRESS = ?, ZLASTOPENDATE = ? WHERE ZASSETID = 'infer-id'",
+                -1,
+                &statement,
+                nil
+            )
+            guard prepare == SQLITE_OK, let statement else {
+                throw FixtureError.sqliteExec(prepare)
+            }
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_bind_double(statement, 1, .infinity) == SQLITE_OK,
+                  sqlite3_bind_double(statement, 2, .infinity) == SQLITE_OK,
+                  sqlite3_step(statement) == SQLITE_DONE else {
+                throw FixtureError.sqliteExec(sqlite3_errcode(handle))
+            }
         }
 
         func runJSON<Value: Decodable>(_ type: Value.Type, arguments: [String]) throws -> Value {

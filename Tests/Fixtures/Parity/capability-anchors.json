@@ -1116,8 +1116,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "list",
-        "--group-by"
+        "list"
       ]
     ]
   },
@@ -1677,22 +1676,6 @@
       [
         "history",
         "get"
-      ]
-    ]
-  },
-  "list all / group by book": {
-    "owner": "cli",
-    "implementationPaths": [
-      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCLITests/AnnotationReadCommandTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "annotations",
-        "list",
-        "--group-by"
       ]
     ]
   }

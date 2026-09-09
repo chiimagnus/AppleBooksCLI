@@ -35,10 +35,6 @@ enum AnnotationCLIOrder: String, ExpressibleByArgument, Sendable {
     case reading
 }
 
-enum AnnotationCLIGroupBy: String, ExpressibleByArgument, Sendable {
-    case book
-}
-
 enum AnnotationSearchField: String, ExpressibleByArgument, Sendable {
     case all
     case highlight
@@ -61,7 +57,7 @@ enum AnnotationTimeField: String, ExpressibleByArgument, Sendable {
 struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List annotations in source order or canonical per-book reading order."
+        abstract: "List annotations in source order or exact-book reading order."
     )
 
     @Option(name: .long, help: "Annotation scope: user or active-raw.")
@@ -72,9 +68,6 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Filter by explicit local book primary key.")
     var bookPK: Int64?
-
-    @Option(name: .customLong("group-by"), help: "Group presentation by book.")
-    var groupBy: AnnotationCLIGroupBy?
 
     @Option(name: .long, help: "Order annotations by source or per-book reading order.")
     var order: AnnotationCLIOrder = .source
@@ -107,8 +100,8 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             guard scope == .user else {
                 throw ValidationError("Reading order is available only for --scope user.")
             }
-            guard bookSelector != nil || groupBy == .book else {
-                throw ValidationError("Reading order requires --book/--book-pk or --group-by book.")
+            guard bookSelector != nil else {
+                throw ValidationError("Reading order requires --book or --book-pk.")
             }
         }
 
@@ -138,62 +131,17 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
                 return AnnotationCollectionResult(
                     semantic: rows,
                     limit: limit,
-                    offset: offset,
-                    groupedByBook: groupBy == .book
+                    offset: offset
                 )
             }
 
-            if order == .reading {
-                let ordered = try crossBookReadingOrder(from: books)
-                let rows = paginateAnnotations(ordered, limit: limit, offset: offset)
-                return AnnotationCollectionResult(
-                    semantic: rows,
-                    limit: limit,
-                    offset: offset,
-                    groupedByBook: true
-                )
-            }
-
-            let rows: [SemanticAnnotation]
-            if groupBy == .book, scope == .user {
-                // Grouped user presentation is defined from the core creation-recent owner.
-                rows = try books.semanticRecentlyCreatedAnnotations(limit: limit, offset: offset)
-            } else {
-                rows = try books.semanticAnnotations(scope: scope.coreValue, limit: limit, offset: offset)
-            }
+            let rows = try books.semanticAnnotations(scope: scope.coreValue, limit: limit, offset: offset)
             return AnnotationCollectionResult(
                 semantic: rows,
                 limit: limit,
-                offset: offset,
-                groupedByBook: groupBy == .book
+                offset: offset
             )
         }
-    }
-
-    private func crossBookReadingOrder(from books: AppleBooks) throws -> [SemanticAnnotation] {
-        let sourceRows = try books.semanticAnnotations(scope: .user)
-        let currentBookPKs = Set(sourceRows.compactMap { row -> Int64? in
-            guard row.source.kind == .currentLibrary else { return nil }
-            return row.source.bookLocalPK
-        })
-
-        var ordered: [SemanticAnnotation] = []
-        var emitted = Set<Int64>()
-        for book in try books.semanticBookSummariesInCanonicalOrder() where currentBookPKs.contains(book.localPK) {
-            for row in try books.semanticAnnotationsInReadingOrder(bookLocalPK: book.localPK) {
-                guard row.source.kind == .currentLibrary,
-                      row.source.bookLocalPK == book.localPK,
-                      emitted.insert(row.localPK).inserted else {
-                    continue
-                }
-                ordered.append(row)
-            }
-        }
-
-        for row in sourceRows where emitted.insert(row.localPK).inserted {
-            ordered.append(row)
-        }
-        return ordered
     }
 }
 
@@ -545,36 +493,11 @@ struct AnnotationCollectionResult: Codable, Equatable, Sendable {
     let items: [AnnotationResult]
     let limit: Int?
     let offset: Int
-    let groups: [AnnotationGroupResult]?
 
-    init(
-        semantic: [SemanticAnnotation],
-        limit: Int?,
-        offset: Int,
-        groupedByBook: Bool = false
-    ) {
+    init(semantic: [SemanticAnnotation], limit: Int?, offset: Int) {
         items = semantic.map { AnnotationResult($0) }
         self.limit = limit
         self.offset = offset
-        groups = groupedByBook ? makeAnnotationGroups(semantic) : nil
-    }
-
-}
-
-struct AnnotationGroupResult: Codable, Equatable, Sendable {
-    let source: AnnotationSourceResult
-    let rawAssetID: String?
-    let annotationLocalPKs: [Int64]
-
-    var humanTitle: String {
-        switch source.kind {
-        case "currentLibrary":
-            return source.title ?? rawAssetID ?? source.bookLocalPK.map(String.init) ?? "Current book"
-        case "historicalInferred":
-            return source.title ?? rawAssetID ?? "Historical book"
-        default:
-            return rawAssetID.map { "Unmapped: \($0)" } ?? "Unmapped"
-        }
     }
 }
 
@@ -677,45 +600,6 @@ struct AnnotationResult: Codable, Equatable, Sendable {
 
 }
 
-private enum AnnotationBookGroupKey: Hashable {
-    case current(Int64)
-    case classified(kind: SemanticAnnotationSourceKind, rawAssetID: String?)
-}
-
-private func makeAnnotationGroups(_ rows: [SemanticAnnotation]) -> [AnnotationGroupResult] {
-    var indices: [AnnotationBookGroupKey: Int] = [:]
-    var groups: [(source: AnnotationSourceResult, rawAssetID: String?, localPKs: [Int64])] = []
-
-    for row in rows {
-        let key: AnnotationBookGroupKey
-        if row.source.kind == .currentLibrary, let localPK = row.source.bookLocalPK {
-            key = .current(localPK)
-        } else {
-            key = .classified(kind: row.source.kind, rawAssetID: row.rawAssetID)
-        }
-
-        if let index = indices[key] {
-            groups[index].localPKs.append(row.localPK)
-        } else {
-            indices[key] = groups.count
-            var truncated: [String] = []
-            groups.append((
-                source: AnnotationSourceResult(row.source, truncatedFields: &truncated),
-                rawAssetID: row.rawAssetID,
-                localPKs: [row.localPK]
-            ))
-        }
-    }
-
-    return groups.map {
-        AnnotationGroupResult(
-            source: $0.source,
-            rawAssetID: $0.rawAssetID,
-            annotationLocalPKs: $0.localPKs
-        )
-    }
-}
-
 private func validateAnnotationPagination(limit: Int?, offset: Int) throws {
     if let limit, limit <= 0 {
         throw ValidationError("--limit must be positive.")
@@ -723,16 +607,6 @@ private func validateAnnotationPagination(limit: Int?, offset: Int) throws {
     guard offset >= 0 else {
         throw ValidationError("--offset must be non-negative.")
     }
-}
-
-private func paginateAnnotations(
-    _ rows: [SemanticAnnotation],
-    limit: Int?,
-    offset: Int
-) -> [SemanticAnnotation] {
-    let suffix = rows.dropFirst(offset)
-    guard let limit else { return Array(suffix) }
-    return Array(suffix.prefix(limit))
 }
 
 private func firstNonEmpty(_ values: String?...) -> String? {

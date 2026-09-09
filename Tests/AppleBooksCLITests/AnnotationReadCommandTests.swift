@@ -21,7 +21,7 @@ struct AnnotationReadCommandTests {
     }
 
     @Test
-    func listUsesExactBookSelectorsScopesAndCreationOrderedGrouping() throws {
+    func listUsesExactBookSelectorsAndScopesWithoutGroupedPresentation() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -41,6 +41,9 @@ struct AnnotationReadCommandTests {
         let user = try fixture.runJSON(AnnotationCollectionResult.self, ["annotations", "list"])
         #expect(user.items.contains(where: { $0.localPK == 3 }) == false)
         #expect(user.items.contains(where: { $0.localPK == 4 }) == false)
+        #expect(user.items.first(where: { $0.localPK == 1 })?.source.bookAssetID == "123")
+        #expect(user.items.contains(where: { $0.source.kind == "historicalInferred" && $0.rawAssetID == "history-id" }))
+        #expect(user.items.contains(where: { $0.source.kind == "unmapped" && $0.rawAssetID == "orphan-id" }))
 
         let raw = try fixture.runJSON(
             AnnotationCollectionResult.self,
@@ -48,50 +51,30 @@ struct AnnotationReadCommandTests {
         )
         #expect(raw.items.contains(where: { $0.localPK == 3 }))
         #expect(raw.items.contains(where: { $0.localPK == 4 }) == false)
-
-        let grouped = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "list", "--group-by", "book"]
-        )
-        #expect(grouped.items.map(\.localPK) == [123, 7, 5, 6, 1, 2])
-        let groups = try #require(grouped.groups)
-        #expect(groups.flatMap(\.annotationLocalPKs).sorted() == grouped.items.map(\.localPK).sorted())
-        #expect(groups.contains(where: { $0.source.kind == "historicalInferred" && $0.rawAssetID == "history-id" }))
-        #expect(groups.contains(where: { $0.source.kind == "unmapped" && $0.rawAssetID == "orphan-id" }))
     }
 
     @Test
-    func readingOrderRequiresUserBookContextAndCrossBookGroupingKeepsEveryRowOnce() throws {
+    func readingOrderRequiresExactUserBookAndRemovedGroupByFailsBeforeIO() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let grouped = try fixture.runJSON(
+        let reading = try fixture.runJSON(
             AnnotationCollectionResult.self,
-            ["annotations", "list", "--group-by", "book", "--order", "reading"]
+            ["annotations", "list", "--book", "123", "--order", "reading"]
         )
-        #expect(grouped.items.map(\.localPK) == [1, 2, 5, 123, 6, 7])
-        #expect(Set(grouped.items.map(\.localPK)).count == grouped.items.count)
-        let groups = try #require(grouped.groups)
-        #expect(groups.map(\.annotationLocalPKs) == [[1, 2], [5], [123], [6], [7]])
-        #expect(groups.map(\.source.kind) == [
-            "currentLibrary",
-            "currentLibrary",
-            "currentLibrary",
-            "historicalInferred",
-            "unmapped",
-        ])
+        #expect(reading.items.map(\.localPK) == [1, 2])
 
-        let page = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "list", "--group-by", "book", "--order", "reading", "--limit", "3", "--offset", "1"]
-        )
-        #expect(page.items.map(\.localPK) == [2, 5, 123])
-        #expect(page.groups?.map(\.annotationLocalPKs) == [[2], [5], [123]])
+        let help = Capture()
+        let helpCode = CLIEntrypoint.run(arguments: ["annotations", "list", "--help"], output: help.output)
+        #expect(helpCode == CLIProcessExit.success.rawValue)
+        #expect(help.stdout.contains("--group-by") == false)
+        #expect(help.stderr.isEmpty)
 
         let missingGlobals = Fixture.missingGlobalArguments
         for arguments in [
             ["annotations", "list", "--order", "reading"],
-            ["annotations", "list", "--group-by", "book", "--order", "reading", "--scope", "active-raw"],
+            ["annotations", "list", "--book", "123", "--order", "reading", "--scope", "active-raw"],
+            ["annotations", "list", "--group-by", "book"],
             ["annotations", "list", "--limit", "-1"],
             ["annotations", "list", "--offset", "-1"],
             ["annotations", "list", "--book", "123", "--book-pk", "123"],

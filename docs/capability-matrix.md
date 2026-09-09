@@ -49,7 +49,6 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | list annotations | 已实现 | 默认 active user rows；可显式 raw/system scope；ordinary body 使用 bounded preview，超限字段返回 `truncatedFields` evidence |
-| list all / group by book | 已实现（展示） | 分组不改变 canonical ordering/identity，orphan/null-location 不丢 |
 | annotations by book | 已实现 | 精确 book selector；可读内容时按阅读顺序，否则稳定降级 |
 | get/describe annotation | 已实现 | UUID 优先，local PK 可显式使用 |
 | Apple Books annotation deep link | 已实现（展示） | `appleBooksURL` 由 asset ID + optional CFI 派生，并复用于 read/export/mutation output |

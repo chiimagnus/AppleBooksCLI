@@ -33,6 +33,13 @@ public struct EPUBMetadataInspection: Equatable, Sendable {
     public let enrichment: BookMetadataEnrichment
 }
 
+package struct SemanticEPUBMetadataInspection: Equatable, Sendable {
+    package let book: SemanticBookDetail
+    package let source: EPUBContentSource
+    package let metadata: EPUBMetadata
+    package let enrichment: BookMetadataEnrichment
+}
+
 public struct EPUBCoverInspection: Equatable, Sendable {
     public let bookLocalPK: Int64
     public let bookAssetID: String?
@@ -100,11 +107,78 @@ enum EPUBContentInspector {
         )
     }
 
+    static func status(target: BookResourceTarget, configuration: AppleBooksConfiguration) -> EPUBContentStatus {
+        let resolution = EPUBSourceResolver.resolve(
+            for: target,
+            configuration: configuration,
+            observingAvailability: true
+        )
+        let materialization = materialization(for: resolution)
+        var encryption: EPUBEncryption?
+        var unavailableReason: EPUBContentUnavailableReason?
+
+        if let reader = resolution.reader {
+            do {
+                let package = try DirectoryEPUBPackage(reader: reader)
+                let value = try EPUBEncryption.inspect(package: package)
+                encryption = value
+                switch value {
+                case .none, .fontObfuscationOnly:
+                    break
+                case .contentEncryptionUnsupported:
+                    unavailableReason = .contentEncryptionUnsupported
+                case .malformedEncryptionMetadata:
+                    unavailableReason = .malformedEncryptionMetadata
+                }
+            } catch {
+                unavailableReason = reason(for: error)
+            }
+        } else if let contentError = resolution.failure as? ContentError {
+            switch contentError {
+            case .unavailable:
+                unavailableReason = reason(for: materialization)
+            default:
+                unavailableReason = reason(for: contentError)
+            }
+        } else if materialization != .available {
+            unavailableReason = reason(for: materialization)
+        } else {
+            unavailableReason = reason(for: resolution.failure)
+        }
+
+        return EPUBContentStatus(
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
+            currentAvailability: resolution.currentAvailability,
+            supplementalAvailability: resolution.supplementalAvailability,
+            selectedSource: resolution.selectedSource,
+            materialization: materialization,
+            encryption: encryption,
+            unavailableReason: unavailableReason
+        )
+    }
+
     static func metadata(book: Book, configuration: AppleBooksConfiguration) throws -> EPUBMetadataInspection {
         let selected = try EPUBSourceResolver.resolve(for: book, configuration: configuration).requireReader()
         let content = try BookContent(reader: selected.reader)
         let metadata = try content.metadata()
         return EPUBMetadataInspection(
+            book: book,
+            source: selected.source,
+            metadata: metadata,
+            enrichment: metadata.supplementing(book)
+        )
+    }
+
+    static func metadata(
+        target: BookResourceTarget,
+        book: SemanticBookDetail,
+        configuration: AppleBooksConfiguration
+    ) throws -> SemanticEPUBMetadataInspection {
+        let selected = try EPUBSourceResolver.resolve(for: target, configuration: configuration).requireReader()
+        let content = try BookContent(reader: selected.reader)
+        let metadata = try content.metadata()
+        return SemanticEPUBMetadataInspection(
             book: book,
             source: selected.source,
             metadata: metadata,
@@ -119,6 +193,18 @@ enum EPUBContentInspector {
         return EPUBCoverInspection(
             bookLocalPK: book.localPK,
             bookAssetID: book.assetID,
+            source: selected.source,
+            cover: cover
+        )
+    }
+
+    static func cover(target: BookResourceTarget, configuration: AppleBooksConfiguration) throws -> EPUBCoverInspection? {
+        let selected = try EPUBSourceResolver.resolve(for: target, configuration: configuration).requireReader()
+        let content = try BookContent(reader: selected.reader)
+        guard let cover = try content.cover() else { return nil }
+        return EPUBCoverInspection(
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
             source: selected.source,
             cover: cover
         )
@@ -146,6 +232,33 @@ enum EPUBContentInspector {
         return EPUBLocationInspection(
             bookLocalPK: book.localPK,
             bookAssetID: book.assetID,
+            location: location,
+            source: selected.source,
+            chapter: chapter
+        )
+    }
+
+    static func locate(
+        rawCFI: String,
+        target: BookResourceTarget,
+        configuration: AppleBooksConfiguration
+    ) throws -> EPUBLocationInspection {
+        let location = Location(rawCFI: rawCFI)
+        guard let chapterID = location.chapterID else {
+            return EPUBLocationInspection(
+                bookLocalPK: target.localPK,
+                bookAssetID: target.assetID,
+                location: location,
+                source: nil,
+                chapter: nil
+            )
+        }
+        let selected = try EPUBSourceResolver.resolve(for: target, configuration: configuration).requireReader()
+        let content = try BookContent(reader: selected.reader)
+        let chapter = try CurrentReadingChapter.resolve(chapterID: chapterID, in: content)
+        return EPUBLocationInspection(
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
             location: location,
             source: selected.source,
             chapter: chapter

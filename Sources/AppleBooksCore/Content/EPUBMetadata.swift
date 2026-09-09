@@ -17,11 +17,19 @@ public struct EPUBMetadata: Equatable, Sendable {
     let coverItemID: String?
 
     public func supplementing(_ book: Book) -> BookMetadataEnrichment {
+        supplementing(language: book.language, releaseDate: book.releaseDate)
+    }
+
+    package func supplementing(_ book: SemanticBookDetail) -> BookMetadataEnrichment {
+        supplementing(language: book.language, releaseDate: book.releaseDate)
+    }
+
+    private func supplementing(language databaseLanguage: String?, releaseDate: Date?) -> BookMetadataEnrichment {
         BookMetadataEnrichment(
             isbn: isbn,
-            language: book.language == nil ? language : nil,
+            language: databaseLanguage == nil ? language : nil,
             publisher: publisher,
-            publicationDate: book.releaseDate == nil ? publicationDate : nil,
+            publicationDate: releaseDate == nil ? publicationDate : nil,
             rights: rights,
             subjects: subjects
         )

@@ -42,7 +42,7 @@ struct BookQueriesTests {
     }
 
     @Test
-    func exactAssetIdentityPreservesEmbeddedNULBytes() throws {
+    func rawAssetIdentityPreservesEmbeddedNULWhileSemanticSummaryRejectsIt() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(
             Z_PK INTEGER PRIMARY KEY,
@@ -61,7 +61,130 @@ struct BookQueriesTests {
         #expect(try queries.getUniqueByAssetID("abc") == nil)
 
         let summary = try #require(try queries.summaryPage().items.first)
-        #expect(summary.assetID == "abc\0def")
+        #expect(summary.assetID == nil)
+    }
+
+    @Test
+    func semanticSummaryBoundsMultiMiBDisplayAndOversizeIdentityWhileRawBookStaysFullFidelity() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZAUTHOR TEXT,
+            ZCONTENTTYPE INTEGER
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES(
+            1,
+            replace(hex(zeroblob(2049)), '00', 'i'),
+            replace(hex(zeroblob(1048576)), '00', 't'),
+            replace(hex(zeroblob(1048576)), '00', 'a'),
+            1
+        );
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let summary = try #require(try queries.summaryPage().items.first)
+        #expect(summary.assetID == nil)
+        #expect(summary.title?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(summary.author?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(summary.byteTruncatedFields == ["title", "author"])
+
+        let raw = try #require(try queries.getByLocalPK(1))
+        #expect(raw.assetID?.utf8.count == 2_049)
+        #expect(raw.title?.utf8.count == 1_048_576)
+        #expect(raw.author?.utf8.count == 1_048_576)
+    }
+
+    @Test
+    func resourceTargetRejectsOversizeNULAndNonTextPathsBeforeFilesystemUseWhileRawPathRemainsVisible() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZPATH,
+            ZCONTENTTYPE INTEGER
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, 'ok-4096', 'A', replace(hex(zeroblob(4096)), '00', 'p'), 1),
+            (2, 'too-long', 'B', replace(hex(zeroblob(4097)), '00', 'q'), 1),
+            (3, 'nul-path', 'C', CAST(X'2F746D7000666F6F' AS TEXT), 1),
+            (4, 'numeric-path', 'D', 42, 1),
+            (5, 'huge-path', 'E', replace(hex(zeroblob(1048576)), '00', 'h'), 1);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        #expect(try queries.resourceTarget(localPK: 1)?.path?.utf8.count == 4_096)
+        #expect(try queries.resourceTarget(localPK: 2)?.path == nil)
+        #expect(try queries.resourceTarget(localPK: 3)?.path == nil)
+        #expect(try queries.resourceTarget(localPK: 4)?.path == nil)
+        #expect(try queries.resourceTarget(localPK: 5)?.path == nil)
+
+        #expect(try queries.getByLocalPK(2)?.path?.utf8.count == 4_097)
+        #expect(try queries.getByLocalPK(3)?.path == "/tmp\0foo")
+        #expect(try queries.getByLocalPK(5)?.path?.utf8.count == 1_048_576)
+    }
+
+    @Test
+    func semanticPDFResourcesReuseBoundedSummaryAndExactPathGate() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZAUTHOR TEXT,
+            ZPATH TEXT,
+            ZCONTENTTYPE INTEGER
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, 'pdf-ok', replace(hex(zeroblob(1048576)), '00', 't'), 'A', replace(hex(zeroblob(4096)), '00', 'p'), 3),
+            (2, 'pdf-too-long', 'B', 'B', replace(hex(zeroblob(4097)), '00', 'q'), 3),
+            (3, 'epub', 'C', 'C', '/tmp/book.epub', 1);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let resources = try queries.semanticPDFResources()
+        #expect(Set(resources.map { $0.summary.localPK }) == [1, 2])
+        let exact = try #require(resources.first { $0.summary.localPK == 1 })
+        #expect(exact.summary.title?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(exact.summary.byteTruncatedFields == ["title"])
+        #expect(exact.target.path?.utf8.count == SQLiteSemanticTextBudget.resourcePath)
+
+        let oversized = try #require(resources.first { $0.summary.localPK == 2 })
+        #expect(oversized.target.path == nil)
+        #expect(try queries.getByLocalPK(2)?.path?.utf8.count == 4_097)
+    }
+
+    @Test
+    func summaryCursorKeepsFullSQLiteSortKeysWhileProjectionAndTokenStayBounded() throws {
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKLIBRARYASSET(
+            Z_PK INTEGER PRIMARY KEY,
+            ZASSETID TEXT,
+            ZTITLE TEXT,
+            ZAUTHOR TEXT
+        );
+        INSERT INTO ZBKLIBRARYASSET VALUES
+            (1, replace(hex(zeroblob(4096)), '00', 'z'), replace(hex(zeroblob(1048576)), '00', 'a') || 'b', 'One'),
+            (2, 'short', replace(hex(zeroblob(1048576)), '00', 'a') || 'c', 'Two');
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let first = try queries.summaryPage(limit: 1)
+        #expect(first.items.map(\.localPK) == [1])
+        #expect(first.items[0].title?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(first.items[0].assetID == nil)
+        let cursor = try #require(first.nextCursor)
+        #expect(cursor.utf8.count < 1_024)
+        #expect(cursor.contains(String(repeating: "a", count: 64)) == false)
+
+        let second = try queries.summaryPage(limit: 1, cursor: cursor)
+        #expect(second.items.map(\.localPK) == [2])
     }
 
     @Test

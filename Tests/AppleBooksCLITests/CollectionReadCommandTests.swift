@@ -101,11 +101,12 @@ struct CollectionReadCommandTests {
         defer { fixture.remove() }
 
         let byID = try fixture.runJSON(CollectionBooksResult.self, ["collections", "books", "123"])
-        #expect(byID.items.map(\.localPK) == [11, 12, 10])
+        #expect(byID.items.map(\.assetID) == ["asset-b", "asset-b", "asset-a"])
+        #expect(byID.items.allSatisfy { $0.localPK == nil })
 
         let byPK = try fixture.runJSON(CollectionBooksResult.self, ["collections", "books", "--pk", "1"])
-        #expect(byPK.items.map(\.localPK) == [11, 12, 10])
         #expect(byPK.items.map(\.assetID) == ["asset-b", "asset-b", "asset-a"])
+        #expect(byPK.items.allSatisfy { $0.localPK == nil })
     }
 
     private final class Fixture {

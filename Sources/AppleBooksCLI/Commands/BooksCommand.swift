@@ -95,7 +95,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            guard let book = try selector.resolve(in: books) else {
+            guard let book = try selector.resolveSemanticDetail(in: books) else {
                 throw CLIError.notFound("Book not found.")
             }
             return BookDetailResult(book: book)
@@ -202,12 +202,12 @@ struct BookSummaryResult: Codable, Equatable, Sendable {
         let stableAssetID = PublicStableTokenPolicy.isEligible(summary.assetID) ? summary.assetID : nil
         assetID = stableAssetID
         localPK = stableAssetID == nil && LocalPKPolicy.isEligible(summary.localPK) ? summary.localPK : nil
-        var truncated: [String] = []
+        var truncated = summary.byteTruncatedFields
         title = boundedField(summary.title, field: "title", profile: .metadata, truncatedFields: &truncated)
         author = boundedField(summary.author, field: "author", profile: .metadata, truncatedFields: &truncated)
         isPDF = summary.isPDF
         self.userAnnotationCount = userAnnotationCount
-        truncatedFields = truncated
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 }
 
@@ -229,108 +229,25 @@ struct BookDetailResult: Codable, Equatable, Sendable {
     let releaseDate: Date?
     let truncatedFields: [String]
 
-    init(book: Book) {
+    init(book: SemanticBookDetail) {
         let stableAssetID = PublicStableTokenPolicy.isEligible(book.assetID) ? book.assetID : nil
         assetID = stableAssetID
         localPK = stableAssetID == nil && LocalPKPolicy.isEligible(book.localPK) ? book.localPK : nil
-        var truncated: [String] = []
+        var truncated = book.byteTruncatedFields
         title = boundedField(book.title, field: "title", profile: .metadata, truncatedFields: &truncated)
-        author = boundedField(book.normalizedAuthor, field: "author", profile: .metadata, truncatedFields: &truncated)
+        author = boundedField(book.author, field: "author", profile: .metadata, truncatedFields: &truncated)
         description = boundedField(book.description, field: "description", profile: .detail, truncatedFields: &truncated)
         genre = boundedField(book.genre, field: "genre", profile: .metadata, truncatedFields: &truncated)
         language = boundedField(book.language, field: "language", profile: .shortMetadata, truncatedFields: &truncated)
         year = book.year
         pageCount = book.pageCount
-        isPDF = book.contentType.map { $0 == 3 }
+        isPDF = book.isPDF
         readingProgressPercent = SemanticSQLiteReal.readingProgressPercent(book.readingProgressRaw)
         isFinished = book.isFinished
         finishedDate = book.finishedDate
         lastOpenDate = book.lastOpenDate
         releaseDate = book.releaseDate
-        truncatedFields = truncated
+        truncatedFields = Array(Set(truncated)).sorted()
     }
-}
-
-struct BookResult: Codable, Equatable, Sendable {
-    let localPK: Int64
-    let assetID: String?
-    let title: String?
-    let author: String?
-    let normalizedAuthor: String?
-    let description: String?
-    let epubID: String?
-    let genre: String?
-    let genresRaw: Data?
-    let comments: String?
-    let language: String?
-    let year: Int64?
-    let contentType: Int64?
-    let pageCount: Int64?
-    let path: String?
-    let fileSize: Int64?
-    let coverURL: String?
-    let isFinished: Bool?
-    let readingProgressRaw: Double?
-    let readingProgressPercent: Double?
-    let durationRawMilliseconds: Double?
-    let durationSeconds: Double?
-    let creationDate: Date?
-    let modificationDate: Date?
-    let finishedDate: Date?
-    let lastOpenDate: Date?
-    let purchaseDate: Date?
-    let releaseDate: Date?
-    let isExplicit: Bool?
-    let isLocked: Bool?
-    let isEphemeral: Bool?
-    let isHidden: Bool?
-    let isSample: Bool?
-    let isStoreAudiobook: Bool?
-    let rating: Double?
-    let userAnnotationCount: Int?
-
-    init(book: Book, userAnnotationCount: Int? = nil) {
-        localPK = book.localPK
-        assetID = book.assetID
-        title = book.title
-        author = book.author
-        normalizedAuthor = book.normalizedAuthor
-        description = book.description
-        epubID = book.epubID
-        genre = book.genre
-        genresRaw = book.genresRaw
-        comments = book.comments
-        language = book.language
-        year = book.year
-        contentType = book.contentType
-        pageCount = book.pageCount
-        path = book.path
-        fileSize = book.fileSize
-        coverURL = book.coverURL
-        isFinished = book.isFinished
-        readingProgressRaw = SemanticSQLiteReal.finite(book.readingProgressRaw)
-        readingProgressPercent = SemanticSQLiteReal.readingProgressPercent(book.readingProgressRaw)
-        durationRawMilliseconds = SemanticSQLiteReal.finite(book.durationRawMilliseconds)
-        durationSeconds = SemanticSQLiteReal.finite(book.durationRawMilliseconds).map { $0 / 1_000 }
-        creationDate = book.creationDate
-        modificationDate = book.modificationDate
-        finishedDate = book.finishedDate
-        lastOpenDate = book.lastOpenDate
-        purchaseDate = book.purchaseDate
-        releaseDate = book.releaseDate
-        isExplicit = book.isExplicit
-        isLocked = book.isLocked
-        isEphemeral = book.isEphemeral
-        isHidden = book.isHidden
-        isSample = book.isSample
-        isStoreAudiobook = book.isStoreAudiobook
-        rating = SemanticSQLiteReal.finite(book.rating)
-        self.userAnnotationCount = userAnnotationCount
-    }
-
-    init(overview: BookOverview) {
-        self.init(book: overview.book, userAnnotationCount: overview.userAnnotationCount)
-    }
-
 }
 

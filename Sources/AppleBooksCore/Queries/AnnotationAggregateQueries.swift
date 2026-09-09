@@ -1,6 +1,13 @@
 struct UserAnnotationAssetCount: Equatable, Sendable {
     let rawAssetID: String?
     let count: Int
+    let identityUnavailable: Bool
+
+    init(rawAssetID: String?, count: Int, identityUnavailable: Bool = false) {
+        self.rawAssetID = rawAssetID
+        self.count = count
+        self.identityUnavailable = identityUnavailable
+    }
 }
 
 enum AnnotationAggregateQueryError: Error, Equatable, Sendable {
@@ -69,8 +76,13 @@ struct AnnotationAggregateQueries {
         _ body: (UserAnnotationAssetCount) throws -> Void
     ) throws {
         _ = try AppleBooksSchema.inspect(.annotationByAssetID, on: connection)
+        let identityProjection = SQLiteTextProjection.exact(
+            AppleBooksSchema.Annotation.assetID,
+            alias: "aggregateAssetID",
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+        ).joined(separator: ", ")
         let statement = try connection.prepare("""
-        SELECT \(AppleBooksSchema.Annotation.assetID) AS assetID, COUNT(*) AS count
+        SELECT \(identityProjection), COUNT(*) AS count
         FROM \(AppleBooksTable.annotations.rawValue)
         WHERE \(userScopePredicate)
         GROUP BY \(AppleBooksSchema.Annotation.assetID) COLLATE BINARY
@@ -78,11 +90,28 @@ struct AnnotationAggregateQueries {
         """)
         while try statement.step() {
             let row = try SQLiteRow(statement: statement)
-            let assetID = try row.text("assetID")
+            let identity = try SQLiteTextProjection.decodeExact(
+                row,
+                alias: "aggregateAssetID",
+                column: AppleBooksSchema.Annotation.assetID,
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            )
             guard let rawCount = try row.int64("count"), rawCount >= 0 else {
                 throw QueryDecodingError.nullRequiredColumn("count")
             }
-            try body(UserAnnotationAssetCount(rawAssetID: assetID, count: Int(rawCount)))
+            let count = Int(rawCount)
+            switch identity {
+            case .null:
+                try body(UserAnnotationAssetCount(rawAssetID: nil, count: count))
+            case let .value(value):
+                try body(UserAnnotationAssetCount(
+                    rawAssetID: value,
+                    count: count,
+                    identityUnavailable: PublicStableIdentityPolicy.isEligible(value) == false
+                ))
+            case .oversized:
+                try body(UserAnnotationAssetCount(rawAssetID: nil, count: count, identityUnavailable: true))
+            }
         }
     }
 

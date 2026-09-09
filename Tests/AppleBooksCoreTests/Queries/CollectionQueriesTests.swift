@@ -51,6 +51,43 @@ struct CollectionQueriesTests {
     }
 
     @Test
+    func semanticCollectionBoundsMultiMiBTextAndOversizeIdentityWhileRawCollectionStaysFullFidelity() throws {
+        let title = String(repeating: "t", count: 1_048_576)
+        let details = String(repeating: "d", count: 1_048_576)
+        let exactID = String(repeating: "i", count: 2_048)
+        let oversizedID = String(repeating: "j", count: 2_049)
+        let fixture = try database(sql: """
+        CREATE TABLE ZBKCOLLECTION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZCOLLECTIONID TEXT,
+            ZTITLE TEXT,
+            ZDETAILS TEXT,
+            ZDELETEDFLAG INTEGER
+        );
+        INSERT INTO ZBKCOLLECTION VALUES
+            (1, '\(exactID)', '\(title)', '\(details)', 0),
+            (2, '\(oversizedID)', 'small', 'small', 0);
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let queries = try queries(for: fixture)
+
+        let exact = try #require(try queries.semanticGetByLocalPK(1))
+        #expect(exact.collectionID == exactID)
+        #expect(exact.title?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(exact.details?.utf8.count == SQLiteSemanticTextBudget.detail)
+        #expect(Set(exact.byteTruncatedFields) == ["title", "details"])
+
+        let oversized = try #require(try queries.semanticGetByLocalPK(2))
+        #expect(oversized.collectionID == nil)
+
+        let rawExact = try #require(try queries.getByLocalPK(1))
+        #expect(rawExact.title?.utf8.count == title.utf8.count)
+        #expect(rawExact.details?.utf8.count == details.utf8.count)
+        let rawOversized = try #require(try queries.getByLocalPK(2))
+        #expect(rawOversized.collectionID == oversizedID)
+    }
+
+    @Test
     func uniqueCollectionResolutionStopsAfterTwoRowsWithoutDecodingRichFields() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKCOLLECTION(

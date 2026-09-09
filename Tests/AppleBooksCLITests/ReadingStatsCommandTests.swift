@@ -7,7 +7,7 @@ import Testing
 @Suite("ReadingStatsCommandTests")
 struct ReadingStatsCommandTests {
     @Test
-    func statusCommandsPreserveCorePartitionsRawProgressAndRecentDefault() throws {
+    func statusCommandsPreserveCorePartitionsAsBoundedSummariesAndRecentDefault() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -16,8 +16,8 @@ struct ReadingStatsCommandTests {
             arguments: ["reading", "in-progress"]
         )
         #expect(inProgress.items.map(\.assetID) == ["12"])
-        #expect(inProgress.items.first?.readingProgressRaw == 0.5)
-        #expect(inProgress.items.first?.readingProgressPercent == 50)
+        #expect(inProgress.items.first?.title == "Alpha")
+        #expect(inProgress.items.first?.truncatedFields.isEmpty == true)
         #expect(inProgress.limit == nil)
 
         let finished = try fixture.runJSON(
@@ -25,16 +25,14 @@ struct ReadingStatsCommandTests {
             arguments: ["reading", "finished"]
         )
         #expect(finished.items.map(\.assetID) == ["finished-id"])
-        #expect(finished.items.first?.readingProgressRaw == 1)
-        #expect(finished.items.first?.readingProgressPercent == 100)
+        #expect(finished.items.first?.title == "Beta")
 
         let unstarted = try fixture.runJSON(
             ReadingBooksResult.self,
             arguments: ["reading", "unstarted"]
         )
         #expect(unstarted.items.map(\.assetID) == ["infer-id"])
-        #expect(unstarted.items.first?.readingProgressRaw == 0)
-        #expect(unstarted.items.first?.readingProgressPercent == 0)
+        #expect(unstarted.items.first?.title == "Gamma")
 
         let recentDefault = try fixture.runJSON(
             ReadingBooksResult.self,
@@ -63,8 +61,7 @@ struct ReadingStatsCommandTests {
             arguments: ["reading", "unstarted"]
         )
         #expect(unstarted.items.map(\.assetID) == ["infer-id"])
-        #expect(unstarted.items.first?.readingProgressRaw == nil)
-        #expect(unstarted.items.first?.readingProgressPercent == nil)
+        #expect(unstarted.items.first?.title == "Gamma")
 
         let recent = try fixture.runJSON(
             ReadingBooksResult.self,

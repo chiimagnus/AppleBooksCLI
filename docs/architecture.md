@@ -70,6 +70,16 @@ stable collection ID 与 local PK 可作精确 selector；title 只用于 search
 
 PDF highlight 不伪装成 EPUB annotation：不用 annotation UUID/CFI，保留 PDF file/page/geometry identity；text/color approximation 必须保留 provenance。
 
+## Ordinary semantic projection 与 raw fidelity
+
+普通 Agent read 与 archival/raw Core 是两条不同的数据边界，不能用“先完整读取、最后在 CLI 截断”混在一起：
+
+- ordinary book/collection/annotation query 只把完成当前命令所需的 semantic projection 从 SQLite 带入 Swift。可展示 TEXT 在 SQL 层先证明 storage class 与原始 UTF-8 byte length，只读取 `byteCap + 4` 的 prefix；Core strict-decode 后按完整 Swift `Character` 收敛到 byte cap，并把原始长度造成的截断作为 evidence 传给 CLI。CLI 只再应用既有 grapheme cap，并与 Core evidence 合并为一个 `truncatedFields`。
+- stable asset ID、annotation UUID、collection ID 等 identity 不是 presentation 文本：只有完整 TEXT 在 SQL 层证明 UTF-8 长度不超过 2,048 bytes 后才 materialize，再交给 stable-token validator。oversize identity 不取 prefix、不猜 identity；annotation source 明确进入 `identityUnavailable` 等有限状态。
+- canonical content/PDF filesystem resolution 只消费 `BookResourceTarget` 这类最小 capability view。`Book.path` 只有完整 TEXT 严格 UTF-8、无 NUL 且不超过 4,096 bytes 时才进入 URL/filesystem owner；超过上限或非法 storage/UTF-8 直接视为 path unavailable，绝不把截断 prefix 当路径打开。`BookResourceTarget` 不是新的 raw Book model。
+- search、filter、collation、ORDER/keyset 可以继续在 SQLite 内部对完整 source TEXT 运算；cursor 只携带 locator/evidence，不把完整 sort key materialize 到 Swift 或写进 token/history。
+- public rich Core compatibility API 与 explicit archival export 继续拥有 full fidelity：raw `SQLiteRow.text()`、rich `Book`/`Collection`/`Annotation` 和 export bundle 不套 ordinary byte budget。新增 ordinary caller 不得为了省事回到 rich decoder；反过来也不得把 ordinary resource gate 偷偷变成 raw/export 截断。
+
 ## Configuration 与 content source
 
 配置只扩展 source resolution，不改变 identity：

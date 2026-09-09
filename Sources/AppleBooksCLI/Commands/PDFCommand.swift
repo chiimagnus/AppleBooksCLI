@@ -29,7 +29,7 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            return PDFSourceListResult(items: try books.pdfSources().map(PDFSourceResult.init))
+            return PDFSourceListResult(items: try books.semanticPDFSources().map(PDFSourceResult.init))
         }
     }
 }
@@ -78,15 +78,15 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
             let source: PDFSource
             switch selection {
             case let .book(selector):
-                guard let selectedBook = try selector.resolve(in: books) else {
+                guard let selectedBook = try selector.resolveSemanticDetail(in: books) else {
                     throw CLIError.notFound("Book not found.")
                 }
-                guard let resolved = try books.pdfSource(forBookLocalPK: selectedBook.localPK) else {
+                guard let resolved = try books.semanticPDFSource(forBookLocalPK: selectedBook.localPK) else {
                     throw CLIError.unavailable("Selected book does not have an available PDF source.")
                 }
                 source = resolved
             case let .path(fileURL):
-                guard let resolved = try books.pdfSource(fileURL: fileURL) else {
+                guard let resolved = try books.semanticPDFSource(fileURL: fileURL) else {
                     throw CLIError.unavailable("Selected PDF source is unavailable.")
                 }
                 source = resolved
@@ -133,13 +133,13 @@ struct PDFSourceResult: Codable, Equatable, Sendable {
     let filePath: String
     let displayTitle: String
     let provenance: String
-    let book: BookResult?
+    let book: BookSummaryResult?
 
     init(_ source: PDFSource) {
         filePath = source.fileURL.path
         displayTitle = source.displayTitle
         provenance = source.provenance.rawValue
-        book = source.book.map { BookResult(book: $0) }
+        book = source.bookSummary.map { BookSummaryResult(summary: $0) }
     }
 
 }

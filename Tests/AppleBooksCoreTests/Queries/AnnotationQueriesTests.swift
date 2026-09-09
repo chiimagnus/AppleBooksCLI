@@ -123,6 +123,72 @@ struct AnnotationQueriesTests {
     }
 
     @Test
+    func semanticAnnotationsBoundPreviewDetailAndIdentityWhileRawRowsStayFullFidelity() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let body = String(repeating: "b", count: 1_048_576)
+        let exactUUID = String(repeating: "u", count: 2_048)
+        let oversizedUUID = String(repeating: "v", count: 2_049)
+        let oversizedAssetID = String(repeating: "a", count: 2_049)
+        let sourceTitle = String(repeating: "t", count: 1_048_576)
+        let annotations = try database(at: root.appendingPathComponent("bounded-annotations.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZANNOTATIONUUID TEXT,
+            ZANNOTATIONASSETID TEXT,
+            ZANNOTATIONDELETED INTEGER,
+            ZANNOTATIONTYPE INTEGER,
+            ZANNOTATIONSELECTEDTEXT TEXT,
+            ZANNOTATIONREPRESENTATIVETEXT TEXT,
+            ZANNOTATIONNOTE TEXT
+        );
+        INSERT INTO ZAEANNOTATION VALUES
+            (1, '\(exactUUID)', 'asset-current', 0, 1, '\(body)', '\(body)', '\(body)'),
+            (2, '\(oversizedUUID)', '\(oversizedAssetID)', 0, 1, 'small', 'small', 'small');
+        """)
+        let library = try database(at: root.appendingPathComponent("bounded-library.sqlite"), sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZASSETID TEXT, ZTITLE TEXT, ZAUTHOR TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (10, 'asset-current', '\(sourceTitle)', 'author');
+        """)
+        let config = root.appendingPathComponent("config.json")
+        try Data("{\"historical_assets\":{}}".utf8).write(to: config)
+        let queries = AnnotationQueries(
+            annotationConnection: try SQLiteConnection.readOnly(path: annotations.path),
+            bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
+            historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
+        )
+
+        let preview = try #require(try queries.semanticList().first { $0.localPK == 1 })
+        #expect(preview.uuid == exactUUID)
+        #expect(preview.selectedText?.utf8.count == SQLiteSemanticTextBudget.preview)
+        #expect(preview.representativeText?.utf8.count == SQLiteSemanticTextBudget.preview)
+        #expect(preview.note?.utf8.count == SQLiteSemanticTextBudget.preview)
+        #expect(Set(preview.byteTruncatedFields) == ["selectedText", "representativeText", "note"])
+        #expect(preview.source.kind == .currentLibrary)
+        #expect(preview.source.title?.utf8.count == SQLiteSemanticTextBudget.metadata)
+        #expect(preview.source.byteTruncatedFields == ["title"])
+
+        let detail = try #require(try queries.semanticGetByLocalPK(1))
+        #expect(detail.selectedText?.utf8.count == SQLiteSemanticTextBudget.detail)
+        #expect(detail.note?.utf8.count == SQLiteSemanticTextBudget.detail)
+        #expect(detail.representativeText?.utf8.count == SQLiteSemanticTextBudget.preview)
+        #expect(Set(detail.byteTruncatedFields) == ["selectedText", "representativeText", "note"])
+
+        let unavailable = try #require(try queries.semanticGetByLocalPK(2))
+        #expect(unavailable.uuid == nil)
+        #expect(unavailable.rawAssetID == nil)
+        #expect(unavailable.source.kind == .identityUnavailable)
+
+        let raw = try #require(try queries.getByLocalPK(1))
+        #expect(raw.annotation.selectedText?.utf8.count == body.utf8.count)
+        #expect(raw.annotation.representativeText?.utf8.count == body.utf8.count)
+        #expect(raw.annotation.note?.utf8.count == body.utf8.count)
+        let rawUnavailable = try #require(try queries.getByLocalPK(2))
+        #expect(rawUnavailable.annotation.uuid == oversizedUUID)
+        #expect(rawUnavailable.annotation.rawAssetID == oversizedAssetID)
+    }
+
+    @Test
     func aggregateCountsNeedNoAnnotationBodyColumnsAndBatchCapPrecedesSchemaInspection() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

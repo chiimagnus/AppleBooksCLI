@@ -11,19 +11,22 @@ public struct BookSummary: Equatable, Sendable {
     public let title: String?
     public let author: String?
     public let contentType: Int64?
+    public let byteTruncatedFields: [String]
 
     public init(
         localPK: Int64,
         assetID: String?,
         title: String?,
         author: String?,
-        contentType: Int64?
+        contentType: Int64?,
+        byteTruncatedFields: [String] = []
     ) {
         self.localPK = localPK
         self.assetID = assetID
         self.title = title
         self.author = normalizedAppleBooksAuthor(author)
         self.contentType = contentType
+        self.byteTruncatedFields = byteTruncatedFields
     }
 
     public var isPDF: Bool? {
@@ -36,7 +39,8 @@ public struct BookSummary: Equatable, Sendable {
             assetID: book.assetID,
             title: book.title,
             author: book.author,
-            contentType: book.contentType
+            contentType: book.contentType,
+            byteTruncatedFields: []
         )
     }
 }

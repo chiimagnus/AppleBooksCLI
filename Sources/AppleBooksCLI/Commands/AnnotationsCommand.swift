@@ -116,27 +116,27 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
 
             if let bookSelector {
-                guard let selectedBook = try bookSelector.resolve(in: books) else {
+                guard let selectedBook = try bookSelector.resolveSemanticDetail(in: books) else {
                     throw CLIError.notFound("Book not found.")
                 }
-                let rows: [EnrichedAnnotation]
+                let rows: [SemanticAnnotation]
                 switch order {
                 case .source:
-                    rows = try books.annotations(
+                    rows = try books.semanticAnnotations(
                         bookLocalPK: selectedBook.localPK,
                         scope: scope.coreValue,
                         limit: limit,
                         offset: offset
                     )
                 case .reading:
-                    rows = try books.annotationsInReadingOrder(
+                    rows = try books.semanticAnnotationsInReadingOrder(
                         bookLocalPK: selectedBook.localPK,
                         limit: limit,
                         offset: offset
                     )
                 }
                 return AnnotationCollectionResult(
-                    enriched: rows,
+                    semantic: rows,
                     limit: limit,
                     offset: offset,
                     groupedByBook: groupBy == .book
@@ -147,22 +147,22 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
                 let ordered = try crossBookReadingOrder(from: books)
                 let rows = paginateAnnotations(ordered, limit: limit, offset: offset)
                 return AnnotationCollectionResult(
-                    enriched: rows,
+                    semantic: rows,
                     limit: limit,
                     offset: offset,
                     groupedByBook: true
                 )
             }
 
-            let rows: [EnrichedAnnotation]
+            let rows: [SemanticAnnotation]
             if groupBy == .book, scope == .user {
                 // Grouped user presentation is defined from the core creation-recent owner.
-                rows = try books.recentlyCreatedAnnotations(limit: limit, offset: offset)
+                rows = try books.semanticRecentlyCreatedAnnotations(limit: limit, offset: offset)
             } else {
-                rows = try books.listAnnotations(scope: scope.coreValue, limit: limit, offset: offset)
+                rows = try books.semanticAnnotations(scope: scope.coreValue, limit: limit, offset: offset)
             }
             return AnnotationCollectionResult(
-                enriched: rows,
+                semantic: rows,
                 limit: limit,
                 offset: offset,
                 groupedByBook: groupBy == .book
@@ -170,27 +170,27 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         }
     }
 
-    private func crossBookReadingOrder(from books: AppleBooks) throws -> [EnrichedAnnotation] {
-        let sourceRows = try books.listAnnotations(scope: .user)
+    private func crossBookReadingOrder(from books: AppleBooks) throws -> [SemanticAnnotation] {
+        let sourceRows = try books.semanticAnnotations(scope: .user)
         let currentBookPKs = Set(sourceRows.compactMap { row -> Int64? in
-            guard case let .currentLibrary(book) = row.source else { return nil }
-            return book.localPK
+            guard row.source.kind == .currentLibrary else { return nil }
+            return row.source.bookLocalPK
         })
 
-        var ordered: [EnrichedAnnotation] = []
+        var ordered: [SemanticAnnotation] = []
         var emitted = Set<Int64>()
-        for book in try books.listBooks() where currentBookPKs.contains(book.localPK) {
-            for row in try books.annotationsInReadingOrder(bookLocalPK: book.localPK) {
-                guard case let .currentLibrary(sourceBook) = row.source,
-                      sourceBook.localPK == book.localPK,
-                      emitted.insert(row.annotation.localPK).inserted else {
+        for book in try books.semanticBookSummariesInCanonicalOrder() where currentBookPKs.contains(book.localPK) {
+            for row in try books.semanticAnnotationsInReadingOrder(bookLocalPK: book.localPK) {
+                guard row.source.kind == .currentLibrary,
+                      row.source.bookLocalPK == book.localPK,
+                      emitted.insert(row.localPK).inserted else {
                     continue
                 }
                 ordered.append(row)
             }
         }
 
-        for row in sourceRows where emitted.insert(row.annotation.localPK).inserted {
+        for row in sourceRows where emitted.insert(row.localPK).inserted {
             ordered.append(row)
         }
         return ordered
@@ -227,10 +227,10 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            guard let row = try selector.resolve(in: books, scope: scope.coreValue) else {
+            guard let row = try selector.resolveSemantic(in: books, scope: scope.coreValue) else {
                 throw CLIError.notFound("Annotation not found.")
             }
-            return AnnotationResult(row)
+            return AnnotationResult(row, detail: true)
         }
     }
 }
@@ -275,31 +275,31 @@ struct AnnotationsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            let rows: [EnrichedAnnotation]
+            let rows: [SemanticAnnotation]
             switch field {
             case .all:
-                rows = try books.annotations(
+                rows = try books.semanticAnnotations(
                     matchingText: query,
                     colorName: color?.rawValue,
                     limit: limit,
                     offset: offset
                 )
             case .highlight:
-                rows = try books.annotations(
+                rows = try books.semanticAnnotations(
                     matchingHighlightedText: query,
                     colorName: color?.rawValue,
                     limit: limit,
                     offset: offset
                 )
             case .note:
-                rows = try books.annotations(
+                rows = try books.semanticAnnotations(
                     matchingNote: query,
                     colorName: color?.rawValue,
                     limit: limit,
                     offset: offset
                 )
             }
-            return AnnotationCollectionResult(enriched: rows, limit: limit, offset: offset)
+            return AnnotationCollectionResult(semantic: rows, limit: limit, offset: offset)
         }
     }
 }
@@ -327,14 +327,14 @@ struct AnnotationsRecentCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     func execute() throws -> AnnotationCollectionResult {
         try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            let rows: [EnrichedAnnotation]
+            let rows: [SemanticAnnotation]
             switch timeField {
             case .created:
-                rows = try books.recentlyCreatedAnnotations()
+                rows = try books.semanticRecentlyCreatedAnnotations()
             case .modified:
-                rows = try books.recentlyModifiedAnnotations()
+                rows = try books.semanticRecentlyModifiedAnnotations()
             }
-            return AnnotationCollectionResult(enriched: rows, limit: 10, offset: 0)
+            return AnnotationCollectionResult(semantic: rows, limit: 10, offset: 0)
         }
     }
 }
@@ -373,13 +373,13 @@ struct AnnotationsRangeCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
         let range = try AnnotationDateRangeParser(calendar: calendar).parse(after: after, before: before)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            let rows = try books.annotations(
+            let rows = try books.semanticAnnotations(
                 createdAtOrAfter: range.lowerInclusive,
                 beforeExclusive: range.upperExclusive,
                 limit: limit,
                 offset: offset
             )
-            return AnnotationCollectionResult(enriched: rows, limit: limit, offset: offset)
+            return AnnotationCollectionResult(semantic: rows, limit: limit, offset: offset)
         }
     }
 }
@@ -548,15 +548,15 @@ struct AnnotationCollectionResult: Codable, Equatable, Sendable {
     let groups: [AnnotationGroupResult]?
 
     init(
-        enriched: [EnrichedAnnotation],
+        semantic: [SemanticAnnotation],
         limit: Int?,
         offset: Int,
         groupedByBook: Bool = false
     ) {
-        items = enriched.map(AnnotationResult.init)
+        items = semantic.map { AnnotationResult($0) }
         self.limit = limit
         self.offset = offset
-        groups = groupedByBook ? makeAnnotationGroups(enriched) : nil
+        groups = groupedByBook ? makeAnnotationGroups(semantic) : nil
     }
 
 }
@@ -585,27 +585,23 @@ struct AnnotationSourceResult: Codable, Equatable, Sendable {
     let title: String?
     let author: String?
 
-    init(_ source: AnnotationSource) {
-        switch source {
-        case let .currentLibrary(book):
-            kind = "currentLibrary"
-            bookLocalPK = book.localPK
-            bookAssetID = book.assetID
-            title = book.title
-            author = book.author
-        case let .historicalInferred(metadata):
-            kind = "historicalInferred"
-            bookLocalPK = nil
-            bookAssetID = nil
-            title = metadata.title
-            author = metadata.author
-        case .unmapped:
-            kind = "unmapped"
-            bookLocalPK = nil
-            bookAssetID = nil
-            title = nil
-            author = nil
-        }
+    init(_ source: SemanticAnnotationSource, truncatedFields: inout [String]) {
+        kind = source.kind.rawValue
+        bookLocalPK = source.bookLocalPK
+        bookAssetID = source.bookAssetID
+        truncatedFields.append(contentsOf: source.byteTruncatedFields.map { "source.\($0)" })
+        title = boundedField(
+            source.title,
+            field: "source.title",
+            profile: .metadata,
+            truncatedFields: &truncatedFields
+        )
+        author = boundedField(
+            source.author,
+            field: "source.author",
+            profile: .metadata,
+            truncatedFields: &truncatedFields
+        )
     }
 }
 
@@ -629,9 +625,9 @@ struct AnnotationResult: Codable, Equatable, Sendable {
     let rangeStart: Int64?
     let rangeEnd: Int64?
     let source: AnnotationSourceResult
+    let truncatedFields: [String]
 
-    init(_ enriched: EnrichedAnnotation) {
-        let annotation = enriched.annotation
+    init(_ annotation: SemanticAnnotation, detail: Bool = false) {
         localPK = annotation.localPK
         uuid = annotation.uuid
         rawAssetID = annotation.rawAssetID
@@ -641,49 +637,72 @@ struct AnnotationResult: Codable, Equatable, Sendable {
         type = annotation.type
         createdAt = annotation.createdAt
         modifiedAt = annotation.modifiedAt
-        representativeText = annotation.representativeText
-        selectedText = annotation.selectedText
-        note = annotation.note
-        rawCFI = annotation.location?.rawCFI
+        var truncated = annotation.byteTruncatedFields
+        representativeText = boundedField(
+            annotation.representativeText,
+            field: "representativeText",
+            profile: .preview,
+            truncatedFields: &truncated
+        )
+        let bodyProfile: BoundedTextProfile = detail ? .detail : .preview
+        selectedText = boundedField(
+            annotation.selectedText,
+            field: "selectedText",
+            profile: bodyProfile,
+            truncatedFields: &truncated
+        )
+        note = boundedField(
+            annotation.note,
+            field: "note",
+            profile: bodyProfile,
+            truncatedFields: &truncated
+        )
+        rawCFI = annotation.rawCFI
         appleBooksURL = annotation.appleBooksURL
-        chapterHint = annotation.chapterHint
+        chapterHint = boundedField(
+            annotation.chapterHint,
+            field: "chapterHint",
+            profile: .metadata,
+            truncatedFields: &truncated
+        )
         physicalLocation = annotation.physicalLocation
         rangeStart = annotation.rangeStart
         rangeEnd = annotation.rangeEnd
-        source = AnnotationSourceResult(enriched.source)
+        source = AnnotationSourceResult(annotation.source, truncatedFields: &truncated)
+        var unique: [String] = []
+        unique.reserveCapacity(truncated.count)
+        for field in truncated where unique.contains(field) == false { unique.append(field) }
+        truncatedFields = unique
     }
 
 }
 
 private enum AnnotationBookGroupKey: Hashable {
     case current(Int64)
-    case historical(String?)
-    case unmapped(String?)
+    case classified(kind: SemanticAnnotationSourceKind, rawAssetID: String?)
 }
 
-private func makeAnnotationGroups(_ rows: [EnrichedAnnotation]) -> [AnnotationGroupResult] {
+private func makeAnnotationGroups(_ rows: [SemanticAnnotation]) -> [AnnotationGroupResult] {
     var indices: [AnnotationBookGroupKey: Int] = [:]
     var groups: [(source: AnnotationSourceResult, rawAssetID: String?, localPKs: [Int64])] = []
 
     for row in rows {
         let key: AnnotationBookGroupKey
-        switch row.source {
-        case let .currentLibrary(book):
-            key = .current(book.localPK)
-        case .historicalInferred:
-            key = .historical(row.annotation.rawAssetID)
-        case .unmapped:
-            key = .unmapped(row.annotation.rawAssetID)
+        if row.source.kind == .currentLibrary, let localPK = row.source.bookLocalPK {
+            key = .current(localPK)
+        } else {
+            key = .classified(kind: row.source.kind, rawAssetID: row.rawAssetID)
         }
 
         if let index = indices[key] {
-            groups[index].localPKs.append(row.annotation.localPK)
+            groups[index].localPKs.append(row.localPK)
         } else {
             indices[key] = groups.count
+            var truncated: [String] = []
             groups.append((
-                source: AnnotationSourceResult(row.source),
-                rawAssetID: row.annotation.rawAssetID,
-                localPKs: [row.annotation.localPK]
+                source: AnnotationSourceResult(row.source, truncatedFields: &truncated),
+                rawAssetID: row.rawAssetID,
+                localPKs: [row.localPK]
             ))
         }
     }
@@ -707,10 +726,10 @@ private func validateAnnotationPagination(limit: Int?, offset: Int) throws {
 }
 
 private func paginateAnnotations(
-    _ rows: [EnrichedAnnotation],
+    _ rows: [SemanticAnnotation],
     limit: Int?,
     offset: Int
-) -> [EnrichedAnnotation] {
+) -> [SemanticAnnotation] {
     let suffix = rows.dropFirst(offset)
     guard let limit else { return Array(suffix) }
     return Array(suffix.prefix(limit))

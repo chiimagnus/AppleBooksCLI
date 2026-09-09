@@ -25,6 +25,38 @@ struct PDFSourceResolver {
             }
     }
 
+    func resolve(pdfResources: [BookPDFResource]) -> [PDFSource] {
+        let summariesByPath = summariesByValidatedPath(pdfResources)
+        let fallbackPaths = fallbackPDFs()
+        var allPaths = Set(summariesByPath.keys)
+        allPaths.formUnion(fallbackPaths)
+        return allPaths.sorted { $0.path < $1.path }.map { fileURL in
+            semanticSource(
+                fileURL: fileURL,
+                summariesByPath: summariesByPath,
+                provenance: summariesByPath[fileURL] == nil ? .fallback : .library
+            )
+        }
+    }
+
+    func resolve(resource: BookPDFResource) -> PDFSource? {
+        guard let rawPath = resource.target.path,
+              let fileURL = validatedPDFURL(rawPath: rawPath) else {
+            return nil
+        }
+        return PDFSource(fileURL: fileURL, bookSummary: resource.summary, provenance: .library)
+    }
+
+    func resolve(fileURL: URL, pdfResources: [BookPDFResource]) -> PDFSource? {
+        guard let validated = validatedPDFURL(fileURL: fileURL) else { return nil }
+        let summariesByPath = summariesByValidatedPath(pdfResources)
+        return semanticSource(
+            fileURL: validated,
+            summariesByPath: summariesByPath,
+            provenance: summariesByPath[validated] == nil ? .explicit : .library
+        )
+    }
+
     func resolve(book: Book) -> PDFSource? {
         guard let rawPath = book.path,
               let fileURL = validatedPDFURL(rawPath: rawPath) else {
@@ -40,6 +72,31 @@ struct PDFSourceResolver {
             fileURL: validated,
             booksByPath: booksByPath,
             provenance: booksByPath[validated] == nil ? .explicit : .library
+        )
+    }
+
+    private func summariesByValidatedPath(_ resources: [BookPDFResource]) -> [URL: [BookSummary]] {
+        var summariesByPath: [URL: [BookSummary]] = [:]
+        for resource in resources {
+            guard let rawPath = resource.target.path,
+                  let fileURL = validatedPDFURL(rawPath: rawPath) else {
+                continue
+            }
+            summariesByPath[fileURL, default: []].append(resource.summary)
+        }
+        return summariesByPath
+    }
+
+    private func semanticSource(
+        fileURL: URL,
+        summariesByPath: [URL: [BookSummary]],
+        provenance: PDFSourceProvenance
+    ) -> PDFSource {
+        let matches = summariesByPath[fileURL] ?? []
+        return PDFSource(
+            fileURL: fileURL,
+            bookSummary: matches.count == 1 ? matches[0] : nil,
+            provenance: provenance
         )
     }
 

@@ -41,8 +41,8 @@ struct ContentStatusCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(selector, in: books)
-            guard let status = try books.contentStatus(forBookLocalPK: book.localPK) else {
+            let book = try requireSemanticBook(selector, in: books)
+            guard let status = try books.semanticContentStatus(forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
             }
             return ContentStatusResult(status)
@@ -72,8 +72,8 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(selector, in: books)
-            guard let inspection = try books.contentMetadata(forBookLocalPK: book.localPK) else {
+            let book = try requireSemanticBook(selector, in: books)
+            guard let inspection = try books.semanticContentMetadata(forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
             }
             return ContentMetadataResult(inspection)
@@ -114,8 +114,8 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(selector, in: books)
-            guard let inspection = try books.contentCover(forBookLocalPK: book.localPK) else {
+            let book = try requireSemanticBook(selector, in: books)
+            guard let inspection = try books.semanticContentCover(forBookLocalPK: book.localPK) else {
                 throw CLIError.unavailable("Book cover is unavailable.")
             }
             let writer = try ExportFileWriter(outputRoot: destination.deletingLastPathComponent())
@@ -151,8 +151,8 @@ struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
         let parsed = try parseBookSelectorAndValue(values: values, localPK: pk, valueName: "CFI")
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(parsed.selector, in: books)
-            guard let inspection = try books.locate(rawCFI: parsed.value, forBookLocalPK: book.localPK) else {
+            let book = try requireSemanticBook(parsed.selector, in: books)
+            guard let inspection = try books.semanticLocate(rawCFI: parsed.value, forBookLocalPK: book.localPK) else {
                 throw CLIError.notFound("Book not found.")
             }
             return ContentLocationResult(inspection)
@@ -185,8 +185,8 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(selector, in: books)
-            let chapters = try books.bookContent(forBookLocalPK: book.localPK).listChapters()
+            let book = try requireSemanticBook(selector, in: books)
+            let chapters = try books.semanticBookContent(forBookLocalPK: book.localPK).listChapters()
             return ContentChaptersResult(book: book, chapters: chapters)
         }
     }
@@ -231,8 +231,8 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireBook(parsed.selector, in: books)
-            let page = try books.bookContent(forBookLocalPK: book.localPK).chapterPage(
+            let book = try requireSemanticBook(parsed.selector, in: books)
+            let page = try books.semanticBookContent(forBookLocalPK: book.localPK).chapterPage(
                 id: parsed.value,
                 offset: offset,
                 maxCharacters: maxCharacters
@@ -272,8 +272,8 @@ struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CL
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            let book = try requireBook(selector, in: books)
-            guard let chapter = try books.currentReadingChapter(forBookLocalPK: book.localPK) else {
+            let book = try requireSemanticBook(selector, in: books)
+            guard let chapter = try books.semanticCurrentReadingChapter(forBookLocalPK: book.localPK) else {
                 throw CLIError.unavailable("Current reading chapter is unavailable.")
             }
             return ContentCurrentChapterResult(book: book, chapter: chapter)
@@ -316,15 +316,15 @@ struct ContentContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            guard let enriched = try selector.resolve(in: books) else {
+            guard let annotation = try selector.resolveSemantic(in: books) else {
                 throw CLIError.notFound("Annotation not found.")
             }
-            let context = try books.annotationContext(
-                localPK: enriched.annotation.localPK,
+            let context = try books.semanticAnnotationContext(
+                localPK: annotation.localPK,
                 charsBefore: before,
                 charsAfter: after
             )
-            return ContentContextResult(annotation: enriched.annotation, context: context)
+            return ContentContextResult(annotation: annotation, context: context)
         }
     }
 }
@@ -346,8 +346,8 @@ private func parseBookSelectorAndValue(
     return (try parseBookSelector(assetID: values[0], localPK: nil), values[1])
 }
 
-private func requireBook(_ selector: BookSelector, in books: AppleBooks) throws -> Book {
-    guard let book = try selector.resolve(in: books) else {
+private func requireSemanticBook(_ selector: BookSelector, in books: AppleBooks) throws -> SemanticBookDetail {
+    guard let book = try selector.resolveSemanticDetail(in: books) else {
         throw CLIError.notFound("Book not found.")
     }
     return book
@@ -414,7 +414,7 @@ struct ContentMetadataResult: Codable, Equatable, Sendable {
     let epub: RawEPUB
     let enrichment: Enrichment
 
-    init(_ inspection: EPUBMetadataInspection) {
+    init(_ inspection: SemanticEPUBMetadataInspection) {
         let book = inspection.book
         source = inspection.source
         database = Database(
@@ -495,7 +495,7 @@ struct ContentChaptersResult: Codable, Equatable, Sendable {
     let bookAssetID: String?
     let chapters: [ContentChapterResult]
 
-    init(book: Book, chapters: [Chapter]) {
+    init(book: SemanticBookDetail, chapters: [Chapter]) {
         bookLocalPK = book.localPK
         bookAssetID = book.assetID
         self.chapters = chapters.map(ContentChapterResult.init)
@@ -515,7 +515,7 @@ struct ContentChapterPageResult: Codable, Equatable, Sendable {
     let nextOffset: Int?
     let content: String
 
-    init(book: Book, chapterSelector: String, requestedOffset: Int, page: ChapterPage) {
+    init(book: SemanticBookDetail, chapterSelector: String, requestedOffset: Int, page: ChapterPage) {
         bookLocalPK = book.localPK
         bookAssetID = book.assetID
         self.chapterSelector = chapterSelector
@@ -535,7 +535,7 @@ struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
     let bookAssetID: String?
     let chapter: ContentChapterResult
 
-    init(book: Book, chapter: Chapter) {
+    init(book: SemanticBookDetail, chapter: Chapter) {
         bookLocalPK = book.localPK
         bookAssetID = book.assetID
         self.chapter = ContentChapterResult(chapter)
@@ -555,7 +555,7 @@ struct ContentContextResult: Codable, Equatable, Sendable {
     let matchFound: Bool
     let presentationText: String
 
-    init(annotation: Annotation, context: AnnotationContext) {
+    init(annotation: SemanticAnnotation, context: AnnotationContext) {
         let presentation = context.markedPresentation
         annotationLocalPK = annotation.localPK
         annotationUUID = annotation.uuid

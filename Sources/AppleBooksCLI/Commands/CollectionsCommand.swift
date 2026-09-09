@@ -44,7 +44,7 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     func execute() throws -> CollectionPageResult {
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
-            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).listCollections(limit: limit, offset: offset)
+            let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead).semanticCollections(limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
     }
@@ -75,7 +75,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            guard let collection = try selector.resolve(in: books) else {
+            guard let collection = try selector.resolveSemantic(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
             return CollectionResult(collection)
@@ -112,7 +112,7 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try validateCollectionPagination(limit: limit, offset: offset)
         return try CLIOperation.run {
             let rows = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-                .collections(matchingTitle: query, limit: limit, offset: offset)
+                .semanticCollections(matchingTitle: query, limit: limit, offset: offset)
             return CollectionPageResult(items: rows.map(CollectionResult.init), limit: limit, offset: offset)
         }
     }
@@ -143,10 +143,10 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            guard let members = try selector.resolveBooks(in: books) else {
+            guard let members = try selector.resolveBookSummaries(in: books) else {
                 throw CLIError.notFound("Collection not found.")
             }
-            return CollectionBooksResult(items: members.map { BookResult(book: $0) })
+            return CollectionBooksResult(items: members.map { BookSummaryResult(summary: $0) })
         }
     }
 }
@@ -358,7 +358,7 @@ struct CollectionPageResult: Codable, Equatable, Sendable {
 }
 
 struct CollectionBooksResult: Codable, Equatable, Sendable {
-    let items: [BookResult]
+    let items: [BookSummaryResult]
 
 }
 
@@ -376,11 +376,24 @@ struct CollectionResult: Codable, Equatable, Sendable {
     let lastModificationDate: Date?
     let localModificationDate: Date?
 
-    init(_ collection: Collection) {
+    let truncatedFields: [String]
+
+    init(_ collection: SemanticCollection) {
         localPK = collection.localPK
         collectionID = collection.collectionID
-        title = collection.title
-        details = collection.details
+        var truncated = collection.byteTruncatedFields
+        title = boundedField(
+            collection.title,
+            field: "title",
+            profile: .metadata,
+            truncatedFields: &truncated
+        )
+        details = boundedField(
+            collection.details,
+            field: "details",
+            profile: .detail,
+            truncatedFields: &truncated
+        )
         isDeleted = collection.isDeleted
         isHidden = collection.isHidden
         isPlaceholder = collection.isPlaceholder
@@ -389,6 +402,7 @@ struct CollectionResult: Codable, Equatable, Sendable {
         viewMode = collection.viewMode
         lastModificationDate = collection.lastModificationDate
         localModificationDate = collection.localModificationDate
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 
 }

@@ -5,23 +5,15 @@ enum BookSelector: Equatable, Sendable {
     case assetID(String)
     case localPK(Int64)
 
-    func resolve(in books: AppleBooks) throws -> Book? {
+    func resolveSemanticDetail(in books: AppleBooks) throws -> SemanticBookDetail? {
         switch self {
         case let .assetID(assetID):
-            try books.book(assetID: assetID)
+            try books.semanticBookDetail(assetID: assetID)
         case let .localPK(localPK):
-            try books.book(localPK: localPK)
+            try books.semanticBookDetail(localPK: localPK)
         }
     }
 
-    func resolveOverview(in books: AppleBooks) throws -> BookOverview? {
-        switch self {
-        case let .assetID(assetID):
-            try books.bookOverview(assetID: assetID)
-        case let .localPK(localPK):
-            try books.bookOverview(localPK: localPK)
-        }
-    }
 }
 
 func parseBookSelector(assetID: String?, localPK: Int64?) throws -> BookSelector {

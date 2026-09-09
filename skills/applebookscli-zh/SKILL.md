@@ -17,7 +17,7 @@ metadata:
 1. 选择能完成请求的最小命令族；语法不确定时，只读取对应命令的 `--help`。
 2. 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、backup handle。只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK；不能把数字形式的 stable ID 猜成 PK。
 3. Operational command 默认返回 JSON，不要添加 `--json`。
-4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书与 PDF inventory 查询统一使用该游标契约（默认 20、最大 100），不要使用 `--offset`。
+4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书、PDF inventory 与 `annotations list` 统一使用该游标契约（默认 20、最大 100）；这些 surface 不使用 `--offset`。
 5. 出现 `truncatedFields` 时，对应字段是合法但不完整的展示文本。用户明确需要原始完整正文/CFI 时改用 archival export。
 
 ## 命令路由
@@ -26,7 +26,7 @@ metadata:
 | --- | --- |
 | 书籍 / 搜索 | `books` |
 | 阅读状态 | `reading`、`stats` |
-| 批注 / 笔记 / 最近记录 / 搜索 | `annotations` |
+| 批注 / 笔记 / 最近记录 / 搜索 | `annotations`；组合过滤和 exact-book reading order 优先用 `annotations list` |
 | EPUB 内容 / 批注上下文 | `content` |
 | PDF inventory / highlights | `pdf`；exact extraction 使用 inventory 返回的 `bookAssetID` 搭配 `--book`，或 `pdfSourceID` 搭配 `--pdf` |
 | 藏书 / membership | `collections` |
@@ -35,6 +35,8 @@ metadata:
 | flush pending cloud changes | `sync` |
 | 最近 CLI 写入/同步证据 | `history` |
 | 权限 / 数据库 / capability 诊断 | `doctor` |
+
+批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读周边 EPUB 正文用 `content context`，要原始 CFI/完整正文用 archival export。
 
 ## 写入与同步
 

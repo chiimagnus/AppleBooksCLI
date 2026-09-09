@@ -17,7 +17,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 1. Choose the smallest command family that answers the request. If syntax is uncertain, read only that command's `--help`.
 2. Prefer stable identity for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. Use a local PK only when it was explicitly supplied or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
 3. Operational commands return JSON by default. Do not add `--json`.
-4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged. Growing book, reading-state, collection, and PDF inventory queries use this cursor contract (default 20, max 100); do not use `--offset`.
+4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged. Growing book, reading-state, collection, PDF inventory, and `annotations list` queries use this cursor contract (default 20, max 100); do not use `--offset` on those surfaces.
 5. If `truncatedFields` is present, those fields are valid but incomplete presentation text. Use archival export when the user explicitly needs the original full text/CFI.
 
 ## Command routing
@@ -26,7 +26,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | --- | --- |
 | Books / search | `books` |
 | Reading state | `reading`, `stats` |
-| Annotations / notes / recent / search | `annotations` |
+| Annotations / notes / recent / search | `annotations`; use `annotations list` for bounded composable filters and exact-book reading order |
 | EPUB content / annotation context | `content` |
 | PDF inventory / highlights | `pdf`; use inventory `bookAssetID` with `--book` or `pdfSourceID` with `--pdf` for exact extraction |
 | Collections / membership | `collections` |
@@ -35,6 +35,8 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | Flush pending cloud changes | `sync` |
 | Recent CLI write/sync evidence | `history` |
 | Permission / database / capability diagnosis | `doctor` |
+
+For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `content context` for surrounding EPUB text or archival export when raw CFI/full text is required.
 
 ## Writes and sync
 

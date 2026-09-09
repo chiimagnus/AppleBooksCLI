@@ -177,7 +177,9 @@ struct AnnotationQueriesTests {
         let unavailable = try #require(try queries.semanticGetByLocalPK(2))
         #expect(unavailable.uuid == nil)
         #expect(unavailable.rawAssetID == nil)
-        #expect(unavailable.source.kind == .identityUnavailable)
+        #expect(unavailable.source.kind == .unmapped)
+        #expect(unavailable.source.bookAssetID == nil)
+        #expect(unavailable.source.bookLocalPK == nil)
 
         let raw = try #require(try queries.getByLocalPK(1))
         #expect(raw.annotation.selectedText?.utf8.count == body.utf8.count)

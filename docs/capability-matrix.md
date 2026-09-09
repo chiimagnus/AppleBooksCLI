@@ -48,10 +48,10 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| list annotations | 已实现 | 默认 active user rows；可显式 raw/system scope；ordinary body 使用 bounded preview，超限字段返回 `truncatedFields` evidence |
-| annotations by book | 已实现 | 精确 book selector；可读内容时按阅读顺序，否则稳定降级 |
-| get/describe annotation | 已实现 | UUID 优先，local PK 可显式使用 |
-| Apple Books annotation deep link | 已实现（展示） | `appleBooksURL` 由 asset ID + optional CFI 派生，并复用于 read/export/mutation output |
+| list annotations | 已实现 | user annotations 的组合查询；默认20、max100、opaque cursor；支持 book/text/created/modified/color/underline/presence 过滤与 created/modified/reading order |
+| annotations by book | 已实现 | `--book` / `--book-pk` 精确 selector；reading order 只允许 exact book，并按共享 best-effort CFI key 排序 |
+| get/describe annotation | 已实现 | UUID 优先、UUID 不可公开时 local PK fallback；selected text/Note 为 bounded detail，raw type/style/CFI/range 不进入 canonical detail |
+| Apple Books annotation deep link | 已实现（展示） | mutation/export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL` |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 独立保留 |
 | export/filter underline | 已实现 | underline 可独立过滤 |
 | search highlighted text | 已实现 | case-insensitive partial search |
@@ -62,8 +62,8 @@
 | annotations by date range | 已实现（强化） | created range + limit；date-only 上界覆盖完整日历日 |
 | annotation context window | 已实现（强化） | current content + CFI/anchor 精确定位；anchor miss 不伪造 context |
 | context 中精确标出 highlight | 已实现（展示） | normalized anchor 首次命中，保留原 source whitespace |
-| annotation identity | 已实现 | UUID 为 stable identity；PK 仅本机 selector |
-| 保留 raw annotation 字段 | 已实现（强化） | ordinary read 保留需要的 raw identity/type/style/location 语义但 TEXT 受 semantic budget；archival export/raw Core 保持 source text/CFI full fidelity |
+| annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |
+| 保留 raw annotation 字段 | 已实现（强化） | canonical list/get 只输出 semantic summary/detail；raw type/style/CFI/range 由 archival export/raw Core 保持 full fidelity |
 
 ## EPUB / CFI content
 

@@ -21,62 +21,82 @@ struct AnnotationReadCommandTests {
     }
 
     @Test
-    func listUsesExactBookSelectorsAndScopesWithoutGroupedPresentation() throws {
+    func listUsesCanonicalQueryEnvelopeStableSelectorsAndCursor() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let byAsset = try fixture.runJSON(
-            AnnotationCollectionResult.self,
+            AnnotationListResult.self,
             ["annotations", "list", "--book", "123"]
         )
-        #expect(byAsset.items.map(\.localPK) == [2, 1])
-        #expect(byAsset.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
+        #expect(byAsset.items.map(\.uuid) == ["uuid-two-old", "123"])
+        #expect(byAsset.items.allSatisfy { $0.localPK == nil })
+        #expect(byAsset.hasMore == false)
+        #expect(byAsset.nextCursor == nil)
+        #expect(byAsset.items[0].quotePreview == "green needle")
+        #expect(byAsset.items[0].notePreview == "note beta")
+        #expect(byAsset.items[0].color == "green")
+        #expect(byAsset.items[0].underline == false)
+        #expect(byAsset.items[0].hasHighlight)
+        #expect(byAsset.items[0].hasNote)
+
+        let first = try fixture.runJSON(
+            AnnotationListResult.self,
+            ["annotations", "list", "--book", "123", "--limit", "1"]
+        )
+        let cursor = try #require(first.nextCursor)
+        #expect(first.items.map(\.uuid) == ["uuid-two-old"])
+        #expect(first.hasMore)
+        let second = try fixture.runJSON(
+            AnnotationListResult.self,
+            ["annotations", "list", "--book", "123", "--limit", "1", "--cursor", cursor]
+        )
+        #expect(second.items.map(\.uuid) == ["123"])
+        #expect(second.hasMore == false)
+        #expect(second.nextCursor == nil)
 
         let byPK = try fixture.runJSON(
-            AnnotationCollectionResult.self,
+            AnnotationListResult.self,
             ["annotations", "list", "--book-pk", "123"]
         )
-        #expect(byPK.items.map(\.localPK) == [123])
+        #expect(byPK.items.map(\.uuid) == ["other"])
 
-        let user = try fixture.runJSON(AnnotationCollectionResult.self, ["annotations", "list"])
-        #expect(user.items.contains(where: { $0.localPK == 3 }) == false)
-        #expect(user.items.contains(where: { $0.localPK == 4 }) == false)
-        #expect(user.items.first(where: { $0.localPK == 1 })?.source.bookAssetID == "123")
-        #expect(user.items.contains(where: { $0.source.kind == "historicalInferred" && $0.rawAssetID == "history-id" }))
-        #expect(user.items.contains(where: { $0.source.kind == "unmapped" && $0.rawAssetID == "orphan-id" }))
-
-        let raw = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "list", "--scope", "active-raw"]
-        )
-        #expect(raw.items.contains(where: { $0.localPK == 3 }))
-        #expect(raw.items.contains(where: { $0.localPK == 4 }) == false)
+        let user = try fixture.runJSON(AnnotationListResult.self, ["annotations", "list"])
+        #expect(user.items.map(\.uuid) == ["uuid-two-old", "123", "book-two", "history", "orphan", "other"])
+        #expect(user.items.first(where: { $0.uuid == "123" })?.source.bookAssetID == "123")
+        #expect(user.items.first(where: { $0.uuid == "history" })?.source.bookAssetID == "history-id")
+        #expect(user.items.first(where: { $0.uuid == "orphan" })?.source.bookAssetID == "orphan-id")
     }
 
     @Test
-    func readingOrderRequiresExactUserBookAndRemovedGroupByFailsBeforeIO() throws {
+    func readingOrderRequiresExactBookAndRemovedLegacyListOptionsFailBeforeIO() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let reading = try fixture.runJSON(
-            AnnotationCollectionResult.self,
+            AnnotationListResult.self,
             ["annotations", "list", "--book", "123", "--order", "reading"]
         )
-        #expect(reading.items.map(\.localPK) == [1, 2])
+        #expect(reading.items.map(\.uuid) == ["123", "uuid-two-old"])
 
         let help = Capture()
         let helpCode = CLIEntrypoint.run(arguments: ["annotations", "list", "--help"], output: help.output)
         #expect(helpCode == CLIProcessExit.success.rawValue)
         #expect(help.stdout.contains("--group-by") == false)
+        #expect(help.stdout.contains("--scope") == false)
+        #expect(help.stdout.contains("--offset") == false)
+        #expect(help.stdout.contains("--cursor"))
+        #expect(help.stdout.contains("--created-after"))
+        #expect(help.stdout.contains("--has-note"))
         #expect(help.stderr.isEmpty)
 
         let missingGlobals = Fixture.missingGlobalArguments
         for arguments in [
             ["annotations", "list", "--order", "reading"],
-            ["annotations", "list", "--book", "123", "--order", "reading", "--scope", "active-raw"],
+            ["annotations", "list", "--scope", "active-raw"],
             ["annotations", "list", "--group-by", "book"],
             ["annotations", "list", "--limit", "-1"],
-            ["annotations", "list", "--offset", "-1"],
+            ["annotations", "list", "--offset", "1"],
             ["annotations", "list", "--book", "123", "--book-pk", "123"],
         ] {
             let capture = Capture()
@@ -88,30 +108,77 @@ struct AnnotationReadCommandTests {
     }
 
     @Test
-    func getKeepsNumericUUIDSeparateFromExplicitPKAndScopeIsExplicit() throws {
+    func canonicalListInputsFailBeforeDatabaseDiscoveryAndCombinedFiltersMapToCore() throws {
+        let missingGlobals = Fixture.missingGlobalArguments
+        let tooLongTimestamp = "2001-01-01T00:00:00Z" + String(repeating: "0", count: 45)
+        for arguments in [
+            ["annotations", "list", "--created-after", "2001-01-01"],
+            ["annotations", "list", "--created-after", "2001-01-01T00:00:00"],
+            ["annotations", "list", "--created-after", tooLongTimestamp],
+            ["annotations", "list", "--created-after", "2001-01-01T00:00:00Zé"],
+            ["annotations", "list", "--text-field", "note"],
+            ["annotations", "list", "--text", " \t\r\n"],
+            ["annotations", "list", "--has-note", "maybe"],
+            ["annotations", "list", "--underline", "1"],
+            ["annotations", "list", "--cursor", "!"],
+            ["annotations", "list", "--limit", "101"],
+            ["annotations", "list", "--book", " bad "],
+        ] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments + missingGlobals, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
+        }
+
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let combined = try fixture.runJSON(
+            AnnotationListResult.self,
+            [
+                "annotations", "list",
+                "--book", "123",
+                "--text", "note alpha",
+                "--text-field", "note",
+                "--created-after", "2001-01-01T01:01:40+01:00",
+                "--created-before", "2001-01-01T00:01:41Z",
+                "--modified-after", "2001-01-01T00:03:20Z",
+                "--modified-before", "2001-01-01T00:03:21Z",
+                "--color", "yellow",
+                "--underline", "true",
+                "--has-highlight", "true",
+                "--has-note", "true",
+                "--order", "created",
+            ]
+        )
+        #expect(combined.items.map(\.uuid) == ["123"])
+    }
+
+    @Test
+    func getUsesSafeDetailDTOAndKeepsNumericUUIDSeparateFromExplicitPK() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let byUUID = try fixture.runJSON(AnnotationResult.self, ["annotations", "get", "123"])
-        #expect(byUUID.localPK == 1)
+        let byUUID = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "123"])
         #expect(byUUID.uuid == "123")
-        #expect(byUUID.rawAssetID == "123")
-        #expect(byUUID.type == 1)
-        #expect(byUUID.style == 3)
-        #expect(byUUID.isUnderline == true)
-        #expect(byUUID.physicalLocation == 10)
-        #expect(byUUID.rangeStart == 11)
-        #expect(byUUID.rangeEnd == 12)
-        #expect(byUUID.rawCFI == "epubcfi(/6/2[ch-one]!/4/2,:0,:0)")
-        #expect(byUUID.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
+        #expect(byUUID.localPK == nil)
+        #expect(byUUID.selectedText == "literal %_\\ needle")
+        #expect(byUUID.note == "note alpha")
+        #expect(byUUID.color == "yellow")
+        #expect(byUUID.underline)
+        #expect(byUUID.hasHighlight)
+        #expect(byUUID.hasNote)
+        #expect(byUUID.chapterID == "ch-one")
+        #expect(byUUID.bookURL == "ibooks://assetid/123")
         #expect(byUUID.source.kind == "currentLibrary")
-        #expect(byUUID.source.bookLocalPK == 1)
+        #expect(byUUID.source.bookAssetID == "123")
+        #expect(byUUID.source.bookLocalPK == nil)
 
-        let byPK = try fixture.runJSON(AnnotationResult.self, ["annotations", "get", "--pk", "123"])
-        #expect(byPK.localPK == 123)
+        let byPK = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "--pk", "123"])
         #expect(byPK.uuid == "other")
-        #expect(byPK.rawAssetID == "asset-pk-123")
-        #expect(byPK.appleBooksURL == "ibooks://assetid/asset-pk-123")
+        #expect(byPK.localPK == nil)
+        #expect(byPK.source.bookAssetID == "asset-pk-123")
+        #expect(byPK.bookURL == "ibooks://assetid/asset-pk-123")
 
         let hidden = Capture()
         let hiddenCode = CLIEntrypoint.run(
@@ -123,11 +190,10 @@ struct AnnotationReadCommandTests {
         #expect(hidden.stderr.contains("type3-private") == false)
 
         let raw = try fixture.runJSON(
-            AnnotationResult.self,
+            AnnotationDetailResult.self,
             ["annotations", "get", "type3-private", "--scope", "active-raw"]
         )
-        #expect(raw.localPK == 3)
-        #expect(raw.type == 3)
+        #expect(raw.uuid == "type3-private")
 
         let deleted = Capture()
         let deletedCode = CLIEntrypoint.run(
@@ -145,8 +211,184 @@ struct AnnotationReadCommandTests {
         )
         #expect(defaultCode == CLIProcessExit.success.rawValue)
         #expect(defaultOutput.stderr.isEmpty)
-        let defaultResult = try fixture.decode(AnnotationResult.self, defaultOutput.stdout)
-        #expect(defaultResult.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
+        #expect(defaultOutput.stdout.contains("rawCFI") == false)
+        #expect(defaultOutput.stdout.contains("epubcfi") == false)
+        #expect(defaultOutput.stdout.contains("rangeStart") == false)
+        #expect(defaultOutput.stdout.contains("physicalLocation") == false)
+        #expect(defaultOutput.stdout.contains("#") == false)
+    }
+
+    @Test
+    func annotationAndSourceIdentitiesNeverTruncateAndFallbackSafely() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let uuid2048 = String(repeating: "u", count: 2_048)
+        let uuid2049 = String(repeating: "v", count: 2_049)
+        let asset2048 = String(repeating: "a", count: 2_048)
+        let asset2049 = String(repeating: "b", count: 2_049)
+        let oversizedAsset = String(repeating: "z", count: 70_000)
+        try fixture.executeLibrary("""
+        INSERT INTO ZBKLIBRARYASSET(Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZPATH) VALUES
+          (1011,'\(asset2049)','Oversized Current','Olivia',NULL),
+          (1013,'nul'||char(0)||'asset','NUL Current','Nora',NULL);
+        """)
+        try Data(#"{"historical_assets":{" bad ":{"title":"Boundary History","author":"Hana"}}}"#.utf8)
+            .write(to: fixture.config)
+        try fixture.executeAnnotations("""
+        INSERT INTO ZAEANNOTATION(Z_PK,ZANNOTATIONUUID,ZANNOTATIONASSETID,ZANNOTATIONDELETED,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE) VALUES
+          (1000,'\(uuid2048)','asset-boundary-a',0,1,1000,1000),
+          (1001,'\(uuid2049)','asset-boundary-b',0,1,1001,1001),
+          (1002,' bad ','asset-boundary-c',0,1,1002,1002),
+          (1003,'nul'||char(0)||'uuid','asset-boundary-d',0,1,1003,1003),
+          (1010,'source-2048','\(asset2048)',0,1,1010,1010),
+          (1011,'source-2049','\(asset2049)',0,1,1011,1011),
+          (1012,'source-space',' bad ',0,1,1012,1012),
+          (1013,'source-nul','nul'||char(0)||'asset',0,1,1013,1013),
+          (1014,'source-oversized','\(oversizedAsset)',0,1,1014,1014);
+        """)
+
+        let exactBoundary = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", uuid2048])
+        #expect(exactBoundary.uuid == uuid2048)
+        #expect(exactBoundary.localPK == nil)
+
+        for localPK in [1001, 1002, 1003] {
+            let fallback = try fixture.runJSON(
+                AnnotationDetailResult.self,
+                ["annotations", "get", "--pk", String(localPK)]
+            )
+            #expect(fallback.uuid == nil)
+            #expect(fallback.localPK == Int64(localPK))
+        }
+        let listFallback = try fixture.runJSON(
+            AnnotationListResult.self,
+            [
+                "annotations", "list",
+                "--created-after", "2001-01-01T00:16:41Z",
+                "--created-before", "2001-01-01T00:16:42Z",
+            ]
+        )
+        #expect(listFallback.items.count == 1)
+        #expect(listFallback.items[0].uuid == nil)
+        #expect(listFallback.items[0].localPK == 1001)
+
+        let sourceBoundary = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-2048"])
+        #expect(sourceBoundary.source.kind == "unmapped")
+        #expect(sourceBoundary.source.bookAssetID == asset2048)
+        #expect(sourceBoundary.source.bookLocalPK == nil)
+
+        let oversizedCurrent = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-2049"])
+        #expect(oversizedCurrent.source.kind == "currentLibrary")
+        #expect(oversizedCurrent.source.bookAssetID == nil)
+        #expect(oversizedCurrent.source.bookLocalPK == 1011)
+        #expect(oversizedCurrent.source.title == "Oversized Current")
+
+        let whitespaceHistorical = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-space"])
+        #expect(whitespaceHistorical.source.kind == "historicalInferred")
+        #expect(whitespaceHistorical.source.bookAssetID == nil)
+        #expect(whitespaceHistorical.source.bookLocalPK == nil)
+        #expect(whitespaceHistorical.source.title == "Boundary History")
+
+        let nulCurrent = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-nul"])
+        #expect(nulCurrent.source.kind == "currentLibrary")
+        #expect(nulCurrent.source.bookAssetID == nil)
+        #expect(nulCurrent.source.bookLocalPK == 1013)
+        #expect(nulCurrent.source.title == "NUL Current")
+
+        let unavailable = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-oversized"])
+        #expect(unavailable.source.kind == "identityUnavailable")
+        #expect(unavailable.source.bookAssetID == nil)
+        #expect(unavailable.source.bookLocalPK == nil)
+    }
+
+    @Test
+    func storagePresenceDoesNotDependOnBoundedPreviewPrefix() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let delayedHighlight = String(repeating: " ", count: 5_000) + "highlight"
+        let delayedNote = String(repeating: "\t", count: 5_000) + "note"
+        try fixture.executeAnnotations("""
+        UPDATE ZAEANNOTATION
+        SET ZANNOTATIONSELECTEDTEXT='\(delayedHighlight)',
+            ZANNOTATIONNOTE='\(delayedNote)'
+        WHERE Z_PK=1;
+        """)
+
+        let result = try fixture.runJSON(
+            AnnotationListResult.self,
+            ["annotations", "list", "--book", "123", "--order", "created"]
+        )
+        let item = try #require(result.items.first(where: { $0.uuid == "123" }))
+        #expect(item.hasHighlight)
+        #expect(item.hasNote)
+        #expect(item.quotePreview == "representative one")
+        #expect(item.notePreview == nil)
+        #expect(item.truncatedFields.contains("quotePreview"))
+        #expect(item.truncatedFields.contains("notePreview"))
+    }
+
+    @Test
+    func detailBoundsBodiesHidesRawCFIAndReportsOversizedLocation() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let selected = String(repeating: "s", count: 4_005)
+        let note = String(repeating: "n", count: 4_005)
+        let oversizedLocation = "epubcfi(/6/2[" + String(repeating: "x", count: 70_000) + "]!/4/2)"
+        try fixture.executeAnnotations("""
+        UPDATE ZAEANNOTATION
+        SET ZANNOTATIONSELECTEDTEXT='\(selected)',
+            ZANNOTATIONNOTE='\(note)',
+            ZANNOTATIONLOCATION='\(oversizedLocation)'
+        WHERE Z_PK=1;
+        """)
+
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["annotations", "get", "123"] + fixture.globalArguments,
+            output: capture.output
+        )
+        #expect(code == CLIProcessExit.success.rawValue)
+        #expect(capture.stderr.isEmpty)
+        let detail = try fixture.decode(AnnotationDetailResult.self, capture.stdout)
+        #expect(detail.selectedText?.count == 4_000)
+        #expect(detail.note?.count == 4_000)
+        #expect(detail.chapterID == nil)
+        #expect(detail.truncatedFields.contains("selectedText"))
+        #expect(detail.truncatedFields.contains("note"))
+        #expect(detail.truncatedFields.contains("location"))
+        #expect(capture.stdout.contains("epubcfi") == false)
+        #expect(capture.stdout.contains(String(repeating: "x", count: 128)) == false)
+    }
+
+    @Test
+    func bookLevelLinkUsesOnePercentEncodedSegmentAndRoundTripsIdentity() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let assetID = "asset/segment#query?percent%雪"
+        try fixture.executeLibrary("""
+        INSERT INTO ZBKLIBRARYASSET(Z_PK,ZASSETID,ZTITLE,ZAUTHOR,ZPATH)
+        VALUES(200,'\(assetID)','Special','Author',NULL);
+        """)
+        try fixture.executeAnnotations("""
+        INSERT INTO ZAEANNOTATION(Z_PK,ZANNOTATIONUUID,ZANNOTATIONASSETID,ZANNOTATIONDELETED,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE)
+        VALUES(200,'special-url','\(assetID)',0,1,200,200);
+        """)
+
+        let detail = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "special-url"])
+        #expect(detail.source.bookAssetID == assetID)
+        let url = try #require(detail.bookURL)
+        let components = try #require(URLComponents(string: url))
+        #expect(components.scheme == "ibooks")
+        #expect(components.host == "assetid")
+        #expect(components.fragment == nil)
+        #expect(components.query == nil)
+        let encodedSegment = String(components.percentEncodedPath.dropFirst())
+        #expect(encodedSegment.contains("/") == false)
+        #expect(encodedSegment.removingPercentEncoding == assetID)
+        #expect(url.contains("%2F"))
+        #expect(url.contains("%23"))
+        #expect(url.contains("%3F"))
+        #expect(url.contains("%25"))
     }
 
     @Test
@@ -301,6 +543,14 @@ struct AnnotationReadCommandTests {
 
         func remove() {
             try? FileManager.default.removeItem(at: root)
+        }
+
+        func executeLibrary(_ sql: String) throws {
+            try Self.createDatabase(library, sql: sql)
+        }
+
+        func executeAnnotations(_ sql: String) throws {
+            try Self.createDatabase(annotations, sql: sql)
         }
 
         func runJSON<Value: Decodable>(_ type: Value.Type, _ arguments: [String]) throws -> Value {

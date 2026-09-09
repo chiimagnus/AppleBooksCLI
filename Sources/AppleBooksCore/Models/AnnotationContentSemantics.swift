@@ -1,9 +1,9 @@
 import Foundation
 
-enum AnnotationContentSemantics {
+package enum AnnotationContentSemantics {
     private static let asciiWhitespace: Set<UInt8> = [0x20, 0x09, 0x0a, 0x0d]
 
-    static func hasContent(_ value: String?) -> Bool {
+    package static func hasContent(_ value: String?) -> Bool {
         guard let value else { return false }
         return value.utf8.contains { asciiWhitespace.contains($0) == false }
     }
@@ -15,7 +15,7 @@ enum AnnotationContentSemantics {
         """
     }
 
-    static func underline(storageValue: Int64?) -> Bool {
+    package static func underline(storageValue: Int64?) -> Bool {
         storageValue == 1
     }
 

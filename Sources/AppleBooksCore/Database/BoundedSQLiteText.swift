@@ -14,6 +14,7 @@ enum ExactSQLiteText: Equatable, Sendable {
 
 enum SQLiteSemanticTextBudget {
     static let stableIdentity = PublicStableIdentityPolicy.maximumUTF8Bytes
+    static let sourceIdentity = 64 * 1_024
     static let shortMetadata = 2 * 1_024
     static let preview = 4 * 1_024
     static let metadata = 8 * 1_024

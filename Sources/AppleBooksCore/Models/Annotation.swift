@@ -28,6 +28,27 @@ public struct Annotation: Equatable, Sendable {
         Self.appleBooksURL(rawAssetID: rawAssetID, rawCFI: location?.rawCFI)
     }
 
+    package static func bookAppleBooksURL(assetID: String) -> String? {
+        guard PublicStableIdentityPolicy.isEligible(assetID) else { return nil }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard let segment = assetID.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+
+        var components = URLComponents()
+        components.scheme = "ibooks"
+        components.host = "assetid"
+        components.percentEncodedPath = "/\(segment)"
+        guard let url = components.url,
+              let roundTrip = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              roundTrip.fragment == nil,
+              roundTrip.query == nil,
+              roundTrip.percentEncodedPath.first == "/",
+              roundTrip.percentEncodedPath.dropFirst().contains("/") == false,
+              String(roundTrip.percentEncodedPath.dropFirst()).removingPercentEncoding == assetID else {
+            return nil
+        }
+        return url.absoluteString
+    }
+
     static func appleBooksURL(rawAssetID: String?, rawCFI: String?) -> String? {
         guard let assetID = rawAssetID?.trimmingCharacters(in: .whitespacesAndNewlines),
               assetID.isEmpty == false else {

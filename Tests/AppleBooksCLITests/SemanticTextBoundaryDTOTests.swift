@@ -59,6 +59,8 @@ struct SemanticTextBoundaryDTOTests {
             representativeText: String(repeating: "r", count: SQLiteSemanticTextBudget.preview),
             selectedText: String(repeating: "s", count: SQLiteSemanticTextBudget.preview),
             note: String(repeating: "n", count: SQLiteSemanticTextBudget.preview),
+            hasHighlight: true,
+            hasNote: true,
             rawCFI: nil,
             chapterHint: nil,
             physicalLocation: nil,

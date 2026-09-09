@@ -977,7 +977,8 @@ struct AnnotationQueries {
     private struct SemanticAnnotationRow {
         let localPK: Int64
         let uuid: String?
-        let rawAssetID: String?
+        let publicAssetID: String?
+        let sourceAssetID: String?
         let sourceIdentityUnavailable: Bool
         let isDeleted: Bool?
         let isUnderline: Bool?
@@ -988,6 +989,8 @@ struct AnnotationQueries {
         let representativeText: String?
         let selectedText: String?
         let note: String?
+        let hasHighlight: Bool
+        let hasNote: Bool
         let rawCFI: String?
         let chapterHint: String?
         let physicalLocation: Int64?
@@ -999,7 +1002,7 @@ struct AnnotationQueries {
             SemanticAnnotation(
                 localPK: localPK,
                 uuid: uuid,
-                rawAssetID: rawAssetID,
+                rawAssetID: publicAssetID,
                 isDeleted: isDeleted,
                 isUnderline: isUnderline,
                 style: style,
@@ -1009,6 +1012,8 @@ struct AnnotationQueries {
                 representativeText: representativeText,
                 selectedText: selectedText,
                 note: note,
+                hasHighlight: hasHighlight,
+                hasNote: hasNote,
                 rawCFI: rawCFI,
                 chapterHint: chapterHint,
                 physicalLocation: physicalLocation,
@@ -1097,7 +1102,7 @@ struct AnnotationQueries {
             projection += SQLiteTextProjection.exact(
                 AppleBooksSchema.Annotation.assetID,
                 alias: "annotationAssetID",
-                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
             )
         }
         for column in [
@@ -1134,6 +1139,14 @@ struct AnnotationQueries {
                 maximumUTF8Bytes: textMode.noteBudget
             )
         }
+        let highlightEvidence = schema.contains(AppleBooksSchema.Annotation.selectedText)
+            ? AnnotationContentSemantics.hasContentSQL(AppleBooksSchema.Annotation.selectedText)
+            : "0"
+        let noteEvidence = schema.contains(AppleBooksSchema.Annotation.note)
+            ? AnnotationContentSemantics.hasContentSQL(AppleBooksSchema.Annotation.note)
+            : "0"
+        projection.append("CASE WHEN \(highlightEvidence) THEN 1 ELSE 0 END AS annotationHasHighlight")
+        projection.append("CASE WHEN \(noteEvidence) THEN 1 ELSE 0 END AS annotationHasNote")
         if schema.contains(AppleBooksSchema.Annotation.location) {
             projection += SQLiteTextProjection.exact(
                 AppleBooksSchema.Annotation.location,
@@ -1175,27 +1188,32 @@ struct AnnotationQueries {
             uuid = nil
         }
 
-        let rawAssetID: String?
+        let publicAssetID: String?
+        let sourceAssetID: String?
         let sourceIdentityUnavailable: Bool
         if schema.contains(AppleBooksSchema.Annotation.assetID) {
             switch try SQLiteTextProjection.decodeExact(
                 row,
                 alias: "annotationAssetID",
                 column: AppleBooksSchema.Annotation.assetID,
-                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
             ) {
             case .null:
-                rawAssetID = nil
+                publicAssetID = nil
+                sourceAssetID = nil
                 sourceIdentityUnavailable = false
-            case let .value(value) where PublicStableIdentityPolicy.isEligible(value):
-                rawAssetID = value
+            case let .value(value):
+                publicAssetID = PublicStableIdentityPolicy.isEligible(value) ? value : nil
+                sourceAssetID = value
                 sourceIdentityUnavailable = false
-            case .value, .oversized:
-                rawAssetID = nil
+            case .oversized:
+                publicAssetID = nil
+                sourceAssetID = nil
                 sourceIdentityUnavailable = true
             }
         } else {
-            rawAssetID = nil
+            publicAssetID = nil
+            sourceAssetID = nil
             sourceIdentityUnavailable = false
         }
 
@@ -1244,6 +1262,7 @@ struct AnnotationQueries {
         )
 
         let rawCFI: String?
+        let locationWasOversized: Bool
         if schema.contains(AppleBooksSchema.Annotation.location) {
             switch try SQLiteTextProjection.decodeExact(
                 row,
@@ -1251,14 +1270,23 @@ struct AnnotationQueries {
                 column: AppleBooksSchema.Annotation.location,
                 maximumUTF8Bytes: CFIResourcePolicy.maximumStructuralBytes
             ) {
-            case let .value(value): rawCFI = value
-            case .null, .oversized: rawCFI = nil
+            case let .value(value):
+                rawCFI = value
+                locationWasOversized = false
+            case .null:
+                rawCFI = nil
+                locationWasOversized = false
+            case .oversized:
+                rawCFI = nil
+                locationWasOversized = true
             }
         } else {
             rawCFI = nil
+            locationWasOversized = false
         }
 
         var truncated: [String] = []
+        if locationWasOversized { truncated.append("location") }
         for (field, value) in [
             ("representativeText", representative),
             ("selectedText", selected),
@@ -1271,7 +1299,8 @@ struct AnnotationQueries {
         return SemanticAnnotationRow(
             localPK: localPK,
             uuid: uuid,
-            rawAssetID: rawAssetID,
+            publicAssetID: publicAssetID,
+            sourceAssetID: sourceAssetID,
             sourceIdentityUnavailable: sourceIdentityUnavailable,
             isDeleted: try int64(AppleBooksSchema.Annotation.isDeleted).map { $0 != 0 },
             isUnderline: AnnotationContentSemantics.underline(
@@ -1284,6 +1313,8 @@ struct AnnotationQueries {
             representativeText: representative.value,
             selectedText: selected.value,
             note: note.value,
+            hasHighlight: try row.int64("annotationHasHighlight") == 1,
+            hasNote: try row.int64("annotationHasNote") == 1,
             rawCFI: rawCFI,
             chapterHint: chapterHint.value,
             physicalLocation: try int64(AppleBooksSchema.Annotation.physicalLocation),
@@ -1299,10 +1330,10 @@ struct AnnotationQueries {
             bookQueries: bookQueries,
             historicalAssets: historicalAssets
         )
-        let eligibleAssetIDs = rows.compactMap { row in
-            row.sourceIdentityUnavailable ? nil : row.rawAssetID
+        let classifiableAssetIDs = rows.compactMap { row in
+            row.sourceIdentityUnavailable ? nil : row.sourceAssetID
         }
-        let classified = try classifier.classifyEligible(eligibleAssetIDs)
+        let classified = try classifier.classify(classifiableAssetIDs)
         let currentPKs = Array(Set(classified.values.compactMap { state -> Int64? in
             guard case let .current(localPK) = state else { return nil }
             return localPK
@@ -1313,14 +1344,14 @@ struct AnnotationQueries {
             let source: SemanticAnnotationSource
             if row.sourceIdentityUnavailable {
                 source = SemanticAnnotationSource(kind: .identityUnavailable)
-            } else if let assetID = row.rawAssetID {
+            } else if let assetID = row.sourceAssetID {
                 switch classified[assetID] ?? .schemaUnavailable {
                 case let .current(localPK):
                     let book = currentBooks[localPK]
                     source = SemanticAnnotationSource(
                         kind: .currentLibrary,
                         bookLocalPK: localPK,
-                        bookAssetID: book?.assetID ?? assetID,
+                        bookAssetID: book?.assetID,
                         title: book?.title,
                         author: book?.author,
                         byteTruncatedFields: book?.byteTruncatedFields ?? []
@@ -1329,11 +1360,15 @@ struct AnnotationQueries {
                     let metadata = historicalAssets.metadata(for: assetID)
                     source = SemanticAnnotationSource(
                         kind: .historicalInferred,
+                        bookAssetID: row.publicAssetID,
                         title: metadata?.title,
                         author: metadata?.author
                     )
                 case .unmapped:
-                    source = SemanticAnnotationSource(kind: .unmapped)
+                    source = SemanticAnnotationSource(
+                        kind: .unmapped,
+                        bookAssetID: row.publicAssetID
+                    )
                 case .ambiguousCurrent:
                     source = SemanticAnnotationSource(kind: .ambiguousCurrent)
                 case .identityUnavailable:

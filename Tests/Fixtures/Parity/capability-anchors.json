@@ -1016,16 +1016,17 @@
   "list annotations": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Models/AnnotationQuery.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/AnnotationScopeTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
         "annotations",
         "list",
-        "--scope"
+        "--cursor"
       ]
     ]
   },

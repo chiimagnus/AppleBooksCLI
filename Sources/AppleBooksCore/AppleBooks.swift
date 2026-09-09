@@ -1407,7 +1407,7 @@ public final class AppleBooks {
         func flush(_ groups: inout [UserAnnotationAssetCount], into result: inout AnnotationClassificationCounts) throws {
             guard groups.isEmpty == false else { return }
             let assetIDs = groups.compactMap(\.rawAssetID)
-            let classified = try classifier.classifyEligible(assetIDs)
+            let classified = try classifier.classify(assetIDs)
             for group in groups {
                 guard let assetID = group.rawAssetID,
                       let state = classified[assetID] else {

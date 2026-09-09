@@ -47,6 +47,8 @@ public struct SemanticAnnotation: Equatable, Sendable {
     public let representativeText: String?
     public let selectedText: String?
     public let note: String?
+    public let hasHighlight: Bool
+    public let hasNote: Bool
     public let rawCFI: String?
     public let chapterHint: String?
     public let physicalLocation: Int64?

@@ -195,24 +195,29 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
 struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapter",
-        abstract: "Read one EPUB chapter with grapheme-safe pagination."
+        abstract: "Read one EPUB chapter by table-of-contents order with opaque continuation."
     )
 
-    @Argument(help: "With asset ID: <asset-id> <chapter-selector>. With --pk: <chapter-selector>.")
-    var values: [String] = []
+    @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID.")
+    var book: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
-    var pk: Int64?
+    @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
+    var bookPK: Int64?
 
-    @Option(name: .long, parsing: .unconditional, help: "Requested grapheme offset. Negative values clamp to zero.")
-    var offset: Int = 0
+    @Option(name: .customLong("chapter"), parsing: .unconditional, help: "Positive chapter order returned by `content chapters`.")
+    var chapterOrder: Int
 
-    @Option(name: .customLong("max-chars"), parsing: .unconditional, help: "Maximum grapheme count to return. Omit to read to the end.")
+    @Option(name: .customLong("max-chars"), parsing: .unconditional, help: "Maximum grapheme count in this page (default 4000, max 16000).")
     var maxCharacters: Int?
+
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
 
     @OptionGroup var global: GlobalOptions
 
-    mutating func run() throws { try run(output: .standard) }
+    mutating func run() throws {
+        try run(output: .standard)
+    }
 
     func run(output: CLIOutput) throws {
         let result = try execute()
@@ -220,29 +225,43 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     }
 
     func execute() throws -> ContentChapterPageResult {
-        let parsed = try parseBookSelectorAndValue(
-            values: values,
-            localPK: pk,
-            valueName: "chapter selector"
-        )
-        if let maxCharacters, maxCharacters <= 0 {
-            throw ValidationError("--max-chars must be greater than zero.")
+        guard chapterOrder > 0 else {
+            throw ValidationError("--chapter must be a positive chapter order.")
         }
+        if let maxCharacters, (1...ChapterContinuationPolicy.maximumCharacters).contains(maxCharacters) == false {
+            throw ValidationError("--max-chars must be between 1 and 16000.")
+        }
+        let selector = try parseOptionalBookSelector(
+            assetID: book,
+            localPK: bookPK,
+            localPKOptionName: "--book-pk"
+        )
+        guard let selector else {
+            throw ValidationError("Provide exactly one of --book or --book-pk.")
+        }
+        try CLIOperation.run { try validateCursorInputSyntax(cursor) }
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(parsed.selector, in: books)
-            let page = try books.semanticBookContent(forBookLocalPK: book.localPK).chapterPage(
-                id: parsed.value,
-                offset: offset,
-                maxCharacters: maxCharacters
-            )
-            return ContentChapterPageResult(
-                book: book,
-                chapterSelector: parsed.value,
-                requestedOffset: offset,
-                page: page
-            )
+            let page: SemanticChapterContinuationPage?
+            switch selector {
+            case let .assetID(assetID):
+                page = try books.semanticChapterPage(
+                    bookAssetID: assetID,
+                    chapterOrder: chapterOrder,
+                    maximumCharacters: maxCharacters,
+                    cursor: cursor
+                )
+            case let .localPK(localPK):
+                page = try books.semanticChapterPage(
+                    bookLocalPK: localPK,
+                    chapterOrder: chapterOrder,
+                    maximumCharacters: maxCharacters,
+                    cursor: cursor
+                )
+            }
+            guard let page else { throw CLIError.notFound("Book not found.") }
+            return ContentChapterPageResult(page)
         }
     }
 }
@@ -504,30 +523,21 @@ struct ContentChaptersResult: Codable, Equatable, Sendable {
 }
 
 struct ContentChapterPageResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
     let bookAssetID: String?
-    let chapterSelector: String
-    let requestedOffset: Int
-    let effectiveOffset: Int
-    let endOffset: Int
-    let totalCharacters: Int
-    let hasMore: Bool
-    let nextOffset: Int?
+    let bookLocalPK: Int64?
+    let chapterOrder: Int
     let content: String
+    let hasMore: Bool
+    let nextCursor: String?
 
-    init(book: SemanticBookDetail, chapterSelector: String, requestedOffset: Int, page: ChapterPage) {
-        bookLocalPK = book.localPK
-        bookAssetID = book.assetID
-        self.chapterSelector = chapterSelector
-        self.requestedOffset = requestedOffset
-        effectiveOffset = page.offset
-        endOffset = page.endOffset
-        totalCharacters = page.totalCharacters
-        hasMore = page.hasMore
-        nextOffset = page.nextOffset
+    init(_ page: SemanticChapterContinuationPage) {
+        bookAssetID = page.bookAssetID
+        bookLocalPK = page.bookAssetID == nil ? page.bookLocalPK : nil
+        chapterOrder = page.chapterOrder
         content = page.content
+        hasMore = page.hasMore
+        nextCursor = page.nextCursor
     }
-
 }
 
 struct ContentCurrentChapterResult: Codable, Equatable, Sendable {

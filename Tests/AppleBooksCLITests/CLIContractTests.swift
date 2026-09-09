@@ -194,9 +194,11 @@ struct CLIContractTests {
         #expect(located["chapterID"] as? String == "shared")
 
         let chapter = try fixture.runJSON([
-            "content", "chapter", "asset-a", "shared", "--max-chars", "12",
+            "content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "12",
         ])
-        #expect(chapter["chapterSelector"] as? String == "shared")
+        #expect(chapter["chapterOrder"] as? Int == 1)
+        #expect(chapter["bookAssetID"] as? String == "asset-a")
+        #expect(chapter["bookLocalPK"] == nil)
         #expect((chapter["content"] as? String)?.isEmpty == false)
 
         let context = try fixture.runJSON([

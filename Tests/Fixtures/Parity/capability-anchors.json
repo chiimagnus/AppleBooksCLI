@@ -573,23 +573,27 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter"
+        "chapter",
+        "--chapter"
       ]
     ]
   },
   "chapter text pagination": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Content/BookContent.swift"
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/Content/XHTMLText.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
+      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift",
+      "Tests/AppleBooksCoreTests/Content/ChapterTextTests.swift"
     ],
     "cliHelpArgs": [
       [
         "content",
         "chapter",
-        "--offset"
+        "--cursor"
       ],
       [
         "content",

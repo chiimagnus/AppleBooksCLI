@@ -17,7 +17,7 @@ metadata:
 1. 选择能完成请求的最小命令族；语法不确定时，只读取对应命令的 `--help`。
 2. 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、backup handle。只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK；不能把数字形式的 stable ID 猜成 PK。
 3. Operational command 默认返回 JSON，不要添加 `--json`。
-4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书、PDF inventory 与 `annotations list` 统一使用该游标契约（默认 20、最大 100）；这些 surface 不使用 `--offset`。
+4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书、PDF inventory 与 `annotations list` 统一使用该游标契约（默认 20、最大 100）；`content chapter` 也使用 opaque continuation，固定采用 `--book|--book-pk` + 正数 `--chapter <order>`，不使用 `--offset`。
 5. 出现 `truncatedFields` 时，对应字段是合法但不完整的展示文本。用户明确需要原始完整正文/CFI 时改用 archival export。
 
 ## 命令路由

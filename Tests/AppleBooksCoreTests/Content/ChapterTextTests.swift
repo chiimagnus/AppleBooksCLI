@@ -43,19 +43,108 @@ struct ChapterTextTests {
     func traversalBudgetsAcceptBoundaryAndRejectNextDepthOrNode() throws {
         let boundaryDepth = Data(("<html><body>" + String(repeating: "<div>", count: 255) + String(repeating: "</div>", count: 255) + "</body></html>").utf8)
         #expect(try XHTMLText.extract(boundaryDepth, fragment: nil).isEmpty)
+        #expect(try XHTMLText.page(
+            boundaryDepth,
+            fragment: nil,
+            offset: 0,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 8
+        ).content.isEmpty)
 
         let overflowDepth = Data(("<html><body>" + String(repeating: "<div>", count: 256) + String(repeating: "</div>", count: 256) + "</body></html>").utf8)
         #expect(throws: EPUBResourceError.tooComplex) {
             _ = try XHTMLText.extract(overflowDepth, fragment: nil)
         }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try XHTMLText.page(
+                overflowDepth,
+                fragment: nil,
+                offset: 0,
+                maximumGraphemes: 1,
+                maximumUTF8Bytes: 8
+            )
+        }
 
         let boundaryNodes = Data(("<html><body>" + String(repeating: "<span></span>", count: EPUBStructureBudget.maximumXHTMLNodes - 1) + "</body></html>").utf8)
         #expect(try XHTMLText.extract(boundaryNodes, fragment: nil).isEmpty)
+        #expect(try XHTMLText.page(
+            boundaryNodes,
+            fragment: nil,
+            offset: 0,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 8
+        ).content.isEmpty)
 
         let overflowNodes = Data(("<html><body>" + String(repeating: "<span></span>", count: EPUBStructureBudget.maximumXHTMLNodes) + "</body></html>").utf8)
         #expect(throws: EPUBResourceError.tooComplex) {
             _ = try XHTMLText.extract(overflowNodes, fragment: nil)
         }
+        #expect(throws: EPUBResourceError.tooComplex) {
+            _ = try XHTMLText.page(
+                overflowNodes,
+                fragment: nil,
+                offset: 0,
+                maximumGraphemes: 1,
+                maximumUTF8Bytes: 8
+            )
+        }
+    }
+
+    @Test
+    func boundedPagesRecomposeExactNormalizedTextAcrossWhitespaceBoundaries() throws {
+        let data = Data("""
+        <html><body><p>Hello <em>world</em></p><div>你好<br/>下一行</div><p>Tail 😀</p></body></html>
+        """.utf8)
+        let full = try XHTMLText.extract(data, fragment: nil)
+        var offset = 0
+        var recomposed = ""
+        while true {
+            let page = try XHTMLText.page(
+                data,
+                fragment: nil,
+                offset: offset,
+                maximumGraphemes: 3,
+                maximumUTF8Bytes: 32
+            )
+            recomposed += page.content
+            if page.hasMore == false { break }
+            #expect(page.returnedGraphemes > 0)
+            offset += page.returnedGraphemes
+        }
+        #expect(recomposed == full)
+    }
+
+    @Test
+    func boundedTraversalStopsAfterSuccessorEvidenceAndKeepsPageMemoryBounded() throws {
+        let sourceCharacterCount = 20 * 1_024 * 1_024
+        let data = Data(("<html><body><p>" + String(repeating: "a", count: sourceCharacterCount) + "</p></body></html>").utf8)
+        let page = try XHTMLText.page(
+            data,
+            fragment: nil,
+            offset: 0,
+            maximumGraphemes: ChapterContinuationPolicy.defaultMaximumCharacters,
+            maximumUTF8Bytes: ChapterContinuationPolicy.defaultMaximumUTF8Bytes
+        )
+        #expect(page.returnedGraphemes == ChapterContinuationPolicy.defaultMaximumCharacters)
+        #expect(page.content.count == ChapterContinuationPolicy.defaultMaximumCharacters)
+        #expect(page.content.utf8.count <= ChapterContinuationPolicy.defaultMaximumUTF8Bytes)
+        #expect(page.hasMore)
+        #expect(page.inspectedSourceGraphemes == ChapterContinuationPolicy.defaultMaximumCharacters + 1)
+        #expect(page.inspectedSourceGraphemes < sourceCharacterCount)
+
+        let family = "👨‍👩‍👧‍👦"
+        let byteLimitedData = Data(("<html><body>" + String(repeating: family, count: 10_000) + "</body></html>").utf8)
+        let byteLimited = try XHTMLText.page(
+            byteLimitedData,
+            fragment: nil,
+            offset: 0,
+            maximumGraphemes: ChapterContinuationPolicy.maximumCharacters,
+            maximumUTF8Bytes: ChapterContinuationPolicy.maximumUTF8Bytes
+        )
+        #expect(byteLimited.returnedGraphemes < ChapterContinuationPolicy.maximumCharacters)
+        #expect(byteLimited.content.utf8.count <= ChapterContinuationPolicy.maximumUTF8Bytes)
+        #expect(byteLimited.hasMore)
+        #expect(byteLimited.inspectedSourceGraphemes == byteLimited.returnedGraphemes + 1)
     }
 
     @Test

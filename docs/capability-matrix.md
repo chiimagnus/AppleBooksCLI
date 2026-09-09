@@ -72,8 +72,8 @@
 | 本地 materialization 检查 | 已实现 | probe 不主动触发 iCloud hydration |
 | DRM gate | 已实现 | DRM 明确不可读，不用空正文冒充成功 |
 | EPUB ToC | 已实现 | nav → NCX → spine fallback |
-| chapter text | 已实现 | 保留段落与 fragment scope |
-| chapter text pagination | 已实现 | 按 Swift Character 分页，不拆 grapheme cluster |
+| chapter text | 已实现（强化） | `content chapter --book <assetID> --chapter <order>`；按 ToC order 精确选择，ordinary JSON 不公开 raw chapter id/href/fragment |
+| chapter text pagination | 已实现（强化） | bounded normalized traversal + opaque cursor；默认 4,000 graphemes/32 KiB，`--max-chars` 最大 16,000，单页 hard cap 128 KiB；无 `--offset` |
 | 细粒度 spine entry | 已实现 | ToC 外 spine item 仍可读取 |
 | current-library packed EPUB fallback | 已实现 | primary 不可用时只在显式 root 做 exact-basename fallback；unsafe primary 不掩盖 |
 | directory / packed parser 等价 | 已实现（强化） | 两种 source 共用 package/content 语义与 path safety；结构深度/节点/ZIP inventory 有固定 hard budget，超限 fail closed |

@@ -56,6 +56,7 @@ applebookscli annotations list --has-note true --order modified   # default 20; 
 applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
 applebookscli content context <annotation-uuid>
+applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
 
 # PDF inventory / extraction
 applebookscli pdf list   # continue with --cursor <nextCursor> when present

@@ -53,6 +53,7 @@ struct DoctorComponents: Codable, Equatable, Sendable {
     let supplementalRootConfigured: Bool
     let supplementalRootReady: Bool
     let backupLocationReady: Bool
+    let cloudSyncReady: Bool
     let pdfWorkerReady: Bool
     let libraryOptionalSchemaComplete: Bool
     let annotationsOptionalSchemaComplete: Bool
@@ -104,6 +105,7 @@ struct DoctorResult: Codable, Equatable, Sendable {
             supplementalRootConfigured: report.supplementalRootConfigured,
             supplementalRootReady: report.supplementalRootReady,
             backupLocationReady: report.backupLocationReady,
+            cloudSyncReady: report.cloudSyncReady,
             pdfWorkerReady: installedPDFWorkerReady,
             libraryOptionalSchemaComplete: report.libraryOptionalSchemaComplete,
             annotationsOptionalSchemaComplete: report.annotationsOptionalSchemaComplete
@@ -112,12 +114,12 @@ struct DoctorResult: Codable, Equatable, Sendable {
             booksRead: report.libraryReadReady,
             annotationsRead: report.libraryReadReady && report.annotationsReadReady && report.configurationReady,
             collectionsRead: report.collectionsReadReady,
-            collectionsWrite: report.collectionWriteReady,
-            annotationWrite: report.annotationWriteReady,
+            collectionsWrite: report.collectionWriteReady && report.backupLocationReady,
+            annotationWrite: report.annotationWriteReady && report.backupLocationReady,
             contentReadPrerequisites: report.contentReadPrerequisitesReady && report.configurationReady,
             pdfReadPrerequisites: report.pdfReadPrerequisitesReady && installedPDFWorkerReady,
             backups: report.libraryDatabaseReady && report.backupLocationReady,
-            syncPrerequisites: report.collectionWriteReady && report.annotationWriteReady
+            syncPrerequisites: report.cloudSyncReady
         )
         if capabilities.all.allSatisfy({ $0 }) {
             status = .ready

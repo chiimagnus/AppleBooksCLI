@@ -8,7 +8,7 @@ import Testing
 @Suite("DoctorCommandTests")
 struct DoctorCommandTests {
     @Test
-    func readyResultIsSanitizedAndDoesNotCreateBackupRoot() throws {
+    func explicitOverridesAreSanitizedAndDoNotClaimCloudSync() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let backupRoot = fixture.root.appendingPathComponent("missing/backups", isDirectory: true)
@@ -18,15 +18,19 @@ struct DoctorCommandTests {
         try command.execute(output: machine.output, backupRoot: backupRoot, installedPDFWorkerReady: true)
         #expect(machine.stderr.isEmpty)
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(machine.stdout.utf8))
-        #expect(result.status == .ready)
+        #expect(result.status == .partial)
         #expect(result.components.libraryDatabaseReady)
         #expect(result.components.annotationsDatabaseReady)
         #expect(result.components.libraryReadReady)
         #expect(result.components.annotationsReadReady)
         #expect(result.components.collectionWriteReady)
         #expect(result.components.annotationWriteReady)
+        #expect(result.components.cloudSyncReady == false)
         #expect(result.components.pdfWorkerReady)
-        #expect(result.capabilities.all.allSatisfy { $0 })
+        #expect(result.capabilities.collectionsWrite)
+        #expect(result.capabilities.annotationWrite)
+        #expect(result.capabilities.syncPrerequisites == false)
+        #expect(result.issues.contains(.init(code: .cloudSyncUnavailable, state: .degraded)))
         #expect(machine.stdout.contains("readSchemaReady") == false)
         #expect(machine.stdout.contains("writeSchemaReady") == false)
         #expect(machine.stdout.contains(fixture.root.path) == false)
@@ -35,7 +39,7 @@ struct DoctorCommandTests {
     }
 
     @Test
-    func missingInstalledPDFWorkerIsDegradedOnlyWhenPackagingProbeIsExplicit() throws {
+    func missingInstalledPDFWorkerOnlyDisablesPDFCapability() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let command = try DoctorCommand.parse(fixture.arguments)
@@ -162,6 +166,8 @@ struct DoctorCommandTests {
             #expect(result.status == .partial)
             #expect(result.components.backupLocationReady == false)
             #expect(result.capabilities.backups == false)
+            #expect(result.capabilities.collectionsWrite == false)
+            #expect(result.capabilities.annotationWrite == false)
             #expect(result.capabilities.booksRead)
         }
 

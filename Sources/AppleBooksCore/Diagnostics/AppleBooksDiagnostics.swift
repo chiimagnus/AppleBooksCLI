@@ -25,6 +25,7 @@ public enum AppleBooksDiagnosticIssueCode: String, Codable, Equatable, Sendable 
     case configurationInvalid = "configuration_invalid"
     case supplementalRootUnavailable = "supplemental_root_unavailable"
     case backupLocationUnavailable = "backup_location_unavailable"
+    case cloudSyncUnavailable = "cloud_sync_unavailable"
     case pdfWorkerUnavailable = "pdf_worker_unavailable"
 }
 
@@ -58,6 +59,7 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let supplementalRootConfigured: Bool
     public let supplementalRootReady: Bool
     public let backupLocationReady: Bool
+    public let cloudSyncReady: Bool
     public let booksAppRunning: Bool
     public let issues: [AppleBooksDiagnosticIssue]
 }
@@ -76,7 +78,8 @@ public enum AppleBooksDiagnostics {
             configurationFile: configurationFile,
             databaseDiscovery: databaseDiscovery,
             backupRoot: backupRoot,
-            booksApp: .live
+            booksApp: .live,
+            cloudSyncReadiness: Self.cloudSyncReadiness
         )
     }
 
@@ -86,7 +89,8 @@ public enum AppleBooksDiagnostics {
         configurationFile: URL?,
         databaseDiscovery: DatabaseDiscovery,
         backupRoot: URL,
-        booksApp: BooksAppController
+        booksApp: BooksAppController,
+        cloudSyncReadiness: (URL, URL) -> Bool
     ) -> AppleBooksDiagnosticReport {
         var issues: [AppleBooksDiagnosticIssue] = []
 
@@ -204,6 +208,16 @@ public enum AppleBooksDiagnostics {
             issues.append(.init(code: .backupLocationUnavailable, state: .degraded))
         }
 
+        let cloudSyncReady: Bool
+        if let libraryURL = library.url, let annotationsURL = annotations.url {
+            cloudSyncReady = cloudSyncReadiness(libraryURL, annotationsURL)
+            if cloudSyncReady == false {
+                issues.append(.init(code: .cloudSyncUnavailable, state: .degraded))
+            }
+        } else {
+            cloudSyncReady = false
+        }
+
         let finalState: AppleBooksDiagnosticState
         if issues.contains(where: { $0.state == .fatal }) {
             finalState = .fatal
@@ -233,12 +247,14 @@ public enum AppleBooksDiagnostics {
             supplementalRootConfigured: supplementalRootConfigured,
             supplementalRootReady: supplementalRootReady,
             backupLocationReady: backupReady,
+            cloudSyncReady: cloudSyncReady,
             booksAppRunning: booksApp.isRunning(),
             issues: issues
         )
     }
 
     private struct DatabaseInspection {
+        let url: URL?
         let connection: SQLiteConnection?
     }
 
@@ -254,17 +270,17 @@ public enum AppleBooksDiagnostics {
             url = found
         case let .failure(error):
             issues.append(.init(code: issueCode(store: store, error: error), state: .fatal))
-            return DatabaseInspection(connection: nil)
+            return DatabaseInspection(url: nil, connection: nil)
         }
 
         do {
-            return DatabaseInspection(connection: try SQLiteConnection.readOnly(path: url.path))
+            return DatabaseInspection(url: url, connection: try SQLiteConnection.readOnly(path: url.path))
         } catch {
             let code: AppleBooksDiagnosticIssueCode = store == .library
                 ? .libraryDatabaseUnreadable
                 : .annotationsDatabaseUnreadable
             issues.append(.init(code: code, state: .fatal))
-            return DatabaseInspection(connection: nil)
+            return DatabaseInspection(url: nil, connection: nil)
         }
     }
 
@@ -314,6 +330,20 @@ public enum AppleBooksDiagnostics {
             }
         }
         return (true, optionalComplete)
+    }
+
+    private static func cloudSyncReadiness(_ libraryDatabase: URL, _ annotationsDatabase: URL) -> Bool {
+        guard let collection = CollectionCloudSynchronizer.live(libraryDatabase: libraryDatabase),
+              let annotation = AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDatabase) else {
+            return false
+        }
+        do {
+            _ = try collection.pendingCount()
+            _ = try annotation.pendingCount()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func backupLocationIsReady(_ rawRoot: URL) -> Bool {

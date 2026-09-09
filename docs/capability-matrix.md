@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | SQLite DB 自动发现 | 已实现 | 固定 Apple Books 目录内确定性发现；读取连接只读 |
 | 自定义 annotations/library DB 路径 | 已实现（强化） | 两个 store 可独立 override；无效 override 明确失败 |
-| Full Disk Access / DB 可访问性诊断 | 已实现（强化） | `doctor` 返回固定 `components` + command-level `capabilities`，overall 仅为 `ready/partial/unavailable`；单个 store/config/worker 失败不会把无关能力判死 |
+| Full Disk Access / DB 可访问性诊断 | 已实现（强化） | `doctor` 返回固定 `components` + command-level `capabilities`，overall 仅为 `ready/partial/unavailable`；写能力同时要求 write schema + backup root 可用，`syncPrerequisites` 直接探测两侧 live client-side CloudKit pending-state；单个 store/config/worker 失败不会把无关能力判死 |
 | 读取 schema capability detection | 已实现 | optional column 缺失按能力降级 |
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |

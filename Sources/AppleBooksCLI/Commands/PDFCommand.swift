@@ -17,6 +17,12 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
         abstract: "List canonical Apple Books and fallback PDF sources."
     )
 
+    @Option(name: .long, parsing: .unconditional, help: "Maximum PDF sources in this page (default 20, max 100).")
+    var limit: Int?
+
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -27,9 +33,15 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
-        try CLIOperation.run {
+        try validatePDFPageInput(limit: limit, cursor: cursor)
+        return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            return PDFSourceListResult(items: try books.semanticPDFSources().map(PDFSourceResult.init))
+            let page = try books.semanticPDFSourcePage(limit: limit, cursor: cursor)
+            return PDFSourceListResult(
+                items: page.items.map(PDFInventoryResult.init),
+                nextCursor: page.nextCursor,
+                hasMore: page.hasMore
+            )
         }
     }
 }
@@ -46,6 +58,9 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
+    @Option(name: .customLong("pdf"), help: "Use an opaque PDF source ID returned by `pdf list`.")
+    var pdfSourceID: String?
+
     @Option(name: .long, help: "Use an explicit absolute PDF path.")
     var path: String?
 
@@ -61,20 +76,28 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
         try output.writeJSON(result)
     }
 
-    func execute(workerURL injectedWorkerURL: URL? = nil) throws -> PDFHighlightsResult {
+    func execute(
+        workerURL injectedWorkerURL: URL? = nil,
+        using injectedBooks: AppleBooks? = nil
+    ) throws -> PDFHighlightsResult {
         let selection = try parseSelection()
         guard timeout.isFinite, timeout > 0 else {
             throw ValidationError("--timeout must be greater than zero.")
         }
 
-        let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
-
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(
+        let books: AppleBooks
+        if let injectedBooks {
+            books = injectedBooks
+        } else {
+            let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
+            books = try CLIContext(global: global).makeAppleBooks(
                 dependencies: [.libraryRead, .pdfWorker],
                 pdfWorkerURL: workerURL,
                 pdfWorkerTimeout: timeout
             )
+        }
+
+        return try CLIOperation.run {
             let source: PDFSource
             switch selection {
             case let .book(selector):
@@ -83,6 +106,11 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
                 }
                 guard let resolved = try books.semanticPDFSource(forBookLocalPK: selectedBook.localPK) else {
                     throw CLIError.unavailable("Selected book does not have an available PDF source.")
+                }
+                source = resolved
+            case let .sourceID(sourceID):
+                guard let resolved = try books.semanticPDFSource(sourceID: sourceID) else {
+                    throw CLIError.notFound("PDF source not found. Run `applebookscli pdf list` again.")
                 }
                 source = resolved
             case let .path(fileURL):
@@ -101,13 +129,23 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
             localPK: bookPK,
             localPKOptionName: "--book-pk"
         )
-        if bookSelector != nil, path != nil {
-            throw ValidationError("--book/--book-pk and --path are mutually exclusive.")
+        let sourceID: PDFSourceID?
+        if let pdfSourceID {
+            do {
+                sourceID = try PDFSourceID.parse(pdfSourceID)
+            } catch {
+                throw CLIError.usageInvalid("--pdf must be an opaque PDF source ID returned by `pdf list`.")
+            }
+        } else {
+            sourceID = nil
+        }
+        let selectorCount = [bookSelector != nil, sourceID != nil, path != nil].count(where: { $0 })
+        guard selectorCount == 1 else {
+            throw ValidationError("Provide exactly one of --book/--book-pk, --pdf, or --path.")
         }
         if let bookSelector { return .book(bookSelector) }
-        guard let path else {
-            throw ValidationError("Provide exactly one of --book, --book-pk, or --path.")
-        }
+        if let sourceID { return .sourceID(sourceID) }
+        guard let path else { throw ValidationError("PDF selector is missing.") }
         guard path.hasPrefix("/") else {
             throw ValidationError("--path must be an absolute normalized path.")
         }
@@ -121,27 +159,54 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
 
 private enum PDFCLISelection {
     case book(BookSelector)
+    case sourceID(PDFSourceID)
     case path(URL)
 }
 
 struct PDFSourceListResult: Codable, Equatable, Sendable {
-    let items: [PDFSourceResult]
+    let items: [PDFInventoryResult]
+    let nextCursor: String?
+    let hasMore: Bool
+}
 
+struct PDFInventoryResult: Codable, Equatable, Sendable {
+    let bookAssetID: String?
+    let pdfSourceID: String?
+    let title: String?
+    let provenance: String
+    let truncatedFields: [String]
+
+    init(_ source: PDFInventorySummary) {
+        bookAssetID = source.bookAssetID
+        pdfSourceID = source.pdfSourceID
+        var truncated = source.byteTruncatedFields
+        title = boundedField(source.title, field: "title", profile: .metadata, truncatedFields: &truncated)
+        provenance = source.provenance.rawValue
+        truncatedFields = Array(Set(truncated)).sorted()
+    }
 }
 
 struct PDFSourceResult: Codable, Equatable, Sendable {
-    let filePath: String
-    let displayTitle: String
+    let bookAssetID: String?
+    let pdfSourceID: String?
+    let title: String
     let provenance: String
-    let book: BookSummaryResult?
 
     init(_ source: PDFSource) {
-        filePath = source.fileURL.path
-        displayTitle = source.displayTitle
+        let summaryAssetID = source.bookSummary?.assetID ?? source.book?.assetID
+        bookAssetID = source.pdfSourceID == nil && PublicStableTokenPolicy.isEligible(summaryAssetID) ? summaryAssetID : nil
+        pdfSourceID = source.pdfSourceID
+        title = source.displayTitle
         provenance = source.provenance.rawValue
-        book = source.bookSummary.map { BookSummaryResult(summary: $0) }
     }
 
+}
+
+private func validatePDFPageInput(limit: Int?, cursor: String?) throws {
+    try CLIOperation.run {
+        _ = try resolvedCursorPageLimit(limit)
+        try validateCursorInputSyntax(cursor)
+    }
 }
 
 struct PDFHighlightsResult: Codable, Equatable, Sendable {

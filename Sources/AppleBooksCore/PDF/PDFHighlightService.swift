@@ -36,10 +36,6 @@ struct PDFHighlightService {
         sourceResolver.resolve(pdfBooks: try bookQueries.pdfBooks())
     }
 
-    func semanticInventory() throws -> [PDFSource] {
-        sourceResolver.resolve(pdfResources: try bookQueries.semanticPDFResources())
-    }
-
     func readHighlights() throws -> PDFHighlightServiceResult {
         readHighlights(sources: try inventory())
     }

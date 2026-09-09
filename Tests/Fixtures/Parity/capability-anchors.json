@@ -302,11 +302,34 @@
       ]
     ]
   },
+  "PDF inventory": {
+    "owner": "core",
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFSource.swift",
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "list"
+      ],
+      [
+        "pdf",
+        "highlights",
+        "--pdf"
+      ]
+    ]
+  },
   "PDF library metadata": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFSource.swift",
-      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"

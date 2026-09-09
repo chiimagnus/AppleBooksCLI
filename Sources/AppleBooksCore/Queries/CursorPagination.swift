@@ -174,6 +174,13 @@ package struct CursorDirectoryGenerationBuilder {
         rootMetadata = try CursorFileMetadata.read(url: rootURL, expected: .directory, missingAllowed: false)!
     }
 
+    package init(label: String, rootURL: URL, validatedRootMetadata: CursorFileMetadata) throws {
+        guard isCursorLabel(label) else { throw CursorPaginationError.internalContractFailure }
+        self.label = label
+        self.rootURL = rootURL
+        rootMetadata = validatedRootMetadata
+    }
+
     package mutating func add(relativeName: String, fileURL: URL) throws {
         guard isSafeCursorRelativeName(relativeName) else {
             throw CursorPaginationError.internalContractFailure

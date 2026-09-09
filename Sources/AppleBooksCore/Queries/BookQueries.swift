@@ -219,22 +219,7 @@ struct BookQueries {
         while try statement.step() {
             let row = try SQLiteRow(statement: statement)
             let summary = try decodeSummary(row, schema: schema)
-            let path: String?
-            do {
-                switch try SQLiteTextProjection.decodeExact(
-                    row,
-                    alias: "pdfResourcePath",
-                    column: AppleBooksSchema.Book.path,
-                    maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
-                ) {
-                case let .value(value) where value.utf8.contains(0) == false:
-                    path = value
-                case .value, .null, .oversized:
-                    path = nil
-                }
-            } catch is SQLiteRowError {
-                path = nil
-            }
+            let path = try decodeResourcePath(row, alias: "pdfResourcePath")
             result.append(BookPDFResource(
                 summary: summary,
                 target: BookResourceTarget(
@@ -246,6 +231,78 @@ struct BookQueries {
             ))
         }
         return result
+    }
+
+    func forEachPDFResourceTarget(
+        _ body: (BookResourceTarget, Int) throws -> Bool
+    ) throws {
+        _ = try AppleBooksSchema.inspect(.bookPDF, on: connection)
+        let schema = try AppleBooksSchema.inspect(.bookContentPathLookup, on: connection)
+        var projection = [
+            "b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)",
+            "b.\(AppleBooksSchema.Book.contentType) AS \(AppleBooksSchema.Book.contentType)",
+        ]
+        if schema.contains(AppleBooksSchema.Book.assetID) {
+            projection += SQLiteTextProjection.exact(
+                "b.\(AppleBooksSchema.Book.assetID)",
+                alias: "pdfResourceAssetID",
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            )
+            projection.append("""
+            (SELECT COUNT(*)
+             FROM \(AppleBooksTable.books.rawValue) AS identity_row
+             WHERE identity_row.\(AppleBooksSchema.Book.assetID) = b.\(AppleBooksSchema.Book.assetID) COLLATE BINARY)
+             AS pdfAssetMultiplicity
+            """)
+        }
+        projection += SQLiteTextProjection.exact(
+            "b.\(AppleBooksSchema.Book.path)",
+            alias: "pdfResourcePath",
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
+        )
+        let statement = try connection.prepare("""
+        SELECT \(projection.joined(separator: ", "))
+        FROM \(AppleBooksTable.books.rawValue) AS b
+        WHERE b.\(AppleBooksSchema.Book.contentType) = 3
+        ORDER BY b.\(AppleBooksSchema.Book.localPK) ASC
+        """)
+        while try statement.step() {
+            let row = try SQLiteRow(statement: statement)
+            guard let localPK = try row.int64(AppleBooksSchema.Book.localPK), localPK > 0 else {
+                throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Book.localPK)
+            }
+            let assetID: String?
+            let multiplicity: Int
+            if schema.contains(AppleBooksSchema.Book.assetID) {
+                switch try SQLiteTextProjection.decodeExact(
+                    row,
+                    alias: "pdfResourceAssetID",
+                    column: AppleBooksSchema.Book.assetID,
+                    maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+                ) {
+                case let .value(value) where PublicStableIdentityPolicy.isEligible(value): assetID = value
+                case .value, .null, .oversized: assetID = nil
+                }
+                let rawMultiplicity = try row.int64("pdfAssetMultiplicity") ?? 0
+                multiplicity = rawMultiplicity > 0 && rawMultiplicity <= Int64(Int.max) ? Int(rawMultiplicity) : 0
+            } else {
+                assetID = nil
+                multiplicity = 0
+            }
+            let target = BookResourceTarget(
+                localPK: localPK,
+                assetID: assetID,
+                contentType: try row.int64(AppleBooksSchema.Book.contentType),
+                path: try decodeResourcePath(row, alias: "pdfResourcePath")
+            )
+            if try body(target, multiplicity) == false { break }
+        }
+    }
+
+    func pdfResourceTarget(localPK: Int64) throws -> BookResourceTarget? {
+        _ = try AppleBooksSchema.inspect(.bookPDF, on: connection)
+        guard let target = try resourceTarget(localPK: localPK), target.contentType == 3 else { return nil }
+        return target
     }
 
     func getByLocalPK(_ localPK: Int64) throws -> Book? {
@@ -422,28 +479,30 @@ struct BookQueries {
         } else {
             assetID = nil
         }
-        let path: String?
-        do {
-            switch try SQLiteTextProjection.decodeExact(
-                row,
-                alias: "resourcePath",
-                column: AppleBooksSchema.Book.path,
-                maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
-            ) {
-            case let .value(value) where value.utf8.contains(0) == false: path = value
-            case .value, .null, .oversized: path = nil
-            }
-        } catch is SQLiteRowError {
-            path = nil
-        }
         return BookResourceTarget(
             localPK: decodedPK,
             assetID: assetID,
             contentType: schema.contains(AppleBooksSchema.Book.contentType)
                 ? try row.int64(AppleBooksSchema.Book.contentType)
                 : nil,
-            path: path
+            path: try decodeResourcePath(row, alias: "resourcePath")
         )
+    }
+
+    private func decodeResourcePath(_ row: SQLiteRow, alias: String) throws -> String? {
+        do {
+            switch try SQLiteTextProjection.decodeExact(
+                row,
+                alias: alias,
+                column: AppleBooksSchema.Book.path,
+                maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
+            ) {
+            case let .value(value) where value.utf8.contains(0) == false: return value
+            case .value, .null, .oversized: return nil
+            }
+        } catch is SQLiteRowError {
+            return nil
+        }
     }
 
     func semanticAssetID(localPK: Int64) throws -> String? {

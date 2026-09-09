@@ -39,118 +39,269 @@ struct PDFSourceResolverTests {
     }
 
     @Test
-    func resolvesExactDatabasePathsAndOnlyDirectFallbackPDFs() throws {
+    func boundedInventoryUsesBookIdentityThenOpaqueSourceIdentity() throws {
+        let fixture = try InventoryFixture()
+        defer { fixture.remove() }
+        let resolver = PDFSourceResolver(fallbackRoot: fixture.fallbackRoot)
+        let queries = fixture.queries()
+
+        let first = try resolver.inventoryPage(bookQueries: queries, limit: 2)
+        #expect(first.items.map(\.bookAssetID) == ["asset-a", "asset-b"])
+        #expect(first.items.allSatisfy { $0.pdfSourceID == nil })
+        #expect(first.hasMore)
+        let cursor = try #require(first.nextCursor)
+
+        let rest = try resolver.inventoryPage(bookQueries: queries, limit: 100, cursor: cursor)
+        #expect(rest.items.isEmpty == false)
+        #expect(rest.items.allSatisfy { $0.bookAssetID == nil && $0.pdfSourceID != nil })
+        #expect(rest.items.allSatisfy { item in
+            guard let raw = item.pdfSourceID else { return false }
+            return (try? PDFSourceID.parse(raw)) != nil
+        })
+        #expect(rest.items.contains { $0.title == "No Identity" && $0.provenance == .library })
+        #expect(rest.items.contains { $0.title == "duplicate" && $0.provenance == .library })
+        #expect(rest.items.contains { $0.title == "fallback-a" && $0.provenance == .fallback })
+        #expect(rest.items.contains { $0.title == "fallback-hardlink" } == false)
+
+        let all = first.items + rest.items
+        let selectors = all.map { $0.bookAssetID ?? $0.pdfSourceID }
+        #expect(selectors.allSatisfy { $0 != nil })
+        #expect(Set(selectors.compactMap { $0 }).count == selectors.count)
+
+        let again = try resolver.inventoryPage(bookQueries: queries, limit: 100)
+        let firstOpaque = all.compactMap(\.pdfSourceID).first
+        #expect(again.items.compactMap(\.pdfSourceID).contains(firstOpaque ?? ""))
+    }
+
+    @Test
+    func opaqueSourceIDsAreStablePerSlotAndExactLookupConsumesEveryOpaqueKind() throws {
+        let fixture = try InventoryFixture()
+        defer { fixture.remove() }
+        let resolver = PDFSourceResolver(fallbackRoot: fixture.fallbackRoot)
+        let queries = fixture.queries()
+        let page = try resolver.inventoryPage(bookQueries: queries, limit: 100)
+        let opaque = page.items.compactMap { item -> (PDFInventorySummary, PDFSourceID)? in
+            guard let raw = item.pdfSourceID, let sourceID = try? PDFSourceID.parse(raw) else { return nil }
+            return (item, sourceID)
+        }
+        #expect(opaque.count >= 3)
+
+        for (item, sourceID) in opaque {
+            let source = try #require(try resolver.resolve(sourceID: sourceID, bookQueries: queries))
+            #expect(source.pdfSourceID == sourceID.rawValue)
+            #expect(source.provenance == item.provenance)
+        }
+
+        let second = try resolver.inventoryPage(bookQueries: queries, limit: 100)
+        #expect(page.items.compactMap(\.pdfSourceID) == second.items.compactMap(\.pdfSourceID))
+        let fallbackBefore = try #require(page.items.first { $0.title == "fallback-a" }?.pdfSourceID)
+        try Data("replacement-content".utf8).write(to: fixture.fallbackA)
+        let afterReplacement = try resolver.inventoryPage(bookQueries: queries, limit: 100)
+        #expect(afterReplacement.items.first { $0.title == "fallback-a" }?.pdfSourceID == fallbackBefore)
+        let distinct = Set(page.items.compactMap(\.pdfSourceID))
+        #expect(distinct.count == page.items.compactMap(\.pdfSourceID).count)
+    }
+
+    @Test
+    func forcedSourceIDDigestCollisionFailsClosedForListAndExactLookup() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let fallbackRoot = root.appendingPathComponent("fallback", isDirectory: true)
-        try FileManager.default.createDirectory(at: fallbackRoot, withIntermediateDirectories: true)
-
-        let exact = root.appendingPathComponent("exact.pdf")
-        try Data("exact".utf8).write(to: exact)
-        let duplicate = fallbackRoot.appendingPathComponent("duplicate.pdf")
-        try Data("duplicate".utf8).write(to: duplicate)
-        let fallback = fallbackRoot.appendingPathComponent("fallback.pdf")
-        try Data("fallback".utf8).write(to: fallback)
-        try Data("not pdf".utf8).write(to: fallbackRoot.appendingPathComponent("ignored.txt"))
-        try FileManager.default.createDirectory(at: fallbackRoot.appendingPathComponent("directory.pdf"), withIntermediateDirectories: false)
-
-        let nested = fallbackRoot.appendingPathComponent("nested", isDirectory: true)
-        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
-        try Data("nested".utf8).write(to: nested.appendingPathComponent("nested.pdf"))
-
-        let symlink = fallbackRoot.appendingPathComponent("linked.pdf")
-        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: exact)
-
-        let missing = root.appendingPathComponent("missing.pdf")
+        let fallback = root.appendingPathComponent("fallback", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        try createEmptyFile(fallback.appendingPathComponent("a.pdf"))
+        try createEmptyFile(fallback.appendingPathComponent("b.pdf"))
         let database = root.appendingPathComponent("library.sqlite")
         try createDatabase(database, sql: """
         CREATE TABLE ZBKLIBRARYASSET(
           Z_PK INTEGER PRIMARY KEY,
-          ZCONTENTTYPE INTEGER,
+          ZASSETID TEXT,
           ZTITLE TEXT,
-          ZPATH TEXT
+          ZPATH TEXT,
+          ZCONTENTTYPE INTEGER
         );
-        INSERT INTO ZBKLIBRARYASSET VALUES
-          (1, 3, 'Exact title', '\(sql(exact.path))'),
-          (2, 3, 'Missing title', '\(sql(missing.path))'),
-          (3, 3, 'Duplicate A', '\(sql(duplicate.path))'),
-          (4, 3, 'Duplicate B', '\(sql(duplicate.path))'),
-          (5, 1, 'Not a PDF row', '\(sql(fallback.path))');
         """)
         let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
-        let sources = PDFSourceResolver(fallbackRoot: fallbackRoot).resolve(pdfBooks: try queries.pdfBooks())
+        let resolver = PDFSourceResolver(
+            fallbackRoot: fallback,
+            sourceIDDigest: { _ in [UInt8](repeating: 0, count: PDFSourceID.digestByteCount) }
+        )
 
-        #expect(sources.map(\.fileURL) == [exact, duplicate, fallback].map { $0.standardizedFileURL.resolvingSymlinksInPath() }.sorted { $0.path < $1.path })
-
-        let exactSource = try #require(sources.first { $0.fileURL == exact.standardizedFileURL.resolvingSymlinksInPath() })
-        #expect(exactSource.book?.localPK == 1)
-        #expect(exactSource.displayTitle == "Exact title")
-        #expect(exactSource.provenance == .library)
-
-        let duplicateSource = try #require(sources.first { $0.fileURL == duplicate.standardizedFileURL.resolvingSymlinksInPath() })
-        #expect(duplicateSource.book == nil)
-        #expect(duplicateSource.displayTitle == "duplicate")
-        #expect(duplicateSource.provenance == .library)
-
-        let fallbackSource = try #require(sources.first { $0.fileURL == fallback.standardizedFileURL.resolvingSymlinksInPath() })
-        #expect(fallbackSource.book == nil)
-        #expect(fallbackSource.displayTitle == "fallback")
-        #expect(fallbackSource.provenance == .fallback)
-        let explicit = root.appendingPathComponent("explicit.pdf")
-        try Data("explicit".utf8).write(to: explicit)
-        let explicitSource = try #require(PDFSourceResolver(fallbackRoot: fallbackRoot).resolve(fileURL: explicit, pdfBooks: try queries.pdfBooks()))
-        #expect(explicitSource.book == nil)
-        #expect(explicitSource.provenance == .explicit)
-        #expect(sources.contains { $0.fileURL.lastPathComponent == "nested.pdf" } == false)
-        #expect(sources.contains { $0.fileURL.lastPathComponent == "linked.pdf" } == false)
-        #expect(sources.contains { $0.fileURL.lastPathComponent == "directory.pdf" } == false)
+        #expect(throws: PDFInventoryError.ambiguousSourceID) {
+            _ = try resolver.inventoryPage(bookQueries: queries, limit: 100)
+        }
+        let colliding = try PDFSourceID.parse("pdf1_" + String(repeating: "0", count: 64))
+        #expect(throws: PDFInventoryError.ambiguousSourceID) {
+            _ = try resolver.resolve(sourceID: colliding, bookQueries: queries)
+        }
     }
 
     @Test
-    func rejectsUnsafeOrUnreadableDatabasePaths() throws {
+    func fallbackScanRejectsSymlinksDirectoriesNestedEntriesAndLibraryHardlinkDuplicates() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fallbackRoot = root.appendingPathComponent("fallback", isDirectory: true)
         try FileManager.default.createDirectory(at: fallbackRoot, withIntermediateDirectories: true)
-
-        let target = root.appendingPathComponent("target.pdf")
-        try Data("target".utf8).write(to: target)
-        let symlink = root.appendingPathComponent("symlink.pdf")
-        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
-        let unreadable = root.appendingPathComponent("unreadable.pdf")
-        try Data("unreadable".utf8).write(to: unreadable)
-        #expect(chmod(unreadable.path, 0o000) == 0)
-        let directory = root.appendingPathComponent("folder.pdf", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-        let wrongExtension = root.appendingPathComponent("wrong.txt")
-        try Data("wrong".utf8).write(to: wrongExtension)
+        let libraryPDF = root.appendingPathComponent("library.pdf")
+        try createEmptyFile(libraryPDF)
+        let direct = fallbackRoot.appendingPathComponent("direct.pdf")
+        try createEmptyFile(direct)
+        let symlink = fallbackRoot.appendingPathComponent("linked.pdf")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: direct)
+        try FileManager.default.createDirectory(
+            at: fallbackRoot.appendingPathComponent("directory.pdf"),
+            withIntermediateDirectories: false
+        )
+        let nested = fallbackRoot.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
+        try createEmptyFile(nested.appendingPathComponent("nested.pdf"))
+        let hardlink = fallbackRoot.appendingPathComponent("library-hardlink.pdf")
+        #expect(link(libraryPDF.path, hardlink.path) == 0)
 
         let database = root.appendingPathComponent("library.sqlite")
         try createDatabase(database, sql: """
-        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZCONTENTTYPE INTEGER, ZPATH TEXT);
-        INSERT INTO ZBKLIBRARYASSET VALUES
-          (1, 3, '\(sql(symlink.path))'),
-          (2, 3, '\(sql(unreadable.path))'),
-          (3, 3, '\(sql(directory.path))'),
-          (4, 3, '\(sql(wrongExtension.path))'),
-          (5, 3, 'relative.pdf');
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        INSERT INTO ZBKLIBRARYASSET VALUES(1,'asset','Library','\(sql(libraryPDF.path))',3);
         """)
         let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
+        let page = try PDFSourceResolver(fallbackRoot: fallbackRoot).inventoryPage(bookQueries: queries, limit: 100)
+        #expect(page.items.count == 2)
+        #expect(page.items.contains { $0.bookAssetID == "asset" })
+        #expect(page.items.contains { $0.title == "direct" && $0.provenance == .fallback })
+        #expect(page.items.contains { $0.title == "linked" || $0.title == "directory" || $0.title == "nested" || $0.title == "library-hardlink" } == false)
 
-        #expect(PDFSourceResolver(fallbackRoot: fallbackRoot).resolve(pdfBooks: try queries.pdfBooks()).isEmpty)
+        let symlinkRoot = root.appendingPathComponent("fallback-link")
+        try FileManager.default.createSymbolicLink(at: symlinkRoot, withDestinationURL: fallbackRoot)
+        let symlinkPage = try PDFSourceResolver(fallbackRoot: symlinkRoot).inventoryPage(bookQueries: queries, limit: 100)
+        #expect(symlinkPage.items.count == 1)
+        #expect(symlinkPage.items[0].bookAssetID == "asset")
+    }
+
+    @Test
+    func cursorStalesWhenFallbackEntryOrLibraryMappingChanges() throws {
+        let fixture = try InventoryFixture()
+        defer { fixture.remove() }
+        let resolver = PDFSourceResolver(fallbackRoot: fixture.fallbackRoot)
+        let queries = fixture.queries()
+        let first = try resolver.inventoryPage(bookQueries: queries, limit: 1)
+        let cursor = try #require(first.nextCursor)
+
+        try Data("replacement-with-different-size".utf8).write(to: fixture.fallbackA)
+        #expect(throws: CursorPaginationError.staleCursor) {
+            _ = try resolver.inventoryPage(bookQueries: queries, limit: 1, cursor: cursor)
+        }
+
+        let fresh = try resolver.inventoryPage(bookQueries: queries, limit: 1)
+        let freshCursor = try #require(fresh.nextCursor)
+        try execute(fixture.database, sql: "UPDATE ZBKLIBRARYASSET SET ZTITLE='Changed' WHERE Z_PK=1;")
+        #expect(throws: CursorPaginationError.staleCursor) {
+            _ = try resolver.inventoryPage(bookQueries: queries, limit: 1, cursor: freshCursor)
+        }
+    }
+
+    @Test
+    func tenThousandFallbackEntriesPageAndExactLookupWithoutDescriptorAccumulation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fallback = root.appendingPathComponent("fallback", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        for index in 0..<10_005 {
+            try createEmptyFile(fallback.appendingPathComponent(String(format: "item-%05d.pdf", index)))
+        }
+        let database = root.appendingPathComponent("library.sqlite")
+        try createDatabase(database, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        """)
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
+        let resolver = PDFSourceResolver(fallbackRoot: fallback)
+
+        let page = try resolver.inventoryPage(bookQueries: queries, limit: 20)
+        #expect(page.items.count == 20)
+        #expect(page.hasMore)
+        #expect(page.nextCursor != nil)
+        #expect(page.items.allSatisfy { $0.bookAssetID == nil && $0.pdfSourceID != nil })
+        let sourceID = try PDFSourceID.parse(try #require(page.items.first?.pdfSourceID))
+        let source = try resolver.resolve(sourceID: sourceID, bookQueries: queries)
+        #expect(source?.pdfSourceID == sourceID.rawValue)
+    }
+
+    @Test
+    func oversizedDatabasePathsAreUnavailableWithoutTruncation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("library.sqlite")
+        let path4096 = "/" + String(repeating: "a", count: 4_095)
+        let path4097 = "/" + String(repeating: "b", count: 4_096)
+        let huge = "/" + String(repeating: "c", count: 2 * 1_024 * 1_024)
+        try createDatabase(database, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        INSERT INTO ZBKLIBRARYASSET VALUES
+          (1,'a','\(sql(path4096))',3),
+          (2,'b','\(sql(path4097))',3),
+          (3,'c','\(sql(huge))',3);
+        """)
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
+        var observed: [String?] = []
+        try queries.forEachPDFResourceTarget { target, _ in
+            observed.append(target.path)
+            return true
+        }
+        #expect(observed.count == 3)
+        #expect(observed[0]?.utf8.count == 4_096)
+        #expect(observed[1] == nil)
+        #expect(observed[2] == nil)
+        let fallback = root.appendingPathComponent("fallback", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: false)
+        let page = try PDFSourceResolver(fallbackRoot: fallback).inventoryPage(bookQueries: queries, limit: 100)
+        #expect(page.items.isEmpty)
+    }
+
+    @Test
+    func exactBookPDFLookupDoesNotDecodeOtherRichPDFRows() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pdf = root.appendingPathComponent("selected.pdf")
+        let other = root.appendingPathComponent("other.pdf")
+        try createEmptyFile(pdf)
+        try createEmptyFile(other)
+        let database = root.appendingPathComponent("library.sqlite")
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        try createDatabase(database, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        INSERT INTO ZBKLIBRARYASSET VALUES(1,'selected','Selected','\(sql(pdf.path))',3);
+        INSERT INTO ZBKLIBRARYASSET VALUES(2,'other',CAST(X'80' AS TEXT),'\(sql(other.path))',3);
+        """)
+        try createDatabase(annotations, sql: "CREATE TABLE placeholder(value INTEGER);")
+        let core = try AppleBooks(
+            libraryDB: database,
+            annotationsDB: annotations,
+            configurationFile: nil,
+            collectionWriter: CollectionWriter(database: database),
+            annotationWriter: AnnotationWriter(database: annotations),
+            pdfSourceResolver: PDFSourceResolver(fallbackRoot: root.appendingPathComponent("missing"))
+        )
+
+        let source = try #require(try core.pdfSource(forBookLocalPK: 1))
+        #expect(source.fileURL == pdf.standardizedFileURL)
+        #expect(source.book?.localPK == 1)
     }
 
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+        return url.standardizedFileURL
+    }
+
+    private func createEmptyFile(_ url: URL) throws {
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw FixtureError.filesystem }
+        close(descriptor)
     }
 
     private func createDatabase(_ url: URL, sql: String) throws {
         var handle: OpaquePointer?
-        let open = sqlite3_open(url.path, &handle)
-        guard open == SQLITE_OK, let handle else {
-            throw SQLiteError.current(operation: .open, code: open, handle: handle)
+        let openResult = sqlite3_open(url.path, &handle)
+        guard openResult == SQLITE_OK, let handle else {
+            throw SQLiteError.current(operation: .open, code: openResult, handle: handle)
         }
         defer { sqlite3_close_v2(handle) }
         let result = sqlite3_exec(handle, sql, nil, nil, nil)
@@ -159,7 +310,89 @@ struct PDFSourceResolverTests {
         }
     }
 
+    private func execute(_ url: URL, sql: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else { throw FixtureError.database }
+        defer { sqlite3_close_v2(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.database }
+    }
+
     private func sql(_ value: String) -> String {
         value.replacingOccurrences(of: "'", with: "''")
     }
+
+    private final class InventoryFixture {
+        let root: URL
+        let fallbackRoot: URL
+        let database: URL
+        let uniqueA: URL
+        let uniqueB: URL
+        let noIdentity: URL
+        let duplicate: URL
+        let ambiguousA: URL
+        let ambiguousB: URL
+        let fallbackA: URL
+
+        init() throws {
+            root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true).standardizedFileURL
+            fallbackRoot = root.appendingPathComponent("fallback", isDirectory: true)
+            try FileManager.default.createDirectory(at: fallbackRoot, withIntermediateDirectories: true)
+            database = root.appendingPathComponent("library.sqlite")
+            uniqueA = root.appendingPathComponent("unique-a.pdf")
+            uniqueB = root.appendingPathComponent("unique-b.pdf")
+            noIdentity = root.appendingPathComponent("no-id.pdf")
+            duplicate = root.appendingPathComponent("duplicate.pdf")
+            ambiguousA = root.appendingPathComponent("ambiguous-a.pdf")
+            ambiguousB = root.appendingPathComponent("ambiguous-b.pdf")
+            fallbackA = fallbackRoot.appendingPathComponent("fallback-a.pdf")
+            for url in [uniqueA, uniqueB, noIdentity, duplicate, ambiguousA, ambiguousB, fallbackA] {
+                let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+                guard descriptor >= 0 else { throw FixtureError.filesystem }
+                close(descriptor)
+            }
+            let hardlink = fallbackRoot.appendingPathComponent("fallback-hardlink.pdf")
+            guard link(uniqueA.path, hardlink.path) == 0 else { throw FixtureError.filesystem }
+            try Self.createDatabaseStatic(database, sql: """
+            CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+            INSERT INTO ZBKLIBRARYASSET VALUES
+              (1,'asset-a','Unique A','\(Self.escape(uniqueA.path))',3),
+              (2,'asset-b','Unique B','\(Self.escape(uniqueB.path))',3),
+              (3,NULL,'No Identity','\(Self.escape(noIdentity.path))',3),
+              (4,'dup-a','Duplicate A','\(Self.escape(duplicate.path))',3),
+              (5,'dup-b','Duplicate B','\(Self.escape(duplicate.path))',3),
+              (6,'ambiguous','Ambiguous A','\(Self.escape(ambiguousA.path))',3),
+              (7,'ambiguous','Ambiguous B','\(Self.escape(ambiguousB.path))',3);
+            """)
+        }
+
+        func queries() -> BookQueries {
+            BookQueries(connection: try! SQLiteConnection.readOnly(path: database.path))
+        }
+
+        func remove() { try? FileManager.default.removeItem(at: root) }
+
+        private static func escape(_ value: String) -> String {
+            value.replacingOccurrences(of: "'", with: "''")
+        }
+
+        private static func createDatabaseStatic(_ url: URL, sql: String) throws {
+            var handle: OpaquePointer?
+            guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else { throw FixtureError.database }
+            defer { sqlite3_close_v2(handle) }
+            guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.database }
+        }
+    }
+
+    private enum FixtureError: Error { case database, filesystem }
+}
+
+private func escape(_ value: String) -> String {
+    value.replacingOccurrences(of: "'", with: "''")
+}
+
+private func createDatabaseStatic(_ url: URL, sql: String) throws {
+    var handle: OpaquePointer?
+    guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else { throw NSError(domain: "db", code: 1) }
+    defer { sqlite3_close_v2(handle) }
+    guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw NSError(domain: "db", code: 2) }
 }

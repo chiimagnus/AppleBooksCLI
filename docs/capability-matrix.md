@@ -118,8 +118,9 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| PDF library metadata | 已实现 | `ZCONTENTTYPE=3` 独立识别；exact canonical file 才关联 Book metadata |
-| PDF highlight extraction | 已实现 | PDFKit highlight + geometry/text recovery；结果标记 approximation |
+| PDF inventory | 已实现（强化） | `pdf list` 默认20、最大100，opaque cursor；summary 不暴露绝对 path，每项提供唯一可消费的 `bookAssetID` 或 `pdfSourceID` |
+| PDF library metadata | 已实现（强化） | `ZCONTENTTYPE=3` 独立识别；ordinary inventory 只做 bounded resource projection，exact Book PDF 走单行 resource lookup |
+| PDF highlight extraction | 已实现（强化） | `--book / --book-pk / --pdf` exact selector；PDFKit highlight + geometry/text recovery；worker no-follow 打开 source，结果标记 approximation |
 | PDF highlight note | 已实现 | contents 作为 optional note；text unavailable 不丢 raw highlight |
 | PDF page/location | 已实现 | 1-based page + raw geometry，不生成 EPUB CFI |
 | PDF color mapping | 已实现 | 保留 normalized RGBA；五色映射只作 approximate presentation |

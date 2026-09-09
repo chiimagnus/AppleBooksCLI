@@ -60,6 +60,23 @@ struct PDFWorkerProtocolTests {
     }
 
     @Test
+    func regularFileReplacedBySymlinkFailsClosedOnNextWorkerOpen() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let pdf = try fixture.highlightPDF().standardizedFileURL
+        #expect(try run(path: pdf.path).status == .success)
+
+        let outside = fixture.root.appendingPathComponent("outside.pdf")
+        try Data("outside".utf8).write(to: outside)
+        try FileManager.default.removeItem(at: pdf)
+        try FileManager.default.createSymbolicLink(at: pdf, withDestinationURL: outside)
+
+        let replaced = try run(path: pdf.path)
+        #expect(replaced.status == .failure)
+        #expect(replaced.errorCode == .unsafeFile)
+    }
+
+    @Test
     func corruptPDFIsStructuredFailureRatherThanEmptySuccess() throws {
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

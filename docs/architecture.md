@@ -100,10 +100,13 @@ EPUB 的长期边界：
 
 PDF 的长期边界：
 
-- 只处理 canonical readable `.pdf`；fallback discovery 不递归、不 fuzzy；
-- PDFKit 在独立 worker process 中运行，timeout/crash/malformed output 都是结构化 failure；
-- 无法恢复 text 时仍保留 raw highlight/note/page/geometry；
-- color mapping 只是 presentation approximation。
+- ordinary `pdf list` 是 bounded inventory，不 materialize 全库 rich Book，也不公开绝对 path。唯一可用 Book identity 输出 `bookAssetID`；fallback、无 stable Book identity 或同一文件对应多本 Book 时输出 deterministic opaque `pdfSourceID`。两者都是后续 exact action 的 public selector。
+- `pdfSourceID` 表示 validated source slot/path identity，不表示内容版本；fallback slot 由 no-follow 打开的 root directory identity + 单组件 entry name 派生，library opaque slot 由 lexical standardized Book path 派生。public token 不反射 path。
+- fallback discovery 由 root directory FD 拥有 trust boundary：拒绝 root symlink/non-directory，随后只通过 `readdir` + `openat(..., O_NOFOLLOW)` + `fstat` 分类 direct regular `.pdf` entry；不递归、不 fuzzy、不用 symlink-resolved target path 建立 ordinary identity。
+- library Book path 只有满足 ordinary resource path budget、lexical absolute standardized grammar，并经 no-follow regular-file open/fstat 后才成为 PDF source；同 inode 的 library/fallback source只出现一次，symlink fail closed。
+- inventory cursor generation 同时绑定 library SQLite generation 与当前 library/fallback file inventory state；任一 mapping、entry 或 file metadata 变化都会使旧 cursor stale。
+- PDFKit 在独立 worker process 中运行；worker 对收到的 path 自己执行 no-follow open，并通过已打开 descriptor 读取，避免验证后重新跟随被替换的 path。timeout/crash/malformed output 都是结构化 failure。
+- 无法恢复 text 时仍保留 raw highlight/note/page/geometry；color mapping 只是 presentation approximation。
 
 ## Export 分层
 

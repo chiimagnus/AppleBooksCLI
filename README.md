@@ -59,11 +59,11 @@ applebookscli annotations get <annotation-uuid>
 applebookscli content context <annotation-uuid>
 
 # PDF inventory / extraction
-applebookscli pdf list
+applebookscli pdf list   # continue with --cursor <nextCursor> when present
 applebookscli pdf highlights --help
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, and `collections list/search/books` use opaque cursors; when `nextCursor` is returned, pass it unchanged to `--cursor` on the same query. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; use explicit archival export when the original full text is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
+Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, `collections list/search/books`, and `pdf list` use opaque cursors; when `nextCursor` is returned, pass it unchanged to `--cursor` on the same query. PDF inventory returns either `bookAssetID` or opaque `pdfSourceID`; feed that identity back to `pdf highlights --book` or `--pdf` rather than treating an absolute file path as the ordinary selector. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; use explicit archival export when the original full text is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
 
 ## Export
 

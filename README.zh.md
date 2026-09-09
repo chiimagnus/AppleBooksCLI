@@ -58,11 +58,11 @@ applebookscli annotations get <annotation-uuid>
 applebookscli content context <annotation-uuid>
 
 # PDF inventory / 提取
-applebookscli pdf list
+applebookscli pdf list   # 返回 nextCursor 时用 --cursor 继续
 applebookscli pdf highlights --help
 ```
 
-精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 backup handle。local PK（`Z_PK`）只是在当前本机数据库中的行标识，必须显式选择。`books list/search`、可增长的 reading-state 查询以及 `collections list/search/books` 使用 opaque cursor；返回 `nextCursor` 时把它原样传给同一查询的 `--cursor`。普通 read 会限制超长展示文本，并用 `truncatedFields` 标明被缩短字段；需要原始完整正文时使用显式 archival export，不要把普通查询结果当 raw dump。`stats` 会把 historical、unmapped、当前书库 identity 歧义、identity 不可用的批注分别计数；`topAnnotatedBooks` 只返回可继续使用的书籍 identity 与 `annotationCount`。
+精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 backup handle。local PK（`Z_PK`）只是在当前本机数据库中的行标识，必须显式选择。`books list/search`、可增长的 reading-state 查询、`collections list/search/books` 与 `pdf list` 使用 opaque cursor；返回 `nextCursor` 时把它原样传给同一查询的 `--cursor`。PDF inventory 会返回 `bookAssetID` 或 opaque `pdfSourceID`；后续用 `pdf highlights --book` 或 `--pdf` 消费该 identity，不把绝对文件路径当 ordinary selector。普通 read 会限制超长展示文本，并用 `truncatedFields` 标明被缩短字段；需要原始完整正文时使用显式 archival export，不要把普通查询结果当 raw dump。`stats` 会把 historical、unmapped、当前书库 identity 歧义、identity 不可用的批注分别计数；`topAnnotatedBooks` 只返回可继续使用的书籍 identity 与 `annotationCount`。
 
 ## 导出
 

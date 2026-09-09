@@ -489,8 +489,7 @@ struct CLIContractTests {
         let inventory = try fixture.runJSON(["pdf", "list"])
         let items = try #require(inventory["items"] as? [[String: Any]])
         #expect(items.contains { item in
-            guard let book = item["book"] as? [String: Any] else { return false }
-            return book["assetID"] as? String == "asset-pdf"
+            item["bookAssetID"] as? String == "asset-pdf" && item["pdfSourceID"] == nil
         })
 
         let highlights = try fixture.runJSON(["pdf", "highlights", "--path", fixture.pdf.path])

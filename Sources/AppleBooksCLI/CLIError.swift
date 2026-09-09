@@ -88,6 +88,14 @@ enum CLIOperation {
                 return .internalFailure
             }
         }
+        if let pdfInventoryError = error as? PDFInventoryError {
+            switch pdfInventoryError {
+            case .invalidSourceID:
+                return .usageInvalid("Invalid PDF source identity.")
+            case .ambiguousSourceID:
+                return .unavailable("PDF source identity is ambiguous. Run `applebookscli pdf list` again.")
+            }
+        }
         if let searchError = error as? BookSearchError {
             switch searchError {
             case .emptyQuery:

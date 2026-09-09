@@ -120,17 +120,18 @@ public enum PDFWorkerProtocol {
         }
         guard request.version == version else { return failure(.unsupportedVersion) }
 
-        let fileURL: URL
+        let file: ValidatedPDFWorkerFile
         do {
-            fileURL = try validatedPDFURL(path: request.path)
+            file = try openValidatedPDF(path: request.path)
         } catch let code as PDFWorkerErrorCode {
             return failure(code)
         } catch {
             return failure(.internalFailure)
         }
+        defer { close(file.descriptor) }
 
         do {
-            let highlights = try PDFHighlightReader().read(fileURL: fileURL).map(PDFWorkerHighlight.init)
+            let highlights = try PDFHighlightReader().read(fileURL: file.descriptorURL).map(PDFWorkerHighlight.init)
             return response(
                 PDFWorkerResponse(version: version, status: .success, highlights: highlights, errorCode: nil),
                 stderrCode: nil
@@ -144,24 +145,29 @@ public enum PDFWorkerProtocol {
         }
     }
 
-    private static func validatedPDFURL(path: String) throws -> URL {
+    private static func openValidatedPDF(path: String) throws -> ValidatedPDFWorkerFile {
         guard path.hasPrefix("/") else { throw PDFWorkerErrorCode.invalidPath }
-        let rawURL = URL(fileURLWithPath: path)
-        let standardized = rawURL.standardizedFileURL
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL
         guard standardized.path == path else { throw PDFWorkerErrorCode.invalidPath }
         guard standardized.pathExtension.lowercased() == "pdf" else {
             throw PDFWorkerErrorCode.unsupportedFormat
         }
 
+        let descriptor = open(
+            standardized.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { throw PDFWorkerErrorCode.unsafeFile }
         var metadata = stat()
-        guard lstat(standardized.path, &metadata) == 0,
-              metadata.st_mode & S_IFMT == S_IFREG,
-              access(standardized.path, R_OK) == 0 else {
+        guard fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            close(descriptor)
             throw PDFWorkerErrorCode.unsafeFile
         }
-        let canonical = standardized.resolvingSymlinksInPath()
-        guard canonical.path == standardized.path else { throw PDFWorkerErrorCode.unsafeFile }
-        return canonical
+        return ValidatedPDFWorkerFile(
+            descriptor: descriptor,
+            descriptorURL: URL(fileURLWithPath: "/dev/fd/\(descriptor)")
+        )
     }
 
     private static func failure(_ code: PDFWorkerErrorCode) -> PDFWorkerInvocation {
@@ -192,6 +198,11 @@ public enum PDFWorkerProtocol {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
+}
+
+private struct ValidatedPDFWorkerFile {
+    let descriptor: Int32
+    let descriptorURL: URL
 }
 
 extension PDFWorkerErrorCode: Error {}

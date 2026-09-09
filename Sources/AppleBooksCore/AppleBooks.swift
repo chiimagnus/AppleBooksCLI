@@ -698,7 +698,11 @@ public final class AppleBooks {
     }
 
     public func pdfSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
-        guard let book = try requiredBookQueries().pdfBooks().first(where: { $0.localPK == localPK }) else { return nil }
+        let queries = try requiredBookQueries()
+        guard try queries.pdfResourceTarget(localPK: localPK) != nil,
+              let book = try queries.getByLocalPK(localPK) else {
+            return nil
+        }
         return pdfSourceResolver.resolve(book: book)
     }
 
@@ -706,14 +710,26 @@ public final class AppleBooks {
         pdfSourceResolver.resolve(fileURL: fileURL, pdfBooks: try requiredBookQueries().pdfBooks())
     }
 
-    package func semanticPDFSources() throws -> [PDFSource] {
-        pdfSourceResolver.resolve(pdfResources: try requiredBookQueries().semanticPDFResources())
+    package func semanticPDFSourcePage(
+        limit: Int? = nil,
+        cursor: String? = nil
+    ) throws -> CursorPage<PDFInventorySummary> {
+        try pdfSourceResolver.inventoryPage(
+            bookQueries: requiredBookQueries(),
+            limit: limit,
+            cursor: cursor
+        )
     }
 
     package func semanticPDFSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
-        let resources = try requiredBookQueries().semanticPDFResources()
-        guard let resource = resources.first(where: { $0.summary.localPK == localPK }) else { return nil }
-        return pdfSourceResolver.resolve(resource: resource)
+        let queries = try requiredBookQueries()
+        guard let target = try queries.pdfResourceTarget(localPK: localPK) else { return nil }
+        let summary = try queries.semanticSummary(localPK: localPK)
+        return pdfSourceResolver.resolve(target: target, summary: summary)
+    }
+
+    package func semanticPDFSource(sourceID: PDFSourceID) throws -> PDFSource? {
+        try pdfSourceResolver.resolve(sourceID: sourceID, bookQueries: requiredBookQueries())
     }
 
     package func semanticPDFSource(fileURL: URL) throws -> PDFSource? {

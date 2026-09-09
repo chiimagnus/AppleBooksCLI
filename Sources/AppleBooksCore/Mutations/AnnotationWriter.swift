@@ -290,7 +290,17 @@ struct AnnotationWriter {
 
     private static func appleBooksURL(localPK: Int64, on handle: OpaquePointer) -> String? {
         var statement: OpaquePointer?
-        let sql = "SELECT ZANNOTATIONASSETID,ZANNOTATIONLOCATION FROM ZAEANNOTATION WHERE Z_PK=?"
+        let sql = """
+        SELECT ZANNOTATIONASSETID,
+               CASE
+                 WHEN ZANNOTATIONLOCATION IS NOT NULL
+                  AND length(CAST(ZANNOTATIONLOCATION AS BLOB)) <= \(CFIResourcePolicy.maximumStructuralBytes)
+                 THEN ZANNOTATIONLOCATION
+                 ELSE NULL
+               END
+        FROM ZAEANNOTATION
+        WHERE Z_PK=?
+        """
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
               let statement else {
             if let statement { sqlite3_finalize(statement) }

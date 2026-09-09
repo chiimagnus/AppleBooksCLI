@@ -57,6 +57,46 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func oversizedCFIDegradesFocusWithoutReadingUnrelatedAnnotationBody() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+
+        let oversizedCFI = oversizedCFI()
+        var handle: OpaquePointer?
+        guard sqlite3_open(fixture.database.path, &handle) == SQLITE_OK, let handle else {
+            throw SQLiteBackupError.destinationOpenFailed
+        }
+        do {
+            defer { sqlite3_close_v2(handle) }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                handle,
+                "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID=?,ZANNOTATIONLOCATION=?,ZANNOTATIONSELECTEDTEXT=CAST(X'80' AS TEXT) WHERE Z_PK=1",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK,
+            let statement else {
+                throw AnnotationWriteError.writeFailed
+            }
+            defer { sqlite3_finalize(statement) }
+            guard bindSQLiteText("asset-synthetic", to: statement, at: 1) == SQLITE_OK,
+                  bindSQLiteText(oversizedCFI, to: statement, at: 2) == SQLITE_OK,
+                  sqlite3_step(statement) == SQLITE_DONE else {
+                throw AnnotationWriteError.writeFailed
+            }
+        }
+
+        let result = try fixture.writer.updateNote(uuid: "uuid-1", note: "new note")
+
+        #expect(result.appleBooksURL == "ibooks://assetid/asset-synthetic")
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONLOCATION FROM ZAEANNOTATION WHERE Z_PK=1") == oversizedCFI)
+        #expect(try text(fixture.database, "SELECT hex(ZANNOTATIONSELECTEDTEXT) FROM ZAEANNOTATION WHERE Z_PK=1") == "80")
+    }
+
+    @Test
     func localPKIsExplicitAndWhitespaceNoteIsNotTrimmed() throws {
         let fixture = try fixture()
         defer { fixture.remove() }
@@ -298,6 +338,14 @@ struct AnnotationUpdateNoteTests {
         if duplicateUUID {
             try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(2,17,1,0\(typeValue),'uuid-1','other',1,'other-selected','1')")
         }
+    }
+
+    private func oversizedCFI() -> String {
+        let prefix = "epubcfi(/6/2["
+        let suffix = "]!/4/2,:1,:2)"
+        let targetBytes = CFIResourcePolicy.maximumStructuralBytes + 1
+        let fillerCount = targetBytes - prefix.utf8.count - suffix.utf8.count
+        return prefix + String(repeating: "x", count: fillerCount) + suffix
     }
 
     private func closedController() -> BooksAppController {

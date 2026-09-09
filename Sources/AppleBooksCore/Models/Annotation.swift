@@ -38,8 +38,12 @@ public struct Annotation: Equatable, Sendable {
         components.scheme = "ibooks"
         components.host = "assetid"
         components.path = "/\(assetID)"
-        if let cfi = rawCFI?.trimmingCharacters(in: .whitespacesAndNewlines), cfi.isEmpty == false {
-            components.fragment = cfi
+        if let rawCFI,
+           CFIResourcePolicy.allowsStructuralParsing(rawCFI) {
+            let cfi = rawCFI.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cfi.isEmpty == false {
+                components.fragment = cfi
+            }
         }
         return components.url?.absoluteString
     }

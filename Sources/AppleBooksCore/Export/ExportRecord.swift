@@ -97,7 +97,11 @@ public struct ExportRecord: Equatable, Sendable {
     fileprivate var readingKey: ReadingKey {
         switch payload {
         case let .epub(enriched):
-            return .epub(Self.cfiNumbers(enriched.annotation.location?.rawCFI))
+            let rawCFI: String? = enriched.annotation.location?.rawCFI
+            let numbers = rawCFI.flatMap { raw in
+                CFIStructureParser.parse(raw, collectReadingNumbers: true)?.readingNumbers
+            }
+            return .epub(numbers)
         case let .pdf(_, highlight):
             return .pdf(
                 page: highlight.page,
@@ -108,44 +112,6 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    private static func cfiNumbers(_ raw: String?) -> [Int]? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("epubcfi("), trimmed.hasSuffix(")") else { return nil }
-
-        var withoutAssertions = ""
-        var bracketDepth = 0
-        for character in trimmed {
-            if character == "[" {
-                bracketDepth += 1
-            } else if character == "]" {
-                guard bracketDepth > 0 else { return nil }
-                bracketDepth -= 1
-            } else if bracketDepth == 0 {
-                withoutAssertions.append(character)
-            }
-        }
-        guard bracketDepth == 0 else { return nil }
-
-        var numbers: [Int] = []
-        var digits = ""
-        func flush() -> Bool {
-            guard digits.isEmpty == false else { return true }
-            guard let value = Int(digits) else { return false }
-            numbers.append(value)
-            digits.removeAll(keepingCapacity: true)
-            return true
-        }
-        for character in withoutAssertions {
-            if character.isNumber {
-                digits.append(character)
-            } else if flush() == false {
-                return nil
-            }
-        }
-        guard flush(), numbers.isEmpty == false else { return nil }
-        return numbers
-    }
 }
 
 enum ExportSelection {

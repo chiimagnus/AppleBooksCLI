@@ -70,16 +70,15 @@ struct SemanticTextBoundaryDTOTests {
             byteTruncatedFields: ["representativeText", "selectedText", "note"]
         )
 
-        let result = AnnotationResult(annotation)
-        #expect(result.representativeText?.count == BoundedTextProfile.preview.maximumGraphemes)
-        #expect(result.selectedText?.count == BoundedTextProfile.preview.maximumGraphemes)
-        #expect(result.note?.count == BoundedTextProfile.preview.maximumGraphemes)
+        let result = AnnotationSummaryResult(annotation)
+        #expect(result.quotePreview?.count == BoundedTextProfile.preview.maximumGraphemes)
+        #expect(result.notePreview?.count == BoundedTextProfile.preview.maximumGraphemes)
         #expect(result.source.title?.count == BoundedTextProfile.metadata.maximumGraphemes)
-        #expect(Set(result.truncatedFields) == ["representativeText", "selectedText", "note", "source.title"])
+        #expect(Set(result.truncatedFields) == ["quotePreview", "notePreview", "source.title"])
 
         let data = try JSONEncoder().encode(result)
         #expect(data.count < 8 * 1_024)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(Set((json["truncatedFields"] as? [String]) ?? []) == ["representativeText", "selectedText", "note", "source.title"])
+        #expect(Set((json["truncatedFields"] as? [String]) ?? []) == ["quotePreview", "notePreview", "source.title"])
     }
 }

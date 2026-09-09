@@ -15,9 +15,11 @@ struct AnnotationReadCommandTests {
         #expect(capture.stderr.isEmpty)
         #expect(capture.stdout.contains("list"))
         #expect(capture.stdout.contains("get"))
-        #expect(capture.stdout.contains("search"))
-        #expect(capture.stdout.contains("recent"))
-        #expect(capture.stdout.contains("range"))
+        #expect(capture.stdout.contains("update-note"))
+        #expect(capture.stdout.contains("delete"))
+        #expect(capture.stdout.contains("search") == false)
+        #expect(capture.stdout.contains("recent") == false)
+        #expect(capture.stdout.contains("range") == false)
     }
 
     @Test
@@ -189,15 +191,9 @@ struct AnnotationReadCommandTests {
         #expect(hidden.stdout.isEmpty)
         #expect(hidden.stderr.contains("type3-private") == false)
 
-        let raw = try fixture.runJSON(
-            AnnotationDetailResult.self,
-            ["annotations", "get", "type3-private", "--scope", "active-raw"]
-        )
-        #expect(raw.uuid == "type3-private")
-
         let deleted = Capture()
         let deletedCode = CLIEntrypoint.run(
-            arguments: ["annotations", "get", "deleted-private", "--scope", "active-raw"] + fixture.globalArguments,
+            arguments: ["annotations", "get", "deleted-private"] + fixture.globalArguments,
             output: deleted.output
         )
         #expect(deletedCode == CLIProcessExit.notFound.rawValue)
@@ -392,111 +388,12 @@ struct AnnotationReadCommandTests {
     }
 
     @Test
-    func searchDelegatesLiteralFieldAndColorFilteringBeforePagination() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let literal = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "search", "%_\\", "--field", "highlight"]
-        )
-        #expect(literal.items.map(\.localPK) == [1])
-        #expect(literal.items.first?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
-
-        let greenPage = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "search", "needle", "--color", "green", "--limit", "1", "--offset", "1"]
-        )
-        #expect(greenPage.items.map(\.localPK) == [5])
-
-        let note = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "search", "historical", "--field", "note", "--color", "purple"]
-        )
-        #expect(note.items.map(\.localPK) == [6])
-
-        let missing = Fixture.missingGlobalArguments
+    func removedQueryCommandsAndGetRawScopeFailBeforeDatabaseDiscovery() {
         for arguments in [
-            ["annotations", "search", "", "--field", "all"],
-            ["annotations", "search", "needle", "--limit", "0"],
-            ["annotations", "search", "needle", "--offset", "-1"],
-        ] {
-            let capture = Capture()
-            let code = CLIEntrypoint.run(arguments: arguments + missing, output: capture.output)
-            #expect(code == CLIProcessExit.usageInvalid.rawValue)
-            #expect(capture.stdout.isEmpty)
-            #expect(capture.stderr.contains("Database override") == false)
-        }
-    }
-
-    @Test
-    func recentUsesDistinctCreatedUserAndModifiedActiveRawOwners() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let created = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "recent", "--time-field", "created"]
-        )
-        #expect(created.items.map(\.localPK) == [123, 7, 5, 6, 1, 2])
-        #expect(created.items.contains(where: { $0.localPK == 3 }) == false)
-        #expect(created.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
-
-        let modified = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            ["annotations", "recent", "--time-field", "modified"]
-        )
-        #expect(modified.items.map(\.localPK) == [3, 2, 1, 5, 6, 7, 123])
-        #expect(modified.items.first?.type == 3)
-    }
-
-    @Test
-    func rangeMapsRFC3339ToCoreHalfOpenCreationBounds() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let result = try fixture.runJSON(
-            AnnotationCollectionResult.self,
-            [
-                "annotations", "range",
-                "--after", "2001-01-01T00:01:40Z",
-                "--before", "2001-01-01T00:02:10Z",
-            ]
-        )
-        #expect(Set(result.items.map(\.localPK)) == [1, 5, 6])
-        #expect(result.items.contains(where: { $0.localPK == 7 }) == false)
-        #expect(result.items.first(where: { $0.localPK == 1 })?.appleBooksURL == "ibooks://assetid/123#epubcfi(/6/2%5Bch-one%5D!/4/2,:0,:0)")
-        #expect(result.items.contains(where: { $0.localPK == 3 }) == false)
-    }
-
-    @Test
-    func dateOnlyBoundsUseCalendarDaysAcrossDSTInsteadOfFixedSeconds() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
-        let parser = AnnotationDateRangeParser(calendar: calendar)
-
-        let spring = try parser.parse(after: "2026-03-08", before: "2026-03-08")
-        let springLower = try #require(spring.lowerInclusive)
-        let springUpper = try #require(spring.upperExclusive)
-        #expect(springUpper.timeIntervalSince(springLower) == 23 * 60 * 60)
-
-        let fall = try parser.parse(after: "2026-11-01", before: "2026-11-01")
-        let fallLower = try #require(fall.lowerInclusive)
-        let fallUpper = try #require(fall.upperExclusive)
-        #expect(fallUpper.timeIntervalSince(fallLower) == 25 * 60 * 60)
-
-        #expect(throws: ValidationError.self) {
-            _ = try parser.parse(after: "2026-02-30", before: nil)
-        }
-    }
-
-    @Test
-    func invalidRangeIsRejectedBeforeDatabaseDiscovery() {
-        for arguments in [
-            ["annotations", "range"],
-            ["annotations", "range", "--after", "2026-01-02", "--before", "2026-01-01"],
-            ["annotations", "range", "--after", "not-a-date"],
-            ["annotations", "range", "--after", "2026-01-01", "--limit", "-1"],
+            ["annotations", "search", "needle"],
+            ["annotations", "recent"],
+            ["annotations", "range", "--after", "2001-01-01T00:00:00Z"],
+            ["annotations", "get", "type3-private", "--scope", "active-raw"],
         ] {
             let capture = Capture()
             let code = CLIEntrypoint.run(

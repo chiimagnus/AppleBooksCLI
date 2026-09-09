@@ -26,7 +26,7 @@ metadata:
 | --- | --- |
 | 书籍 / 搜索 | `books` |
 | 阅读状态 | `reading`、`stats` |
-| 批注 / 笔记 / 最近记录 / 搜索 | `annotations`；组合过滤和 exact-book reading order 优先用 `annotations list` |
+| 批注 / 笔记 / 最近记录 / 搜索 | 查询、搜索、最近记录统一用 `annotations list`，exact detail 用 `annotations get`，写入才使用 mutation subcommand |
 | EPUB 内容 / 批注上下文 | `content` |
 | PDF inventory / highlights | `pdf`；exact extraction 使用 inventory 返回的 `bookAssetID` 搭配 `--book`，或 `pdfSourceID` 搭配 `--pdf` |
 | 藏书 / membership | `collections` |

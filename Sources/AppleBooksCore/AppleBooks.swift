@@ -1197,15 +1197,6 @@ public final class AppleBooks {
         try requiredAnnotationQueries().searchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
-    package func semanticAnnotations(
-        matchingHighlightedText text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticSearchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
     public func annotations(
         matchingNote text: String,
         colorName: String? = nil,
@@ -1213,15 +1204,6 @@ public final class AppleBooks {
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
         try requiredAnnotationQueries().searchNote(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
-    package func semanticAnnotations(
-        matchingNote text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticSearchNote(text, colorName: colorName, limit: limit, offset: offset)
     }
 
     public func annotations(
@@ -1233,29 +1215,12 @@ public final class AppleBooks {
         try requiredAnnotationQueries().searchText(text, colorName: colorName, limit: limit, offset: offset)
     }
 
-    package func semanticAnnotations(
-        matchingText text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticSearchText(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
     public func recentlyCreatedAnnotations(limit: Int? = 10, offset: Int = 0) throws -> [EnrichedAnnotation] {
         try requiredAnnotationQueries().recentlyCreated(limit: limit, offset: offset)
     }
 
     public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {
         try requiredAnnotationQueries().recentlyModified()
-    }
-
-    package func semanticRecentlyCreatedAnnotations(limit: Int? = 10, offset: Int = 0) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticRecentlyCreated(limit: limit, offset: offset)
-    }
-
-    package func semanticRecentlyModifiedAnnotations() throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticRecentlyModified()
     }
 
     public func annotations(
@@ -1265,20 +1230,6 @@ public final class AppleBooks {
         offset: Int = 0
     ) throws -> [EnrichedAnnotation] {
         try requiredAnnotationQueries().created(
-            lowerInclusive: lowerInclusive,
-            upperExclusive: upperExclusive,
-            limit: limit,
-            offset: offset
-        )
-    }
-
-    package func semanticAnnotations(
-        createdAtOrAfter lowerInclusive: Date? = nil,
-        beforeExclusive upperExclusive: Date? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticCreated(
             lowerInclusive: lowerInclusive,
             upperExclusive: upperExclusive,
             limit: limit,

@@ -26,7 +26,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | --- | --- |
 | Books / search | `books` |
 | Reading state | `reading`, `stats` |
-| Annotations / notes / recent / search | `annotations`; use `annotations list` for bounded composable filters and exact-book reading order |
+| Annotations / notes / recent / search | Use `annotations list` for queries/search/recent filters, `annotations get` for exact detail, and mutation subcommands only for writes |
 | EPUB content / annotation context | `content` |
 | PDF inventory / highlights | `pdf`; use inventory `bookAssetID` with `--book` or `pdfSourceID` with `--pdf` for exact extraction |
 | Collections / membership | `collections` |

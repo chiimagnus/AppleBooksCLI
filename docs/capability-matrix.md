@@ -54,12 +54,12 @@
 | Apple Books annotation deep link | 已实现（展示） | mutation/export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL` |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 独立保留 |
 | export/filter underline | 已实现 | underline 可独立过滤 |
-| search highlighted text | 已实现 | case-insensitive partial search |
-| search note text | 已实现 | note-only search |
-| full annotation text search | 已实现 | selected + representative + note |
-| recent annotations by creation | 已实现 | creation newest-first |
-| recent annotations by modification | 已实现 | modification newest-first；可显式 raw/system scope |
-| annotations by date range | 已实现（强化） | created range + limit；date-only 上界覆盖完整日历日 |
+| search highlighted text | 已实现 | `annotations list --text <query> --text-field highlight`；case-insensitive partial search |
+| search note text | 已实现 | `annotations list --text <query> --text-field note`；note-only search |
+| full annotation text search | 已实现 | `annotations list --text <query>`；selected + representative + note |
+| recent annotations by creation | 已实现 | `annotations list --order created`；user annotations creation newest-first |
+| recent annotations by modification | 已实现 | `annotations list --order modified`；user annotations modification newest-first（默认 order） |
+| annotations by date range | 已实现（强化） | `annotations list --created-after/--created-before` 或 modified 对应 flags；只接受带时区 RFC3339 instant |
 | annotation context window | 已实现（强化） | current content + CFI/anchor 精确定位；anchor miss 不伪造 context |
 | context 中精确标出 highlight | 已实现（展示） | normalized anchor 首次命中，保留原 source whitespace |
 | annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |

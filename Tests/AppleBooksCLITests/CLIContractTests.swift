@@ -210,16 +210,16 @@ struct CLIContractTests {
         #expect(Set(annotationItems.compactMap { $0["uuid"] as? String }) == ["uuid-a", "uuid-update"])
 
         let annotationSearch = try fixture.runJSON([
-            "annotations", "search", "note alpha", "--field", "note",
+            "annotations", "list", "--text", "note alpha", "--text-field", "note",
         ])
         let searchItems = try #require(annotationSearch["items"] as? [[String: Any]])
         #expect(searchItems.count == 1)
         #expect(searchItems[0]["uuid"] as? String == "uuid-a")
 
         let annotationRange = try fixture.runJSON([
-            "annotations", "range",
-            "--after", "2001-01-01T00:01:30Z",
-            "--before", "2001-01-01T00:02:30Z",
+            "annotations", "list",
+            "--created-after", "2001-01-01T00:01:30Z",
+            "--created-before", "2001-01-01T00:02:30Z",
         ])
         #expect((annotationRange["items"] as? [[String: Any]])?.isEmpty == false)
 

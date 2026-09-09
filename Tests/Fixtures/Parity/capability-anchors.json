@@ -511,13 +511,13 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "range",
-        "--after"
+        "list",
+        "--created-after"
       ],
       [
         "annotations",
-        "range",
-        "--before"
+        "list",
+        "--created-before"
       ]
     ]
   },
@@ -887,8 +887,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text"
       ]
     ]
   },
@@ -1148,8 +1148,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "recent",
-        "--time-field"
+        "list",
+        "--order"
       ]
     ]
   },
@@ -1164,8 +1164,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "recent",
-        "--time-field"
+        "list",
+        "--order"
       ]
     ]
   },
@@ -1289,8 +1289,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text-field"
       ]
     ]
   },
@@ -1305,8 +1305,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text-field"
       ]
     ]
   },

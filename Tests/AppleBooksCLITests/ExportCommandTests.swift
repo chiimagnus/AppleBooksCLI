@@ -37,7 +37,6 @@ struct ExportCommandTests {
             "--color", "yellow",
             "--color", "blue",
             "--underline", "true",
-            "--order", "reading",
             "--grouping", "per-document",
             "--overwrite", "always",
             "--output", output.path,
@@ -55,7 +54,6 @@ struct ExportCommandTests {
         #expect(request.options.hasNote == true)
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
-        #expect(request.options.order == .reading)
         #expect(request.options.grouping == .perDocument)
         #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
@@ -79,7 +77,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "reading"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }

@@ -101,7 +101,7 @@
 | --- | --- | --- |
 | export output destination | 已实现（强化） | 完整artifact只写显式confined file/dir；stdout仅compact JSON write result；默认不覆盖 unsafe/existing target |
 | Markdown export | 已实现 | human-readable notes；title/author、quote/Note、semantic location/PDF page、dates/presentation；不含 raw asset ID/CFI/absolute PDF path |
-| JSON export | 已实现 | schemaVersion=9；保留 source-specific raw fields/warnings/statistics；Book non-finite raw numerics 主字段为 null，并用固定 `numericAnomalies` 标记 ±Infinity；presence 属性独立编码，PDF selector 使用 opaque source ID |
+| JSON export | 已实现 | schemaVersion=10；保留 source-specific raw fields/warnings/statistics；Book non-finite raw numerics 主字段为 null，并用固定 `numericAnomalies` 标记 ±Infinity；presence 属性独立编码，PDF selector 使用 opaque source ID |
 | export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 user annotations 与 PDF highlights |
 | export 颜色过滤 | 已实现 | canonical EPUB colors；PDF approximate presentation color 不参与 hard filter |
 | export single/multiple file | 已实现（强化） | single 原子文件；per-document 以 managed staging + ownership manifest + atomic directory swap 整体发布；`always` 只替换验证通过且无额外 entry 的旧 managed tree；文件名仍为 bounded display stem + full opaque document key |

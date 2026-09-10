@@ -27,8 +27,8 @@
 | title search | 已实现 | `books search --field title` literal substring；多结果不猜第一项，使用 opaque cursor |
 | title/author/genre 综合搜索 | 已实现 | `books search --field all|title|author|genre`；case-insensitive literal partial match |
 | 书籍 semantic metadata | 已实现 | title/author/description/genre/language/year/pageCount/reading state 等 Agent 可理解字段；超限文本有 `truncatedFields` |
-| EPUB OPF / iTunes metadata enrichment | 已实现 | OPF 为主，plist 只补缺失 enrichment，不覆盖 current-library identity |
-| cover 提取 | 已实现 | EPUB 声明优先，有限 exact fallback；保留 bytes/media type/source |
+| EPUB OPF / iTunes metadata enrichment | 已实现（强化） | `content metadata` 返回 stable identity/fallback PK + 单层 bounded resolved metadata；DB title/author/language/releaseDate 优先，OPF/plist 补缺，不返回 raw identifiers/重复来源结构 |
+| cover 提取 | 已实现（强化） | `content cover --output <path>` 写文件并返回 canonical destination/disposition；相对路径按 cwd 解析，JSON 不内联图片或 private source path |
 | author sentinel normalization | 已实现 | ordinary book summary/detail 只返回 canonical author；Apple sentinel/private-use 标记归一化为清理值或 null |
 
 ## Reading status / stats

@@ -56,6 +56,8 @@ applebookscli annotations list --has-note true --order modified   # default 20; 
 applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
 applebookscli annotations context <annotation-uuid>
+applebookscli content metadata <asset-id>   # compact resolved metadata; stable identity first
+applebookscli content cover <asset-id> --output ./cover.png   # writes the image; JSON returns canonical destination
 applebookscli content chapters --book <asset-id>   # default 20; continue with --cursor <nextCursor>
 applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
 

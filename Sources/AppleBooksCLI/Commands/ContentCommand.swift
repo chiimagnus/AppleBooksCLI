@@ -71,10 +71,14 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(selector, in: books)
-            guard let inspection = try books.semanticContentMetadata(forBookLocalPK: book.localPK) else {
-                throw CLIError.notFound("Book not found.")
+            let inspection: SemanticEPUBMetadataInspection?
+            switch selector {
+            case let .assetID(assetID):
+                inspection = try books.semanticContentMetadata(bookAssetID: assetID)
+            case let .localPK(localPK):
+                inspection = try books.semanticContentMetadata(bookLocalPK: localPK)
             }
+            guard let inspection else { throw CLIError.notFound("Book not found.") }
             return ContentMetadataResult(inspection)
         }
     }
@@ -89,7 +93,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
     @Option(name: .long, help: "Use an explicit local Core Data primary key.")
     var pk: Int64?
 
-    @Option(name: .customLong("output"), help: "Absolute destination file path. Existing files are never replaced.")
+    @Option(name: .customLong("output"), help: "Destination file path, relative to the current directory or absolute. Existing files are never replaced.")
     var outputPath: String
 
     @OptionGroup var global: GlobalOptions
@@ -101,20 +105,23 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
         try output.writeJSON(result)
     }
 
-    func execute() throws -> ContentCoverResult {
+    func execute(currentDirectory: URL? = nil) throws -> ContentCoverResult {
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
-        guard outputPath.hasPrefix("/") else {
-            throw ValidationError("--output must be an absolute file path.")
-        }
-        let destination = URL(fileURLWithPath: outputPath).standardizedFileURL
-        guard destination.lastPathComponent.isEmpty == false else {
-            throw ValidationError("--output must name a file.")
-        }
+        let destination = try resolveContentCoverDestination(
+            outputPath,
+            currentDirectory: currentDirectory ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        )
 
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(selector, in: books)
-            guard let inspection = try books.semanticContentCover(forBookLocalPK: book.localPK) else {
+            let inspection: EPUBCoverInspection?
+            switch selector {
+            case let .assetID(assetID):
+                inspection = try books.semanticContentCover(bookAssetID: assetID)
+            case let .localPK(localPK):
+                inspection = try books.semanticContentCover(bookLocalPK: localPK)
+            }
+            guard let inspection else {
                 throw CLIError.unavailable("Book cover is unavailable.")
             }
             let writer = try ExportFileWriter(outputRoot: destination.deletingLastPathComponent())
@@ -123,7 +130,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
                 fileName: destination.lastPathComponent,
                 overwrite: .never
             )
-            return ContentCoverResult(inspection: inspection, disposition: writeResult.disposition)
+            return ContentCoverResult(inspection: inspection, writeResult: writeResult)
         }
     }
 }
@@ -372,96 +379,100 @@ struct ContentStatusResult: Codable, Equatable, Sendable {
 }
 
 struct ContentMetadataResult: Codable, Equatable, Sendable {
-    struct Database: Codable, Equatable, Sendable {
-        let localPK: Int64
-        let assetID: String?
-        let title: String?
-        let author: String?
-        let language: String?
-        let releaseDate: Date?
-    }
-
-    struct RawEPUB: Codable, Equatable, Sendable {
-        let title: String?
-        let creator: String?
-        let identifiers: [String]
-        let isbn: String?
-        let language: String?
-        let publisher: String?
-        let publicationDate: String?
-        let rights: String?
-        let subjects: [String]
-    }
-
-    struct Enrichment: Codable, Equatable, Sendable {
-        let isbn: String?
-        let language: String?
-        let publisher: String?
-        let publicationDate: String?
-        let rights: String?
-        let subjects: [String]
-    }
-
-    let source: EPUBContentSource
-    let database: Database
-    let epub: RawEPUB
-    let enrichment: Enrichment
+    let bookAssetID: String?
+    let bookLocalPK: Int64?
+    let contentSource: EPUBContentSource
+    let title: String?
+    let author: String?
+    let isbn: String?
+    let language: String?
+    let publisher: String?
+    let publicationDate: String?
+    let rights: String?
+    let subjects: [String]
+    let truncatedFields: [String]
 
     init(_ inspection: SemanticEPUBMetadataInspection) {
-        let book = inspection.book
-        source = inspection.source
-        database = Database(
-            localPK: book.localPK,
-            assetID: book.assetID,
-            title: book.title,
-            author: book.author,
-            language: book.language,
-            releaseDate: book.releaseDate
-        )
         let metadata = inspection.metadata
-        epub = RawEPUB(
-            title: metadata.title,
-            creator: metadata.creator,
-            identifiers: metadata.identifiers,
-            isbn: metadata.isbn,
-            language: metadata.language,
-            publisher: metadata.publisher,
-            publicationDate: metadata.publicationDate,
-            rights: metadata.rights,
-            subjects: metadata.subjects
-        )
-        let enrichment = inspection.enrichment
-        self.enrichment = Enrichment(
-            isbn: enrichment.isbn,
-            language: enrichment.language,
-            publisher: enrichment.publisher,
-            publicationDate: enrichment.publicationDate,
-            rights: enrichment.rights,
-            subjects: enrichment.subjects
-        )
+        let fallback = inspection.databaseFallback
+        bookAssetID = inspection.bookAssetID
+        bookLocalPK = inspection.bookAssetID == nil && LocalPKPolicy.isEligible(inspection.bookLocalPK)
+            ? inspection.bookLocalPK
+            : nil
+        contentSource = inspection.source
+
+        var truncated = fallback.byteTruncatedFields
+        title = boundedField(fallback.title ?? metadata.title, field: "title", profile: .metadata, truncatedFields: &truncated)
+        author = boundedField(fallback.author ?? metadata.creator, field: "author", profile: .metadata, truncatedFields: &truncated)
+        isbn = boundedField(metadata.isbn, field: "isbn", profile: .shortMetadata, truncatedFields: &truncated)
+        language = boundedField(fallback.language ?? metadata.language, field: "language", profile: .shortMetadata, truncatedFields: &truncated)
+        publisher = boundedField(metadata.publisher, field: "publisher", profile: .metadata, truncatedFields: &truncated)
+        let resolvedPublicationDate = fallback.releaseDate.map(Self.iso8601) ?? metadata.publicationDate
+        publicationDate = boundedField(resolvedPublicationDate, field: "publicationDate", profile: .shortMetadata, truncatedFields: &truncated)
+        rights = boundedField(metadata.rights, field: "rights", profile: .detail, truncatedFields: &truncated)
+
+        let subjectProfile = BoundedTextProfile(maximumGraphemes: 256, maximumUTF8Bytes: 4 * 1_024)
+        var boundedSubjects: [String] = []
+        boundedSubjects.reserveCapacity(min(metadata.subjects.count, 32))
+        var subjectsTruncated = metadata.subjects.count > 32
+        for subject in metadata.subjects.prefix(32) {
+            let bounded = BoundedTextPolicy.truncate(subject, profile: subjectProfile)
+            if bounded.truncated { subjectsTruncated = true }
+            if let value = bounded.value { boundedSubjects.append(value) }
+        }
+        subjects = boundedSubjects
+        if subjectsTruncated { truncated.append("subjects") }
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
 }
 
 struct ContentCoverResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
     let bookAssetID: String?
+    let bookLocalPK: Int64?
     let contentSource: EPUBContentSource
     let coverSource: EPUBCoverSource
     let mediaType: String?
     let byteCount: Int
-    let outputStatus: ExportFileWriteDisposition
+    let destination: String
+    let disposition: ExportFileWriteDisposition
 
-    init(inspection: EPUBCoverInspection, disposition: ExportFileWriteDisposition) {
-        bookLocalPK = inspection.bookLocalPK
+    init(inspection: EPUBCoverInspection, writeResult: ExportFileWriteResult) {
         bookAssetID = inspection.bookAssetID
+        bookLocalPK = inspection.bookAssetID == nil && LocalPKPolicy.isEligible(inspection.bookLocalPK)
+            ? inspection.bookLocalPK
+            : nil
         contentSource = inspection.source
         coverSource = inspection.cover.source
         mediaType = inspection.cover.mediaType
         byteCount = inspection.cover.data.count
-        outputStatus = disposition
+        destination = writeResult.destination.path
+        disposition = writeResult.disposition
     }
+}
 
+private func resolveContentCoverDestination(_ path: String, currentDirectory: URL) throws -> URL {
+    guard path.isEmpty == false,
+          path.unicodeScalars.contains(where: { $0.value == 0 }) == false,
+          currentDirectory.isFileURL,
+          currentDirectory.path.hasPrefix("/") else {
+        throw ValidationError("--output must name a valid file path.")
+    }
+    let destination = path.hasPrefix("/")
+        ? URL(fileURLWithPath: path).standardizedFileURL
+        : currentDirectory.appendingPathComponent(path, isDirectory: false).standardizedFileURL
+    guard destination.path.hasPrefix("/"),
+          destination.lastPathComponent.isEmpty == false,
+          destination.path != "/" else {
+        throw ValidationError("--output must name a file.")
+    }
+    return destination
 }
 
 struct ContentChapterResult: Codable, Equatable, Sendable {

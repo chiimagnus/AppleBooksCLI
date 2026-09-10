@@ -916,13 +916,28 @@ public final class AppleBooks {
         return try EPUBContentInspector.metadata(book: book, configuration: try requiredConfiguration())
     }
 
-    package func semanticContentMetadata(forBookLocalPK localPK: Int64) throws -> SemanticEPUBMetadataInspection? {
+    package func semanticContentMetadata(bookAssetID assetID: String) throws -> SemanticEPUBMetadataInspection? {
         let queries = try requiredBookQueries()
-        guard let book = try queries.semanticDetail(localPK: localPK),
-              let target = try queries.resourceTarget(localPK: localPK) else { return nil }
+        guard let target = try queries.uniqueResourceTarget(assetID: assetID) else { return nil }
+        return try semanticContentMetadata(target: target, queries: queries)
+    }
+
+    package func semanticContentMetadata(bookLocalPK localPK: Int64) throws -> SemanticEPUBMetadataInspection? {
+        let queries = try requiredBookQueries()
+        guard let target = try queries.resourceTarget(localPK: localPK) else { return nil }
+        return try semanticContentMetadata(target: target, queries: queries)
+    }
+
+    private func semanticContentMetadata(
+        target: BookResourceTarget,
+        queries: BookQueries
+    ) throws -> SemanticEPUBMetadataInspection {
+        guard target.path != nil else { throw ContentError.bookPathUnavailable }
+        let fallback = try queries.contentMetadataFallback(localPK: target.localPK)
+            ?? BookContentMetadataFallback(title: nil, author: nil, language: nil, releaseDate: nil, byteTruncatedFields: [])
         return try EPUBContentInspector.metadata(
             target: target,
-            book: book,
+            databaseFallback: fallback,
             configuration: try requiredConfiguration()
         )
     }
@@ -932,8 +947,18 @@ public final class AppleBooks {
         return try EPUBContentInspector.cover(book: book, configuration: try requiredConfiguration())
     }
 
-    package func semanticContentCover(forBookLocalPK localPK: Int64) throws -> EPUBCoverInspection? {
+    package func semanticContentCover(bookAssetID assetID: String) throws -> EPUBCoverInspection? {
+        guard let target = try requiredBookQueries().uniqueResourceTarget(assetID: assetID) else { return nil }
+        return try semanticContentCover(target: target)
+    }
+
+    package func semanticContentCover(bookLocalPK localPK: Int64) throws -> EPUBCoverInspection? {
         guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
+        return try semanticContentCover(target: target)
+    }
+
+    private func semanticContentCover(target: BookResourceTarget) throws -> EPUBCoverInspection? {
+        guard target.path != nil else { throw ContentError.bookPathUnavailable }
         return try EPUBContentInspector.cover(target: target, configuration: try requiredConfiguration())
     }
 

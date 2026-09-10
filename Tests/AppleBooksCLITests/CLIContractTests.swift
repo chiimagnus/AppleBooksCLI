@@ -184,9 +184,14 @@ struct CLIContractTests {
         #expect(status["selectedSource"] as? String == "current")
 
         let metadata = try fixture.runJSON(["content", "metadata", "asset-a"])
-        let epubMetadata = try #require(metadata["epub"] as? [String: Any])
-        #expect(epubMetadata["title"] as? String == "Synthetic EPUB")
-        #expect(epubMetadata["creator"] as? String == "Fixture Author")
+        #expect(metadata["bookAssetID"] as? String == "asset-a")
+        #expect(metadata["bookLocalPK"] == nil)
+        #expect(metadata["title"] as? String == "Book A")
+        #expect(metadata["author"] as? String == "Author A")
+        #expect(metadata["contentSource"] as? String == "current")
+        #expect(metadata["epub"] == nil)
+        #expect(metadata["database"] == nil)
+        #expect(metadata["enrichment"] == nil)
 
         let located = try fixture.runJSON([
             "content", "locate", "asset-a", "epubcfi(/6/2[shared]!/4/2,:0,:5)",

@@ -421,6 +421,70 @@ struct BookQueries {
         return try resourceTarget(localPK: localPK)
     }
 
+    func contentMetadataFallback(localPK: Int64) throws -> BookContentMetadataFallback? {
+        let schema = try AppleBooksSchema.inspect(.bookContentPathLookup, on: connection)
+        var projection: [String] = []
+        for (column, alias, budget) in [
+            (AppleBooksSchema.Book.title, "contentMetadataTitle", SQLiteSemanticTextBudget.metadata),
+            (AppleBooksSchema.Book.author, "contentMetadataAuthor", SQLiteSemanticTextBudget.metadata),
+            (AppleBooksSchema.Book.language, "contentMetadataLanguage", SQLiteSemanticTextBudget.shortMetadata),
+        ] where schema.contains(column) {
+            projection += SQLiteTextProjection.bounded(
+                "b.\(column)",
+                alias: alias,
+                maximumUTF8Bytes: budget
+            )
+        }
+        if schema.contains(AppleBooksSchema.Book.releaseDate) {
+            projection.append("b.\(AppleBooksSchema.Book.releaseDate) AS \(AppleBooksSchema.Book.releaseDate)")
+        }
+        if projection.isEmpty {
+            return BookContentMetadataFallback(
+                title: nil,
+                author: nil,
+                language: nil,
+                releaseDate: nil,
+                byteTruncatedFields: []
+            )
+        }
+        let statement = try connection.prepare("""
+        SELECT \(projection.joined(separator: ", "))
+        FROM \(AppleBooksTable.books.rawValue) AS b
+        WHERE b.\(AppleBooksSchema.Book.localPK) = ?
+        LIMIT 1
+        """)
+        try statement.bind(localPK, at: 1)
+        guard try statement.step() else { return nil }
+        let row = try SQLiteRow(statement: statement)
+        func bounded(_ column: String, alias: String, budget: Int) throws -> BoundedSQLiteText {
+            guard schema.contains(column) else {
+                return BoundedSQLiteText(value: nil, originalUTF8ByteCount: nil, wasByteTruncated: false)
+            }
+            return try SQLiteTextProjection.decodeBounded(
+                row,
+                alias: alias,
+                column: column,
+                maximumUTF8Bytes: budget
+            )
+        }
+        let title = try bounded(AppleBooksSchema.Book.title, alias: "contentMetadataTitle", budget: SQLiteSemanticTextBudget.metadata)
+        let author = try bounded(AppleBooksSchema.Book.author, alias: "contentMetadataAuthor", budget: SQLiteSemanticTextBudget.metadata)
+        let language = try bounded(AppleBooksSchema.Book.language, alias: "contentMetadataLanguage", budget: SQLiteSemanticTextBudget.shortMetadata)
+        var truncated: [String] = []
+        if title.wasByteTruncated { truncated.append("title") }
+        if author.wasByteTruncated { truncated.append("author") }
+        if language.wasByteTruncated { truncated.append("language") }
+        return BookContentMetadataFallback(
+            title: title.value,
+            author: normalizedAppleBooksAuthor(author.value),
+            language: language.value,
+            releaseDate: schema.contains(AppleBooksSchema.Book.releaseDate)
+                ? CoreDataTime.date(from: try row.double(AppleBooksSchema.Book.releaseDate))
+                : nil,
+            byteTruncatedFields: truncated
+        )
+    }
+
     func resourceTarget(localPK: Int64) throws -> BookResourceTarget? {
         let schema = try AppleBooksSchema.inspect(.bookContentPathLookup, on: connection)
         var projection = ["b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)"]

@@ -231,7 +231,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     var overwrite: ExportOverwriteArgument?
 
     @Option(name: .long, help: "Write the export artifact to this file or directory.")
-    var output: String?
+    var output: String
 
     @OptionGroup var global: GlobalOptions
 
@@ -270,9 +270,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
 
         let overwritePolicy = overwrite?.coreValue ?? .never
-        guard let output else {
-            throw ValidationError("Export requires --output.")
-        }
         let outputURL = try CLIOperation.run {
             try ExportFileWriter.destination(path: output, currentDirectory: currentDirectory)
         }

@@ -96,7 +96,7 @@ struct CLIContractTests {
 
         for arguments in [
             ["books", "list"],
-            ["export", "--format", "json"],
+            ["export", "--format", "json", "--output", "/tmp/non-recordable-export.json"],
             ["backups", "list"],
             ["history", "list"],
             ["history", "get", "00000000-0000-4000-8000-000000000000"],

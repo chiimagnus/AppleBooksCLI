@@ -207,7 +207,7 @@ enum CLIOperation {
                 return .unavailable("Apple Books cloud sync did not reach acknowledgement.")
             }
         }
-        if error is PDFHighlightFacadeError {
+        if error as? AppleBooksDependencyError == .unavailable(.pdfWorker) {
             return .unavailable("PDF worker is unavailable.")
         }
         if error is PDFWorkerClientError {

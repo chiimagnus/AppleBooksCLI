@@ -6,10 +6,6 @@ public enum StableIdentityError: Error, Equatable, Sendable {
     case ambiguousAnnotationUUID
 }
 
-package enum PDFHighlightFacadeError: Error, Equatable, Sendable {
-    case workerUnavailable
-}
-
 public enum AppleBooksCloudSyncError: Error, Equatable, Sendable {
     case unavailable
     case acknowledgementFailed
@@ -839,8 +835,7 @@ public final class AppleBooks {
     }
 
     private func pdfHighlightService() throws -> PDFHighlightService {
-        guard let pdfWorkerClient else { throw PDFHighlightFacadeError.workerUnavailable }
-        return PDFHighlightService(workerClient: pdfWorkerClient)
+        PDFHighlightService(workerClient: try require(pdfWorkerClient, .pdfWorker))
     }
 
     package func exportDependencies(options: ExportOptions) throws -> AppleBooksDependencies {

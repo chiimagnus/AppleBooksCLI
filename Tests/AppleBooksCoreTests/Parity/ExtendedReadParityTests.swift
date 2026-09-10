@@ -119,7 +119,6 @@ struct ExtendedReadParityTests {
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
 
-        #expect(try fixture.books.currentReadingLocation(forBookLocalPK: 3)?.location == nil)
         #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-third") == .unavailable)
 
         let historical = try #require(try fixture.books.semanticAnnotation(localPK: 14))

@@ -1250,13 +1250,6 @@ public final class AppleBooks {
         try requiredReadingQueries().semanticRecentlyReadPage(limit: limit, cursor: cursor)
     }
 
-    public func currentReadingLocation(forBookLocalPK localPK: Int64) throws -> Annotation? {
-        guard let assetID = try requiredBookQueries().semanticAssetID(localPK: localPK) else {
-            return nil
-        }
-        return try requiredReadingQueries().currentPosition(rawAssetID: assetID)
-    }
-
     private func requiredAnnotationAggregateQueries() throws -> AnnotationAggregateQueries {
         guard let annotationConnection else {
             throw AppleBooksDependencyError.unavailable(.annotationsRead)
@@ -1406,15 +1399,6 @@ public final class AppleBooks {
             chapterID: chapterID,
             in: semanticBookContent(forBookLocalPK: localPK)
         )
-    }
-
-    public func currentReadingChapter(forBookLocalPK localPK: Int64) throws -> Chapter? {
-        guard let bookmark = try currentReadingLocation(forBookLocalPK: localPK),
-              let chapterID = bookmark.location?.chapterID else {
-            return nil
-        }
-        let content = try bookContent(forBookLocalPK: localPK)
-        return try CurrentReadingChapter.resolve(chapterID: chapterID, in: content)
     }
 
     package func semanticBookmarkedReadingPosition(

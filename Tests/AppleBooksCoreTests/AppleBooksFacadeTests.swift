@@ -6,7 +6,7 @@ import Testing
 @Suite("AppleBooksFacadeTests")
 struct AppleBooksFacadeTests {
     @Test
-    func exposesOnlyThePlannedReadSemanticsAndResolvesCurrentLocationFromBookPk() throws {
+    func exposesOnlyThePlannedReadSemantics() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let books = try AppleBooks(
@@ -33,8 +33,6 @@ struct AppleBooksFacadeTests {
         let upper = try #require(CoreDataTime.date(from: 150))
         #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(createdAfter: lower, createdBefore: upper, limit: 100)).items.map(\.localPK) == [10])
 
-        #expect(try books.currentReadingLocation(forBookLocalPK: 1)?.localPK == 11)
-        #expect(try books.currentReadingLocation(forBookLocalPK: 999) == nil)
     }
 
     @Test
@@ -233,7 +231,7 @@ struct AppleBooksFacadeTests {
     }
 
     @Test
-    func currentLocationFailsClosedWhenBookAssetIdColumnIsMissing() throws {
+    func semanticCurrentChapterFailsClosedWhenBookAssetIdColumnIsMissing() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
@@ -256,7 +254,7 @@ struct AppleBooksFacadeTests {
             table: .books,
             columns: ["ZASSETID"]
         )) {
-            _ = try books.currentReadingLocation(forBookLocalPK: 1)
+            _ = try books.semanticCurrentReadingChapter(forBookLocalPK: 1)
         }
     }
 

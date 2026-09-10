@@ -72,7 +72,11 @@ final class ReadParityRegressionTests: XCTestCase {
             [102, 103]
         )
 
-        XCTAssertEqual(try books.currentReadingLocation(forBookLocalPK: 1)?.localPK, 199)
+        let readingQueries = try ReadingQueries(
+            connection: SQLiteConnection.readOnly(path: libraryDB.path),
+            annotationConnection: SQLiteConnection.readOnly(path: annotationsDB.path)
+        )
+        XCTAssertEqual(try readingQueries.semanticCurrentLocation(rawAssetID: "asset-1")?.chapterID, "current")
     }
 
     private func createDatabase(at url: URL, sqlURL: URL) throws {

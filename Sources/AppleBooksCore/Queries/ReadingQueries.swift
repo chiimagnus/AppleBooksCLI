@@ -117,33 +117,6 @@ struct ReadingQueries {
         }
     }
 
-    func currentPosition(rawAssetID: String) throws -> Annotation? {
-        guard let annotationConnection else {
-            throw ReadingQueryConfigurationError.missingAnnotationConnection
-        }
-        let schema = try AppleBooksSchema.inspect(.currentPosition, on: annotationConnection)
-        let projection = [AppleBooksSchema.Annotation.localPK]
-            + AppleBooksSchema.Annotation.allProjection.filter(schema.contains)
-        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.annotations.rawValue)"
-        sql += " WHERE \(AppleBooksSchema.Annotation.isDeleted) = 0"
-        sql += " AND \(AppleBooksSchema.Annotation.type) = 3"
-        sql += " AND \(AppleBooksSchema.Annotation.assetID) = ?"
-        if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
-            let modified = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
-            sql += " ORDER BY \(modified) IS NULL,"
-            sql += " \(modified) DESC,"
-            sql += " \(AppleBooksSchema.Annotation.localPK) DESC"
-        } else {
-            sql += " ORDER BY \(AppleBooksSchema.Annotation.localPK) DESC"
-        }
-        sql += " LIMIT 1"
-
-        let statement = try annotationConnection.prepare(sql)
-        try statement.bind(rawAssetID, at: 1)
-        guard try statement.step() else { return nil }
-        return try AnnotationQueries.decode(SQLiteRow(statement: statement), schema: schema)
-    }
-
     private func semanticPage(
         _ kind: Kind,
         capability: SchemaCapability,

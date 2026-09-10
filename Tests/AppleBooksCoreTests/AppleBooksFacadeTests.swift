@@ -33,10 +33,6 @@ struct AppleBooksFacadeTests {
         let upper = try #require(CoreDataTime.date(from: 150))
         #expect(try books.annotations(createdAtOrAfter: lower, beforeExclusive: upper).map { $0.annotation.localPK } == [10])
 
-        #expect(try books.booksInProgress().map(\.localPK) == [1])
-        #expect(try books.finishedBooks().map(\.localPK) == [2])
-        #expect(try books.unstartedBooks().map(\.localPK) == [3])
-        #expect(try books.recentlyReadBooks().map(\.localPK) == [2, 1])
         #expect(try books.currentReadingLocation(forBookLocalPK: 1)?.localPK == 11)
         #expect(try books.currentReadingLocation(forBookLocalPK: 999) == nil)
     }

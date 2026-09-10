@@ -31,18 +31,16 @@ struct ReadingQueriesTests {
         try setReal(.infinity, column: "ZLASTOPENDATE", localPK: 5, database: fixture)
         let queries = try ReadingQueries(connection: SQLiteConnection.readOnly(path: fixture.path))
 
-        let finished = try queries.finished()
-        let inProgress = try queries.inProgress()
-        let unstarted = try queries.unstarted()
-        #expect(finished.map(\.localPK) == [1, 2, 9])
-        #expect(inProgress.map(\.localPK) == [8, 3, 4])
-        #expect(unstarted.map(\.localPK) == [7, 6, 5])
-        #expect(inProgress.first?.readingProgressRaw == 1.25)
-        #expect(unstarted.last?.readingProgressRaw?.isInfinite == true)
-        #expect(try queries.recentlyRead(limit: 20).map(\.localPK).contains(5) == false)
+        let finished = try collectPages(limit: 20) { try queries.semanticFinishedPage(limit: $0, cursor: $1) }
+        let inProgress = try collectPages(limit: 20) { try queries.semanticInProgressPage(limit: $0, cursor: $1) }
+        let unstarted = try collectPages(limit: 20) { try queries.semanticUnstartedPage(limit: $0, cursor: $1) }
+        #expect(finished == [1, 2, 9])
+        #expect(inProgress == [8, 3, 4])
+        #expect(unstarted == [7, 6, 5])
+        #expect(try collectPages(limit: 20) { try queries.semanticRecentlyReadPage(limit: $0, cursor: $1) }.contains(5) == false)
         #expect(try queries.partitionCounts() == ReadingPartitionCounts(finished: 3, inProgress: 3, unstarted: 3))
 
-        let sets = [Set(finished.map(\.localPK)), Set(inProgress.map(\.localPK)), Set(unstarted.map(\.localPK))]
+        let sets = [Set(finished), Set(inProgress), Set(unstarted)]
         #expect(sets[0].isDisjoint(with: sets[1]))
         #expect(sets[0].isDisjoint(with: sets[2]))
         #expect(sets[1].isDisjoint(with: sets[2]))
@@ -63,14 +61,14 @@ struct ReadingQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try ReadingQueries(connection: SQLiteConnection.readOnly(path: fixture.path))
 
-        #expect(try queries.finished().map(\.localPK) == [3, 1])
-        #expect(try queries.inProgress().map(\.localPK) == [5, 2])
-        #expect(try queries.unstarted().map(\.localPK) == [4])
+        #expect(try collectPages(limit: 20) { try queries.semanticFinishedPage(limit: $0, cursor: $1) } == [3, 1])
+        #expect(try collectPages(limit: 20) { try queries.semanticInProgressPage(limit: $0, cursor: $1) } == [5, 2])
+        #expect(try collectPages(limit: 20) { try queries.semanticUnstartedPage(limit: $0, cursor: $1) } == [4])
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .books,
             columns: ["ZLASTOPENDATE"]
         )) {
-            _ = try queries.recentlyRead()
+            _ = try queries.semanticRecentlyReadPage()
         }
     }
 
@@ -103,32 +101,6 @@ struct ReadingQueriesTests {
         #expect(try collectPages(limit: 2) { try queries.semanticInProgressPage(limit: $0, cursor: $1) } == [6, 5, 7])
         #expect(try collectPages(limit: 1) { try queries.semanticUnstartedPage(limit: $0, cursor: $1) } == [9, 8, 10])
         #expect(try collectPages(limit: 2) { try queries.semanticRecentlyReadPage(limit: $0, cursor: $1) } == [6, 5, 9, 8, 4, 3, 2, 1])
-    }
-
-    @Test
-    func recentlyReadHasParityDefaultLimitAndStableTies() throws {
-        var values: [String] = []
-        for pk in 1...12 {
-            let timestamp = pk <= 2 ? 500 : Double(100 + pk)
-            values.append("(\(pk),0,0,NULL,\(timestamp))")
-        }
-        let fixture = try database(sql: """
-        CREATE TABLE ZBKLIBRARYASSET(
-            Z_PK INTEGER PRIMARY KEY,
-            ZISFINISHED INTEGER,
-            ZREADINGPROGRESS REAL,
-            ZDATEFINISHED REAL,
-            ZLASTOPENDATE REAL
-        );
-        INSERT INTO ZBKLIBRARYASSET VALUES \(values.joined(separator: ","));
-        """)
-        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
-        let queries = try ReadingQueries(connection: SQLiteConnection.readOnly(path: fixture.path))
-
-        let recent = try queries.recentlyRead()
-        #expect(recent.count == 10)
-        #expect(recent.prefix(2).map(\.localPK) == [2, 1])
-        #expect(try queries.recentlyRead(limit: 2, offset: 1).map(\.localPK) == [1, 12])
     }
 
     private func collectPages(

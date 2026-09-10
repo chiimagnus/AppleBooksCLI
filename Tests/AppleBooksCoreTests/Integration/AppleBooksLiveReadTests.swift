@@ -38,18 +38,8 @@ final class AppleBooksLiveReadTests: XCTestCase {
         let bookQueries = BookQueries(connection: library)
         let readingQueries = ReadingQueries(connection: library)
         let baseBooks = try bookQueries.list()
-        let finished = try readingQueries.finished()
-        let inProgress = try readingQueries.inProgress()
-        let unstarted = try readingQueries.unstarted()
-
-        let base = Set(baseBooks.map(\.localPK))
-        let finishedSet = Set(finished.map(\.localPK))
-        let inProgressSet = Set(inProgress.map(\.localPK))
-        let unstartedSet = Set(unstarted.map(\.localPK))
-        XCTAssertTrue(finishedSet.isDisjoint(with: inProgressSet))
-        XCTAssertTrue(finishedSet.isDisjoint(with: unstartedSet))
-        XCTAssertTrue(inProgressSet.isDisjoint(with: unstartedSet))
-        XCTAssertEqual(finishedSet.union(inProgressSet).union(unstartedSet), base)
+        let partitions = try readingQueries.partitionCounts()
+        XCTAssertEqual(partitions.finished + partitions.inProgress + partitions.unstarted, baseBooks.count)
 
         let canonicalCount = try activeUserAnnotationCount(on: annotations)
         let annotationQueries = AnnotationQueries(

@@ -1556,22 +1556,6 @@ public final class AppleBooks {
         )
     }
 
-    public func booksInProgress(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredReadingQueries().inProgress(limit: limit, offset: offset)
-    }
-
-    public func finishedBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredReadingQueries().finished(limit: limit, offset: offset)
-    }
-
-    public func unstartedBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredReadingQueries().unstarted(limit: limit, offset: offset)
-    }
-
-    public func recentlyReadBooks(limit: Int = 10, offset: Int = 0) throws -> [Book] {
-        try requiredReadingQueries().recentlyRead(limit: limit, offset: offset)
-    }
-
     package func semanticBooksInProgressPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
         try requiredReadingQueries().semanticInProgressPage(limit: limit, cursor: cursor)
     }

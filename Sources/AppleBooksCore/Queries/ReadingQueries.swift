@@ -33,22 +33,6 @@ struct ReadingQueries {
         self.annotationConnection = annotationConnection
     }
 
-    func finished(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.finished, capability: .readingFinished, limit: limit, offset: offset)
-    }
-
-    func inProgress(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.inProgress, capability: .readingInProgress, limit: limit, offset: offset)
-    }
-
-    func unstarted(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.unstarted, capability: .readingUnstarted, limit: limit, offset: offset)
-    }
-
-    func recentlyRead(limit: Int = 10, offset: Int = 0) throws -> [Book] {
-        try query(.recentlyRead, capability: .readingRecentlyRead, limit: limit, offset: offset)
-    }
-
     func semanticFinishedPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
         try semanticPage(.finished, capability: .readingFinished, limit: limit, cursor: cursor)
     }
@@ -209,41 +193,6 @@ struct ReadingQueries {
         )
     }
 
-    private func query(
-        _ kind: Kind,
-        capability: SchemaCapability,
-        limit: Int?,
-        offset: Int
-    ) throws -> [Book] {
-        try validatePagination(limit: limit, offset: offset)
-        let schema = try AppleBooksSchema.inspect(capability, on: connection)
-        let projection = [AppleBooksSchema.Book.localPK]
-            + AppleBooksSchema.Book.allProjection.filter(schema.contains)
-        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue)"
-        appendSelectionAndOrder(kind, schema: schema, to: &sql)
-
-        if limit != nil {
-            sql += " LIMIT ? OFFSET ?"
-        } else if offset > 0 {
-            sql += " LIMIT -1 OFFSET ?"
-        }
-
-        let statement = try connection.prepare(sql)
-        if let limit {
-            try statement.bind(Int64(limit), at: 1)
-            try statement.bind(Int64(offset), at: 2)
-        } else if offset > 0 {
-            try statement.bind(Int64(offset), at: 1)
-        }
-
-        let decoder = BookQueries(connection: connection)
-        var books: [Book] = []
-        while try statement.step() {
-            books.append(try decoder.decode(SQLiteRow(statement: statement), schema: schema))
-        }
-        return books
-    }
-
     private func semanticCandidates(
         _ kind: Kind,
         schema: SchemaAvailability,
@@ -376,12 +325,4 @@ struct ReadingQueries {
         return "((\(cursorDate) IS NULL AND \(bookDate) IS NULL AND \(pkAfter)) OR (\(cursorDate) IS NOT NULL AND (\(bookDate) IS NULL OR (\(bookDate) IS NOT NULL AND (\(bookDate) < \(cursorDate) OR (\(bookDate) = \(cursorDate) AND \(pkAfter)))))))"
     }
 
-    private func appendSelectionAndOrder(
-        _ kind: Kind,
-        schema: SchemaAvailability,
-        to sql: inout String
-    ) {
-        sql += " WHERE \(selectionPredicate(kind, alias: AppleBooksTable.books.rawValue))"
-        sql += " ORDER BY \(order(kind, schema: schema, alias: AppleBooksTable.books.rawValue).joined(separator: ", "))"
-    }
 }

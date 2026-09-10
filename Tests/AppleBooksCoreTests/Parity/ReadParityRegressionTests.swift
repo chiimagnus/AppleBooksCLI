@@ -62,10 +62,6 @@ final class ReadParityRegressionTests: XCTestCase {
             [102, 103]
         )
 
-        XCTAssertEqual(try books.finishedBooks().map(\.localPK), [2])
-        XCTAssertEqual(try books.unstartedBooks().map(\.localPK), [3])
-        XCTAssertEqual(try books.booksInProgress().map(\.localPK).sorted(), [1, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-        XCTAssertEqual(try books.recentlyReadBooks().map(\.localPK), [12, 11, 10, 9, 8, 7, 6, 5, 4, 3])
         XCTAssertEqual(try books.currentReadingLocation(forBookLocalPK: 1)?.localPK, 199)
     }
 

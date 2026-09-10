@@ -38,6 +38,48 @@ struct BackupsCommandTests {
     }
 
     @Test
+    func listIsFixedNewestTenAndRejectsBrowsePaginationBeforeDatabaseAccess() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.backupRoot, withIntermediateDirectories: true)
+
+        var metadata: [BackupMetadata] = []
+        for index in 0..<12 {
+            let item = BackupMetadata.fresh(
+                sourceStem: "library",
+                now: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
+                uuid: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012x", index + 1))!
+            )
+            metadata.append(item)
+            try Data([UInt8(index)]).write(to: fixture.backupRoot.appendingPathComponent(item.filename))
+        }
+
+        let command = try BackupsListCommand.parse([])
+        let result = try command.execute(using: fixture.books())
+        #expect(result.items.count == SQLiteBackup.retentionCount)
+        #expect(result.items.map(\.handle) == Array(metadata.suffix(10).reversed().map(\.filename)))
+        #expect(result.items.allSatisfy { $0.handle.contains("/") == false })
+
+        let missing = "/definitely/missing/applebookscli-backups-list.sqlite"
+        let invalidCases = [
+            ["backups", "list", "--all"],
+            ["backups", "list", "--limit", "1"],
+            ["backups", "list", "--offset", "1"],
+            ["backups", "list", "--cursor", "opaque"],
+        ]
+        for arguments in invalidCases {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(
+                arguments: arguments + ["--library-db", missing],
+                output: capture.output
+            )
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains("Database override") == false)
+        }
+    }
+
+    @Test
     func restoreUsesCoreLifecycleCreatesFreshSafetyBackupAndRestoresDatabase() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

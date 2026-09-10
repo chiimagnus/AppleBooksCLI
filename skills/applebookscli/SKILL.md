@@ -45,7 +45,7 @@ For annotation reads, repeat every selector/filter/order when continuing `annota
 - Collection membership mutations use named selectors only: choose exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`; never pass collection/book identities as positional arguments.
 - Use `--sync` on a single mutation only when the user wants current-Mac CloudKit acknowledgement; otherwise omit it. For several mutations that need acknowledgement, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch.
 - A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
-- Resolve the exact backup handle before restore.
+- `backups list` is a fixed recovery catalog of the newest 10 valid library backups; do not paginate it or treat it as complete backup history. An already-known valid backup handle may still be restored after it ages out of the list. Resolve the exact backup handle before restore.
 
 ## Export and failures
 

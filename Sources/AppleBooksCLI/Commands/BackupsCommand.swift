@@ -16,7 +16,7 @@ struct BackupsCommand: ParsableCommand {
 struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List safe library backup handles and metadata."
+        abstract: "List the newest 10 safe library recovery backups."
     )
 
     @OptionGroup var global: GlobalOptions

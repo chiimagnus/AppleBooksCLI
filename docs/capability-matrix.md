@@ -134,7 +134,7 @@
 | soft-delete annotation | 已实现 | soft-delete，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
-| backup list/retention | 已实现 | public catalog/restore 当前覆盖 BKLibrary；annotation backup 仅内部 safety use |
+| backup list/retention | 已实现（强化） | public BKLibrary catalog 以流式目录扫描固定只返回 newest 10 valid recovery artifacts，不提供分页历史浏览；exact restore 独立验证已知 handle；annotation backup 仅内部 safety use |
 | restore | 已实现 | restore 前 safety backup；apply 后 verification/relaunch failure 不能冒充未发生 |
 | Books.app lifecycle | 已实现（强化） | normal mutation 保留 closed/background/frontmost；explicit sync temporary launch 不夺取最终状态 ownership |
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |

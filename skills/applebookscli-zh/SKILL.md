@@ -45,7 +45,7 @@ metadata:
 - collection membership mutation 只使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个；collection/book identity 不再作为 positional argument。
 - 单条 mutation 只有在用户需要当前 Mac CloudKit acknowledgement 时才加 `--sync`，否则省略。多条 mutation 需要 acknowledgement 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。
 - 已 commit 后出现 warning 不能触发自动重放。sync acknowledgement 只确认当前 Mac，不代表另一台设备已经显示。
-- restore 前先解析精确 backup handle。
+- `backups list` 是固定恢复目录，只展示最新 10 个有效 library backup；不要分页，也不要把它当作完整备份历史。已知且仍有效的 backup handle 即使已退出列表仍可 restore；restore 前先解析精确 backup handle。
 
 ## 导出与失败处理
 

@@ -108,6 +108,13 @@ struct ExportRunWarning: Codable, Equatable, Sendable {
         )
     }
 
+    static let managedDirectoryPublishSyncFailed = Self(
+        code: "export_directory_sync_failed",
+        source: "export",
+        sourceID: nil,
+        reason: "managed_directory_parent_sync_failed"
+    )
+
     static let oldExportCleanupFailed = Self(
         code: "old_export_cleanup_failed",
         source: "export",
@@ -293,7 +300,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     func execute(
         using injectedBooks: AppleBooks? = nil,
         exportedAt: Date = Date(),
-        workerURLProvider: () throws -> URL = { try installedPDFWorkerURL() }
+        workerURLProvider: () throws -> URL = { try installedPDFWorkerURL() },
+        managedDirectorySyncParentAfterPublish: ((Int32) -> Bool)? = nil
     ) throws -> ExportRunResult {
         let request = try makeRequest()
         return try CLIOperation.run {
@@ -306,7 +314,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 bundle,
                 request: request,
                 outputURL: request.outputURL,
-                exportedAt: exportedAt
+                exportedAt: exportedAt,
+                managedDirectorySyncParentAfterPublish: managedDirectorySyncParentAfterPublish
             )
             let warningSummary = try ExportRunWarning.summaries(
                 bundle.warnings,
@@ -344,14 +353,16 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         _ bundle: ExportBundle,
         request: ExportCLIRequest,
         outputURL: URL,
-        exportedAt: Date
+        exportedAt: Date,
+        managedDirectorySyncParentAfterPublish: ((Int32) -> Bool)?
     ) throws -> ExportRunResult {
         if request.producesMultipleFiles {
             return try writeMultiple(
                 bundle,
                 request: request,
                 outputDirectory: outputURL,
-                exportedAt: exportedAt
+                exportedAt: exportedAt,
+                syncParentAfterPublish: managedDirectorySyncParentAfterPublish
             )
         }
 
@@ -381,7 +392,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         _ bundle: ExportBundle,
         request: ExportCLIRequest,
         outputDirectory: URL,
-        exportedAt: Date
+        exportedAt: Date,
+        syncParentAfterPublish: ((Int32) -> Bool)?
     ) throws -> ExportRunResult {
         let parent = outputDirectory.deletingLastPathComponent().standardizedFileURL
         let writer = try ExportFileWriter(outputRoot: parent)
@@ -389,7 +401,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             destinationName: outputDirectory.lastPathComponent,
             bundle: bundle,
             fileExtension: request.format.fileExtension,
-            overwrite: request.overwrite
+            overwrite: request.overwrite,
+            syncParentAfterPublish: syncParentAfterPublish
         ) { group, sink in
             switch request.format {
             case .json:
@@ -398,16 +411,21 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 try MarkdownAnnotationExporter.stream(group, to: sink)
             }
         }
+        var additionalWarnings: [ExportRunWarning] = []
+        if managed.publishSyncFailed {
+            additionalWarnings.append(.managedDirectoryPublishSyncFailed)
+        }
+        if managed.cleanupFailed {
+            additionalWarnings.append(.oldExportCleanupFailed)
+        }
         var result = ExportRunResult(
             destination: outputDirectory.standardizedFileURL.path,
             disposition: .directory,
             documentCount: managed.documentCount,
-            warningCount: bundle.warnings.count + (managed.cleanupFailed ? 1 : 0),
+            warningCount: bundle.warnings.count + additionalWarnings.count,
             complete: bundle.complete
         )
-        if managed.cleanupFailed {
-            result.warnings = [ExportRunWarning.oldExportCleanupFailed]
-        }
+        result.warnings = additionalWarnings
         return result
     }
 

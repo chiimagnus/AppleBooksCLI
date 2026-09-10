@@ -208,6 +208,37 @@ struct ExportCommandTests {
     }
 
     @Test
+    func managedDirectoryPublishSyncFailureReturnsStructuredSuccessWarning() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let directory = fixture.root.appendingPathComponent("sync-warning", isDirectory: true)
+        let command = try ExportCommand.parse([
+            "--format", "json",
+            "--grouping", "per-document",
+            "--source", "epub",
+            "--output", directory.path,
+        ])
+
+        let result = try command.execute(
+            using: fixture.core(),
+            managedDirectorySyncParentAfterPublish: { _ in false }
+        )
+
+        #expect(result.complete)
+        #expect(result.warningCount == 1)
+        #expect(result.warnings.count == 1)
+        #expect(result.warningsTruncated == false)
+        let warning = try #require(result.warnings.first)
+        #expect(warning.code == "export_directory_sync_failed")
+        #expect(warning.source == "export")
+        #expect(warning.sourceID == nil)
+        #expect(warning.reason == "managed_directory_parent_sync_failed")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+    }
+
+    @Test
     func exactSelectorsRejectBulkScopeAndMapOpaquePDFIdentity() throws {
         let sourceID = "pdf1_" + String(repeating: "a", count: 64)
         for selector in [["--book", "asset-a"], ["--book-pk", "1"], ["--pdf", sourceID]] {
@@ -350,17 +381,21 @@ struct ExportCommandTests {
         #expect(encoded.warnings.count == 100)
         #expect(encoded.warningsTruncated)
 
-        let cleanupSummary = try ExportRunWarning.summaries(
+        let additionalSummary = try ExportRunWarning.summaries(
             [warnings[0]],
-            additional: [.oldExportCleanupFailed]
+            additional: [.managedDirectoryPublishSyncFailed, .oldExportCleanupFailed]
         )
-        #expect(cleanupSummary.truncated == false)
-        #expect(cleanupSummary.items.count == 2)
-        #expect(cleanupSummary.items[0].code == "old_export_cleanup_failed")
-        #expect(cleanupSummary.items[0].source == "export")
-        #expect(cleanupSummary.items[0].sourceID == nil)
-        #expect(cleanupSummary.items[0].reason == "managed_directory_cleanup_failed")
-        #expect(cleanupSummary.items[1].code == "pdf_read_failed")
+        #expect(additionalSummary.truncated == false)
+        #expect(additionalSummary.items.count == 3)
+        #expect(additionalSummary.items[0].code == "export_directory_sync_failed")
+        #expect(additionalSummary.items[0].source == "export")
+        #expect(additionalSummary.items[0].sourceID == nil)
+        #expect(additionalSummary.items[0].reason == "managed_directory_parent_sync_failed")
+        #expect(additionalSummary.items[1].code == "old_export_cleanup_failed")
+        #expect(additionalSummary.items[1].source == "export")
+        #expect(additionalSummary.items[1].sourceID == nil)
+        #expect(additionalSummary.items[1].reason == "managed_directory_cleanup_failed")
+        #expect(additionalSummary.items[2].code == "pdf_read_failed")
     }
 
     @Test

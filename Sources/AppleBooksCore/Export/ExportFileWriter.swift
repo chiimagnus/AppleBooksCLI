@@ -24,6 +24,7 @@ package struct ExportFileWriteResult: Equatable, Sendable {
 package struct ManagedExportDirectoryWriteResult: Equatable, Sendable {
     package let documentCount: Int
     package let cleanupFailed: Bool
+    package let publishSyncFailed: Bool
 }
 
 private struct ManagedExistingExportDirectory {
@@ -347,6 +348,7 @@ package struct ExportFileWriter {
         overwrite: OverwritePolicy = .never,
         beforePublish: (() throws -> Void)? = nil,
         afterSwapBeforeCleanup: (() throws -> Void)? = nil,
+        syncParentAfterPublish: ((Int32) -> Bool)? = nil,
         observeManifestRetainedBytes: ((Int) -> Void)? = nil,
         render: (ExportGroup, _ sink: (Data) throws -> Void) throws -> Void
     ) throws -> ManagedExportDirectoryWriteResult {
@@ -473,7 +475,14 @@ package struct ExportFileWriter {
                 throw ExportFileWriterError.writeFailed
             }
             stageOwnedByName = false
-            guard fsync(parentFD) == 0 else { throw ExportFileWriterError.writeFailed }
+            let publishSyncFailed = !(syncParentAfterPublish?(parentFD) ?? (fsync(parentFD) == 0))
+            if publishSyncFailed {
+                return ManagedExportDirectoryWriteResult(
+                    documentCount: bundle.groups.count,
+                    cleanupFailed: false,
+                    publishSyncFailed: true
+                )
+            }
 
             guard let swappedIdentity = try Self.entryIdentity(parentFD: parentFD, name: stageName),
                   swappedIdentity.0 == existing.directoryIdentity.0,
@@ -496,7 +505,8 @@ package struct ExportFileWriter {
             }
             return ManagedExportDirectoryWriteResult(
                 documentCount: bundle.groups.count,
-                cleanupFailed: cleanupFailed
+                cleanupFailed: cleanupFailed,
+                publishSyncFailed: false
             )
         }
 
@@ -512,10 +522,11 @@ package struct ExportFileWriter {
             throw ExportFileWriterError.writeFailed
         }
         stageOwnedByName = false
-        guard fsync(parentFD) == 0 else { throw ExportFileWriterError.writeFailed }
+        let publishSyncFailed = !(syncParentAfterPublish?(parentFD) ?? (fsync(parentFD) == 0))
         return ManagedExportDirectoryWriteResult(
             documentCount: bundle.groups.count,
-            cleanupFailed: false
+            cleanupFailed: false,
+            publishSyncFailed: publishSyncFailed
         )
     }
 

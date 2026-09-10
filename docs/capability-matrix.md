@@ -15,7 +15,7 @@
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |
 | operational JSON output | 已实现（强化） | operational success固定stdout单个JSON；fatal error固定stderr JSON；help/version保持plain text；无public `--json`/`--verbose`双轨 |
-| operation history | 已实现（强化） | 最近 24h 记录目标写入/sync；list 摘要、get 完整本地记录；不是 undo |
+| operation history | 已实现（强化） | 最近 24h 记录目标写入/sync；list 默认20/最大100并用opaque cursor续页，summary不含argv/stdout/stderr；get按exact lowercase UUID读取完整本地记录；不是 undo |
 
 ## Books
 
@@ -27,44 +27,43 @@
 | title search | 已实现 | `books search --field title` literal substring；多结果不猜第一项，使用 opaque cursor |
 | title/author/genre 综合搜索 | 已实现 | `books search --field all|title|author|genre`；case-insensitive literal partial match |
 | 书籍 semantic metadata | 已实现 | title/author/description/genre/language/year/pageCount/reading state 等 Agent 可理解字段；超限文本有 `truncatedFields` |
-| EPUB OPF / iTunes metadata enrichment | 已实现 | OPF 为主，plist 只补缺失 enrichment，不覆盖 current-library identity |
-| cover 提取 | 已实现 | EPUB 声明优先，有限 exact fallback；保留 bytes/media type/source |
+| EPUB OPF / iTunes metadata enrichment | 已实现（强化） | `content metadata` 返回 stable identity/fallback PK + 单层 bounded resolved metadata；DB title/author/language/releaseDate 优先，OPF/plist 补缺，不返回 raw identifiers/重复来源结构 |
+| cover 提取 | 已实现（强化） | `content cover --output <path>` 写文件并返回 canonical destination/disposition；相对路径按 cwd 解析，JSON 不内联图片或 private source path |
 | author sentinel normalization | 已实现 | ordinary book summary/detail 只返回 canonical author；Apple sentinel/private-use 标记归一化为清理值或 null |
 
 ## Reading status / stats
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| in-progress books | 已实现 | 按 reading progress 查询 |
-| finished books | 已实现 | finished 状态查询 |
-| unstarted books | 已实现 | 未开始阅读查询 |
-| recently read books | 已实现 | 按 last-opened 排序并可 limit |
+| in-progress books | 已实现 | 按 reading progress 查询；cursor 分页，默认 20、最大 100 |
+| finished books | 已实现 | finished 状态查询；cursor 分页，默认 20、最大 100 |
+| unstarted books | 已实现 | 未开始阅读查询；cursor 分页，默认 20、最大 100 |
+| recently read books | 已实现 | 按 last-opened 排序；cursor 分页，默认 20、最大 100 |
 | library stats | 已实现 | SQL aggregate + bounded cross-store classifier；分别报告 historical / unmapped / ambiguous / identity-unavailable annotation counts；top-5 只返回可消费书籍 identity + count |
-| current reading position | 已实现 | type=3 current-reading bookmark 单独读取 |
+| current reading position | 已实现（强化） | `reading position` 只读取 type=3 current bookmark；仅当 raw hint 能映射当前 ToC 时返回 `chapterOrder`、bounded title 与 totalChapters，不暴露 raw chapter ID/source |
 | current reading chapter | 已实现 | current position 的 CFI hint 映射 ToC chapter |
-| current-position fallback | 已实现 | 无可用 auto bookmark 时可用最近 user highlight，并明确 inferred |
+| current-position fallback | 已实现（Core compatibility） | public Core `currentReadingPosition` 仍保留最近 user annotation inference；ordinary `reading position` 不使用该 fallback |
 
 ## Annotations
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| list annotations | 已实现 | 默认 active user rows；可显式 raw/system scope；ordinary body 使用 bounded preview，超限字段返回 `truncatedFields` evidence |
-| list all / group by book | 已实现（展示） | 分组不改变 canonical ordering/identity，orphan/null-location 不丢 |
-| annotations by book | 已实现 | 精确 book selector；可读内容时按阅读顺序，否则稳定降级 |
-| get/describe annotation | 已实现 | UUID 优先，local PK 可显式使用 |
-| Apple Books annotation deep link | 已实现（展示） | `appleBooksURL` 由 asset ID + optional CFI 派生，并复用于 read/export/mutation output |
+| list annotations | 已实现 | user annotations 的组合查询；默认20、max100、opaque cursor；支持 book/text/created/modified/color/underline/presence 过滤与 created/modified/reading order |
+| annotations by book | 已实现 | `--book` / `--book-pk` 精确 selector；reading order 只允许 exact book，并按共享 best-effort CFI key 排序 |
+| get/describe annotation | 已实现 | UUID 优先、UUID 不可公开时 local PK fallback；selected text/Note 为 bounded detail，raw type/style/CFI/range 不进入 canonical detail |
+| Apple Books annotation deep link | 已实现（展示） | mutation/export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL` |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 独立保留 |
 | export/filter underline | 已实现 | underline 可独立过滤 |
-| search highlighted text | 已实现 | case-insensitive partial search |
-| search note text | 已实现 | note-only search |
-| full annotation text search | 已实现 | selected + representative + note |
-| recent annotations by creation | 已实现 | creation newest-first |
-| recent annotations by modification | 已实现 | modification newest-first；可显式 raw/system scope |
-| annotations by date range | 已实现（强化） | created range + limit；date-only 上界覆盖完整日历日 |
-| annotation context window | 已实现（强化） | current content + CFI/anchor 精确定位；anchor miss 不伪造 context |
-| context 中精确标出 highlight | 已实现（展示） | normalized anchor 首次命中，保留原 source whitespace |
-| annotation identity | 已实现 | UUID 为 stable identity；PK 仅本机 selector |
-| 保留 raw annotation 字段 | 已实现（强化） | ordinary read 保留需要的 raw identity/type/style/location 语义但 TEXT 受 semantic budget；archival export/raw Core 保持 source text/CFI full fidelity |
+| search highlighted text | 已实现 | `annotations list --text <query> --text-field highlight`；case-insensitive partial search |
+| search note text | 已实现 | `annotations list --text <query> --text-field note`；note-only search |
+| full annotation text search | 已实现 | `annotations list --text <query>`；selected + representative + note |
+| recent annotations by creation | 已实现 | `annotations list --order created`；user annotations creation newest-first |
+| recent annotations by modification | 已实现 | `annotations list --order modified`；user annotations modification newest-first（默认 order） |
+| annotations by date range | 已实现（强化） | `annotations list --created-after/--created-before` 或 modified 对应 flags；只接受带时区 RFC3339 instant |
+| annotation context window | 已实现（强化） | `annotations context`；minimal annotation/book projection + bounded before/matched/after，oversize anchor/location/path fail closed，raw CFI 不进入 ordinary JSON |
+| context 中精确标出 highlight | 已实现（强化） | `annotations context` 的 `matched` 返回 normalized anchor 首次精确命中的 source span，并保留原 source whitespace |
+| annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |
+| 保留 raw annotation 字段 | 已实现（强化） | canonical list/get 只输出 semantic summary/detail；raw type/style/CFI/range 由 archival export/raw Core 保持 full fidelity |
 
 ## EPUB / CFI content
 
@@ -72,9 +71,9 @@
 | --- | --- | --- |
 | 本地 materialization 检查 | 已实现 | probe 不主动触发 iCloud hydration |
 | DRM gate | 已实现 | DRM 明确不可读，不用空正文冒充成功 |
-| EPUB ToC | 已实现 | nav → NCX → spine fallback |
-| chapter text | 已实现 | 保留段落与 fragment scope |
-| chapter text pagination | 已实现 | 按 Swift Character 分页，不拆 grapheme cluster |
+| EPUB ToC | 已实现（强化） | `content chapters --book|--book-pk`；nav → NCX → spine fallback；默认 20 / 最大 100 的 opaque cursor，只公开 `chapterOrder`、bounded title、depth |
+| chapter text | 已实现（强化） | `content chapter --book <assetID> --chapter <order>`；按 ToC order 精确选择，ordinary JSON 不公开 raw chapter id/href/fragment |
+| chapter text pagination | 已实现（强化） | bounded normalized traversal + opaque cursor；默认 4,000 graphemes/32 KiB，`--max-chars` 最大 16,000，单页 hard cap 128 KiB；无 `--offset` |
 | 细粒度 spine entry | 已实现 | ToC 外 spine item 仍可读取 |
 | current-library packed EPUB fallback | 已实现 | primary 不可用时只在显式 root 做 exact-basename fallback；unsafe primary 不掩盖 |
 | directory / packed parser 等价 | 已实现（强化） | 两种 source 共用 package/content 语义与 path safety；结构深度/节点/ZIP inventory 有固定 hard budget，超限 fail closed |
@@ -86,15 +85,15 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| list collections | 已实现 | 默认排除 deleted |
-| get/describe collection | 已实现（强化） | stable collection ID 优先、显式 local PK fallback；返回 bounded semantic detail，超限 title/details 带 `truncatedFields` |
-| search collections by title | 已实现 | substring search |
-| list collection books | 已实现 | collection membership 查询 |
+| list collections | 已实现（强化） | 默认排除 deleted；opaque cursor 分页，默认 20、最大 100；summary 返回 stable identity/fallback PK、title 与 collection/membership 可编辑能力 |
+| get/describe collection | 已实现（强化） | stable collection ID 优先、显式 local PK fallback；返回 bounded semantic detail 与 collection/membership 可编辑能力，超限 title/details 带 `truncatedFields`；不暴露 persistence 排序/视图字段 |
+| search collections by title | 已实现（强化） | case-insensitive literal substring；opaque cursor 分页，默认 20、最大 100 |
+| list collection books | 已实现（强化） | relation owner 在分页前跳过 stale membership 并按 canonical membership order 去重；opaque cursor 分页，默认 20、最大 100 |
 | create collection | 已实现 | title + optional details，走 guarded write rail |
 | rename collection | 已实现 | system collection fail closed |
 | delete collection | 已实现 | soft-delete |
-| add book | 已实现 | idempotent membership add |
-| remove book | 已实现 | idempotent membership remove；system collection guard |
+| add book | 已实现（强化） | idempotent membership add；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk` |
+| remove book | 已实现（强化） | idempotent membership remove；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk`；system collection guard |
 
 ## Export / presentation
 
@@ -118,12 +117,13 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| PDF library metadata | 已实现 | `ZCONTENTTYPE=3` 独立识别；exact canonical file 才关联 Book metadata |
-| PDF highlight extraction | 已实现 | PDFKit highlight + geometry/text recovery；结果标记 approximation |
-| PDF highlight note | 已实现 | contents 作为 optional note；text unavailable 不丢 raw highlight |
-| PDF page/location | 已实现 | 1-based page + raw geometry，不生成 EPUB CFI |
-| PDF color mapping | 已实现 | 保留 normalized RGBA；五色映射只作 approximate presentation |
-| PDF parse timeout | 已实现（强化） | 独立 worker bounded timeout；timeout/crash/malformed/oversize 都结构化失败 |
+| PDF inventory | 已实现（强化） | `pdf list` 默认20、最大100，opaque cursor；summary 不暴露绝对 path，每项提供唯一可消费的 `bookAssetID` 或 `pdfSourceID` |
+| PDF library metadata | 已实现（强化） | `ZCONTENTTYPE=3` 独立识别；ordinary inventory 只做 bounded resource projection，exact Book PDF 走单行 resource lookup |
+| PDF highlight extraction | 已实现（强化） | `--book / --pdf` exact selector；默认20、最大100的opaque cursor；ordinary JSON仅返回bounded semantic summary，worker no-follow 持有FD读取并标记 approximation |
+| PDF highlight note | 已实现 | ordinary read 返回 bounded optional Note/text preview；archive/export 保留 raw highlight fidelity |
+| PDF page/location | 已实现 | ordinary read只公开1-based page；raw geometry仅由archive/export保留，不生成 EPUB CFI |
+| PDF color mapping | 已实现 | ordinary read只公开 approximate 五色 presentation；archive/export 保留 normalized RGBA |
+| PDF parse timeout | 已实现（强化） | 独立 worker 使用内部 bounded timeout；普通 CLI 不暴露 timeout tuning；timeout/crash/malformed/oversize 都结构化失败 |
 | PDF metadata fallback | 已实现 | exact Book enrichment；无 Book 时 title 最多 fallback filename，不伪造 asset identity |
 
 ## Safe writes / backup
@@ -134,7 +134,7 @@
 | soft-delete annotation | 已实现 | soft-delete，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
-| backup list/retention | 已实现 | public catalog/restore 当前覆盖 BKLibrary；annotation backup 仅内部 safety use |
+| backup list/retention | 已实现（强化） | public library catalog 以流式目录扫描固定只返回 newest 10 valid recovery artifacts，不提供分页历史浏览；ordinary CLI 只暴露 opaque `backupID`，exact restore 由该 ID 进入既有 guarded restore rail；annotation backup 仅内部 safety use |
 | restore | 已实现 | restore 前 safety backup；apply 后 verification/relaunch failure 不能冒充未发生 |
 | Books.app lifecycle | 已实现（强化） | normal mutation 保留 closed/background/frontmost；explicit sync temporary launch 不夺取最终状态 ownership |
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |

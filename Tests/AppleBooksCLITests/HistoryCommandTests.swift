@@ -114,19 +114,56 @@ struct HistoryCommandTests {
     }
 
     @Test
+    func paginationAndHistoryIDInputsFailBeforeRootIO() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let target = fixture.parent.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+        try FileManager.default.removeItem(at: fixture.root)
+        try FileManager.default.createSymbolicLink(at: fixture.root, withDestinationURL: target)
+        let store = fixture.store()
+
+        for arguments in [
+            ["--limit", "0"],
+            ["--limit", "101"],
+            ["--cursor", "!"],
+        ] {
+            let command = try HistoryListCommand.parse(arguments)
+            do {
+                try command.run(output: Capture().output, store: store)
+                Issue.record("expected usage-invalid pagination input")
+            } catch let error as CLIError {
+                #expect(error.code == .usageInvalid)
+            }
+        }
+
+        let invalidGet = try HistoryGetCommand.parse(["00000000-0000-4000-8000-00000000000A"])
+        do {
+            try invalidGet.run(output: Capture().output, store: store)
+            Issue.record("expected usage-invalid history ID")
+        } catch let error as CLIError {
+            #expect(error.code == .usageInvalid)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try HistoryListCommand.parse(["--offset", "1"])
+        }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    @Test
     func listAndGetDoNotCreateRecursiveHistory() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = fixture.store()
         let token = try store.begin(operation: "sync", arguments: ["sync"])
         try store.complete(token, exitCode: 0, stdout: "ok", stderr: "")
-        let before = try store.list().count
+        let before = try store.listPage(limit: 100).items.count
 
         let list = try HistoryListCommand.parse([])
         try list.run(output: Capture().output, store: store)
         let get = try HistoryGetCommand.parse([token.id])
         try get.run(output: Capture().output, store: store)
-        #expect(try store.list().count == before)
+        #expect(try store.listPage(limit: 100).items.count == before)
     }
 
     private func runJSONGet(_ id: String, store: OperationHistoryStore) throws -> HistoryDetailResult {

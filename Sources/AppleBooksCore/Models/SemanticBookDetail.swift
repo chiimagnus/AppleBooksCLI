@@ -28,7 +28,10 @@ struct BookResourceTarget: Equatable, Sendable {
     let path: String?
 }
 
-struct BookPDFResource: Equatable, Sendable {
-    let summary: BookSummary
-    let target: BookResourceTarget
+package struct BookContentMetadataFallback: Equatable, Sendable {
+    package let title: String?
+    package let author: String?
+    package let language: String?
+    package let releaseDate: Date?
+    package let byteTruncatedFields: [String]
 }

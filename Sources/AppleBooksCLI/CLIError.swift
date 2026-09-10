@@ -23,6 +23,7 @@ enum CLIError: Error, Equatable, Sendable {
     case usageInvalid(String)
     case notFound(String)
     case unavailable(String)
+    case unavailableWithReason(message: String, reason: String)
     case internalFailure
     case writeSafety(String)
     case permission(String)
@@ -31,7 +32,7 @@ enum CLIError: Error, Equatable, Sendable {
         switch self {
         case .usageInvalid: .usageInvalid
         case .notFound: .notFound
-        case .unavailable: .unavailable
+        case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety: .writeSafety
         case .permission: .permission
@@ -46,16 +47,23 @@ enum CLIError: Error, Equatable, Sendable {
              let .writeSafety(message),
              let .permission(message):
             message
+        case let .unavailableWithReason(message, _):
+            message
         case .internalFailure:
             "Internal error."
         }
+    }
+
+    var reason: String? {
+        if case let .unavailableWithReason(_, reason) = self { return reason }
+        return nil
     }
 
     var exitCode: CLIProcessExit {
         switch self {
         case .usageInvalid: .usageInvalid
         case .notFound: .notFound
-        case .unavailable: .unavailable
+        case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety: .writeSafety
         case .permission: .permission
@@ -86,6 +94,22 @@ enum CLIOperation {
                 return .unavailable("Pagination cursor is stale. Restart from the first page.")
             case .internalContractFailure:
                 return .internalFailure
+            }
+        }
+        if let pdfInventoryError = error as? PDFInventoryError {
+            switch pdfInventoryError {
+            case .invalidSourceID:
+                return .usageInvalid("Invalid PDF source identity.")
+            case .ambiguousSourceID:
+                return .unavailable("PDF source identity is ambiguous. Run `applebookscli pdf list` again.")
+            }
+        }
+        if let historyError = error as? OperationHistoryStoreError {
+            switch historyError {
+            case .invalidID:
+                return .usageInvalid("Operation history ID must be a canonical lowercase UUID.")
+            case .unavailable:
+                return .unavailable("Operation history is unavailable.")
             }
         }
         if let searchError = error as? BookSearchError {
@@ -140,10 +164,13 @@ enum CLIOperation {
         if let restoreFailure = error as? RestoreFailure {
             switch restoreFailure.code {
             case .sourceRejected:
-                return .notFound("Backup handle is unavailable or invalid.")
+                return .notFound("backupID is unavailable or invalid.")
             case .quitFailed, .safetyBackupFailed, .restoreFailed:
                 return .writeSafety("Library restore failed safely (\(restoreFailure.code.rawValue)).")
             }
+        }
+        if error is LibraryBackupIdentityError {
+            return .usageInvalid("Invalid backupID.")
         }
         if error is SQLiteBackupError {
             return .unavailable("Apple Books backup store is unavailable.")
@@ -179,6 +206,9 @@ enum CLIOperation {
         if error is PDFHighlightFacadeError {
             return .unavailable("PDF worker is unavailable.")
         }
+        if error is PDFWorkerClientError {
+            return .unavailable("PDF highlight extraction is unavailable.")
+        }
         if let contextError = error as? AnnotationContextError {
             switch contextError {
             case .invalidWindow:
@@ -191,6 +221,7 @@ enum CLIOperation {
                  .contentPathUnavailable,
                  .chapterUnavailable,
                  .anchorUnavailable,
+                 .anchorTooLarge,
                  .anchorNotFound:
                 return .unavailable("Annotation context is unavailable.")
             }

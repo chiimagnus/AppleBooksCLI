@@ -140,11 +140,13 @@ struct AnnotationQueriesTests {
             ZANNOTATIONTYPE INTEGER,
             ZANNOTATIONSELECTEDTEXT TEXT,
             ZANNOTATIONREPRESENTATIVETEXT TEXT,
-            ZANNOTATIONNOTE TEXT
+            ZANNOTATIONNOTE TEXT,
+            ZANNOTATIONCREATIONDATE REAL,
+            ZANNOTATIONMODIFICATIONDATE REAL
         );
         INSERT INTO ZAEANNOTATION VALUES
-            (1, '\(exactUUID)', 'asset-current', 0, 1, '\(body)', '\(body)', '\(body)'),
-            (2, '\(oversizedUUID)', '\(oversizedAssetID)', 0, 1, 'small', 'small', 'small');
+            (1, '\(exactUUID)', 'asset-current', 0, 1, '\(body)', '\(body)', '\(body)', 1, 2),
+            (2, '\(oversizedUUID)', '\(oversizedAssetID)', 0, 1, 'small', 'small', 'small', 1, 1);
         """)
         let library = try database(at: root.appendingPathComponent("bounded-library.sqlite"), sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZASSETID TEXT, ZTITLE TEXT, ZAUTHOR TEXT);
@@ -158,7 +160,8 @@ struct AnnotationQueriesTests {
             historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
-        let preview = try #require(try queries.semanticList().first { $0.localPK == 1 })
+        let previewPage = try queries.semanticPage(AnnotationQueryRequest(limit: 20))
+        let preview = try #require(previewPage.items.first { $0.localPK == 1 })
         #expect(preview.uuid == exactUUID)
         #expect(preview.selectedText?.utf8.count == SQLiteSemanticTextBudget.preview)
         #expect(preview.representativeText?.utf8.count == SQLiteSemanticTextBudget.preview)
@@ -177,7 +180,9 @@ struct AnnotationQueriesTests {
         let unavailable = try #require(try queries.semanticGetByLocalPK(2))
         #expect(unavailable.uuid == nil)
         #expect(unavailable.rawAssetID == nil)
-        #expect(unavailable.source.kind == .identityUnavailable)
+        #expect(unavailable.source.kind == .unmapped)
+        #expect(unavailable.source.bookAssetID == nil)
+        #expect(unavailable.source.bookLocalPK == nil)
 
         let raw = try #require(try queries.getByLocalPK(1))
         #expect(raw.annotation.selectedText?.utf8.count == body.utf8.count)

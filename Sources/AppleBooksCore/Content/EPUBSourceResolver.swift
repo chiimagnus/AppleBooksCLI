@@ -61,7 +61,7 @@ enum EPUBSourceResolver {
         configuration: AppleBooksConfiguration,
         observingAvailability: Bool
     ) -> EPUBSourceResolution {
-        guard let rawPath else {
+        guard let rawPath, rawPath.contains("\0") == false else {
             return EPUBSourceResolution(
                 currentAvailability: nil,
                 supplementalAvailability: nil,

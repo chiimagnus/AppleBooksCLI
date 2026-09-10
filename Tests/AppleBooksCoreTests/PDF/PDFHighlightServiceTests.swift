@@ -120,13 +120,13 @@ struct PDFHighlightServiceTests {
                 while :; do :; done
                 ;;
               *failure.pdf*)
-                printf '%s' '{"version":1,"status":"failure","errorCode":"unreadableDocument"}'
+                printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
                 ;;
               *empty.pdf*)
-                printf '%s' '{"version":1,"status":"success","highlights":[]}'
+                printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
                 ;;
               *)
-                printf '%s' '{"version":1,"status":"success","highlights":[{"page":2,"traversalIndex":3,"bounds":{"x":1,"y":2,"width":30,"height":4},"quadrilateralPoints":[],"note":"worker note","pdfKitRGBA":[1,1,0,1],"presentationColor":{"color":"yellow","distance":0,"isApproximate":true},"text":"worker text","textSource":"quadSelection","textIsApproximate":true}]}'
+                printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":2,"traversalIndex":3,"bounds":{"x":1,"y":2,"width":30,"height":4},"quadrilateralPoints":[],"note":"worker note","pdfKitRGBA":[1,1,0,1],"presentationColor":{"color":"yellow","distance":0,"isApproximate":true},"text":"worker text","textSource":"quadSelection","textIsApproximate":true}],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
                 ;;
             esac
             """

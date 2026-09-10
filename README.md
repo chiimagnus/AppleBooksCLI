@@ -46,22 +46,29 @@ applebookscli books list
 applebookscli books search "history" --field all
 applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
+applebookscli reading recent --limit 20   # continue with --cursor <nextCursor> when present
 applebookscli stats
+applebookscli collections list   # continue with --cursor <nextCursor> when present
 applebookscli doctor   # ready / partial / unavailable + fixed capability map
 
-# Recent annotations
-applebookscli annotations recent
-
-# One annotation and its surrounding EPUB text
+# Annotation query / exact detail
+applebookscli annotations list --has-note true --order modified   # default 20; continue with --cursor <nextCursor>
+applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
-applebookscli content context <annotation-uuid>
+applebookscli annotations context <annotation-uuid>
+applebookscli reading position <asset-id>   # only a real type-3 bookmark mapped to current ToC; returns chapterOrder
+applebookscli content metadata <asset-id>   # compact resolved metadata; stable identity first
+applebookscli content cover <asset-id> --output ./cover.png   # writes the image; JSON returns canonical destination
+applebookscli content chapters --book <asset-id>   # default 20; continue with --cursor <nextCursor>
+applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
 
 # PDF inventory / extraction
-applebookscli pdf list
-applebookscli pdf highlights --help
+applebookscli pdf list   # continue with --cursor <nextCursor> when present
+applebookscli pdf highlights --book <asset-id>   # default 20; continue with --cursor <nextCursor>
+applebookscli pdf highlights --pdf <pdfSourceID> # use opaque inventory identity for non-unique/fallback sources
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or backup handle. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search` use opaque cursors; when `nextCursor` is returned, pass it unchanged to `--cursor` on the same query. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; use explicit archival export when the original full text is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
+Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or opaque `backupID`. `backups list` is a fixed recovery window containing only the newest 10 valid library backups; it is not a paginated history browser, while an already-known valid `backupID` may still be restored even when it has aged out of that window. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, `collections list/search/books`, `pdf list`, `pdf highlights`, `annotations list`, and `content chapters` use opaque cursors; when `nextCursor` is returned, repeat the same query filters/order and pass it unchanged to `--cursor`. PDF inventory returns either `bookAssetID` or opaque `pdfSourceID`; feed that identity back to `pdf highlights --book` or `--pdf` rather than treating an absolute file path as the ordinary selector. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; `annotations get` exposes semantic detail and, when available, a book-level `bookURL` without a CFI fragment. Use explicit archival export when the original full text/CFI is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
 
 ## Export
 
@@ -87,6 +94,7 @@ For several mutations, commit them normally and flush pending changes once at th
 
 ```sh
 applebookscli collections create "Shelf A"
+applebookscli collections add-book --collection <collection-id> --book <asset-id>
 applebookscli annotations update-note <annotation-uuid> --note "New note"
 applebookscli sync
 ```
@@ -96,11 +104,11 @@ Current-Mac acknowledgement does not prove another device already displays the c
 ## Operation history
 
 ```sh
-applebookscli history list
+applebookscli history list   # continue with --cursor <nextCursor> when present
 applebookscli history get <history-id>
 ```
 
-History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
+History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history list` is bounded (default 20, maximum 100); `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
 
 ## Optional configuration
 

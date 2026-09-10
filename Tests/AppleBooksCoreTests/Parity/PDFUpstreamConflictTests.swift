@@ -38,13 +38,13 @@ struct PDFUpstreamConflictTests {
         IFS= read -r request || true
         case "$request" in
           *marker-negative.pdf*)
-            printf '%s' '{"version":1,"status":"success","highlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"text":"parser truth","textSource":"boundsFallback","textIsApproximate":true}]}'
+            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"text":"parser truth","textSource":"boundsFallback","textIsApproximate":true}],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
             ;;
           *valid-empty.pdf*)
-            printf '%s' '{"version":1,"status":"success","highlights":[]}'
+            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
             ;;
           *)
-            printf '%s' '{"version":1,"status":"failure","errorCode":"unreadableDocument"}'
+            printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
             ;;
         esac
         """

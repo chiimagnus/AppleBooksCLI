@@ -42,6 +42,46 @@ struct CurrentReadingLocationTests {
     }
 
     @Test
+    func semanticLocationUsesOnlyBoundedLocationProjectionAndIgnoresPrivateBodies() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);")
+        let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+            Z_PK INTEGER PRIMARY KEY,
+            ZANNOTATIONASSETID TEXT,
+            ZANNOTATIONDELETED INTEGER,
+            ZANNOTATIONTYPE INTEGER,
+            ZANNOTATIONMODIFICATIONDATE REAL,
+            ZANNOTATIONLOCATION TEXT,
+            ZANNOTATIONSELECTEDTEXT TEXT,
+            ZANNOTATIONNOTE TEXT,
+            ZANNOTATIONREPRESENTATIVETEXT TEXT
+        );
+        INSERT INTO ZAEANNOTATION VALUES
+          (1,'asset',0,3,100,'epubcfi(/6/8[current]!/4/2,:1,:1)',CAST(X'80' AS TEXT),CAST(X'81' AS TEXT),CAST(X'82' AS TEXT));
+        """)
+        let queries = try ReadingQueries(
+            connection: SQLiteConnection.readOnly(path: library.path),
+            annotationConnection: SQLiteConnection.readOnly(path: annotations.path)
+        )
+
+        #expect(try queries.semanticCurrentLocation(rawAssetID: "asset")?.chapterID == "current")
+
+        var handle: OpaquePointer?
+        guard sqlite3_open(annotations.path, &handle) == SQLITE_OK, let handle else { throw TestError.sqlite }
+        defer { sqlite3_close_v2(handle) }
+        guard sqlite3_exec(
+            handle,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONLOCATION = replace(hex(zeroblob(65537)), '00', 'x') WHERE Z_PK=1;",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else { throw TestError.sqlite }
+        #expect(try queries.semanticCurrentLocation(rawAssetID: "asset") == nil)
+    }
+
+    @Test
     func missingModificationColumnFallsBackToLocalPkDescending() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -72,6 +112,8 @@ struct CurrentReadingLocationTests {
             _ = try queries.currentPosition(rawAssetID: "asset")
         }
     }
+
+    private enum TestError: Error { case sqlite }
 
     private func temporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

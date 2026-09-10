@@ -20,10 +20,6 @@ public struct EPUBMetadata: Equatable, Sendable {
         supplementing(language: book.language, releaseDate: book.releaseDate)
     }
 
-    package func supplementing(_ book: SemanticBookDetail) -> BookMetadataEnrichment {
-        supplementing(language: book.language, releaseDate: book.releaseDate)
-    }
-
     private func supplementing(language databaseLanguage: String?, releaseDate: Date?) -> BookMetadataEnrichment {
         BookMetadataEnrichment(
             isbn: isbn,

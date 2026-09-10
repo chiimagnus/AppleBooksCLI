@@ -38,7 +38,6 @@ private struct BookWriteTarget: Equatable {
 }
 
 struct CollectionWriter {
-    private static let membershipEditableSystemID = "Want_To_Read_Collection_ID"
     private static let collectionEntityName = "BKCollection"
     private static let memberEntityName = "BKCollectionMember"
     private static let sortKeyStep: Int64 = 10_000
@@ -641,12 +640,12 @@ struct CollectionWriter {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
 
-        if scope == .membership, collectionID == membershipEditableSystemID {
-            return CollectionWriteTarget(localPK: localPK, stableID: nil)
+        let capabilities = CollectionIdentityEditPolicy.capabilities(for: collectionID)
+        let isEditable = switch scope {
+        case .collection: capabilities.canEditCollection
+        case .membership: capabilities.canEditMembership
         }
-        guard UUID(uuidString: collectionID) != nil else {
-            throw CollectionWriteError.collectionNotEditable
-        }
+        guard isEditable else { throw CollectionWriteError.collectionNotEditable }
         return CollectionWriteTarget(localPK: localPK, stableID: nil)
     }
 

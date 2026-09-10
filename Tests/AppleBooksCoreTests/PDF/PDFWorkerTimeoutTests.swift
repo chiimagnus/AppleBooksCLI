@@ -22,7 +22,7 @@ struct PDFWorkerTimeoutTests {
         let client = PDFWorkerClient(workerURL: worker, timeout: 0.2, terminationGrace: 0.05)
 
         #expect(throws: PDFWorkerClientError.timedOut) {
-            _ = try client.read(fileURL: fixture.inputPDF)
+            _ = try client.readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
 
         let pidText = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,21 +41,25 @@ struct PDFWorkerTimeoutTests {
         let worker = try fixture.script(
             """
             IFS= read -r request || true
-            printf '%s' '{"version":1,"status":"success","highlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"note":"'
+            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"note":"'
             chunk=\(shellQuote(chunk))
             i=0
             while [ "$i" -lt \(chunkCount) ]; do
               printf '%s' "$chunk"
               i=$((i + 1))
             done
-            printf '%s' '","textIsApproximate":true}]}'
+            printf '%s' '","textIsApproximate":true}],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
             """,
             name: "large-worker"
         )
 
-        let highlights = try PDFWorkerClient(workerURL: worker, timeout: 5).read(fileURL: fixture.inputPDF)
-        #expect(highlights.count == 1)
-        #expect(highlights[0].note?.count == chunk.count * chunkCount)
+        let page = try PDFWorkerClient(workerURL: worker, timeout: 5).readPage(
+            fileURL: fixture.inputPDF,
+            mode: .archive,
+            limit: 1
+        )
+        #expect(page.archiveHighlights.count == 1)
+        #expect(page.archiveHighlights[0].note?.count == chunk.count * chunkCount)
     }
 
     @Test
@@ -74,7 +78,7 @@ struct PDFWorkerTimeoutTests {
         let client = PDFWorkerClient(workerURL: worker, timeout: 20, terminationGrace: 0.05)
 
         #expect(throws: PDFWorkerClientError.stdoutLimitExceeded(capturedBytes: PDFWorkerClient.stdoutLimit)) {
-            _ = try client.read(fileURL: fixture.inputPDF)
+            _ = try client.readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
     }
 
@@ -94,7 +98,7 @@ struct PDFWorkerTimeoutTests {
         let client = PDFWorkerClient(workerURL: worker, timeout: 5, terminationGrace: 0.05)
 
         #expect(throws: PDFWorkerClientError.stderrLimitExceeded(capturedBytes: PDFWorkerClient.stderrLimit)) {
-            _ = try client.read(fileURL: fixture.inputPDF)
+            _ = try client.readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
     }
 
@@ -103,7 +107,7 @@ struct PDFWorkerTimeoutTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let worker = try fixture.script(
-            "IFS= read -r request || true; printf '{\"version\":1,\"status\":\"success\",\"highlights\":[]}'",
+            "IFS= read -r request || true; printf '{\"version\":2,\"status\":\"success\",\"mode\":\"archive\",\"archiveHighlights\":[],\"hasMore\":false,\"generation\":\"pdfg2_0000000000000000000000000000000000000000000000000000000000000000\"}'",
             name: "parallel-worker"
         )
         let inputPDF = fixture.inputPDF
@@ -111,7 +115,9 @@ struct PDFWorkerTimeoutTests {
         try await withThrowingTaskGroup(of: Int.self) { group in
             for _ in 0..<16 {
                 group.addTask {
-                    try PDFWorkerClient(workerURL: worker, timeout: 2).read(fileURL: inputPDF).count
+                    try PDFWorkerClient(workerURL: worker, timeout: 2)
+                        .readPage(fileURL: inputPDF, mode: .archive, limit: 1)
+                        .archiveHighlights.count
                 }
             }
             var completed = 0
@@ -124,31 +130,67 @@ struct PDFWorkerTimeoutTests {
     }
 
     @Test
+    func semanticValidationRejectsContradictoryAndUnsafePayloads() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let generation = "pdfg2_" + String(repeating: "0", count: 64)
+        let cases: [(PDFWorkerMode, String)] = [
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":1,"textApproximate":true,"truncatedFields":[]},{"page":2,"textApproximate":true,"truncatedFields":[]}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":0,"textApproximate":true,"truncatedFields":[]}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":1,"textApproximate":false,"truncatedFields":[]}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":1,"textApproximate":true,"presentationColor":{"name":"yellow","approximate":false},"truncatedFields":[]}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[{"page":1,"textApproximate":true,"presentationColor":{"name":"orange","approximate":true},"truncatedFields":[]}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.agentSummary, #"{"version":2,"status":"success","mode":"agentSummary","summaryHighlights":[],"hasMore":false,"generation":"\#(generation)","errorCode":"internalFailure"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":-1,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":-1,"height":1},"quadrilateralPoints":[],"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1e999,"height":1},"quadrilateralPoints":[],"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"pdfKitRGBA":[1,1,0],"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"presentationColor":{"color":"yellow","distance":-1,"isApproximate":true},"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"presentationColor":{"color":"orange","distance":0,"isApproximate":true},"textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+            (.archive, #"{"version":2,"status":"success","mode":"archive","archiveHighlights":[{"page":1,"traversalIndex":0,"bounds":{"x":0,"y":0,"width":1,"height":1},"quadrilateralPoints":[],"text":"x","textSource":"unknown","textIsApproximate":true}],"hasMore":false,"generation":"\#(generation)"}"#),
+        ]
+
+        for (index, entry) in cases.enumerated() {
+            let worker = try fixture.script(
+                "IFS= read -r request || true; printf '%s' \(shellQuote(entry.1))",
+                name: "malformed-semantic-\(index)"
+            )
+            #expect(throws: PDFWorkerClientError.malformedResponse) {
+                _ = try PDFWorkerClient(workerURL: worker, timeout: 2).readPage(
+                    fileURL: fixture.inputPDF,
+                    mode: entry.0,
+                    limit: 1
+                )
+            }
+        }
+    }
+
+    @Test
     func malformedNonzeroSignalAndWorkerFailureStayStructured() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let malformed = try fixture.script("IFS= read -r request || true; printf 'not-json'", name: "malformed-worker")
         #expect(throws: PDFWorkerClientError.malformedResponse) {
-            _ = try PDFWorkerClient(workerURL: malformed, timeout: 2).read(fileURL: fixture.inputPDF)
+            _ = try PDFWorkerClient(workerURL: malformed, timeout: 2).readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
 
         let nonzero = try fixture.script("IFS= read -r request || true; exit 7", name: "nonzero-worker")
         #expect(throws: PDFWorkerClientError.nonzeroExit(7)) {
-            _ = try PDFWorkerClient(workerURL: nonzero, timeout: 2).read(fileURL: fixture.inputPDF)
+            _ = try PDFWorkerClient(workerURL: nonzero, timeout: 2).readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
 
         let signaled = try fixture.script("IFS= read -r request || true; kill -SEGV $$", name: "signal-worker")
         #expect(throws: PDFWorkerClientError.signalTerminated(SIGSEGV)) {
-            _ = try PDFWorkerClient(workerURL: signaled, timeout: 2).read(fileURL: fixture.inputPDF)
+            _ = try PDFWorkerClient(workerURL: signaled, timeout: 2).readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
 
         let failure = try fixture.script(
-            "IFS= read -r request || true; printf '{\"version\":1,\"status\":\"failure\",\"errorCode\":\"unreadableDocument\"}'",
+            "IFS= read -r request || true; printf '{\"version\":2,\"status\":\"failure\",\"errorCode\":\"unreadableDocument\"}'",
             name: "failure-worker"
         )
         #expect(throws: PDFWorkerClientError.workerFailure(.unreadableDocument)) {
-            _ = try PDFWorkerClient(workerURL: failure, timeout: 2).read(fileURL: fixture.inputPDF)
+            _ = try PDFWorkerClient(workerURL: failure, timeout: 2).readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
     }
 

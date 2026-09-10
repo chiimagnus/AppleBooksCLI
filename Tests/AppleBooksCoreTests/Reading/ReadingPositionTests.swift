@@ -21,6 +21,94 @@ struct ReadingPositionTests {
     }
 
     @Test
+    func semanticBookmarkFacadeReturnsOnlyActionableTocPosition() throws {
+        let fixture = try makeFixture(annotationRows: """
+        (1,0,3,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',100)
+        """)
+        defer { fixture.cleanup() }
+
+        let resolution = try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset")
+        guard case let .position(position) = resolution else {
+            Issue.record("expected actionable bookmarked position")
+            return
+        }
+        #expect(position.bookAssetID == "asset")
+        #expect(position.bookLocalPK == 1)
+        #expect(position.chapterOrder == 1)
+        #expect(position.title == "Section 1")
+        #expect(position.totalChapters == 1)
+    }
+
+    @Test
+    func semanticBookmarkFacadeRejectsRawHintAndRecentAnnotationInference() throws {
+        let hint = try makeFixture(annotationRows: """
+        (1,0,3,'asset','epubcfi(/6/2[outside]!/4/2,:0,:0)',100)
+        """)
+        defer { hint.cleanup() }
+        #expect(try hint.books.semanticBookmarkedReadingPosition(bookAssetID: "asset") == .unavailable)
+
+        let inferred = try makeFixture(annotationRows: """
+        (1,0,1,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',900)
+        """)
+        defer { inferred.cleanup() }
+        #expect(try inferred.books.semanticBookmarkedReadingPosition(bookAssetID: "asset") == .unavailable)
+        #expect(try inferred.books.currentReadingPosition(forBookLocalPK: 1)?.source == .recentAnnotationInference)
+    }
+
+    @Test
+    func semanticBookmarkFacadeTreatsNumericChapterHintAsRawIDNotOrder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let epub = try makeOrderConflictEPUB(in: root)
+        let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (1,'asset','\(sql(epub.path))');
+        """)
+        let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+          Z_PK INTEGER PRIMARY KEY,
+          ZANNOTATIONDELETED INTEGER,
+          ZANNOTATIONTYPE INTEGER,
+          ZANNOTATIONASSETID TEXT,
+          ZANNOTATIONLOCATION TEXT,
+          ZANNOTATIONCREATIONDATE REAL
+        );
+        INSERT INTO ZAEANNOTATION VALUES (1,0,3,'asset','epubcfi(/6/2[2]!/4/2,:0,:0)',100);
+        """)
+        let config = root.appendingPathComponent("config.json")
+        try Data("{}".utf8).write(to: config)
+        let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
+
+        let resolution = try books.semanticBookmarkedReadingPosition(bookAssetID: "asset")
+        guard case let .position(position) = resolution else {
+            Issue.record("expected numeric raw ID to resolve")
+            return
+        }
+        #expect(position.chapterOrder == 1)
+        #expect(position.totalChapters == 2)
+    }
+
+    @Test
+    func semanticBookmarkFacadeUsesBoundedInternalAssetIdentityForExplicitPK() throws {
+        let assetID = String(repeating: "a", count: 2_049)
+        let fixture = try makeFixture(
+            annotationRows: "(1,0,3,'\(assetID)','epubcfi(/6/2[chapter]!/4/2,:0,:0)',100)",
+            assetID: assetID
+        )
+        defer { fixture.cleanup() }
+
+        let resolution = try fixture.books.semanticBookmarkedReadingPosition(bookLocalPK: 1)
+        guard case let .position(position) = resolution else {
+            Issue.record("expected internal exact identity to remain actionable")
+            return
+        }
+        #expect(position.bookAssetID == nil)
+        #expect(position.bookLocalPK == 1)
+        #expect(position.chapterOrder == 1)
+    }
+
+    @Test
     func bookmarkHintOutsideTocPreservesRawChapterIdentity() throws {
         let fixture = try makeFixture(annotationRows: """
         (1,0,3,'asset','epubcfi(/6/2[outside]!/4/2,:0,:0)',100)
@@ -91,14 +179,18 @@ struct ReadingPositionTests {
         }
     }
 
-    private func makeFixture(annotationRows: String, includePath: Bool = true) throws -> Fixture {
+    private func makeFixture(
+        annotationRows: String,
+        includePath: Bool = true,
+        assetID: String = "asset"
+    ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let epub = try makeEPUB(in: root)
         let pathValue = includePath ? "'\(sql(epub.path))'" : "NULL"
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT);
-        INSERT INTO ZBKLIBRARYASSET VALUES (1,'asset',\(pathValue));
+        INSERT INTO ZBKLIBRARYASSET VALUES (1,'\(sql(assetID))',\(pathValue));
         """)
         let annotationsSQL = annotationRows.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
@@ -132,6 +224,19 @@ struct ReadingPositionTests {
             .write(to: root.appendingPathComponent("OPS/package.opf"))
         try Data("<html><body><p>chapter</p></body></html>".utf8)
             .write(to: root.appendingPathComponent("OPS/chapter.xhtml"))
+        return root
+    }
+
+    private func makeOrderConflictEPUB(in parent: URL) throws -> URL {
+        let root = parent.appendingPathComponent("order-conflict.epub", isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("OPS"), withIntermediateDirectories: true)
+        try Data("<container xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles><rootfile full-path=\"OPS/package.opf\"/></rootfiles></container>".utf8)
+            .write(to: root.appendingPathComponent("META-INF/container.xml"))
+        try Data("<package xmlns=\"http://www.idpf.org/2007/opf\"><manifest><item id=\"2\" href=\"raw.xhtml\" media-type=\"application/xhtml+xml\"/><item id=\"target\" href=\"target.xhtml\" media-type=\"application/xhtml+xml\"/></manifest><spine><itemref idref=\"2\"/><itemref idref=\"target\"/></spine></package>".utf8)
+            .write(to: root.appendingPathComponent("OPS/package.opf"))
+        try Data("<html><body>raw numeric id</body></html>".utf8).write(to: root.appendingPathComponent("OPS/raw.xhtml"))
+        try Data("<html><body>order two</body></html>".utf8).write(to: root.appendingPathComponent("OPS/target.xhtml"))
         return root
     }
 

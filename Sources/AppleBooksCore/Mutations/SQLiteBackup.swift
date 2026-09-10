@@ -15,8 +15,26 @@ public enum SQLiteBackupError: Error, Equatable, Sendable {
     case restoreFailed(Int32)
 }
 
+final class BackupCatalogInstrumentation {
+    private(set) var scannedEntryCount = 0
+    private(set) var retainedCandidatePeak = 0
+
+    func observeScannedEntry() {
+        scannedEntryCount += 1
+    }
+
+    func observeRetainedCandidates(_ count: Int) {
+        retainedCandidatePeak = max(retainedCandidatePeak, count)
+    }
+}
+
 public enum SQLiteBackup {
     public static let retentionCount = 10
+
+    private struct CatalogCandidate {
+        let backup: LibraryBackup
+        let metadata: BackupMetadata
+    }
 
     public static func defaultRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -25,58 +43,88 @@ public enum SQLiteBackup {
 
     static func list(
         source: URL,
-        backupRoot: URL = defaultRoot()
+        backupRoot: URL = defaultRoot(),
+        instrumentation: BackupCatalogInstrumentation? = nil
     ) throws -> [LibraryBackup] {
-        var rootStat = stat()
-        guard lstat(backupRoot.path, &rootStat) == 0 else {
+        let descriptor = open(backupRoot.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard descriptor >= 0 else {
             if errno == ENOENT { return [] }
             throw SQLiteBackupError.filesystemFailure
         }
-        guard rootStat.st_mode & S_IFMT == S_IFDIR else {
+        guard let directory = fdopendir(descriptor) else {
+            close(descriptor)
             throw SQLiteBackupError.filesystemFailure
         }
-
-        let entries: [URL]
-        do {
-            entries = try FileManager.default.contentsOfDirectory(
-                at: backupRoot,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            throw SQLiteBackupError.filesystemFailure
-        }
+        defer { closedir(directory) }
 
         let sourceStem = source.deletingPathExtension().lastPathComponent
-        var backups: [(LibraryBackup, BackupMetadata)] = []
-        for entry in entries {
-            guard let metadata = BackupMetadata.parse(
-                filename: entry.lastPathComponent,
-                sourceStem: sourceStem
-            ) else {
-                continue
+        var candidates: [CatalogCandidate] = []
+        candidates.reserveCapacity(retentionCount)
+
+        while true {
+            errno = 0
+            guard let entry = readdir(directory) else {
+                if errno != 0 { throw SQLiteBackupError.filesystemFailure }
+                break
             }
+            let nameLength = Int(entry.pointee.d_namlen)
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: nameLength + 1) {
+                    FileManager.default.string(withFileSystemRepresentation: $0, length: nameLength)
+                }
+            }
+            guard name != ".", name != "..", name.hasPrefix(".") == false else { continue }
+            instrumentation?.observeScannedEntry()
+            guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
+                  metadata.filename == name else { continue }
+
             var entryStat = stat()
-            guard lstat(entry.path, &entryStat) == 0,
+            let status = name.withCString {
+                fstatat(dirfd(directory), $0, &entryStat, AT_SYMLINK_NOFOLLOW)
+            }
+            guard status == 0,
                   entryStat.st_mode & S_IFMT == S_IFREG,
                   entryStat.st_size >= 0 else {
                 continue
             }
-            backups.append((
-                LibraryBackup(
-                    handle: entry.lastPathComponent,
-                    createdAt: metadata.timestamp,
-                    sizeBytes: Int64(entryStat.st_size)
+
+            retainCatalogCandidate(
+                CatalogCandidate(
+                    backup: LibraryBackup(
+                        handle: name,
+                        backupID: metadata.backupID,
+                        createdAt: metadata.timestamp,
+                        sizeBytes: Int64(entryStat.st_size)
+                    ),
+                    metadata: metadata
                 ),
-                metadata
-            ))
+                in: &candidates
+            )
+            instrumentation?.observeRetainedCandidates(candidates.count)
         }
 
-        backups.sort {
-            if $0.1.timestamp != $1.1.timestamp { return $0.1.timestamp > $1.1.timestamp }
-            return $0.1.uuid.uuidString > $1.1.uuid.uuidString
+        return candidates.map(\.backup)
+    }
+
+    private static func retainCatalogCandidate(
+        _ candidate: CatalogCandidate,
+        in candidates: inout [CatalogCandidate]
+    ) {
+        let insertion = candidates.firstIndex { catalogPrecedes(candidate, $0) } ?? candidates.endIndex
+        if candidates.count < retentionCount {
+            candidates.insert(candidate, at: insertion)
+            return
         }
-        return backups.map(\.0)
+        guard insertion < candidates.endIndex else { return }
+        candidates.insert(candidate, at: insertion)
+        candidates.removeLast()
+    }
+
+    private static func catalogPrecedes(_ lhs: CatalogCandidate, _ rhs: CatalogCandidate) -> Bool {
+        if lhs.metadata.timestamp != rhs.metadata.timestamp {
+            return lhs.metadata.timestamp > rhs.metadata.timestamp
+        }
+        return lhs.metadata.uuid.uuidString > rhs.metadata.uuid.uuidString
     }
 
     @discardableResult
@@ -136,6 +184,14 @@ public enum SQLiteBackup {
             throw SQLiteBackupError.retentionFailed
         }
         return final
+    }
+
+    static func restoreHandle(backupID: String, destination: URL) throws -> String {
+        let destinationStem = destination.deletingPathExtension().lastPathComponent
+        guard let metadata = BackupMetadata.parse(backupID: backupID, sourceStem: destinationStem) else {
+            throw LibraryBackupIdentityError.invalidBackupID
+        }
+        return metadata.filename
     }
 
     static func openRestoreSource(

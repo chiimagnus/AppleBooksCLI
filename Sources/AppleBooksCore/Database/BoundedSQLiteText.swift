@@ -14,6 +14,7 @@ enum ExactSQLiteText: Equatable, Sendable {
 
 enum SQLiteSemanticTextBudget {
     static let stableIdentity = PublicStableIdentityPolicy.maximumUTF8Bytes
+    static let sourceIdentity = 64 * 1_024
     static let shortMetadata = 2 * 1_024
     static let preview = 4 * 1_024
     static let metadata = 8 * 1_024
@@ -33,7 +34,7 @@ enum SQLiteTextProjection {
         return [
             "\(type) AS \(storageAlias(alias))",
             "CASE WHEN \(type) = 'text' THEN length(\(blob)) END AS \(lengthAlias(alias))",
-            "CASE WHEN \(type) = 'text' THEN substr(\(blob), 1, \(maximumUTF8Bytes + 4)) END AS \(payloadAlias(alias))",
+            "CASE WHEN \(type) = 'text' THEN COALESCE(substr(\(blob), 1, \(maximumUTF8Bytes + 4)), X'') END AS \(payloadAlias(alias))",
         ]
     }
 

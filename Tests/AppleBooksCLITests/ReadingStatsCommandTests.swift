@@ -7,7 +7,7 @@ import Testing
 @Suite("ReadingStatsCommandTests")
 struct ReadingStatsCommandTests {
     @Test
-    func statusCommandsPreserveCorePartitionsAsBoundedSummariesAndRecentDefault() throws {
+    func statusCommandsPreserveCorePartitionsAsCursorPages() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -18,7 +18,8 @@ struct ReadingStatsCommandTests {
         #expect(inProgress.items.map(\.assetID) == ["12"])
         #expect(inProgress.items.first?.title == "Alpha")
         #expect(inProgress.items.first?.truncatedFields.isEmpty == true)
-        #expect(inProgress.limit == nil)
+        #expect(inProgress.nextCursor == nil)
+        #expect(inProgress.hasMore == false)
 
         let finished = try fixture.runJSON(
             ReadingBooksResult.self,
@@ -38,16 +39,25 @@ struct ReadingStatsCommandTests {
             ReadingBooksResult.self,
             arguments: ["reading", "recent"]
         )
-        #expect(recentDefault.limit == 10)
         #expect(recentDefault.items.map(\.assetID) == ["finished-id", "12", "infer-id"])
+        #expect(recentDefault.nextCursor == nil)
+        #expect(recentDefault.hasMore == false)
 
-        let recentPage = try fixture.runJSON(
+        let recentFirst = try fixture.runJSON(
             ReadingBooksResult.self,
-            arguments: ["reading", "recent", "--limit", "2", "--offset", "1"]
+            arguments: ["reading", "recent", "--limit", "2"]
         )
-        #expect(recentPage.limit == 2)
-        #expect(recentPage.offset == 1)
-        #expect(recentPage.items.map(\.assetID) == ["12", "infer-id"])
+        #expect(recentFirst.items.map(\.assetID) == ["finished-id", "12"])
+        #expect(recentFirst.hasMore == true)
+        let cursor = try #require(recentFirst.nextCursor)
+
+        let recentSecond = try fixture.runJSON(
+            ReadingBooksResult.self,
+            arguments: ["reading", "recent", "--limit", "2", "--cursor", cursor]
+        )
+        #expect(recentSecond.items.map(\.assetID) == ["infer-id"])
+        #expect(recentSecond.nextCursor == nil)
+        #expect(recentSecond.hasMore == false)
     }
 
     @Test
@@ -76,7 +86,7 @@ struct ReadingStatsCommandTests {
     }
 
     @Test
-    func positionUsesSharedExactBookSelectorAndCanonicalCoreSourceValues() throws {
+    func positionReturnsOnlyActionableBookmarkChapterAndRejectsHintOrInference() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
@@ -84,33 +94,89 @@ struct ReadingStatsCommandTests {
             ReadingPositionResult.self,
             arguments: ["reading", "position", "12"]
         )
-        #expect(toc.bookLocalPK == 1)
+        #expect(toc.bookLocalPK == nil)
         #expect(toc.bookAssetID == "12")
-        #expect(toc.chapterID == "chapter")
+        #expect(toc.chapterOrder == 1)
         #expect(toc.title == "Section 1")
-        #expect(toc.order == 1)
         #expect(toc.totalChapters == 1)
-        #expect(toc.source == .bookmarkToc)
+        #expect(toc.truncatedFields.isEmpty)
 
-        let hint = try fixture.runJSON(
+        let byPK = try fixture.runJSON(
             ReadingPositionResult.self,
-            arguments: ["reading", "position", "--pk", "2"]
+            arguments: ["reading", "position", "--pk", "1"]
         )
-        #expect(hint.bookLocalPK == 2)
-        #expect(hint.chapterID == "outside")
-        #expect(hint.title == nil)
-        #expect(hint.source == .bookmarkHint)
+        #expect(byPK.bookAssetID == "12")
+        #expect(byPK.bookLocalPK == nil)
+        #expect(byPK.chapterOrder == 1)
 
-        let inferred = try fixture.runJSON(
-            ReadingPositionResult.self,
-            arguments: ["reading", "position", "infer-id"]
+        let compactCapture = Capture()
+        let compactCode = CLIEntrypoint.run(
+            arguments: ["reading", "position", "12"] + fixture.globalArguments,
+            output: compactCapture.output
         )
-        #expect(inferred.bookLocalPK == 3)
-        #expect(inferred.chapterID == "chapter")
-        #expect(inferred.title == "Section 1")
-        #expect(inferred.order == nil)
-        #expect(inferred.totalChapters == nil)
-        #expect(inferred.source == .recentAnnotationInference)
+        #expect(compactCode == CLIProcessExit.success.rawValue)
+        let compact = try #require(JSONSerialization.jsonObject(with: Data(compactCapture.stdout.utf8)) as? [String: Any])
+        #expect(compact["chapterOrder"] as? Int == 1)
+        #expect(compact["chapterID"] == nil)
+        #expect(compact["source"] == nil)
+        #expect(compact["order"] == nil)
+
+        for arguments in [
+            ["reading", "position", "--pk", "2"],
+            ["reading", "position", "infer-id"],
+        ] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments + fixture.globalArguments, output: capture.output)
+            #expect(code == CLIProcessExit.unavailable.rawValue)
+            #expect(capture.stdout.isEmpty)
+            let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stderr)
+            #expect(envelope.error.code == .unavailable)
+            #expect(envelope.error.reason == "reading_position_unavailable")
+            #expect(envelope.error.message == "Reading position is unavailable for this book.")
+            #expect(capture.stderr.contains("outside") == false)
+            #expect(capture.stderr.contains("epubcfi") == false)
+        }
+    }
+
+    @Test
+    func positionResultBoundsTitleAndUsesLocalPKOnlyAsIdentityFallback() {
+        let result = ReadingPositionResult(SemanticBookmarkedReadingPosition(
+            bookLocalPK: 7,
+            bookAssetID: nil,
+            chapterOrder: 3,
+            title: String(repeating: "T", count: 700),
+            totalChapters: 9
+        ))
+        #expect(result.bookAssetID == nil)
+        #expect(result.bookLocalPK == 7)
+        #expect(result.chapterOrder == 3)
+        #expect(result.title.count == 512)
+        #expect(result.totalChapters == 9)
+        #expect(result.truncatedFields == ["title"])
+    }
+
+    @Test
+    func positionUsesBoundedResourceTargetForDatabasePaths() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let marker = "PRIVATE_READING_PATH_"
+        func path(byteCount: Int) -> String {
+            let prefix = "/\(marker)"
+            let suffix = ".epub"
+            return prefix + String(repeating: "x", count: byteCount - prefix.utf8.count - suffix.utf8.count) + suffix
+        }
+
+        for rawPath in [path(byteCount: 4_096), path(byteCount: 4_097), path(byteCount: 2 * 1_024 * 1_024)] {
+            try fixture.setBookPath(assetID: "12", path: rawPath)
+            let capture = Capture()
+            let code = CLIEntrypoint.run(
+                arguments: ["reading", "position", "12"] + fixture.globalArguments,
+                output: capture.output
+            )
+            #expect(code == CLIProcessExit.unavailable.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains(marker) == false)
+        }
     }
 
     @Test
@@ -164,6 +230,16 @@ struct ReadingStatsCommandTests {
         #expect(limitCapture.stdout.isEmpty)
         #expect(limitCapture.stderr.contains("usage_invalid"))
         #expect(limitCapture.stderr.contains("Database override") == false)
+
+        let offsetCapture = Capture()
+        let offsetCode = CLIEntrypoint.run(
+            arguments: ["reading", "recent", "--offset", "1"] + missingGlobals,
+            output: offsetCapture.output
+        )
+        #expect(offsetCode == CLIProcessExit.usageInvalid.rawValue)
+        #expect(offsetCapture.stdout.isEmpty)
+        #expect(offsetCapture.stderr.contains("usage_invalid"))
+        #expect(offsetCapture.stderr.contains("Database override") == false)
 
         let selectorCapture = Capture()
         let selectorCode = CLIEntrypoint.run(
@@ -266,6 +342,39 @@ struct ReadingStatsCommandTests {
 
         func remove() {
             try? FileManager.default.removeItem(at: root)
+        }
+
+        func setBookPath(assetID: String, path: String) throws {
+            var handle: OpaquePointer?
+            let open = sqlite3_open(library.path, &handle)
+            guard open == SQLITE_OK, let handle else { throw FixtureError.sqliteOpen(open) }
+            defer { sqlite3_close_v2(handle) }
+            var statement: OpaquePointer?
+            let prepare = sqlite3_prepare_v2(
+                handle,
+                "UPDATE ZBKLIBRARYASSET SET ZPATH = ? WHERE ZASSETID = ?",
+                -1,
+                &statement,
+                nil
+            )
+            guard prepare == SQLITE_OK, let statement else { throw FixtureError.sqliteExec(prepare) }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            let pathBytes = Array(path.utf8)
+            let pathBind = pathBytes.withUnsafeBytes { raw in
+                sqlite3_bind_text(
+                    statement,
+                    1,
+                    raw.baseAddress?.assumingMemoryBound(to: CChar.self),
+                    Int32(pathBytes.count),
+                    transient
+                )
+            }
+            guard pathBind == SQLITE_OK,
+                  assetID.withCString({ sqlite3_bind_text(statement, 2, $0, -1, transient) }) == SQLITE_OK,
+                  sqlite3_step(statement) == SQLITE_DONE else {
+                throw FixtureError.sqliteExec(sqlite3_errcode(handle))
+            }
         }
 
         func makeInferBookProgressNonFinite() throws {

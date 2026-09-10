@@ -32,7 +32,7 @@ Ordinary read DTOs may include `truncatedFields`. Each entry names a field whose
 
 ### Mutation output
 
-Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, `backupHandle`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
+Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, opaque `backupID`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. Backup/restore command JSON likewise uses `backupID`/`safetyBackupID`; raw backup filenames and paths are not public recovery identities. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
 
 ### Export output
 
@@ -60,7 +60,7 @@ Use `components` for the underlying library/annotations/config/backup/cloud-sync
 
 ## Local operation history
 
-`history list` returns JSON summaries; `history get <id>` is the explicit full-record JSON read and may include original argv/stdout/stderr.
+`history list` returns bounded JSON summary pages (default 20, maximum 100) with opaque `nextCursor` continuation; summaries do not include argv/stdout/stderr. Pass a returned cursor unchanged to `history list --cursor <nextCursor>`. `history get <id>` is the explicit full-record JSON read and may include original argv/stdout/stderr; IDs are the exact lowercase UUIDs returned by `history list`.
 
 History persistence is part of the state-changing CLI boundary: failure to persist `started` blocks dispatch; failure to persist completion happens after the command outcome and must not change its exit status or primary stdout. Completion failure emits one sanitized `history_completion_failed` diagnostic JSONL line on stderr. `incomplete` means outcome unknown, not permission to replay the mutation.
 

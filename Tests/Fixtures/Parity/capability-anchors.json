@@ -180,17 +180,26 @@
   "EPUB ToC": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
+      "Sources/AppleBooksCore/Content/EPUBNavigation.swift",
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/AppleBooks.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNavTests.swift",
       "Tests/AppleBooksCoreTests/Content/EPUBNavigationNCXTests.swift",
-      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
+      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift",
+      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
         "content",
-        "chapters"
+        "chapters",
+        "--limit"
+      ],
+      [
+        "content",
+        "chapters",
+        "--cursor"
       ]
     ]
   },
@@ -302,11 +311,34 @@
       ]
     ]
   },
+  "PDF inventory": {
+    "owner": "core",
+    "implementationPaths": [
+      "Sources/AppleBooksCore/PDF/PDFSource.swift",
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "pdf",
+        "list"
+      ],
+      [
+        "pdf",
+        "highlights",
+        "--pdf"
+      ]
+    ]
+  },
   "PDF library metadata": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/PDF/PDFSource.swift",
-      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
+      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
+      "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
@@ -361,8 +393,7 @@
     "cliHelpArgs": [
       [
         "pdf",
-        "highlights",
-        "--timeout"
+        "highlights"
       ]
     ]
   },
@@ -392,6 +423,16 @@
       [
         "collections",
         "add-book",
+        "--book"
+      ],
+      [
+        "collections",
+        "add-book",
+        "--collection"
+      ],
+      [
+        "collections",
+        "add-book",
         "--book-pk"
       ],
       [
@@ -411,12 +452,12 @@
     ],
     "cliHelpArgs": [
       [
-        "content",
+        "annotations",
         "context",
         "--before"
       ],
       [
-        "content",
+        "annotations",
         "context",
         "--after"
       ]
@@ -488,13 +529,13 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "range",
-        "--after"
+        "list",
+        "--created-after"
       ],
       [
         "annotations",
-        "range",
-        "--before"
+        "list",
+        "--created-before"
       ]
     ]
   },
@@ -516,6 +557,7 @@
   "backup list/retention": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/BackupMetadata.swift",
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
     ],
     "testPaths": [
@@ -540,23 +582,27 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter"
+        "chapter",
+        "--chapter"
       ]
     ]
   },
   "chapter text pagination": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Content/BookContent.swift"
+      "Sources/AppleBooksCore/AppleBooks.swift",
+      "Sources/AppleBooksCore/Content/BookContent.swift",
+      "Sources/AppleBooksCore/Content/XHTMLText.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift"
+      "Tests/AppleBooksCoreTests/Content/ChapterPaginationTests.swift",
+      "Tests/AppleBooksCoreTests/Content/ChapterTextTests.swift"
     ],
     "cliHelpArgs": [
       [
         "content",
         "chapter",
-        "--offset"
+        "--cursor"
       ],
       [
         "content",
@@ -575,7 +621,7 @@
     ],
     "cliHelpArgs": [
       [
-        "content",
+        "annotations",
         "context"
       ]
     ]
@@ -662,10 +708,12 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/ReadingPosition.swift"
+      "Sources/AppleBooksCore/Models/ReadingPosition.swift",
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift",
+      "Tests/AppleBooksCoreTests/Queries/CurrentReadingLocationTests.swift"
     ],
     "cliHelpArgs": [
       [
@@ -845,6 +893,11 @@
       [
         "reading",
         "finished"
+      ],
+      [
+        "reading",
+        "finished",
+        "--cursor"
       ]
     ]
   },
@@ -859,8 +912,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text"
       ]
     ]
   },
@@ -901,7 +954,8 @@
   "get/describe collection": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift",
+      "Sources/AppleBooksCore/Models/CollectionEditCapabilities.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
@@ -959,6 +1013,11 @@
       [
         "reading",
         "in-progress"
+      ],
+      [
+        "reading",
+        "in-progress",
+        "--cursor"
       ]
     ]
   },
@@ -982,16 +1041,17 @@
   "list annotations": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Models/AnnotationQuery.swift",
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/AnnotationScopeTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
         "annotations",
         "list",
-        "--scope"
+        "--cursor"
       ]
     ]
   },
@@ -1042,13 +1102,19 @@
         "collections",
         "books",
         "--pk"
+      ],
+      [
+        "collections",
+        "books",
+        "--cursor"
       ]
     ]
   },
   "list collections": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/CollectionQueries.swift"
+      "Sources/AppleBooksCore/Queries/CollectionQueries.swift",
+      "Sources/AppleBooksCore/Models/CollectionEditCapabilities.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Queries/CollectionQueriesTests.swift"
@@ -1057,6 +1123,11 @@
       [
         "collections",
         "list"
+      ],
+      [
+        "collections",
+        "list",
+        "--cursor"
       ]
     ]
   },
@@ -1071,8 +1142,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "list",
-        "--group-by"
+        "list"
       ]
     ]
   },
@@ -1103,8 +1173,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "recent",
-        "--time-field"
+        "list",
+        "--order"
       ]
     ]
   },
@@ -1119,8 +1189,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "recent",
-        "--time-field"
+        "list",
+        "--order"
       ]
     ]
   },
@@ -1136,6 +1206,11 @@
       [
         "reading",
         "recent"
+      ],
+      [
+        "reading",
+        "recent",
+        "--cursor"
       ]
     ]
   },
@@ -1148,6 +1223,16 @@
       "Tests/AppleBooksCoreTests/Mutations/CollectionMembershipTests.swift"
     ],
     "cliHelpArgs": [
+      [
+        "collections",
+        "remove-book",
+        "--book"
+      ],
+      [
+        "collections",
+        "remove-book",
+        "--collection"
+      ],
       [
         "collections",
         "remove-book",
@@ -1179,6 +1264,7 @@
   "restore": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/BackupMetadata.swift",
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift",
       "Sources/AppleBooksCore/AppleBooks.swift"
     ],
@@ -1220,6 +1306,11 @@
       [
         "collections",
         "search"
+      ],
+      [
+        "collections",
+        "search",
+        "--cursor"
       ]
     ]
   },
@@ -1234,8 +1325,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text-field"
       ]
     ]
   },
@@ -1250,8 +1341,8 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "search",
-        "--field"
+        "list",
+        "--text-field"
       ]
     ]
   },
@@ -1329,6 +1420,11 @@
       [
         "reading",
         "unstarted"
+      ],
+      [
+        "reading",
+        "unstarted",
+        "--cursor"
       ]
     ]
   },
@@ -1617,22 +1713,6 @@
       [
         "history",
         "get"
-      ]
-    ]
-  },
-  "list all / group by book": {
-    "owner": "cli",
-    "implementationPaths": [
-      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCLITests/AnnotationReadCommandTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "annotations",
-        "list",
-        "--group-by"
       ]
     ]
   }

@@ -21,35 +21,29 @@ enum ReadingStatusKind {
     case unstarted
     case recent
 
-    func fetch(from books: AppleBooks, limit: Int?, offset: Int) throws -> ReadingBooksResult {
-        let items: [BookSummary]
-        let effectiveLimit: Int?
+    func fetch(from books: AppleBooks, limit: Int?, cursor: String?) throws -> ReadingBooksResult {
+        let page: CursorPage<BookSummary>
         switch self {
         case .inProgress:
-            items = try books.semanticBooksInProgress(limit: limit, offset: offset)
-            effectiveLimit = limit
+            page = try books.semanticBooksInProgressPage(limit: limit, cursor: cursor)
         case .finished:
-            items = try books.semanticFinishedBooks(limit: limit, offset: offset)
-            effectiveLimit = limit
+            page = try books.semanticFinishedBooksPage(limit: limit, cursor: cursor)
         case .unstarted:
-            items = try books.semanticUnstartedBooks(limit: limit, offset: offset)
-            effectiveLimit = limit
+            page = try books.semanticUnstartedBooksPage(limit: limit, cursor: cursor)
         case .recent:
-            let recentLimit = limit ?? 10
-            items = try books.semanticRecentlyReadBooks(limit: recentLimit, offset: offset)
-            effectiveLimit = recentLimit
+            page = try books.semanticRecentlyReadBooksPage(limit: limit, cursor: cursor)
         }
         return ReadingBooksResult(
-            items: items.map { BookSummaryResult(summary: $0) },
-            limit: effectiveLimit,
-            offset: offset
+            items: page.items.map { BookSummaryResult(summary: $0) },
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore
         )
     }
 }
 
 protocol ReadingStatusLeaf: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     var limit: Int? { get }
-    var offset: Int { get }
+    var cursor: String? { get }
     var global: GlobalOptions { get }
     var statusKind: ReadingStatusKind { get }
 }
@@ -60,15 +54,10 @@ extension ReadingStatusLeaf {
     }
 
     func run(output: CLIOutput) throws {
-        if let limit, limit <= 0 {
-            throw ValidationError("--limit must be positive.")
-        }
-        guard offset >= 0 else {
-            throw ValidationError("--offset must be non-negative.")
-        }
+        try validateReadingPageInput(limit: limit, cursor: cursor)
         let result = try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            return try statusKind.fetch(from: books, limit: limit, offset: offset)
+            return try statusKind.fetch(from: books, limit: limit, cursor: cursor)
         }
         try output.writeJSON(result)
     }
@@ -77,7 +66,7 @@ extension ReadingStatusLeaf {
 struct ReadingInProgressCommand: ReadingStatusLeaf {
     static let configuration = CommandConfiguration(commandName: "in-progress")
     @Option(name: .long) var limit: Int?
-    @Option(name: .long) var offset = 0
+    @Option(name: .long) var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .inProgress }
 }
@@ -85,7 +74,7 @@ struct ReadingInProgressCommand: ReadingStatusLeaf {
 struct ReadingFinishedCommand: ReadingStatusLeaf {
     static let configuration = CommandConfiguration(commandName: "finished")
     @Option(name: .long) var limit: Int?
-    @Option(name: .long) var offset = 0
+    @Option(name: .long) var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .finished }
 }
@@ -93,7 +82,7 @@ struct ReadingFinishedCommand: ReadingStatusLeaf {
 struct ReadingUnstartedCommand: ReadingStatusLeaf {
     static let configuration = CommandConfiguration(commandName: "unstarted")
     @Option(name: .long) var limit: Int?
-    @Option(name: .long) var offset = 0
+    @Option(name: .long) var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .unstarted }
 }
@@ -101,7 +90,7 @@ struct ReadingUnstartedCommand: ReadingStatusLeaf {
 struct ReadingRecentCommand: ReadingStatusLeaf {
     static let configuration = CommandConfiguration(commandName: "recent")
     @Option(name: .long) var limit: Int?
-    @Option(name: .long) var offset = 0
+    @Option(name: .long) var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .recent }
 }
@@ -109,7 +98,7 @@ struct ReadingRecentCommand: ReadingStatusLeaf {
 struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "position",
-        abstract: "Resolve the canonical current reading position for one book."
+        abstract: "Resolve the current bookmarked reading position when it maps to an actionable chapter."
     )
 
     @Argument(help: "Exact Apple Books asset ID.")
@@ -128,43 +117,60 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         let result = try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            guard let book = try selector.resolveSemanticDetail(in: books) else {
+            let resolution: SemanticBookmarkedReadingPositionResolution
+            switch selector {
+            case let .assetID(assetID):
+                resolution = try books.semanticBookmarkedReadingPosition(bookAssetID: assetID)
+            case let .localPK(localPK):
+                resolution = try books.semanticBookmarkedReadingPosition(bookLocalPK: localPK)
+            }
+            switch resolution {
+            case .bookMissing:
                 throw CLIError.notFound("Book not found.")
+            case .unavailable:
+                throw CLIError.unavailableWithReason(
+                    message: "Reading position is unavailable for this book.",
+                    reason: "reading_position_unavailable"
+                )
+            case let .position(position):
+                return ReadingPositionResult(position)
             }
-            guard let position = try books.semanticCurrentReadingPosition(forBookLocalPK: book.localPK) else {
-                throw CLIError.unavailable("Reading position is unavailable for this book.")
-            }
-            return ReadingPositionResult(book: book, position: position)
         }
 
         try output.writeJSON(result)
     }
 }
 
+private func validateReadingPageInput(limit: Int?, cursor: String?) throws {
+    try CLIOperation.run {
+        _ = try resolvedCursorPageLimit(limit)
+        try validateCursorInputSyntax(cursor)
+    }
+}
+
 struct ReadingBooksResult: Codable, Equatable, Sendable {
     let items: [BookSummaryResult]
-    let limit: Int?
-    let offset: Int
-
+    let nextCursor: String?
+    let hasMore: Bool
 }
 
 struct ReadingPositionResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
+    let bookLocalPK: Int64?
     let bookAssetID: String?
-    let chapterID: String
-    let title: String?
-    let order: Int?
-    let totalChapters: Int?
-    let source: ReadingPositionSource
+    let chapterOrder: Int
+    let title: String
+    let totalChapters: Int
+    let truncatedFields: [String]
 
-    init(book: SemanticBookDetail, position: ReadingPosition) {
-        bookLocalPK = book.localPK
-        bookAssetID = book.assetID
-        chapterID = position.chapterID
-        title = position.title
-        order = position.order
+    init(_ position: SemanticBookmarkedReadingPosition) {
+        bookAssetID = position.bookAssetID
+        bookLocalPK = position.bookAssetID == nil && LocalPKPolicy.isEligible(position.bookLocalPK)
+            ? position.bookLocalPK
+            : nil
+        chapterOrder = position.chapterOrder
+        let boundedTitle = BoundedTextPolicy.truncate(position.title, profile: .metadata)
+        title = boundedTitle.value ?? ""
         totalChapters = position.totalChapters
-        source = position.source
+        truncatedFields = boundedTitle.truncated ? ["title"] : []
     }
-
 }

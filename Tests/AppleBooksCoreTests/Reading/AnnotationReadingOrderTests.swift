@@ -27,12 +27,12 @@ struct AnnotationReadingOrderTests {
     }
 
     @Test
-    func unavailableContentFallsBackToCreationOrderWithoutDroppingAnnotations() throws {
+    func unavailableContentStillUsesStructuralCFIAndOnlyMissingCFIFallsBack() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
         let annotations = try fixture.core.annotationsInReadingOrder(bookLocalPK: 2)
-        #expect(annotations.map { $0.annotation.localPK } == [12, 11, 10])
+        #expect(annotations.map { $0.annotation.localPK } == [11, 10, 12])
         #expect(annotations.count == 3)
     }
 

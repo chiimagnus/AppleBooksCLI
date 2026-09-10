@@ -1,6 +1,5 @@
 import AppleBooksCore
 import ArgumentParser
-import CoreGraphics
 import Foundation
 
 struct PDFCommand: ParsableCommand {
@@ -17,6 +16,12 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
         abstract: "List canonical Apple Books and fallback PDF sources."
     )
 
+    @Option(name: .long, parsing: .unconditional, help: "Maximum PDF sources in this page (default 20, max 100).")
+    var limit: Int?
+
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
+
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
@@ -27,9 +32,15 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> PDFSourceListResult {
-        try CLIOperation.run {
+        try validatePDFPageInput(limit: limit, cursor: cursor)
+        return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
-            return PDFSourceListResult(items: try books.semanticPDFSources().map(PDFSourceResult.init))
+            let page = try books.semanticPDFSourcePage(limit: limit, cursor: cursor)
+            return PDFSourceListResult(
+                items: page.items.map(PDFInventoryResult.init),
+                nextCursor: page.nextCursor,
+                hasMore: page.hasMore
+            )
         }
     }
 }
@@ -37,236 +48,166 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
 struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "highlights",
-        abstract: "Extract highlights from exactly one PDF source."
+        abstract: "Read one bounded page of highlights from exactly one PDF source."
     )
 
-    @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID.")
+    @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID returned by `pdf list`.")
     var book: String?
 
-    @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
-    var bookPK: Int64?
+    @Option(name: .customLong("pdf"), help: "Use an opaque PDF source ID returned by `pdf list`.")
+    var pdfSourceID: String?
 
-    @Option(name: .long, help: "Use an explicit absolute PDF path.")
-    var path: String?
+    @Option(name: .long, parsing: .unconditional, help: "Maximum highlights in this page (default 20, max 100).")
+    var limit: Int?
 
-    @Option(name: .long, parsing: .unconditional, help: "Per-PDF worker timeout in seconds.")
-    var timeout: Double = AppleBooks.defaultPDFWorkerTimeout
+    @Option(name: .long, parsing: .unconditional, help: "Opaque continuation cursor from the previous page.")
+    var cursor: String?
 
     @OptionGroup var global: GlobalOptions
 
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
+        try output.writeJSON(try execute())
     }
 
-    func execute(workerURL injectedWorkerURL: URL? = nil) throws -> PDFHighlightsResult {
+    func execute(
+        workerURL injectedWorkerURL: URL? = nil,
+        using injectedBooks: AppleBooks? = nil
+    ) throws -> PDFHighlightPageResult {
         let selection = try parseSelection()
-        guard timeout.isFinite, timeout > 0 else {
-            throw ValidationError("--timeout must be greater than zero.")
-        }
+        try validatePDFPageInput(limit: limit, cursor: cursor)
 
-        let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
-
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(
+        let books: AppleBooks
+        if let injectedBooks {
+            books = injectedBooks
+        } else {
+            let workerURL = try injectedWorkerURL ?? installedPDFWorkerURL()
+            books = try CLIContext(global: global).makeAppleBooks(
                 dependencies: [.libraryRead, .pdfWorker],
                 pdfWorkerURL: workerURL,
-                pdfWorkerTimeout: timeout
+                pdfWorkerTimeout: AppleBooks.defaultPDFWorkerTimeout
             )
+        }
+
+        return try CLIOperation.run {
             let source: PDFSource
             switch selection {
-            case let .book(selector):
-                guard let selectedBook = try selector.resolveSemanticDetail(in: books) else {
-                    throw CLIError.notFound("Book not found.")
-                }
-                guard let resolved = try books.semanticPDFSource(forBookLocalPK: selectedBook.localPK) else {
-                    throw CLIError.unavailable("Selected book does not have an available PDF source.")
+            case let .bookAssetID(assetID):
+                guard let resolved = try books.semanticPDFSource(bookAssetID: assetID) else {
+                    throw CLIError.notFound("PDF source not found. Run `applebookscli pdf list` again.")
                 }
                 source = resolved
-            case let .path(fileURL):
-                guard let resolved = try books.semanticPDFSource(fileURL: fileURL) else {
-                    throw CLIError.unavailable("Selected PDF source is unavailable.")
+            case let .sourceID(sourceID):
+                guard let resolved = try books.semanticPDFSource(sourceID: sourceID) else {
+                    throw CLIError.notFound("PDF source not found. Run `applebookscli pdf list` again.")
                 }
                 source = resolved
             }
-            return PDFHighlightsResult(try books.pdfHighlights(source: source))
+            return PDFHighlightPageResult(
+                try books.semanticPDFHighlightPage(source: source, limit: limit, cursor: cursor)
+            )
         }
     }
 
     private func parseSelection() throws -> PDFCLISelection {
-        let bookSelector = try parseOptionalBookSelector(
-            assetID: book,
-            localPK: bookPK,
-            localPKOptionName: "--book-pk"
-        )
-        if bookSelector != nil, path != nil {
-            throw ValidationError("--book/--book-pk and --path are mutually exclusive.")
+        if let book { try PublicStableTokenPolicy.validateInput(book) }
+        let sourceID: PDFSourceID?
+        if let pdfSourceID {
+            do {
+                sourceID = try PDFSourceID.parse(pdfSourceID)
+            } catch {
+                throw CLIError.usageInvalid("--pdf must be an opaque PDF source ID returned by `pdf list`.")
+            }
+        } else {
+            sourceID = nil
         }
-        if let bookSelector { return .book(bookSelector) }
-        guard let path else {
-            throw ValidationError("Provide exactly one of --book, --book-pk, or --path.")
+        guard (book == nil) != (sourceID == nil) else {
+            throw ValidationError("Provide exactly one of --book or --pdf.")
         }
-        guard path.hasPrefix("/") else {
-            throw ValidationError("--path must be an absolute normalized path.")
-        }
-        let fileURL = URL(fileURLWithPath: path).standardizedFileURL
-        guard fileURL.path == path else {
-            throw ValidationError("--path must be an absolute normalized path.")
-        }
-        return .path(fileURL)
+        if let book { return .bookAssetID(book) }
+        return .sourceID(sourceID!)
     }
 }
 
 private enum PDFCLISelection {
-    case book(BookSelector)
-    case path(URL)
+    case bookAssetID(String)
+    case sourceID(PDFSourceID)
 }
 
 struct PDFSourceListResult: Codable, Equatable, Sendable {
-    let items: [PDFSourceResult]
-
+    let items: [PDFInventoryResult]
+    let nextCursor: String?
+    let hasMore: Bool
 }
 
-struct PDFSourceResult: Codable, Equatable, Sendable {
-    let filePath: String
-    let displayTitle: String
+struct PDFInventoryResult: Codable, Equatable, Sendable {
+    let bookAssetID: String?
+    let pdfSourceID: String?
+    let title: String?
     let provenance: String
-    let book: BookSummaryResult?
+    let truncatedFields: [String]
 
-    init(_ source: PDFSource) {
-        filePath = source.fileURL.path
-        displayTitle = source.displayTitle
+    init(_ source: PDFInventorySummary) {
+        bookAssetID = source.bookAssetID
+        pdfSourceID = source.pdfSourceID
+        var truncated = source.byteTruncatedFields
+        title = boundedField(source.title, field: "title", profile: .metadata, truncatedFields: &truncated)
         provenance = source.provenance.rawValue
-        book = source.bookSummary.map { BookSummaryResult(summary: $0) }
-    }
-
-}
-
-struct PDFHighlightsResult: Codable, Equatable, Sendable {
-    let documents: [PDFDocumentHighlightsResult]
-    let failures: [PDFFailureResult]
-    let attemptedCount: Int
-    let succeededCount: Int
-    let noHighlightsCount: Int
-    let failedCount: Int
-    let timeoutCount: Int
-
-    init(_ result: PDFHighlightServiceResult) {
-        documents = result.documents.map(PDFDocumentHighlightsResult.init)
-        failures = result.failures.map(PDFFailureResult.init)
-        attemptedCount = result.attemptedCount
-        succeededCount = result.succeededCount
-        noHighlightsCount = result.noHighlightsCount
-        failedCount = result.failedCount
-        timeoutCount = result.timeoutCount
-    }
-
-}
-
-struct PDFDocumentHighlightsResult: Codable, Equatable, Sendable {
-    let source: PDFSourceResult
-    let highlights: [PDFHighlightResult]
-
-    init(_ document: PDFDocumentHighlights) {
-        source = PDFSourceResult(document.source)
-        highlights = document.highlights.map(PDFHighlightResult.init)
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 }
 
-struct PDFHighlightResult: Codable, Equatable, Sendable {
+private func validatePDFPageInput(limit: Int?, cursor: String?) throws {
+    try CLIOperation.run {
+        _ = try resolvedCursorPageLimit(limit)
+        try validateCursorInputSyntax(cursor)
+    }
+}
+
+struct PDFHighlightPageResult: Codable, Equatable, Sendable {
+    let bookAssetID: String?
+    let pdfSourceID: String?
+    let items: [PDFHighlightSummaryResult]
+    let nextCursor: String?
+    let hasMore: Bool
+
+    init(_ page: SemanticPDFHighlightPage) {
+        bookAssetID = page.bookAssetID
+        pdfSourceID = page.pdfSourceID
+        items = page.items.map(PDFHighlightSummaryResult.init)
+        nextCursor = page.nextCursor
+        hasMore = page.hasMore
+    }
+}
+
+struct PDFHighlightSummaryResult: Codable, Equatable, Sendable {
     let page: Int
-    let traversalIndex: Int
-    let bounds: PDFRectResult
-    let quadrilateralPoints: [PDFPointResult]
     let note: String?
-    let pdfKitRGBA: [Double]?
-    let presentationColor: PDFColorResult?
-    let modifiedAt: Date?
     let text: String?
-    let textSource: String?
-    let textIsApproximate: Bool
-    let textUnavailableReason: String?
+    let modifiedAt: Date?
+    let textApproximate: Bool
+    let presentationColor: PDFHighlightPresentationColorResult?
+    let truncatedFields: [String]
 
-    init(_ highlight: PDFHighlight) {
-        page = highlight.page
-        traversalIndex = highlight.traversalIndex
-        bounds = PDFRectResult(highlight.bounds)
-        quadrilateralPoints = highlight.quadrilateralPoints.map(PDFPointResult.init)
-        note = highlight.note
-        pdfKitRGBA = highlight.pdfKitRGBA
-        presentationColor = highlight.presentationColor.map(PDFColorResult.init)
-        modifiedAt = highlight.modifiedAt
-        text = highlight.text
-        textSource = highlight.textSource?.rawValue
-        textIsApproximate = highlight.textIsApproximate
-        textUnavailableReason = highlight.textUnavailableReason?.rawValue
+    init(_ item: PDFAgentHighlightSummary) {
+        page = item.page
+        var truncated = item.truncatedFields
+        note = boundedField(item.note, field: "note", profile: .preview, truncatedFields: &truncated)
+        text = boundedField(item.text, field: "text", profile: .preview, truncatedFields: &truncated)
+        modifiedAt = item.modifiedAt
+        textApproximate = item.textApproximate
+        presentationColor = item.presentationColor.map(PDFHighlightPresentationColorResult.init)
+        truncatedFields = Array(Set(truncated)).sorted()
     }
 }
 
-struct PDFRectResult: Codable, Equatable, Sendable {
-    let x: Double
-    let y: Double
-    let width: Double
-    let height: Double
+struct PDFHighlightPresentationColorResult: Codable, Equatable, Sendable {
+    let name: String
+    let approximate: Bool
 
-    init(_ rect: CGRect) {
-        x = Double(rect.origin.x)
-        y = Double(rect.origin.y)
-        width = Double(rect.size.width)
-        height = Double(rect.size.height)
-    }
-}
-
-struct PDFPointResult: Codable, Equatable, Sendable {
-    let x: Double
-    let y: Double
-
-    init(_ point: CGPoint) {
-        x = Double(point.x)
-        y = Double(point.y)
-    }
-}
-
-struct PDFColorResult: Codable, Equatable, Sendable {
-    let color: String
-    let distance: Double
-    let isApproximate: Bool
-
-    init(_ match: PDFColorMatch) {
-        color = match.color.rawValue
-        distance = match.distance
-        isApproximate = match.isApproximate
-    }
-}
-
-struct PDFFailureResult: Codable, Equatable, Sendable {
-    let source: PDFSourceResult
-    let reason: String
-    let detail: Int?
-
-    init(_ failure: PDFHighlightServiceFailure) {
-        source = PDFSourceResult(failure.source)
-        switch failure.reason {
-        case .timeout:
-            reason = "timeout"
-            detail = nil
-        case .internalFailure:
-            reason = "internalFailure"
-            detail = nil
-        case let .worker(error):
-            switch error {
-            case .launchFailed: (reason, detail) = ("launchFailed", nil)
-            case .timedOut: (reason, detail) = ("timeout", nil)
-            case let .stdoutLimitExceeded(capturedBytes): (reason, detail) = ("stdoutLimitExceeded", capturedBytes)
-            case let .stderrLimitExceeded(capturedBytes): (reason, detail) = ("stderrLimitExceeded", capturedBytes)
-            case .pipeReadFailed: (reason, detail) = ("pipeReadFailed", nil)
-            case let .nonzeroExit(code): (reason, detail) = ("nonzeroExit", Int(code))
-            case let .signalTerminated(signal): (reason, detail) = ("signalTerminated", Int(signal))
-            case .malformedResponse: (reason, detail) = ("malformedResponse", nil)
-            case let .workerFailure(code): (reason, detail) = (code.rawValue, nil)
-            }
-        }
+    init(_ color: PDFAgentPresentationColor) {
+        name = color.name.rawValue
+        approximate = color.approximate
     }
 }

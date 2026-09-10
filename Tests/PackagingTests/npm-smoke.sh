@@ -82,17 +82,20 @@ mkdir -p "$EMPTY_HOME"
 HOME="$EMPTY_HOME" CFFIXED_USER_HOME="$EMPTY_HOME" PATH="$FAKE_BIN:$PATH" \
   node "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
 [ ! -e "$NPX_CALL" ] || fail "Skill sync must be a no-op when no managed Skill is installed."
-sqlite3 "$LIBRARY_DB" 'CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZCONTENTTYPE INTEGER);'
+sqlite3 "$LIBRARY_DB" "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER); INSERT INTO ZBKLIBRARYASSET VALUES(1,'npm-smoke-corrupt','Synthetic corrupt PDF','$PDF_FIXTURE',3);"
 sqlite3 "$ANNOTATIONS_DB" 'CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);'
+set +e
 HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" \
   "$CLI" pdf highlights \
-    --path "$PDF_FIXTURE" \
+    --book npm-smoke-corrupt \
     --library-db "$LIBRARY_DB" \
     --annotations-db "$ANNOTATIONS_DB" \
   > "$SMOKE_ROOT/pdf.stdout.json" \
   2> "$SMOKE_ROOT/pdf.stderr.txt"
-[ ! -s "$SMOKE_ROOT/pdf.stderr.txt" ] || fail "npm-installed PDF smoke wrote unexpected diagnostics."
-grep -F '"attemptedCount":1' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null || fail "npm-installed CLI did not invoke the PDF worker."
-grep -F '"reason":"unreadableDocument"' "$SMOKE_ROOT/pdf.stdout.json" >/dev/null || fail "npm-installed worker error contract drifted."
+PDF_STATUS=$?
+set -e
+[ "$PDF_STATUS" -eq 69 ] || fail "npm-installed CLI did not surface the worker failure as unavailable."
+[ ! -s "$SMOKE_ROOT/pdf.stdout.json" ] || fail "npm-installed PDF failure leaked a primary result."
+grep -F 'PDF highlight extraction is unavailable.' "$SMOKE_ROOT/pdf.stderr.txt" >/dev/null || fail "npm-installed worker error contract drifted."
 
 printf 'npm install smoke OK: %s (%s)\n' "$PACKAGE" "$EXPECTED_VERSION"

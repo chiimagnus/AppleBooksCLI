@@ -43,6 +43,14 @@ public struct RestoreResult: Equatable, Sendable {
     public let safetyBackupHandle: String
     public let warnings: [RestoreWarning]
 
+    public var restoredFromBackupID: String? {
+        BackupMetadata.backupID(fromLegacyFilename: restoredFromHandle)
+    }
+
+    public var safetyBackupID: String? {
+        BackupMetadata.backupID(fromLegacyFilename: safetyBackupHandle)
+    }
+
     init(
         restoredFromHandle: String,
         safetyBackupHandle: String,
@@ -77,8 +85,12 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
         self.underlying = underlying
     }
 
+    public var safetyBackupID: String? {
+        safetyBackupHandle.flatMap(BackupMetadata.backupID(fromLegacyFilename:))
+    }
+
     public var description: String {
-        "RestoreFailure(restoreApplied=false, code=\(code.rawValue), safetyBackupHandle=\(safetyBackupHandle ?? "none"), warnings=\(warnings.map(\.rawValue)))"
+        "RestoreFailure(restoreApplied=false, code=\(code.rawValue), hasSafetyBackup=\(safetyBackupHandle != nil), warnings=\(warnings.map(\.rawValue)))"
     }
 
     public var debugDescription: String { description }
@@ -93,6 +105,10 @@ public struct MutationResult: Equatable, Sendable {
     public let changed: Bool
     public let warnings: [MutationWarning]
     public let appleBooksURL: String?
+
+    public var backupID: String? {
+        BackupMetadata.backupID(fromLegacyFilename: backupHandle)
+    }
 
     init(
         backupHandle: String,
@@ -132,8 +148,12 @@ public struct MutationFailure: Error, CustomStringConvertible, CustomDebugString
         self.underlying = underlying
     }
 
+    public var backupID: String? {
+        backupHandle.flatMap(BackupMetadata.backupID(fromLegacyFilename:))
+    }
+
     public var description: String {
-        "MutationFailure(committed=false, code=\(code.rawValue), backupHandle=\(backupHandle ?? "none"), warnings=\(warnings.map(\.rawValue)))"
+        "MutationFailure(committed=false, code=\(code.rawValue), hasBackup=\(backupHandle != nil), warnings=\(warnings.map(\.rawValue)))"
     }
 
     public var debugDescription: String { description }

@@ -23,7 +23,7 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
-    func collectionMutationHelpExposesExplicitCloudSyncFlag() {
+    func collectionMutationHelpExposesExplicitCloudSyncFlagAndNamedMembershipSelectors() {
         for subcommand in ["create", "rename", "delete", "add-book", "remove-book"] {
             var stdout = ""
             var stderr = ""
@@ -38,6 +38,43 @@ struct CollectionWriteCommandTests {
             #expect(stdout.contains("current-Mac CloudKit"))
             #expect(stdout.contains("Omit for local-only writes"))
             #expect(stdout.contains("pending changes later."))
+            if subcommand == "add-book" || subcommand == "remove-book" {
+                for selector in ["--collection", "--collection-pk", "--book", "--book-pk"] {
+                    #expect(stdout.contains(selector))
+                }
+                #expect(stdout.contains("ARGUMENTS:") == false)
+            }
+        }
+    }
+
+    @Test
+    func membershipSelectorGrammarRejectsMissingConflictsInvalidTokensAndLegacyPositionalsBeforeDatabaseDiscovery() {
+        let missing = "/definitely/missing/applebookscli-membership-selector.sqlite"
+        let globals = ["--library-db", missing, "--annotations-db", missing]
+        let collectionID = "550E8400-E29B-41D4-A716-446655440000"
+        let cases: [[String]] = [
+            ["collections", "add-book"],
+            ["collections", "add-book", "--collection", collectionID],
+            ["collections", "add-book", "--book", "asset-1"],
+            ["collections", "add-book", "--collection", collectionID, "--collection-pk", "10", "--book", "asset-1"],
+            ["collections", "add-book", "--collection", collectionID, "--book", "asset-1", "--book-pk", "1"],
+            ["collections", "add-book", "--collection", " bad ", "--book", "asset-1"],
+            ["collections", "add-book", "--collection", collectionID, "--book", " bad "],
+            ["collections", "add-book", collectionID, "asset-1"],
+            ["collections", "remove-book", collectionID, "asset-1"],
+        ]
+
+        for arguments in cases {
+            var stdout = ""
+            var stderr = ""
+            let code = CLIEntrypoint.run(
+                arguments: arguments + globals,
+                output: CLIOutput(stdout: { stdout += $0 }, stderr: { stderr += $0 })
+            )
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(stdout.isEmpty)
+            #expect(stderr.contains("Database override") == false)
+            #expect(stderr.contains(missing) == false)
         }
     }
 
@@ -98,9 +135,9 @@ struct CollectionWriteCommandTests {
     @Test
     func addBookSupportsAllIndependentStableAndExplicitPKSelectorCombinations() throws {
         let cases: [([String], Int64, String)] = [
-            (["550E8400-E29B-41D4-A716-446655440000", "asset-1"], 10, "asset-1"),
-            (["550E8400-E29B-41D4-A716-446655440000", "--book-pk", "1"], 10, "asset-1"),
-            (["--collection-pk", "10", "asset-1"], 10, "asset-1"),
+            (["--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "asset-1"], 10, "asset-1"),
+            (["--collection", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "1"], 10, "asset-1"),
+            (["--collection-pk", "10", "--book", "asset-1"], 10, "asset-1"),
             (["--collection-pk", "10", "--book-pk", "1"], 10, "asset-1"),
         ]
 
@@ -127,7 +164,7 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
         let add = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "asset-1", "--sync",
         ])
         let firstAdd = try add.execute(using: books)
         #expect(firstAdd.changed)
@@ -137,7 +174,7 @@ struct CollectionWriteCommandTests {
         #expect(duplicateAdd.warningCodes.isEmpty)
 
         let remove = try CollectionsRemoveBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--sync",
+            "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "asset-1", "--sync",
         ])
         let firstRemove = try remove.execute(using: books)
         #expect(firstRemove.changed)
@@ -172,27 +209,29 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
 
-        let numericCollection = try CollectionsAddBookCommand.parse(["10", "asset-1"])
+        let numericCollection = try CollectionsAddBookCommand.parse([
+            "--collection", "10", "--book", "asset-1",
+        ])
         #expect(throws: CLIError.notFound("Collection not found.")) {
             _ = try numericCollection.execute(using: books)
         }
 
         let numericBook = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "1",
+            "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "1",
         ])
         #expect(throws: CLIError.notFound("Book not found.")) {
             _ = try numericBook.execute(using: books)
         }
 
         let conflictingCollection = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--collection-pk", "10",
+            "--collection", "550E8400-E29B-41D4-A716-446655440000", "--collection-pk", "10", "--book", "asset-1",
         ])
         #expect(throws: ValidationError.self) {
             _ = try conflictingCollection.execute(using: nil)
         }
 
         let conflictingBook = try CollectionsAddBookCommand.parse([
-            "550E8400-E29B-41D4-A716-446655440000", "asset-1", "--book-pk", "1",
+            "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "asset-1", "--book-pk", "1",
         ])
         #expect(throws: ValidationError.self) {
             _ = try conflictingBook.execute(using: nil)
@@ -203,7 +242,9 @@ struct CollectionWriteCommandTests {
     func systemCollectionGuardRemainsCoreOwned() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let command = try CollectionsAddBookCommand.parse(["Books_Collection_ID", "asset-1"])
+        let command = try CollectionsAddBookCommand.parse([
+            "--collection", "Books_Collection_ID", "--book", "asset-1",
+        ])
         #expect(throws: CLIError.writeSafety("Collection mutation failed safely.")) {
             _ = try command.execute(using: fixture.books())
         }

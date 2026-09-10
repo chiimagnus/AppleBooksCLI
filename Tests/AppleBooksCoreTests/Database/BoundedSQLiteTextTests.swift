@@ -15,6 +15,7 @@ struct BoundedSQLiteTextTests {
         try fixture.insert(id: 3, value: "a👩‍💻b")
         try fixture.insert(id: 4, value: "a🇺🇸b")
         try fixture.insert(id: 5, value: "ab\0cd")
+        try fixture.insert(id: 6, value: "")
 
         let connection = try SQLiteConnection.readOnly(path: fixture.database.path)
         let scalarCut = try boundedValue(connection: connection, id: 1, maximumUTF8Bytes: 4)
@@ -37,6 +38,11 @@ struct BoundedSQLiteTextTests {
         let nul = try boundedValue(connection: connection, id: 5, maximumUTF8Bytes: 16)
         #expect(nul.value == "ab\0cd")
         #expect(nul.wasByteTruncated == false)
+
+        let empty = try boundedValue(connection: connection, id: 6, maximumUTF8Bytes: 16)
+        #expect(empty.value == "")
+        #expect(empty.originalUTF8ByteCount == 0)
+        #expect(empty.wasByteTruncated == false)
     }
 
     @Test

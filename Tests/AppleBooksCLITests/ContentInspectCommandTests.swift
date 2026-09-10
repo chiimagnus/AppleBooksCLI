@@ -83,28 +83,31 @@ struct ContentInspectCommandTests {
     }
 
     @Test
-    func metadataKeepsDatabaseIdentitySeparateFromRawEPUBAndCoreEnrichment() throws {
+    func metadataReturnsOneResolvedBoundedViewWithStableIdentityFirst() throws {
         let fixture = try Fixture(contentAvailable: true)
         defer { fixture.remove() }
 
-        let result = try fixture.runJSON(
-            ContentMetadataResult.self,
-            arguments: ["content", "metadata", "12"]
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["content", "metadata", "12"] + fixture.globalArguments,
+            output: capture.output
         )
-        #expect(result.source == .current)
-        #expect(result.database.localPK == 1)
-        #expect(result.database.assetID == "12")
-        #expect(result.database.title == "DB Title")
-        #expect(result.database.author == "DB Author")
-        #expect(result.database.language == "db-lang")
-        #expect(result.database.releaseDate != nil)
-        #expect(result.epub.title == "EPUB Title")
-        #expect(result.epub.creator == "EPUB Author")
-        #expect(result.epub.language == "epub-lang")
-        #expect(result.epub.publisher == "EPUB Publisher")
-        #expect(result.enrichment.language == nil)
-        #expect(result.enrichment.publicationDate == nil)
-        #expect(result.enrichment.publisher == "EPUB Publisher")
+        #expect(code == CLIProcessExit.success.rawValue)
+        #expect(capture.stderr.isEmpty)
+        let result = try fixture.decode(ContentMetadataResult.self, capture.stdout)
+        #expect(result.bookAssetID == "12")
+        #expect(result.bookLocalPK == nil)
+        #expect(result.contentSource == .current)
+        #expect(result.title == "DB Title")
+        #expect(result.author == "DB Author")
+        #expect(result.language == "db-lang")
+        #expect(result.publisher == "EPUB Publisher")
+        #expect(result.publicationDate != nil)
+        #expect(result.truncatedFields.isEmpty)
+        #expect(capture.stdout.contains("\"database\"") == false)
+        #expect(capture.stdout.contains("\"epub\"") == false)
+        #expect(capture.stdout.contains("\"enrichment\"") == false)
+        #expect(capture.stdout.contains("\"identifiers\"") == false)
     }
 
     @Test
@@ -122,15 +125,16 @@ struct ContentInspectCommandTests {
         )
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains(destination.path) == false)
         #expect(capture.stdout.contains(fixture.coverData.base64EncodedString()) == false)
         let result = try fixture.decode(ContentCoverResult.self, capture.stdout)
         #expect(result.bookAssetID == "12")
+        #expect(result.bookLocalPK == nil)
         #expect(result.contentSource == .current)
         #expect(result.coverSource == .manifestProperty)
         #expect(result.mediaType == "image/png")
         #expect(result.byteCount == fixture.coverData.count)
-        #expect(result.outputStatus == .created)
+        #expect(result.destination == destination.standardizedFileURL.path)
+        #expect(result.disposition == .created)
         #expect(try Data(contentsOf: destination) == fixture.coverData)
 
         let second = Capture()
@@ -181,6 +185,150 @@ struct ContentInspectCommandTests {
     }
 
     @Test
+    func metadataBoundsResolvedFieldsAndSubjectList() throws {
+        let fixture = try Fixture(contentAvailable: true)
+        defer { fixture.remove() }
+        try fixture.clearDatabaseMetadata()
+
+        let longTitle = String(repeating: "T", count: 600)
+        let longAuthor = String(repeating: "A", count: 600)
+        let longLanguage = String(repeating: "l", count: 160)
+        let longPublisher = String(repeating: "P", count: 600)
+        let longDate = String(repeating: "2", count: 160)
+        let longRights = String(repeating: "R", count: 4_100)
+        let longSubject = String(repeating: "S", count: 300)
+        let subjects = [longSubject] + (1...32).map { "subject-\($0)" }
+        try fixture.writePackageMetadata(
+            title: longTitle,
+            creator: longAuthor,
+            isbn: "9780306406157",
+            language: longLanguage,
+            publisher: longPublisher,
+            publicationDate: longDate,
+            rights: longRights,
+            subjects: subjects
+        )
+
+        let result = try fixture.runJSON(
+            ContentMetadataResult.self,
+            arguments: ["content", "metadata", "12"]
+        )
+        #expect(result.title?.count == 512)
+        #expect(result.author?.count == 512)
+        #expect(result.isbn == "9780306406157")
+        #expect(result.language?.count == 128)
+        #expect(result.publisher?.count == 512)
+        #expect(result.publicationDate?.count == 128)
+        #expect(result.rights?.count == 4_000)
+        #expect(result.subjects.count == 32)
+        #expect(result.subjects.first?.count == 256)
+        #expect(result.truncatedFields == [
+            "author", "language", "publicationDate", "publisher", "rights", "subjects", "title",
+        ])
+    }
+
+    @Test
+    func metadataAndCoverUseLocalPKFallbackWhenStableIdentityIsNotPublic() throws {
+        let fixture = try Fixture(contentAvailable: true)
+        defer { fixture.remove() }
+        try fixture.setLibraryAssetID(String(repeating: "a", count: 2_049))
+
+        let metadata = try fixture.runJSON(
+            ContentMetadataResult.self,
+            arguments: ["content", "metadata", "--pk", "1"]
+        )
+        #expect(metadata.bookAssetID == nil)
+        #expect(metadata.bookLocalPK == 1)
+
+        let destination = fixture.root.appendingPathComponent("cover-pk-fallback.bin")
+        let cover = try fixture.runJSON(
+            ContentCoverResult.self,
+            arguments: ["content", "cover", "--pk", "1", "--output", destination.path]
+        )
+        #expect(cover.bookAssetID == nil)
+        #expect(cover.bookLocalPK == 1)
+    }
+
+    @Test
+    func coverResolvesRelativeOutputAgainstExplicitCurrentDirectory() throws {
+        let fixture = try Fixture(contentAvailable: true)
+        defer { fixture.remove() }
+        let outputDirectory = fixture.root.appendingPathComponent("relative-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        let command = try ContentCoverCommand.parse(
+            ["12", "--output", "cover-relative.bin"] + fixture.globalArguments
+        )
+        let result = try command.execute(currentDirectory: outputDirectory)
+        let expected = outputDirectory.appendingPathComponent("cover-relative.bin").standardizedFileURL
+        #expect(result.destination == expected.path)
+        #expect(result.disposition == .created)
+        #expect(try Data(contentsOf: expected) == fixture.coverData)
+    }
+
+    @Test
+    func metadataAndCoverIgnoreBrokenAnnotationsDatabase() throws {
+        let fixture = try Fixture(contentAvailable: true)
+        defer { fixture.remove() }
+        try fixture.corruptAnnotationsDatabase()
+
+        let metadata = try fixture.runJSON(
+            ContentMetadataResult.self,
+            arguments: ["content", "metadata", "12"]
+        )
+        #expect(metadata.bookAssetID == "12")
+
+        let destination = fixture.root.appendingPathComponent("cover-with-broken-annotations.bin")
+        let cover = try fixture.runJSON(
+            ContentCoverResult.self,
+            arguments: ["content", "cover", "12", "--output", destination.path]
+        )
+        #expect(cover.destination == destination.standardizedFileURL.path)
+        #expect(try Data(contentsOf: destination) == fixture.coverData)
+    }
+
+    @Test
+    func metadataAndCoverFailClosedForOversizeOrInvalidDatabasePathsWithoutLeakingThem() throws {
+        let fixture = try Fixture(contentAvailable: true)
+        defer { fixture.remove() }
+        let marker = "PRIVATE_PATH_MARKER_"
+        func path(byteCount: Int) -> String {
+            let prefix = "/\(marker)"
+            let suffix = ".epub"
+            return prefix + String(repeating: "x", count: byteCount - prefix.utf8.count - suffix.utf8.count) + suffix
+        }
+        let cases: [(String, String)] = [
+            ("4096", path(byteCount: 4_096)),
+            ("4097", path(byteCount: 4_097)),
+            ("multi", path(byteCount: 2 * 1_024 * 1_024)),
+            ("nul", "/\(marker)before\0after.epub"),
+        ]
+
+        for (label, rawPath) in cases {
+            try fixture.setLibraryPath(rawPath)
+            let metadataCapture = Capture()
+            let metadataCode = CLIEntrypoint.run(
+                arguments: ["content", "metadata", "12"] + fixture.globalArguments,
+                output: metadataCapture.output
+            )
+            #expect(metadataCode == CLIProcessExit.unavailable.rawValue)
+            #expect(metadataCapture.stdout.isEmpty)
+            #expect(metadataCapture.stderr.contains(marker) == false)
+
+            let destination = fixture.root.appendingPathComponent("rejected-\(label).bin")
+            let coverCapture = Capture()
+            let coverCode = CLIEntrypoint.run(
+                arguments: ["content", "cover", "12", "--output", destination.path] + fixture.globalArguments,
+                output: coverCapture.output
+            )
+            #expect(coverCode == CLIProcessExit.unavailable.rawValue)
+            #expect(coverCapture.stdout.isEmpty)
+            #expect(coverCapture.stderr.contains(marker) == false)
+            #expect(FileManager.default.fileExists(atPath: destination.path) == false)
+        }
+    }
+
+    @Test
     func malformedCFIRemainsDiagnosticOnlyEvenWhenContentIsUnavailable() throws {
         let fixture = try Fixture(contentAvailable: false)
         defer { fixture.remove() }
@@ -203,7 +351,7 @@ struct ContentInspectCommandTests {
         let outputCapture = Capture()
         let outputCode = CLIEntrypoint.run(
             arguments: [
-                "content", "cover", "12", "--output", "relative.png",
+                "content", "cover", "12", "--output", "",
                 "--library-db", missing, "--annotations-db", missing,
             ],
             output: outputCapture.output
@@ -309,6 +457,77 @@ struct ContentInspectCommandTests {
             try configuration.write(to: config)
         }
 
+        func clearDatabaseMetadata() throws {
+            try Self.execute(library, sql: "UPDATE ZBKLIBRARYASSET SET ZTITLE=NULL, ZAUTHOR=NULL, ZLANGUAGE=NULL, ZRELEASEDATE=NULL WHERE Z_PK=1;")
+        }
+
+        func writePackageMetadata(
+            title: String,
+            creator: String,
+            isbn: String,
+            language: String,
+            publisher: String,
+            publicationDate: String,
+            rights: String,
+            subjects: [String]
+        ) throws {
+            let subjectXML = subjects.map { "<dc:subject>\($0)</dc:subject>" }.joined()
+            let document = """
+            <package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+              <metadata>
+                <dc:title>\(title)</dc:title>
+                <dc:creator>\(creator)</dc:creator>
+                <dc:identifier scheme="ISBN">\(isbn)</dc:identifier>
+                <dc:language>\(language)</dc:language>
+                <dc:publisher>\(publisher)</dc:publisher>
+                <dc:date>\(publicationDate)</dc:date>
+                <dc:rights>\(rights)</dc:rights>
+                \(subjectXML)
+              </metadata>
+              <manifest>
+                <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+                <item id="cover" href="cover.png" media-type="image/jpeg" properties="cover-image"/>
+              </manifest>
+              <spine><itemref idref="chapter"/></spine>
+            </package>
+            """
+            try Data(document.utf8).write(to: epub.appendingPathComponent("OPS/package.opf"))
+        }
+
+        func corruptAnnotationsDatabase() throws {
+            try Data("not a sqlite database".utf8).write(to: annotations, options: .atomic)
+        }
+
+        func setLibraryPath(_ value: String) throws {
+            try setLibraryText(column: "ZPATH", value: value)
+        }
+
+        func setLibraryAssetID(_ value: String) throws {
+            try setLibraryText(column: "ZASSETID", value: value)
+        }
+
+        private func setLibraryText(column: String, value: String) throws {
+            var handle: OpaquePointer?
+            guard sqlite3_open(library.path, &handle) == SQLITE_OK, let handle else { throw FixtureError.sqlite }
+            defer { sqlite3_close_v2(handle) }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(handle, "UPDATE ZBKLIBRARYASSET SET \(column)=? WHERE Z_PK=1", -1, &statement, nil) == SQLITE_OK,
+                  let statement else { throw FixtureError.sqlite }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            let bytes = Array(value.utf8)
+            let bindResult = bytes.withUnsafeBytes { raw in
+                sqlite3_bind_text(
+                    statement,
+                    1,
+                    raw.baseAddress?.assumingMemoryBound(to: CChar.self),
+                    Int32(bytes.count),
+                    transient
+                )
+            }
+            guard bindResult == SQLITE_OK, sqlite3_step(statement) == SQLITE_DONE else { throw FixtureError.sqlite }
+        }
+
         func remove() {
             try? FileManager.default.removeItem(at: root)
         }
@@ -331,6 +550,13 @@ struct ContentInspectCommandTests {
             var handle: OpaquePointer?
             let open = sqlite3_open(url.path, &handle)
             guard open == SQLITE_OK, let handle else { throw FixtureError.sqlite }
+            defer { sqlite3_close_v2(handle) }
+            guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.sqlite }
+        }
+
+        private static func execute(_ url: URL, sql: String) throws {
+            var handle: OpaquePointer?
+            guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else { throw FixtureError.sqlite }
             defer { sqlite3_close_v2(handle) }
             guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.sqlite }
         }

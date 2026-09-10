@@ -17,7 +17,7 @@ struct AnnotationSourceClassifier {
     let bookQueries: BookQueries
     let historicalAssets: HistoricalAssets
 
-    func classifyEligible(_ assetIDs: [String]) throws -> [String: AnnotationAssetSourceState] {
+    func classify(_ assetIDs: [String]) throws -> [String: AnnotationAssetSourceState] {
         guard assetIDs.count <= Self.maximumBatch else {
             throw AnnotationAggregateQueryError.batchTooLarge
         }

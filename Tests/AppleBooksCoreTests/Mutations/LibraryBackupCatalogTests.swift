@@ -72,9 +72,71 @@ struct LibraryBackupCatalogTests {
         let result = try SQLiteBackup.list(source: source, backupRoot: root)
 
         #expect(result.map(\.handle) == [newerHighUUID.filename, newerLowUUID.filename, old.filename])
+        #expect(result.map(\.backupID) == [newerHighUUID.backupID, newerLowUUID.backupID, old.backupID])
         #expect(result.map(\.sizeBytes) == [7, 5, 3])
         #expect(result.allSatisfy { $0.handle.contains("/") == false })
+        #expect(result.allSatisfy { $0.backupID.contains("library") == false && $0.backupID.contains(".sqlite") == false })
         #expect(result[0].createdAt == BackupMetadata.parse(filename: newerHighUUID.filename, sourceStem: "library")?.timestamp)
+    }
+
+    @Test
+    func catalogStreamsLargeDirectoryAndRetainsOnlyNewestRecoveryWindow() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("library.sqlite")
+        try execute(source, "CREATE TABLE state(value TEXT); INSERT INTO state VALUES('original');")
+
+        var metadata: [BackupMetadata] = []
+        metadata.reserveCapacity(1_005)
+        for index in 0..<1_005 {
+            let item = BackupMetadata.fresh(
+                sourceStem: "library",
+                now: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
+                uuid: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012x", index + 1))!
+            )
+            metadata.append(item)
+            let destination = root.appendingPathComponent(item.filename)
+            if index == 0 {
+                try FileManager.default.copyItem(at: source, to: destination)
+            } else {
+                try Data([UInt8(index & 0xff)]).write(to: destination)
+            }
+        }
+        for index in 0..<250 {
+            try Data([0]).write(to: root.appendingPathComponent("malformed-\(index).sqlite"))
+        }
+        let other = BackupMetadata.fresh(sourceStem: "annotations")
+        try Data([0]).write(to: root.appendingPathComponent(other.filename))
+        let symlink = BackupMetadata.fresh(
+            sourceStem: "library",
+            now: Date(timeIntervalSince1970: 1_800_000_000),
+            uuid: UUID(uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff")!
+        )
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent(symlink.filename),
+            withDestinationURL: root.appendingPathComponent(metadata.last!.filename)
+        )
+
+        let instrumentation = BackupCatalogInstrumentation()
+        let result = try SQLiteBackup.list(source: source, backupRoot: root, instrumentation: instrumentation)
+        let expected = metadata.suffix(SQLiteBackup.retentionCount).reversed().map(\.filename)
+
+        #expect(result.count == SQLiteBackup.retentionCount)
+        #expect(result.map(\.handle) == Array(expected))
+        #expect(result.map(\.backupID) == Array(metadata.suffix(10).reversed().map(\.backupID)))
+        #expect(instrumentation.scannedEntryCount > 1_000)
+        #expect(instrumentation.retainedCandidatePeak == SQLiteBackup.retentionCount)
+        #expect(result.allSatisfy { $0.handle.contains(root.path) == false })
+        #expect(result.contains { $0.handle == metadata[0].filename } == false)
+
+        #expect(try SQLiteBackup.restoreHandle(backupID: metadata[0].backupID, destination: source) == metadata[0].filename)
+        let restoreSource = try SQLiteBackup.openRestoreSource(
+            handle: metadata[0].filename,
+            destination: source,
+            backupRoot: root
+        )
+        try restoreSource.close()
     }
 
     @Test
@@ -108,8 +170,40 @@ struct LibraryBackupCatalogTests {
 
         #expect(result.count == 1)
         #expect(result[0].handle == libraryMetadata.filename)
+        #expect(result[0].backupID == libraryMetadata.backupID)
         #expect(result[0].sizeBytes == 4)
         #expect(result[0].handle.hasPrefix(root.path) == false)
+    }
+
+    @Test
+    func backupIDIsCanonicalSourceIndependentAndRebuildsOnlyTheCurrentSourceHandle() throws {
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        let uuid = UUID(uuidString: "12345678-1234-4234-8234-123456789abc")!
+        let library = BackupMetadata.fresh(sourceStem: "BKLibrary-main", now: instant, uuid: uuid)
+        let annotations = BackupMetadata.fresh(sourceStem: "AEAnnotation-main", now: instant, uuid: uuid)
+
+        #expect(library.backupID == annotations.backupID)
+        #expect(library.backupID.utf8.count == BackupMetadata.backupIDLength)
+        #expect(LibraryBackup.isValidBackupID(library.backupID))
+        #expect(library.backupID.hasPrefix("abk1_"))
+        #expect(library.backupID.contains("BKLibrary") == false)
+        #expect(library.backupID.contains("AEAnnotation") == false)
+        #expect(library.backupID.contains(".sqlite") == false)
+        #expect(BackupMetadata.parse(backupID: library.backupID, sourceStem: "BKLibrary-main")?.filename == library.filename)
+        #expect(BackupMetadata.parse(backupID: library.backupID, sourceStem: "AEAnnotation-main")?.filename == annotations.filename)
+
+        let malformed = [
+            "",
+            "abk1_",
+            String(repeating: "x", count: BackupMetadata.backupIDLength + 1),
+            library.backupID.uppercased(),
+            library.backupID.replacingOccurrences(of: "abk1_", with: "abk2_"),
+            library.backupID + "\u{0}",
+        ]
+        for value in malformed {
+            #expect(LibraryBackup.isValidBackupID(value) == false)
+            #expect(BackupMetadata.parse(backupID: value, sourceStem: "BKLibrary-main") == nil)
+        }
     }
 
     private func closedController() -> BooksAppController {

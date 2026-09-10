@@ -66,6 +66,39 @@ struct AnnotationContextTests {
         }
     }
 
+    @Test
+    func semanticContextRejectsOversizedInvalidUTF8AnchorBeforePayloadDecode() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let epub = try makeEPUB(in: root)
+        let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT);
+        INSERT INTO ZBKLIBRARYASSET VALUES (1,'asset-current','\(sql(epub.path))');
+        """)
+        let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
+        CREATE TABLE ZAEANNOTATION(
+          Z_PK INTEGER PRIMARY KEY,
+          ZANNOTATIONASSETID TEXT,
+          ZANNOTATIONDELETED INTEGER,
+          ZANNOTATIONTYPE INTEGER,
+          ZANNOTATIONSELECTEDTEXT TEXT,
+          ZANNOTATIONREPRESENTATIVETEXT TEXT,
+          ZANNOTATIONLOCATION TEXT
+        );
+        INSERT INTO ZAEANNOTATION VALUES(
+          1,'asset-current',0,1,
+          CAST(X'FF' || zeroblob(32768) AS TEXT),
+          'fallback must not be selected',
+          'epubcfi(/6/2[chapter]!/4/2,:0,:0)'
+        );
+        """)
+        let books = try AppleBooks(libraryDB: library, annotationsDB: annotations)
+
+        #expect(throws: AnnotationContextError.anchorTooLarge) {
+            _ = try books.semanticAnnotationContextResult(localPK: 1)
+        }
+    }
+
     private func makeFixture() throws -> Fixture {
         let root = temporaryDirectory()
         let epub = try makeEPUB(in: root)

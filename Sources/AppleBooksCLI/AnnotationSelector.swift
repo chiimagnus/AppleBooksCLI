@@ -14,6 +14,19 @@ enum AnnotationSelector: Equatable, Sendable {
         }
     }
 
+    func resolveContext(
+        in books: AppleBooks,
+        charsBefore: Int,
+        charsAfter: Int
+    ) throws -> SemanticAnnotationContextResult? {
+        switch self {
+        case let .uuid(uuid):
+            try books.semanticAnnotationContextResult(uuid: uuid, charsBefore: charsBefore, charsAfter: charsAfter)
+        case let .localPK(localPK):
+            try books.semanticAnnotationContextResult(localPK: localPK, charsBefore: charsBefore, charsAfter: charsAfter)
+        }
+    }
+
     func updateNote(_ note: String, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
         switch self {
         case let .uuid(uuid):

@@ -42,6 +42,7 @@ struct BookContentAvailabilityProbe {
     let resourceMetadata: (URL) throws -> ResourceMetadata
 
     func availability(at url: URL) -> BookContentAvailability {
+        let node: Node
         switch fileMetadata(url) {
         case .missing:
             return .missing
@@ -49,8 +50,8 @@ struct BookContentAvailabilityProbe {
             return .unknown
         case let .node(.regular(size, blocks)) where size > 0 && blocks == 0:
             return .notDownloaded
-        case .node(.regular), .node(.directory):
-            break
+        case let .node(value):
+            node = value
         }
 
         let metadata: ResourceMetadata
@@ -68,7 +69,10 @@ struct BookContentAvailabilityProbe {
             return .notDownloaded
         case .downloaded, .current:
             return .available
-        case .other, nil:
+        case .other:
+            return .unknown
+        case nil:
+            if case .regular = node { return .available }
             return .unknown
         }
     }

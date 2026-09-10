@@ -34,10 +34,11 @@ public struct EPUBMetadataInspection: Equatable, Sendable {
 }
 
 package struct SemanticEPUBMetadataInspection: Equatable, Sendable {
-    package let book: SemanticBookDetail
+    package let bookLocalPK: Int64
+    package let bookAssetID: String?
     package let source: EPUBContentSource
     package let metadata: EPUBMetadata
-    package let enrichment: BookMetadataEnrichment
+    package let databaseFallback: BookContentMetadataFallback
 }
 
 public struct EPUBCoverInspection: Equatable, Sendable {
@@ -172,17 +173,17 @@ enum EPUBContentInspector {
 
     static func metadata(
         target: BookResourceTarget,
-        book: SemanticBookDetail,
+        databaseFallback: BookContentMetadataFallback,
         configuration: AppleBooksConfiguration
     ) throws -> SemanticEPUBMetadataInspection {
         let selected = try EPUBSourceResolver.resolve(for: target, configuration: configuration).requireReader()
         let content = try BookContent(reader: selected.reader)
-        let metadata = try content.metadata()
         return SemanticEPUBMetadataInspection(
-            book: book,
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
             source: selected.source,
-            metadata: metadata,
-            enrichment: metadata.supplementing(book)
+            metadata: try content.metadata(),
+            databaseFallback: databaseFallback
         )
     }
 

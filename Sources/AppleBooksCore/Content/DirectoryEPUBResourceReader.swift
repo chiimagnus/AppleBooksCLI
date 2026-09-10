@@ -93,6 +93,15 @@ final class DirectoryEPUBResourceReader: EPUBResourceReader {
         }
     }
 
+    func cursorGenerationComponent(label: String, paths: [EPUBPath]) throws -> CursorGenerationComponent {
+        var builder = try CursorDirectoryGenerationBuilder(label: label, rootURL: root)
+        for path in Dictionary(grouping: paths, by: \.relativePath).keys.sorted() {
+            let resource = try EPUBPath.resolve(reference: path)
+            try builder.add(relativeName: path, fileURL: resourceURL(resource))
+        }
+        return try builder.finish()
+    }
+
     private func resourceURL(_ path: EPUBPath) -> URL {
         path.relativePath.split(separator: "/").reduce(root) {
             $0.appendingPathComponent(String($1), isDirectory: false)

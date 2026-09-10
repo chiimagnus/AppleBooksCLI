@@ -122,6 +122,22 @@ struct DomainModelTests {
     }
 
     @Test
+    func bookLevelAnnotationURLUsesOneEncodedSegmentWithoutCFI() throws {
+        let assetID = "asset/segment#query?percent%雪"
+        let raw = try #require(Annotation.bookAppleBooksURL(assetID: assetID))
+        let components = try #require(URLComponents(string: raw))
+        #expect(components.scheme == "ibooks")
+        #expect(components.host == "assetid")
+        #expect(components.fragment == nil)
+        #expect(components.query == nil)
+        let segment = String(components.percentEncodedPath.dropFirst())
+        #expect(segment.contains("/") == false)
+        #expect(segment.removingPercentEncoding == assetID)
+        #expect(Annotation.bookAppleBooksURL(assetID: " bad ") == nil)
+        #expect(Annotation.bookAppleBooksURL(assetID: "bad\0id") == nil)
+    }
+
+    @Test
     func collectionKeepsLocalAndSourceIdentitySeparate() {
         let collection = Collection(
             localPK: 3,

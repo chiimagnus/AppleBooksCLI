@@ -28,7 +28,7 @@ struct CLIContractTests {
             ["annotations", "list", "--book-pk", "0"],
             ["collections", "get", "--pk", "0"],
             ["collections", "add-book", "--collection-pk", "-1", "--book-pk", "1"],
-            ["collections", "add-book", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
+            ["collections", "add-book", "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
             ["pdf", "highlights", "--book-pk", "0"],
         ]
 
@@ -82,8 +82,8 @@ struct CLIContractTests {
             (["collections", "create", "Shelf"], "collections.create"),
             (["collections", "rename", "collection-id", "--title", "Renamed"], "collections.rename"),
             (["collections", "delete", "collection-id"], "collections.delete"),
-            (["collections", "add-book", "collection-id", "asset-id"], "collections.add-book"),
-            (["collections", "remove-book", "collection-id", "asset-id"], "collections.remove-book"),
+            (["collections", "add-book", "--collection", "collection-id", "--book", "asset-id"], "collections.add-book"),
+            (["collections", "remove-book", "--collection", "collection-id", "--book", "asset-id"], "collections.remove-book"),
             (["backups", "restore", "library__20000101T000000Z__00000000-0000-4000-8000-000000000000.sqlite"], "backups.restore"),
             (["sync"], "sync"),
         ]
@@ -135,7 +135,7 @@ struct CLIContractTests {
         #expect(detail.id == token.id)
         #expect(detail.arguments.contains(privateArgument))
         #expect(detail.stdout == "{\"committed\":true}\n")
-        #expect(try store.list().count == 1)
+        #expect(try store.listPage(limit: 100).items.count == 1)
     }
 
     @Test
@@ -176,17 +176,23 @@ struct CLIContractTests {
         #expect(stats["totalUserAnnotations"] as? Int == 3)
 
         let position = try fixture.runJSON(["reading", "position", "asset-a"])
-        #expect(position["chapterID"] as? String == "shared")
-        #expect(position["source"] as? String == "bookmarkToc")
+        #expect(position["chapterOrder"] as? Int == 1)
+        #expect(position["chapterID"] == nil)
+        #expect(position["source"] == nil)
 
         let status = try fixture.runJSON(["content", "status", "asset-a"])
         #expect(status["ready"] as? Bool == true)
         #expect(status["selectedSource"] as? String == "current")
 
         let metadata = try fixture.runJSON(["content", "metadata", "asset-a"])
-        let epubMetadata = try #require(metadata["epub"] as? [String: Any])
-        #expect(epubMetadata["title"] as? String == "Synthetic EPUB")
-        #expect(epubMetadata["creator"] as? String == "Fixture Author")
+        #expect(metadata["bookAssetID"] as? String == "asset-a")
+        #expect(metadata["bookLocalPK"] == nil)
+        #expect(metadata["title"] as? String == "Book A")
+        #expect(metadata["author"] as? String == "Author A")
+        #expect(metadata["contentSource"] as? String == "current")
+        #expect(metadata["epub"] == nil)
+        #expect(metadata["database"] == nil)
+        #expect(metadata["enrichment"] == nil)
 
         let located = try fixture.runJSON([
             "content", "locate", "asset-a", "epubcfi(/6/2[shared]!/4/2,:0,:5)",
@@ -194,32 +200,36 @@ struct CLIContractTests {
         #expect(located["chapterID"] as? String == "shared")
 
         let chapter = try fixture.runJSON([
-            "content", "chapter", "asset-a", "shared", "--max-chars", "12",
+            "content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "12",
         ])
-        #expect(chapter["chapterSelector"] as? String == "shared")
+        #expect(chapter["chapterOrder"] as? Int == 1)
+        #expect(chapter["bookAssetID"] as? String == "asset-a")
+        #expect(chapter["bookLocalPK"] == nil)
         #expect((chapter["content"] as? String)?.isEmpty == false)
 
         let context = try fixture.runJSON([
-            "content", "context", "uuid-a", "--before", "8", "--after", "8",
+            "annotations", "context", "uuid-a", "--before", "8", "--after", "8",
         ])
-        #expect(context["matchFound"] as? Bool == true)
+        #expect(context["uuid"] as? String == "uuid-a")
         #expect(context["matched"] as? String == "First & 😀")
+        #expect(context["canonicalText"] == nil)
+        #expect(context["presentationText"] == nil)
 
         let annotations = try fixture.runJSON(["annotations", "list", "--book", "asset-a"])
         let annotationItems = try #require(annotations["items"] as? [[String: Any]])
         #expect(Set(annotationItems.compactMap { $0["uuid"] as? String }) == ["uuid-a", "uuid-update"])
 
         let annotationSearch = try fixture.runJSON([
-            "annotations", "search", "note alpha", "--field", "note",
+            "annotations", "list", "--text", "note alpha", "--text-field", "note",
         ])
         let searchItems = try #require(annotationSearch["items"] as? [[String: Any]])
         #expect(searchItems.count == 1)
         #expect(searchItems[0]["uuid"] as? String == "uuid-a")
 
         let annotationRange = try fixture.runJSON([
-            "annotations", "range",
-            "--after", "2001-01-01T00:01:30Z",
-            "--before", "2001-01-01T00:02:30Z",
+            "annotations", "list",
+            "--created-after", "2001-01-01T00:01:30Z",
+            "--created-before", "2001-01-01T00:02:30Z",
         ])
         #expect((annotationRange["items"] as? [[String: Any]])?.isEmpty == false)
 
@@ -228,11 +238,13 @@ struct CLIContractTests {
         #expect(collectionItems.contains { $0["collectionID"] as? String == ProcessFixture.shelfID })
 
         let collection = try fixture.runJSON(["collections", "get", ProcessFixture.shelfID])
-        #expect(collection["localPK"] as? Int == 10)
-        #expect(collection["sortKey"] as? Int == 10_000)
-        #expect(collection["sortMode"] as? Int == 6)
-        #expect(collection["lastModificationDate"] as? String != nil)
-        #expect(collection["localModificationDate"] as? String != nil)
+        #expect(collection["collectionID"] as? String == ProcessFixture.shelfID)
+        #expect(collection["localPK"] == nil)
+        #expect(collection["canEditCollection"] as? Bool == true)
+        #expect(collection["canEditMembership"] as? Bool == true)
+        for internalKey in ["sortKey", "sortMode", "viewMode", "isPlaceholder", "lastModificationDate", "localModificationDate"] {
+            #expect(collection[internalKey] == nil)
+        }
 
         let collectionSearch = try fixture.runJSON(["collections", "search", "Shelf"])
         #expect((collectionSearch["items"] as? [[String: Any]])?.count == 1)
@@ -250,10 +262,12 @@ struct CLIContractTests {
         let create = try fixture.runJSON(["collections", "create", "Black Box Shelf"])
         #expect(create["committed"] as? Bool == true)
         #expect(create["changed"] as? Bool == true)
-        let restoreHandle = try #require(create["backupHandle"] as? String)
-        #expect(restoreHandle.hasPrefix("library__"))
+        let restoreBackupID = try #require(create["backupID"] as? String)
+        #expect(restoreBackupID.hasPrefix("abk1_"))
+        #expect(restoreBackupID.utf8.count == 64)
+        #expect(restoreBackupID.contains("library") == false)
+        #expect(restoreBackupID.contains(".sqlite") == false)
         #expect(try fixture.scalarInt("SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Black Box Shelf'", database: fixture.library) == 1)
-        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.appendingPathComponent(restoreHandle).path))
 
         let note = "black box replacement"
         let update = try fixture.runJSON([
@@ -264,22 +278,28 @@ struct CLIContractTests {
         #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
         #expect(annotationURL.contains("%5Bshared%5D"))
         #expect(try fixture.scalarText("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == note)
-        let annotationHandle = try #require(update["backupHandle"] as? String)
-        #expect(annotationHandle.hasPrefix("annotations__"))
-        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.appendingPathComponent(annotationHandle).path))
+        let annotationBackupID = try #require(update["backupID"] as? String)
+        #expect(annotationBackupID.hasPrefix("abk1_"))
+        #expect(annotationBackupID.utf8.count == 64)
+        #expect(annotationBackupID.contains("annotations") == false)
+        #expect(annotationBackupID.contains(".sqlite") == false)
 
         let backups = try fixture.runJSON(["backups", "list"])
         let backupItems = try #require(backups["items"] as? [[String: Any]])
-        #expect(backupItems.contains { $0["handle"] as? String == restoreHandle })
-        #expect(backupItems.contains { $0["handle"] as? String == annotationHandle } == false)
+        #expect(backupItems.contains { $0["backupID"] as? String == restoreBackupID })
+        #expect(backupItems.contains { $0["backupID"] as? String == annotationBackupID } == false)
+        #expect(backupItems.allSatisfy { $0["handle"] == nil })
 
-        let restore = try fixture.runJSON(["backups", "restore", restoreHandle])
+        let restore = try fixture.runJSON(["backups", "restore", restoreBackupID])
         #expect(restore["changed"] as? Bool == true)
         #expect(restore["verified"] as? Bool == true)
-        #expect(restore["restoredFromHandle"] as? String == restoreHandle)
-        let safetyHandle = try #require(restore["safetyBackupHandle"] as? String)
-        #expect(safetyHandle != restoreHandle)
-        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.appendingPathComponent(safetyHandle).path))
+        #expect(restore["restoredFromBackupID"] as? String == restoreBackupID)
+        let safetyBackupID = try #require(restore["safetyBackupID"] as? String)
+        #expect(safetyBackupID != restoreBackupID)
+        #expect(safetyBackupID.hasPrefix("abk1_"))
+        #expect(safetyBackupID.utf8.count == 64)
+        #expect(restore["restoredFromHandle"] == nil)
+        #expect(restore["safetyBackupHandle"] == nil)
         #expect(try fixture.scalarInt("SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Black Box Shelf'", database: fixture.library) == 0)
 
         // ponytail: explicit DB overrides intentionally use a detached Books.app lifecycle; backup side effects prove
@@ -313,7 +333,7 @@ struct CLIContractTests {
         #expect(annotationURL.contains("%5Bshared%5D"))
 
         let noOp = try fixture.run([
-            "collections", "add-book", ProcessFixture.shelfID, "asset-a", "--sync",
+            "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a", "--sync",
         ] + fixture.globals)
         #expect(noOp.status == 0)
         #expect(noOp.stderr.isEmpty)
@@ -347,7 +367,7 @@ struct CLIContractTests {
         ) == privateNote)
 
         let noOpArguments = [
-            "collections", "add-book", ProcessFixture.shelfID, "asset-a",
+            "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a",
         ] + fixture.globals
         let noOp = try fixture.run(noOpArguments)
         #expect(noOp.status == 0)
@@ -473,7 +493,7 @@ struct CLIContractTests {
 
         let lock = root.appendingPathComponent(".lock")
         try FileManager.default.removeItem(at: lock)
-        let records = try store.list()
+        let records = try store.listPage(limit: 100).items
         #expect(records.count == 1)
         #expect(records[0].operation == "test.success")
         #expect(records[0].status == .incomplete)
@@ -487,16 +507,33 @@ struct CLIContractTests {
         let inventory = try fixture.runJSON(["pdf", "list"])
         let items = try #require(inventory["items"] as? [[String: Any]])
         #expect(items.contains { item in
-            guard let book = item["book"] as? [String: Any] else { return false }
-            return book["assetID"] as? String == "asset-pdf"
+            item["bookAssetID"] as? String == "asset-pdf" && item["pdfSourceID"] == nil
         })
 
-        let highlights = try fixture.runJSON(["pdf", "highlights", "--path", fixture.pdf.path])
-        #expect(highlights["failedCount"] as? Int == 0)
-        #expect(highlights["attemptedCount"] as? Int == 1)
-        let documents = try #require(highlights["documents"] as? [[String: Any]])
-        let first = try #require(documents.first)
-        let rows = try #require(first["highlights"] as? [[String: Any]])
+        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
+        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
+        #expect(highlights["pdfSourceID"] == nil)
+        #expect(highlights["hasMore"] as? Bool == false)
+        #expect(highlights["nextCursor"] == nil)
+        let rows = try #require(highlights["items"] as? [[String: Any]])
+        #expect(rows.first?["note"] as? String == "black box pdf")
+        for internalKey in ["bounds", "quadrilateralPoints", "pdfKitRGBA", "traversalIndex", "textSource"] {
+            #expect(rows.first?[internalKey] == nil)
+        }
+    }
+
+    @Test
+    func sourceBuildProcessDiscoversSiblingWorkerForDoctorAndPDFHighlights() throws {
+        let fixture = try ProcessFixture(layout: .swiftPM)
+        defer { fixture.remove() }
+
+        let doctor = try fixture.runJSON(["doctor"])
+        let components = try #require(doctor["components"] as? [String: Any])
+        #expect(components["pdfWorkerReady"] as? Bool == true)
+
+        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
+        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
+        let rows = try #require(highlights["items"] as? [[String: Any]])
         #expect(rows.first?["note"] as? String == "black box pdf")
     }
 
@@ -564,6 +601,11 @@ private struct ProcessInvocation {
 }
 
 private final class ProcessHarness {
+    enum Layout {
+        case installed
+        case swiftPM
+    }
+
     let root: URL
     let home: URL
     let cwd: URL
@@ -573,36 +615,49 @@ private final class ProcessHarness {
         home.appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
     }
 
-    init() throws {
+    init(layout: Layout = .installed) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("applebookscli-contract-\(UUID().uuidString)", isDirectory: true)
         home = root.appendingPathComponent("home", isDirectory: true)
         cwd = root.appendingPathComponent("cwd", isDirectory: true)
-        let install = root.appendingPathComponent("install", isDirectory: true)
-        let bin = install.appendingPathComponent("bin", isDirectory: true)
-        let libexec = install.appendingPathComponent("libexec/applebookscli", isDirectory: true)
-        for directory in [home, cwd, bin, libexec] {
+        for directory in [home, cwd] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let debug = repository.appendingPathComponent(".build/debug", isDirectory: true)
-        let sourceCLI = debug.appendingPathComponent("applebookscli")
-        let sourceWorker = debug.appendingPathComponent("applebookscli-pdf-worker")
+        let products = try Self.swiftPMProductDirectory()
+        let sourceCLI = products.appendingPathComponent("applebookscli")
+        let sourceWorker = products.appendingPathComponent("applebookscli-pdf-worker")
         guard FileManager.default.isExecutableFile(atPath: sourceCLI.path),
               FileManager.default.isExecutableFile(atPath: sourceWorker.path) else {
             throw ContractFixtureError.missingExecutable
         }
 
-        executable = bin.appendingPathComponent("applebookscli")
-        try FileManager.default.copyItem(at: sourceCLI, to: executable)
-        try FileManager.default.copyItem(
-            at: sourceWorker,
-            to: libexec.appendingPathComponent("applebookscli-pdf-worker")
-        )
+        switch layout {
+        case .swiftPM:
+            executable = sourceCLI
+        case .installed:
+            let install = root.appendingPathComponent("install", isDirectory: true)
+            let bin = install.appendingPathComponent("bin", isDirectory: true)
+            let libexec = install.appendingPathComponent("libexec/applebookscli", isDirectory: true)
+            for directory in [bin, libexec] {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            executable = bin.appendingPathComponent("applebookscli")
+            try FileManager.default.copyItem(at: sourceCLI, to: executable)
+            try FileManager.default.copyItem(
+                at: sourceWorker,
+                to: libexec.appendingPathComponent("applebookscli-pdf-worker")
+            )
+        }
+    }
+
+    private static func swiftPMProductDirectory() throws -> URL {
+        let products = Bundle(for: ProcessHarness.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .standardizedFileURL
+        guard products.isFileURL else { throw ContractFixtureError.missingExecutable }
+        return products
     }
 
     func run(_ arguments: [String]) throws -> ProcessInvocation {
@@ -631,7 +686,17 @@ private final class ProcessHarness {
     }
 
     func historyRecords() throws -> [OperationHistoryRecord] {
-        try OperationHistoryStore(root: historyRoot).list()
+        let store = OperationHistoryStore(root: historyRoot)
+        var result: [OperationHistoryRecord] = []
+        var cursor: String?
+        repeat {
+            let page = try store.listPage(limit: 100, cursor: cursor)
+            for summary in page.items {
+                if let record = try store.get(id: summary.id) { result.append(record) }
+            }
+            cursor = page.nextCursor
+        } while cursor != nil
+        return result
     }
 
     func remove() {
@@ -662,8 +727,8 @@ private final class ProcessFixture {
         ]
     }
 
-    init() throws {
-        harness = try ProcessHarness()
+    init(layout: ProcessHarness.Layout = .installed) throws {
+        harness = try ProcessHarness(layout: layout)
         root = harness.root.appendingPathComponent("fixture", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         epub = root.appendingPathComponent("synthetic.epub", isDirectory: true)

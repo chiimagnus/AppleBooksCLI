@@ -82,9 +82,14 @@ struct AnnotationWriteCommandTests {
     @Test
     func sharedMutationJSONKeepsMetadataAndDeeplink() throws {
         let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
-        let result = MutationCommandResult(
+        let backup = BackupMetadata.fresh(
+            sourceStem: "annotations",
+            now: Date(timeIntervalSince1970: 1_700_000_000),
+            uuid: UUID(uuidString: "00000000-0000-4000-8000-000000000007")!
+        )
+        let result = try MutationCommandResult(
             MutationResult(
-                backupHandle: "annotations__backup.sqlite",
+                backupHandle: backup.filename,
                 localPK: 7,
                 stableID: "uuid-7",
                 changed: true,
@@ -93,13 +98,14 @@ struct AnnotationWriteCommandTests {
             )
         )
 
-
         let data = try JSONEncoder().encode(result)
         let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: data)
         #expect(decoded == result)
         #expect(decoded.committed)
         #expect(decoded.changed)
-        #expect(decoded.backupHandle == "annotations__backup.sqlite")
+        #expect(decoded.backupID == backup.backupID)
+        #expect(decoded.backupID.contains("annotations") == false)
+        #expect(decoded.backupID.contains(".sqlite") == false)
         #expect(decoded.localPK == 7)
         #expect(decoded.stableID == "uuid-7")
         #expect(decoded.warningCodes == ["cloud_sync_failed"])

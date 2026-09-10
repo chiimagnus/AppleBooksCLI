@@ -1677,22 +1677,6 @@ public final class AppleBooks {
         try requiredReadingQueries().recentlyRead(limit: limit, offset: offset)
     }
 
-    package func semanticBooksInProgress(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
-        try requiredReadingQueries().semanticInProgress(limit: limit, offset: offset)
-    }
-
-    package func semanticFinishedBooks(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
-        try requiredReadingQueries().semanticFinished(limit: limit, offset: offset)
-    }
-
-    package func semanticUnstartedBooks(limit: Int? = nil, offset: Int = 0) throws -> [BookSummary] {
-        try requiredReadingQueries().semanticUnstarted(limit: limit, offset: offset)
-    }
-
-    package func semanticRecentlyReadBooks(limit: Int = 10, offset: Int = 0) throws -> [BookSummary] {
-        try requiredReadingQueries().semanticRecentlyRead(limit: limit, offset: offset)
-    }
-
     package func semanticBooksInProgressPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
         try requiredReadingQueries().semanticInProgressPage(limit: limit, cursor: cursor)
     }

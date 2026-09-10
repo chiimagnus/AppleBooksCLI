@@ -209,18 +209,31 @@ struct BookQueries {
             "b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)",
             "b.\(AppleBooksSchema.Book.contentType) AS \(AppleBooksSchema.Book.contentType)",
         ]
+        let multiplicityCTE: String
+        let multiplicityJoin: String
         if schema.contains(AppleBooksSchema.Book.assetID) {
             projection += SQLiteTextProjection.exact(
                 "b.\(AppleBooksSchema.Book.assetID)",
                 alias: "pdfResourceAssetID",
                 maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
             )
-            projection.append("""
-            (SELECT COUNT(*)
-             FROM \(AppleBooksTable.books.rawValue) AS identity_row
-             WHERE identity_row.\(AppleBooksSchema.Book.assetID) = b.\(AppleBooksSchema.Book.assetID) COLLATE BINARY)
-             AS pdfAssetMultiplicity
-            """)
+            projection.append("COALESCE(identity_count.pdfAssetMultiplicity, 0) AS pdfAssetMultiplicity")
+            multiplicityCTE = """
+            WITH identity_counts AS (
+              SELECT \(AppleBooksSchema.Book.assetID) AS assetID,
+                     COUNT(*) AS pdfAssetMultiplicity
+              FROM \(AppleBooksTable.books.rawValue)
+              WHERE typeof(\(AppleBooksSchema.Book.assetID)) = 'text'
+              GROUP BY \(AppleBooksSchema.Book.assetID) COLLATE BINARY
+            )
+            """
+            multiplicityJoin = """
+            LEFT JOIN identity_counts AS identity_count
+              ON identity_count.assetID = b.\(AppleBooksSchema.Book.assetID) COLLATE BINARY
+            """
+        } else {
+            multiplicityCTE = ""
+            multiplicityJoin = ""
         }
         projection += SQLiteTextProjection.exact(
             "b.\(AppleBooksSchema.Book.path)",
@@ -228,8 +241,10 @@ struct BookQueries {
             maximumUTF8Bytes: SQLiteSemanticTextBudget.resourcePath
         )
         let statement = try connection.prepare("""
+        \(multiplicityCTE)
         SELECT \(projection.joined(separator: ", "))
         FROM \(AppleBooksTable.books.rawValue) AS b
+        \(multiplicityJoin)
         WHERE b.\(AppleBooksSchema.Book.contentType) = 3
         ORDER BY b.\(AppleBooksSchema.Book.localPK) ASC
         """)

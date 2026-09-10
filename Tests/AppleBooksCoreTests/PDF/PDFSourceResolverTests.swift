@@ -225,6 +225,67 @@ struct PDFSourceResolverTests {
     }
 
     @Test
+    func exactBookLookupDoesNotMaterializeUnrelatedOpaqueLibraryCandidates() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("library.sqlite")
+        let selected = root.appendingPathComponent("selected.pdf")
+        try createEmptyFile(selected)
+
+        var rows: [String] = []
+        rows.reserveCapacity(1_002)
+        for index in 0..<1_001 {
+            let url = root.appendingPathComponent(String(format: "opaque-%04d.pdf", index))
+            try createEmptyFile(url)
+            rows.append("(\(index + 1),NULL,'Opaque','\(sql(url.path))',3)")
+        }
+        rows.append("(2000,'selected','Selected','\(sql(selected.path))',3)")
+        try createDatabase(database, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        INSERT INTO ZBKLIBRARYASSET VALUES \(rows.joined(separator: ","));
+        """)
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
+        var sourceIDDigestCalls = 0
+        let resolver = PDFSourceResolver(
+            fallbackRoot: root.appendingPathComponent("missing"),
+            sourceIDDigest: { data in
+                sourceIDDigestCalls += 1
+                return PDFSourceID.defaultDigest(data)
+            }
+        )
+
+        let source = try #require(try resolver.resolve(bookAssetID: "selected", bookQueries: queries))
+        #expect(source.fileURL == selected.standardizedFileURL)
+        #expect(source.bookSummary?.assetID == "selected")
+        #expect(sourceIDDigestCalls == 0)
+    }
+
+    @Test
+    func exactBookLookupRejectsCrossFormatDuplicateAssetIdentity() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("library.sqlite")
+        let pdf = root.appendingPathComponent("selected.pdf")
+        try createEmptyFile(pdf)
+        try createDatabase(database, sql: """
+        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER);
+        INSERT INTO ZBKLIBRARYASSET VALUES
+          (1,'duplicate','PDF','\(sql(pdf.path))',3),
+          (2,'duplicate','EPUB','/tmp/duplicate.epub',1);
+        """)
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
+        let resolver = PDFSourceResolver(fallbackRoot: root.appendingPathComponent("missing"))
+
+        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
+            _ = try resolver.resolve(bookAssetID: "duplicate", bookQueries: queries)
+        }
+        let page = try resolver.inventoryPage(bookQueries: queries, limit: 20)
+        #expect(page.items.count == 1)
+        #expect(page.items[0].bookAssetID == nil)
+        #expect(page.items[0].pdfSourceID != nil)
+    }
+
+    @Test
     func oversizedDatabasePathsAreUnavailableWithoutTruncation() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

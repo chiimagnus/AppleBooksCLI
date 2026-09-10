@@ -131,53 +131,35 @@ struct PDFSourceResolver {
     }
 
     func resolve(bookAssetID: String, bookQueries: BookQueries) throws -> PDFSource? {
-        let library = try scanLibrary(bookQueries: bookQueries)
-        var match: PDFSource?
-        var matchCount = 0
-        for group in library.groups.values {
-            let candidate = try libraryCandidate(group)
-            guard candidate.key.kind == .book, candidate.key.value == bookAssetID else { continue }
-            matchCount += 1
-            guard matchCount == 1, let localPK = candidate.summaryLocalPK else {
-                throw StableIdentityError.ambiguousBookAssetID
-            }
-            match = PDFSource(
-                fileURL: candidate.fileURL,
-                bookSummary: try bookQueries.semanticSummary(localPK: localPK),
-                provenance: .library
-            )
+        guard let target = try bookQueries.uniqueResourceTarget(assetID: bookAssetID),
+              target.contentType == 3,
+              let rawPath = target.path,
+              let validated = validatedLibraryPDF(rawPath: rawPath),
+              let group = try libraryGroup(fileIdentity: validated.fileIdentity, bookQueries: bookQueries) else {
+            return nil
         }
-        return match
+        let candidate = try libraryCandidate(group)
+        guard candidate.key == .book(assetID: bookAssetID),
+              candidate.summaryLocalPK == target.localPK else {
+            return nil
+        }
+        return PDFSource(
+            fileURL: candidate.fileURL,
+            bookSummary: try bookQueries.semanticSummary(localPK: target.localPK),
+            provenance: .library
+        )
     }
 
     func resolve(sourceID: PDFSourceID, bookQueries: BookQueries) throws -> PDFSource? {
-        let library = try scanLibrary(bookQueries: bookQueries)
-        var match: PDFSource?
-        var matchCount = 0
+        var match = try resolveLibrarySource(sourceID: sourceID, bookQueries: bookQueries)
+        var matchCount = match == nil ? 0 : 1
 
-        for group in library.groups.values {
-            let candidate = try libraryCandidate(group)
-            guard candidate.key.kind == .source, candidate.key.value == sourceID.rawValue else { continue }
-            matchCount += 1
-            guard matchCount == 1 else { throw PDFInventoryError.ambiguousSourceID }
-            let summary: BookSummary? = if let localPK = candidate.summaryLocalPK {
-                try bookQueries.semanticSummary(localPK: localPK)
-            } else {
-                nil
-            }
-            match = PDFSource(
-                fileURL: candidate.fileURL,
-                bookSummary: summary,
-                provenance: .library,
-                pdfSourceID: sourceID.rawValue
-            )
-        }
-
-        let libraryFileIDs = Set(library.groups.keys)
         _ = try scanFallback { entry in
-            guard libraryFileIDs.contains(entry.fileIdentity) == false else { return }
             let candidate = try fallbackCandidate(entry)
-            guard candidate.key.value == sourceID.rawValue else { return }
+            guard candidate.key == .source(sourceID),
+                  try libraryContains(fileIdentity: entry.fileIdentity, bookQueries: bookQueries) == false else {
+                return
+            }
             matchCount += 1
             guard matchCount == 1 else { throw PDFInventoryError.ambiguousSourceID }
             match = PDFSource(
@@ -249,23 +231,12 @@ struct PDFSourceResolver {
             generationRow.append(1)
             validated.metadata.appendForPDFGeneration(to: &generationRow)
             hasher.update(data: generationRow)
-
-            if var group = groups[validated.fileIdentity] {
-                group.rowCount += 1
-                if binaryLess(validated.fileURL.path, group.slotPath) {
-                    group.slotPath = validated.fileURL.path
-                }
-                groups[validated.fileIdentity] = group
-            } else {
-                groups[validated.fileIdentity] = LibraryGroup(
-                    fileIdentity: validated.fileIdentity,
-                    rowCount: 1,
-                    soleLocalPK: target.localPK,
-                    soleAssetID: target.assetID,
-                    soleAssetMultiplicity: assetMultiplicity,
-                    slotPath: validated.fileURL.path
-                )
-            }
+            groups[validated.fileIdentity] = mergedLibraryGroup(
+                groups[validated.fileIdentity],
+                target: target,
+                assetMultiplicity: assetMultiplicity,
+                validated: validated
+            )
             return true
         }
 
@@ -274,6 +245,106 @@ struct PDFSourceResolver {
             groups: groups,
             generation: try .synthetic(label: "pdf-library-files", value: digest)
         )
+    }
+
+    private func resolveLibrarySource(
+        sourceID: PDFSourceID,
+        bookQueries: BookQueries
+    ) throws -> PDFSource? {
+        var match: PDFSource?
+        try bookQueries.forEachPDFResourceTarget { target, _ in
+            guard let rawPath = target.path,
+                  let validated = validatedLibraryPDF(rawPath: rawPath),
+                  try librarySourceID(slotPath: validated.fileURL.path) == sourceID,
+                  let group = try libraryGroup(fileIdentity: validated.fileIdentity, bookQueries: bookQueries),
+                  target.localPK == group.canonicalRepresentativeLocalPK,
+                  validated.fileURL.path == group.slotPath else {
+                return true
+            }
+            let candidate = try libraryCandidate(group)
+            guard candidate.key == .source(sourceID) else { return true }
+            guard match == nil else { throw PDFInventoryError.ambiguousSourceID }
+            let summary: BookSummary? = if let localPK = candidate.summaryLocalPK {
+                try bookQueries.semanticSummary(localPK: localPK)
+            } else {
+                nil
+            }
+            match = PDFSource(
+                fileURL: candidate.fileURL,
+                bookSummary: summary,
+                provenance: .library,
+                pdfSourceID: sourceID.rawValue
+            )
+            return true
+        }
+        return match
+    }
+
+    private func libraryGroup(
+        fileIdentity: FileIdentity,
+        bookQueries: BookQueries
+    ) throws -> LibraryGroup? {
+        var group: LibraryGroup?
+        try bookQueries.forEachPDFResourceTarget { target, assetMultiplicity in
+            guard let rawPath = target.path,
+                  let validated = validatedLibraryPDF(rawPath: rawPath),
+                  validated.fileIdentity == fileIdentity else {
+                return true
+            }
+            group = mergedLibraryGroup(
+                group,
+                target: target,
+                assetMultiplicity: assetMultiplicity,
+                validated: validated
+            )
+            return true
+        }
+        return group
+    }
+
+    private func libraryContains(
+        fileIdentity: FileIdentity,
+        bookQueries: BookQueries
+    ) throws -> Bool {
+        var found = false
+        try bookQueries.forEachPDFResourceTarget { target, _ in
+            guard let rawPath = target.path,
+                  let validated = validatedLibraryPDF(rawPath: rawPath) else {
+                return true
+            }
+            if validated.fileIdentity == fileIdentity {
+                found = true
+                return false
+            }
+            return true
+        }
+        return found
+    }
+
+    private func mergedLibraryGroup(
+        _ existing: LibraryGroup?,
+        target: BookResourceTarget,
+        assetMultiplicity: Int,
+        validated: ValidatedFile
+    ) -> LibraryGroup {
+        guard var group = existing else {
+            return LibraryGroup(
+                rowCount: 1,
+                soleLocalPK: target.localPK,
+                soleAssetID: target.assetID,
+                soleAssetMultiplicity: assetMultiplicity,
+                slotPath: validated.fileURL.path,
+                canonicalRepresentativeLocalPK: target.localPK
+            )
+        }
+        group.rowCount += 1
+        if binaryLess(validated.fileURL.path, group.slotPath) {
+            group.slotPath = validated.fileURL.path
+            group.canonicalRepresentativeLocalPK = target.localPK
+        } else if validated.fileURL.path == group.slotPath {
+            group.canonicalRepresentativeLocalPK = min(group.canonicalRepresentativeLocalPK, target.localPK)
+        }
+        return group
     }
 
     private func inventoryGeneration(
@@ -651,12 +722,12 @@ private struct LibraryScan {
 }
 
 private struct LibraryGroup {
-    let fileIdentity: FileIdentity
     var rowCount: Int
     let soleLocalPK: Int64
     let soleAssetID: String?
     let soleAssetMultiplicity: Int
     var slotPath: String
+    var canonicalRepresentativeLocalPK: Int64
 }
 
 private struct FallbackEntry {

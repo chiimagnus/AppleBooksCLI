@@ -107,9 +107,6 @@ struct OperationHistoryStore: Sendable {
         stdout: String,
         stderr: String
     ) throws {
-        guard Self.isCanonicalHistoryID(token.id), Self.isDateFileName(token.fileName) else {
-            throw OperationHistoryStoreError.unavailable
-        }
         let completedAt = Self.historyTimestamp(now())
         let cutoff = completedAt.addingTimeInterval(-Self.retentionInterval)
         if token.startedAt < cutoff {
@@ -955,11 +952,6 @@ struct OperationHistoryStore: Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }
-
-    private static func recordOrder(_ lhs: OperationHistoryRecord, _ rhs: OperationHistoryRecord) -> Bool {
-        if lhs.startedAt != rhs.startedAt { return lhs.startedAt > rhs.startedAt }
-        return lhs.id < rhs.id
     }
 }
 

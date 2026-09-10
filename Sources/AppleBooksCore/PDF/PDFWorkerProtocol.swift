@@ -352,8 +352,7 @@ public enum PDFWorkerProtocol {
 
     private static func generationToken(descriptor: Int32) throws -> String {
         var metadata = stat()
-        guard fstat(descriptor, &metadata) == 0,
-              metadata.st_mode & S_IFMT == S_IFREG else {
+        guard fstat(descriptor, &metadata) == 0 else {
             throw PDFWorkerErrorCode.unsafeFile
         }
         let evidence = [

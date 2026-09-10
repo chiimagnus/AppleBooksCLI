@@ -29,47 +29,21 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func smartIgnoresRunOnlyJSONTimestampButDetectsStableContentChange() throws {
+    func alwaysPublishesIdenticalDataAndPreservesNewJSONTimestampBytes() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let first = Data(#"{"exportedAt":"2026-01-01T00:00:00Z","body":"same"}"#.utf8)
-        let second = Data(#"{"exportedAt":"2026-09-01T00:00:00Z","body":"same"}"#.utf8)
-        let changed = Data(#"{"exportedAt":"2026-09-01T00:00:00Z","body":"changed"}"#.utf8)
-        let nestedFirst = Data(#"{"exportedAt":"2026-01-01T00:00:00Z","payload":{"exported":"one"}}"#.utf8)
-        let nestedChanged = Data(#"{"exportedAt":"2026-09-01T00:00:00Z","payload":{"exported":"two"}}"#.utf8)
-
-        _ = try writer.write(first, fileName: "export.json")
-        let unchanged = try writer.write(second, fileName: "export.json", overwrite: .smart)
-        #expect(unchanged.disposition == .unchanged)
-        #expect(try Data(contentsOf: unchanged.destination) == first)
-
-        let updated = try writer.write(changed, fileName: "export.json", overwrite: .smart)
+        let original = Data(#"{"exportedAt":"2026-01-01T00:00:00Z","body":"same"}"#.utf8)
+        let newer = Data(#"{"exportedAt":"2026-09-01T00:00:00Z","body":"same"}"#.utf8)
+        let first = try writer.write(original, fileName: "export.json")
+        let originalInode = try FileManager.default.attributesOfItem(atPath: first.destination.path)[.systemFileNumber] as? NSNumber
+        let repeated = try writer.write(original, fileName: "export.json", overwrite: .always)
+        let replacedInode = try FileManager.default.attributesOfItem(atPath: first.destination.path)[.systemFileNumber] as? NSNumber
+        #expect(originalInode != nil && replacedInode != nil && originalInode != replacedInode)
+        #expect(repeated.disposition == .updated)
+        let updated = try writer.write(newer, fileName: "export.json", overwrite: .always)
         #expect(updated.disposition == .updated)
-        #expect(try Data(contentsOf: updated.destination) == changed)
-
-        _ = try writer.write(nestedFirst, fileName: "nested.json")
-        let nestedUpdated = try writer.write(nestedChanged, fileName: "nested.json", overwrite: .smart)
-        #expect(nestedUpdated.disposition == .updated)
-        #expect(try Data(contentsOf: nestedUpdated.destination) == nestedChanged)
-    }
-
-    @Test
-    func smartMarkdownUsesExactStableContent() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let first = Data("# Book\n\nfirst\n".utf8)
-        let changed = Data("# Book\n\nsecond\n".utf8)
-
-        _ = try writer.write(first, fileName: "book.md")
-        let unchanged = try writer.write(first, fileName: "book.md", overwrite: .smart)
-        #expect(unchanged.disposition == .unchanged)
-        #expect(try Data(contentsOf: unchanged.destination) == first)
-
-        let updated = try writer.write(changed, fileName: "book.md", overwrite: .smart)
-        #expect(updated.disposition == .updated)
-        #expect(try Data(contentsOf: updated.destination) == changed)
+        #expect(try Data(contentsOf: updated.destination) == newer)
     }
 
     @Test

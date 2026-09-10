@@ -109,7 +109,6 @@
 | annotation export ordering | 已实现（强化） | 默认 reading；EPUB 与批注查询复用章节映射/CFI/creation/localPK 顺序，PDF 按 page geometry；不支持 source order |
 | EPUB/PDF source scope | 已实现（CLI 等价） | bulk 默认 all，可用 `--source epub / pdf / all` 收窄；exact `--book / --book-pk / --pdf` 自动路由、去重、missing/ambiguous fail closed；bulk PDF 不可用明确 incomplete |
 | 自选有 AEAnnotation highlights 的书 | 已实现（CLI 等价） | exact stable asset ID / canonical PDF selector 自动路由；missing/ambiguous fail closed，等价 selector 去重；有效空书允许零记录 |
-| Markdown smart overwrite | 已实现（CLI 等价） | `smart / always / never`；默认 never，plain Markdown 按稳定正文判定 unchanged |
 | cover inline / cover file | 已实现（CLI 等价） | 使用真实 media type；安全 filename、不覆盖 |
 
 ## PDF

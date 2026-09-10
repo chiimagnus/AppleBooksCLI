@@ -2,7 +2,6 @@ import Foundation
 
 public enum OverwritePolicy: String, Equatable, Sendable {
     case never
-    case smart
     case always
 }
 

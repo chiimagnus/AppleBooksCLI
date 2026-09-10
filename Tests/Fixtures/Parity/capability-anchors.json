@@ -254,22 +254,6 @@
       ]
     ]
   },
-  "Markdown smart overwrite": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/OverwritePolicy.swift",
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--overwrite"
-      ]
-    ]
-  },
   "PDF color mapping": {
     "owner": "core",
     "implementationPaths": [

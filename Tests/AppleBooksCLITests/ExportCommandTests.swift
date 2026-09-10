@@ -41,7 +41,7 @@ struct ExportCommandTests {
             "--grouping", "per-book",
             "--include-epub-metadata",
             "--cover", "file",
-            "--overwrite", "smart",
+            "--overwrite", "always",
             "--output", output.path,
         ])
         let request = try command.makeRequest()
@@ -61,7 +61,7 @@ struct ExportCommandTests {
         #expect(request.options.grouping == .perBook)
         #expect(request.options.includeEPUBMetadata)
         #expect(request.options.cover == .file)
-        #expect(request.overwrite == .smart)
+        #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
     }
@@ -83,7 +83,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }

@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -16,13 +15,11 @@ public enum ExportFileWriterError: Error, Equatable, Sendable {
 public enum ExportFileWriteDisposition: String, Codable, Equatable, Sendable {
     case created
     case updated
-    case unchanged
 }
 
 public struct ExportFileWriteResult: Equatable, Sendable {
     public let destination: URL
     public let disposition: ExportFileWriteDisposition
-    public let stableHash: String
 }
 
 public enum ExportFileLayout: Equatable, Sendable {
@@ -37,21 +34,12 @@ public struct ExportDirectoryWriteResult: Equatable, Sendable {
 
 public struct ExportFileWriter {
     public let outputRoot: URL
-    private let now: () -> Date
 
     public init(outputRoot: URL) throws {
-        try self.init(outputRoot: outputRoot, now: Date.init)
-    }
-
-    init(
-        outputRoot: URL,
-        now: @escaping () -> Date
-    ) throws {
         guard outputRoot.isFileURL, outputRoot.path.hasPrefix("/") else {
             throw ExportFileWriterError.invalidOutputRoot
         }
         self.outputRoot = try Self.prepareOutputRoot(outputRoot)
-        self.now = now
     }
 
     @discardableResult
@@ -60,12 +48,12 @@ public struct ExportFileWriter {
         fileName: String,
         overwrite: OverwritePolicy = .never
     ) throws -> ExportFileWriteResult {
-        try writeGenerated(
-            stableData: data,
+        try writeData(
+            data,
             fileName: fileName,
             parent: outputRoot,
             overwrite: overwrite
-        ) { _, _ in data }
+        )
     }
 
     public func writeDocuments(
@@ -159,13 +147,13 @@ public struct ExportFileWriter {
                 attachmentAllocator: &attachmentAllocator,
                 didWrite: { files.append($0) }
             )
-            let stable = Data(MarkdownAnnotationExporter.render(bundle, contexts: contexts).utf8)
-            let result = try writeGenerated(
-                stableData: stable,
+            let data = Data(MarkdownAnnotationExporter.render(bundle, contexts: contexts).utf8)
+            let result = try writeData(
+                data,
                 fileName: fileName,
                 parent: outputRoot,
                 overwrite: overwrite
-            ) { _, _ in stable }
+            )
             files.append(result.destination)
             return ExportDirectoryWriteResult(
                 documentFileCount: 1,
@@ -189,13 +177,13 @@ public struct ExportFileWriter {
                     extension: "md"
                 )
                 let context = contexts[index] ?? MarkdownRenderContext()
-                let stable = Data(MarkdownAnnotationExporter.render(group, context: context).utf8)
-                let result = try writeGenerated(
-                    stableData: stable,
+                let data = Data(MarkdownAnnotationExporter.render(group, context: context).utf8)
+                let result = try writeData(
+                    data,
                     fileName: fileName,
                     parent: outputRoot,
                     overwrite: overwrite
-                ) { _, _ in stable }
+                )
                 documentFiles.append(result.destination)
                 files.append(result.destination)
             }
@@ -234,12 +222,12 @@ public struct ExportFileWriter {
                         derivedFrom: "\(Self.fileStem(for: group))-cover",
                         extension: media.extension
                     )
-                    let result = try writeGenerated(
-                        stableData: cover.data,
+                    let result = try writeData(
+                        cover.data,
                         fileName: fileName,
                         parent: attachments,
                         overwrite: overwrite
-                    ) { _, _ in cover.data }
+                    )
                     didWrite(result.destination)
                     context.cover = .file(relativePath: "Attachments/\(fileName)")
                 }
@@ -249,12 +237,11 @@ public struct ExportFileWriter {
         return contexts
     }
 
-    private func writeGenerated(
-        stableData: Data,
+    private func writeData(
+        _ data: Data,
         fileName: String,
         parent: URL,
-        overwrite: OverwritePolicy,
-        materialize: (String, Date) throws -> Data
+        overwrite: OverwritePolicy
     ) throws -> ExportFileWriteResult {
         try Self.validateFileName(fileName)
         let safeParent = try validatedParent(parent)
@@ -263,38 +250,20 @@ public struct ExportFileWriter {
             throw ExportFileWriterError.unsafeDestination
         }
 
-        let intendedHash = Self.stableHash(stableData)
         let existing = Self.nodeType(destination)
         let disposition: ExportFileWriteDisposition
         if let existing {
             if overwrite == .never { throw ExportFileWriterError.destinationExists }
             guard existing == S_IFREG else { throw ExportFileWriterError.unsafeDestination }
-            switch overwrite {
-            case .never:
-                throw ExportFileWriterError.destinationExists
-            case .always:
-                disposition = .updated
-            case .smart:
-                let current = try Data(contentsOf: destination)
-                if Self.stableHash(current) == intendedHash {
-                    return ExportFileWriteResult(
-                        destination: destination,
-                        disposition: .unchanged,
-                        stableHash: intendedHash
-                    )
-                }
-                disposition = .updated
-            }
+            disposition = .updated
         } else {
             disposition = .created
         }
 
-        let data = try materialize(intendedHash, now())
         try atomicWrite(data, destination: destination, parent: safeParent, creating: disposition == .created)
         return ExportFileWriteResult(
             destination: destination,
-            disposition: disposition,
-            stableHash: intendedHash
+            disposition: disposition
         )
     }
 
@@ -442,25 +411,6 @@ public struct ExportFileWriter {
         var metadata = stat()
         guard lstat(url.path, &metadata) == 0 else { return nil }
         return metadata.st_mode & S_IFMT
-    }
-
-    private static func stableHash(_ data: Data) -> String {
-        let normalized = normalizedStableData(data)
-        return SHA256.hash(data: normalized).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func normalizedStableData(_ data: Data) -> Data {
-        if let object = try? JSONSerialization.jsonObject(with: data),
-           let dictionary = object as? [String: Any] {
-            let skipped: Set<String> = [
-                "last-import-hash", "last_import_hash", "exported_at", "exported", "exportedAt",
-            ]
-            let stable = dictionary.filter { skipped.contains($0.key) == false }
-            if let normalized = try? JSONSerialization.data(withJSONObject: stable, options: [.sortedKeys]) {
-                return normalized
-            }
-        }
-        return data
     }
 
     private static func fileStem(for group: ExportGroup) -> String {

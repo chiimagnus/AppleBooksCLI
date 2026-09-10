@@ -60,7 +60,6 @@ enum ExportCoverArgument: String, ExpressibleByArgument, Sendable {
 
 enum ExportOverwriteArgument: String, ExpressibleByArgument, Sendable {
     case never
-    case smart
     case always
 
     var coreValue: OverwritePolicy { OverwritePolicy(rawValue: rawValue)! }
@@ -141,7 +140,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Cover mode: none, inline, or file.")
     var cover: ExportCoverArgument?
 
-    @Option(name: .long, help: "Existing-file policy: never, smart, or always.")
+    @Option(name: .long, help: "Existing-file policy: never (default) or always.")
     var overwrite: ExportOverwriteArgument?
 
     @Option(name: .long, help: "Write the export artifact to this file or directory.")

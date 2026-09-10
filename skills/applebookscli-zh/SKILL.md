@@ -36,7 +36,7 @@ metadata:
 | 最近 CLI 写入/同步证据 | `history` |
 | 权限 / 数据库 / capability 诊断 | `doctor` |
 
-批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读 bounded 周边 EPUB 正文用 `annotations context <uuid>`（或显式 `--pk`），要原始 CFI/完整正文用 archival export。`content metadata` 返回单一 bounded resolved metadata；`content cover --output <path>` 把图片写入文件，`<path>` 可相对当前目录，JSON 返回 canonical destination。
+批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读 bounded 周边 EPUB 正文用 `annotations context <uuid>`（或显式 `--pk`），要原始 CFI/完整正文用 archival export。`reading position <asset-id>`（或显式 `--pk`）只报告能映射到当前 ToC 的真实 type-3 bookmark，不会用最近批注猜测；返回的 `chapterOrder` 可直接交给 `content chapter --chapter`。`content metadata` 返回单一 bounded resolved metadata；`content cover --output <path>` 把图片写入文件，`<path>` 可相对当前目录，JSON 返回 canonical destination。
 
 ## 写入与同步
 

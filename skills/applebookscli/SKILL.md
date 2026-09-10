@@ -36,7 +36,7 @@ Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
 | Recent CLI write/sync evidence | `history` |
 | Permission / database / capability diagnosis | `doctor` |
 
-For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `annotations context <uuid>` (or explicit `--pk`) for bounded surrounding EPUB text, or archival export when raw CFI/full text is required. `content metadata` returns one bounded resolved metadata view. `content cover --output <path>` writes the image; `<path>` may be relative to the current directory, and JSON returns the canonical destination.
+For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `annotations context <uuid>` (or explicit `--pk`) for bounded surrounding EPUB text, or archival export when raw CFI/full text is required. `reading position <asset-id>` (or explicit `--pk`) reports only a real type-3 bookmark that maps to the current ToC; it never guesses from a recent annotation, and its `chapterOrder` can be passed directly to `content chapter --chapter`. `content metadata` returns one bounded resolved metadata view. `content cover --output <path>` writes the image; `<path>` may be relative to the current directory, and JSON returns the canonical destination.
 
 ## Writes and sync
 

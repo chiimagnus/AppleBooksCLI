@@ -98,7 +98,7 @@ struct ReadingRecentCommand: ReadingStatusLeaf {
 struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "position",
-        abstract: "Resolve the canonical current reading position for one book."
+        abstract: "Resolve the current bookmarked reading position when it maps to an actionable chapter."
     )
 
     @Argument(help: "Exact Apple Books asset ID.")
@@ -117,19 +117,24 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
         let selector = try parseBookSelector(assetID: assetID, localPK: pk)
         let result = try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            guard let book = try selector.resolveSemanticDetail(in: books) else {
+            let resolution: SemanticBookmarkedReadingPositionResolution
+            switch selector {
+            case let .assetID(assetID):
+                resolution = try books.semanticBookmarkedReadingPosition(bookAssetID: assetID)
+            case let .localPK(localPK):
+                resolution = try books.semanticBookmarkedReadingPosition(bookLocalPK: localPK)
+            }
+            switch resolution {
+            case .bookMissing:
                 throw CLIError.notFound("Book not found.")
+            case .unavailable:
+                throw CLIError.unavailableWithReason(
+                    message: "Reading position is unavailable for this book.",
+                    reason: "reading_position_unavailable"
+                )
+            case let .position(position):
+                return ReadingPositionResult(position)
             }
-            guard let position = try books.semanticCurrentReadingPosition(forBookLocalPK: book.localPK) else {
-                throw CLIError.unavailable("Reading position is unavailable for this book.")
-            }
-            let includeLocalPK: Bool
-            if case .localPK = selector {
-                includeLocalPK = true
-            } else {
-                includeLocalPK = false
-            }
-            return ReadingPositionResult(book: book, position: position, includeLocalPK: includeLocalPK)
         }
 
         try output.writeJSON(result)
@@ -152,21 +157,20 @@ struct ReadingBooksResult: Codable, Equatable, Sendable {
 struct ReadingPositionResult: Codable, Equatable, Sendable {
     let bookLocalPK: Int64?
     let bookAssetID: String?
-    let chapterID: String
-    let title: String?
-    let order: Int?
-    let totalChapters: Int?
-    let source: ReadingPositionSource
+    let chapterOrder: Int
+    let title: String
+    let totalChapters: Int
+    let truncatedFields: [String]
 
-    init(book: SemanticBookDetail, position: ReadingPosition, includeLocalPK: Bool = false) {
-        let stableAssetID = PublicStableTokenPolicy.isEligible(book.assetID) ? book.assetID : nil
-        bookAssetID = stableAssetID
-        bookLocalPK = (stableAssetID == nil || includeLocalPK) && LocalPKPolicy.isEligible(book.localPK) ? book.localPK : nil
-        chapterID = position.chapterID
-        title = position.title
-        order = position.order
+    init(_ position: SemanticBookmarkedReadingPosition) {
+        bookAssetID = position.bookAssetID
+        bookLocalPK = position.bookAssetID == nil && LocalPKPolicy.isEligible(position.bookLocalPK)
+            ? position.bookLocalPK
+            : nil
+        chapterOrder = position.chapterOrder
+        let boundedTitle = BoundedTextPolicy.truncate(position.title, profile: .metadata)
+        title = boundedTitle.value ?? ""
         totalChapters = position.totalChapters
-        source = position.source
+        truncatedFields = boundedTitle.truncated ? ["title"] : []
     }
-
 }

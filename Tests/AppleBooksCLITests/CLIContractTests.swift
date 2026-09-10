@@ -176,8 +176,9 @@ struct CLIContractTests {
         #expect(stats["totalUserAnnotations"] as? Int == 3)
 
         let position = try fixture.runJSON(["reading", "position", "asset-a"])
-        #expect(position["chapterID"] as? String == "shared")
-        #expect(position["source"] as? String == "bookmarkToc")
+        #expect(position["chapterOrder"] as? Int == 1)
+        #expect(position["chapterID"] == nil)
+        #expect(position["source"] == nil)
 
         let status = try fixture.runJSON(["content", "status", "asset-a"])
         #expect(status["ready"] as? Bool == true)

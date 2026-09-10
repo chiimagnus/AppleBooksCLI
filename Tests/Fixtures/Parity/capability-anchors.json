@@ -707,10 +707,12 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/ReadingPosition.swift"
+      "Sources/AppleBooksCore/Models/ReadingPosition.swift",
+      "Sources/AppleBooksCore/Queries/ReadingQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
+      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift",
+      "Tests/AppleBooksCoreTests/Queries/CurrentReadingLocationTests.swift"
     ],
     "cliHelpArgs": [
       [

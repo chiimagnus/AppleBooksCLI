@@ -561,7 +561,7 @@ struct BookQueries {
         let projection = SQLiteTextProjection.exact(
             AppleBooksSchema.Book.assetID,
             alias: "annotationLookupAssetID",
-            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
         )
         let statement = try connection.prepare("""
         SELECT \(projection.joined(separator: ", "))
@@ -575,7 +575,7 @@ struct BookQueries {
             SQLiteRow(statement: statement),
             alias: "annotationLookupAssetID",
             column: AppleBooksSchema.Book.assetID,
-            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
+            maximumUTF8Bytes: SQLiteSemanticTextBudget.sourceIdentity
         ) {
         case let .value(value): return value
         case .null, .oversized: return nil

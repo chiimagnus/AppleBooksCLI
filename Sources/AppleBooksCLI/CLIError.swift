@@ -23,6 +23,7 @@ enum CLIError: Error, Equatable, Sendable {
     case usageInvalid(String)
     case notFound(String)
     case unavailable(String)
+    case unavailableWithReason(message: String, reason: String)
     case internalFailure
     case writeSafety(String)
     case permission(String)
@@ -31,7 +32,7 @@ enum CLIError: Error, Equatable, Sendable {
         switch self {
         case .usageInvalid: .usageInvalid
         case .notFound: .notFound
-        case .unavailable: .unavailable
+        case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety: .writeSafety
         case .permission: .permission
@@ -46,16 +47,23 @@ enum CLIError: Error, Equatable, Sendable {
              let .writeSafety(message),
              let .permission(message):
             message
+        case let .unavailableWithReason(message, _):
+            message
         case .internalFailure:
             "Internal error."
         }
+    }
+
+    var reason: String? {
+        if case let .unavailableWithReason(_, reason) = self { return reason }
+        return nil
     }
 
     var exitCode: CLIProcessExit {
         switch self {
         case .usageInvalid: .usageInvalid
         case .notFound: .notFound
-        case .unavailable: .unavailable
+        case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety: .writeSafety
         case .permission: .permission

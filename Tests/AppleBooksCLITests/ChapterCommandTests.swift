@@ -321,12 +321,15 @@ struct ChapterCommandTests {
         #expect(current.chapter.title == "One")
         #expect(current.chapter.fragment == "one")
 
-        let inferredPosition = try fixture.runJSON(
-            ReadingPositionResult.self,
-            arguments: ["reading", "position", "fallback-only"]
+        let inferredPosition = Capture()
+        let inferredPositionCode = CLIEntrypoint.run(
+            arguments: ["reading", "position", "fallback-only"] + fixture.globalArguments,
+            output: inferredPosition.output
         )
-        #expect(inferredPosition.source == .recentAnnotationInference)
-        #expect(inferredPosition.chapterID == "chapter-two")
+        #expect(inferredPositionCode == CLIProcessExit.unavailable.rawValue)
+        #expect(inferredPosition.stdout.isEmpty)
+        let inferredEnvelope = try fixture.decode(CLIErrorEnvelope.self, inferredPosition.stderr)
+        #expect(inferredEnvelope.error.message == "Reading position is unavailable for this book.")
 
         let fallbackCapture = Capture()
         let fallbackCode = CLIEntrypoint.run(
@@ -338,6 +341,31 @@ struct ChapterCommandTests {
         let envelope = try fixture.decode(CLIErrorEnvelope.self, fallbackCapture.stderr)
         #expect(envelope.error.code == .unavailable)
         #expect(envelope.error.message == "Current reading chapter is unavailable.")
+    }
+
+    @Test
+    func readingPositionChapterOrderFeedsCanonicalChapterAndNumericRawIDIsNotOrder() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let position = try fixture.runJSON(
+            ReadingPositionResult.self,
+            arguments: ["reading", "position", "order-conflict"]
+        )
+        #expect(position.bookAssetID == "order-conflict")
+        #expect(position.bookLocalPK == nil)
+        #expect(position.chapterOrder == 1)
+        #expect(position.totalChapters == 2)
+
+        let chapter = try fixture.runJSON(
+            ContentChapterPageResult.self,
+            arguments: [
+                "content", "chapter", "--book", "order-conflict",
+                "--chapter", String(position.chapterOrder),
+            ]
+        )
+        #expect(chapter.chapterOrder == 1)
+        #expect(chapter.content == "raw numeric id")
     }
 
     @Test
@@ -576,7 +604,8 @@ struct ChapterCommandTests {
         );
         INSERT INTO ZAEANNOTATION VALUES
           (1,0,3,'12','epubcfi(/6/2[1]!/4/2,:0,:0)',100,100),
-          (2,0,1,'fallback-only','epubcfi(/6/2[chapter-two]!/4/2,:0,:0)',200,200);
+          (2,0,1,'fallback-only','epubcfi(/6/2[chapter-two]!/4/2,:0,:0)',200,200),
+          (3,0,3,'order-conflict','epubcfi(/6/2[2]!/4/2,:0,:0)',300,300);
         """
     }
 

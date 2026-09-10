@@ -1879,51 +1879,54 @@ public final class AppleBooks {
         return try CurrentReadingChapter.resolve(chapterID: chapterID, in: content)
     }
 
-    package func semanticCurrentReadingPosition(forBookLocalPK localPK: Int64) throws -> ReadingPosition? {
-        let bookQueries = try requiredBookQueries()
-        guard let assetID = try bookQueries.semanticAssetID(localPK: localPK) else { return nil }
-
-        if let bookmark = try requiredReadingQueries().semanticCurrentLocation(rawAssetID: assetID),
-           let chapterID = bookmark.chapterID {
-            let chapters = try semanticBookContent(forBookLocalPK: localPK).listChapters()
-            if let chapter = chapters.first(where: { $0.id == chapterID }) {
-                return ReadingPosition(
-                    chapterID: chapter.id,
-                    title: chapter.title,
-                    order: chapter.order,
-                    totalChapters: chapters.count,
-                    source: .bookmarkToc
-                )
-            }
-            return ReadingPosition(
-                chapterID: chapterID,
-                title: nil,
-                order: nil,
-                totalChapters: nil,
-                source: .bookmarkHint
-            )
+    package func semanticBookmarkedReadingPosition(
+        bookAssetID assetID: String
+    ) throws -> SemanticBookmarkedReadingPositionResolution {
+        let queries = try requiredBookQueries()
+        guard let target = try queries.uniqueResourceTarget(assetID: assetID) else {
+            return .bookMissing
         }
+        return try semanticBookmarkedReadingPosition(target: target, annotationAssetID: assetID)
+    }
 
-        let candidate = try requiredAnnotationQueries().semanticByAssetID(assetID, scope: .user)
-            .filter { $0.chapterID != nil }
-            .sorted { lhs, rhs in
-                switch (lhs.createdAt, rhs.createdAt) {
-                case let (left?, right?) where left != right: return left > right
-                case (.some, nil): return true
-                case (nil, .some): return false
-                default: return lhs.localPK > rhs.localPK
-                }
-            }
-            .first
-        guard let candidate, let chapterID = candidate.chapterID else { return nil }
-        let chapters = try semanticBookContent(forBookLocalPK: localPK).listChapters()
-        return ReadingPosition(
-            chapterID: chapterID,
-            title: chapters.first(where: { $0.id == chapterID })?.title,
-            order: nil,
-            totalChapters: nil,
-            source: .recentAnnotationInference
-        )
+    package func semanticBookmarkedReadingPosition(
+        bookLocalPK localPK: Int64
+    ) throws -> SemanticBookmarkedReadingPositionResolution {
+        let queries = try requiredBookQueries()
+        guard let target = try queries.resourceTarget(localPK: localPK) else {
+            return .bookMissing
+        }
+        guard let annotationAssetID = try queries.annotationAssetID(localPK: localPK) else {
+            return .unavailable
+        }
+        return try semanticBookmarkedReadingPosition(target: target, annotationAssetID: annotationAssetID)
+    }
+
+    private func semanticBookmarkedReadingPosition(
+        target: BookResourceTarget,
+        annotationAssetID: String
+    ) throws -> SemanticBookmarkedReadingPositionResolution {
+        guard target.path != nil,
+              let bookmark = try requiredReadingQueries().semanticCurrentLocation(rawAssetID: annotationAssetID),
+              let chapterID = bookmark.chapterID else {
+            return .unavailable
+        }
+        let selected = try EPUBSourceResolver.resolve(
+            for: target,
+            configuration: try requiredConfiguration()
+        ).requireReader()
+        let content = try BookContent(reader: selected.reader)
+        let chapters = try content.listChapters()
+        guard let chapter = chapters.first(where: { $0.id == chapterID }) else {
+            return .unavailable
+        }
+        return .position(SemanticBookmarkedReadingPosition(
+            bookLocalPK: target.localPK,
+            bookAssetID: target.assetID,
+            chapterOrder: chapter.order,
+            title: chapter.title,
+            totalChapters: chapters.count
+        ))
     }
 
     public func currentReadingPosition(forBookLocalPK localPK: Int64) throws -> ReadingPosition? {

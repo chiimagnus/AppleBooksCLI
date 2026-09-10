@@ -40,9 +40,9 @@
 | unstarted books | 已实现 | 未开始阅读查询；cursor 分页，默认 20、最大 100 |
 | recently read books | 已实现 | 按 last-opened 排序；cursor 分页，默认 20、最大 100 |
 | library stats | 已实现 | SQL aggregate + bounded cross-store classifier；分别报告 historical / unmapped / ambiguous / identity-unavailable annotation counts；top-5 只返回可消费书籍 identity + count |
-| current reading position | 已实现 | type=3 current-reading bookmark 单独读取 |
+| current reading position | 已实现（强化） | `reading position` 只读取 type=3 current bookmark；仅当 raw hint 能映射当前 ToC 时返回 `chapterOrder`、bounded title 与 totalChapters，不暴露 raw chapter ID/source |
 | current reading chapter | 已实现 | current position 的 CFI hint 映射 ToC chapter |
-| current-position fallback | 已实现 | 无可用 auto bookmark 时可用最近 user highlight，并明确 inferred |
+| current-position fallback | 已实现（Core compatibility） | public Core `currentReadingPosition` 仍保留最近 user annotation inference；ordinary `reading position` 不使用该 fallback |
 
 ## Annotations
 

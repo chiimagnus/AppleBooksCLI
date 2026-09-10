@@ -89,7 +89,7 @@ struct CLIErrorEnvelope: Codable, Equatable, Sendable {
         ok = false
         self.error = Payload(
             code: error.code,
-            reason: nil,
+            reason: error.reason,
             message: error.message,
             recoveryHint: nil
         )

@@ -6,7 +6,7 @@ import Testing
 @Suite("AppleBooksFacadeTests")
 struct AppleBooksFacadeTests {
     @Test
-    func exposesOnlyThePlannedReadSemanticsAndResolvesCurrentLocationFromBookPk() throws {
+    func exposesOnlyThePlannedReadSemantics() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let books = try AppleBooks(
@@ -15,30 +15,24 @@ struct AppleBooksFacadeTests {
             configurationFile: fixture.config
         )
 
-        #expect(try books.listCollections().map(\.localPK) == [1])
-        #expect(try books.collection(localPK: 1)?.title == "Shelf")
-        #expect(try books.collections(matchingTitle: "helf").map(\.localPK) == [1])
-        #expect(try books.listBooks().map(\.localPK) == [1, 2, 3])
-        #expect(try books.book(localPK: 1)?.assetID == "asset-a")
-        #expect(try books.books(matchingTitle: "alpha").map(\.localPK) == [1])
-        #expect(try books.books(matchingGenre: "Fic").map(\.localPK) == [1, 2])
+        #expect(try books.semanticCollectionSummaryPage(limit: 100).items.map(\.localPK) == [1])
+        #expect(try books.semanticCollection(localPK: 1)?.title == "Shelf")
+        #expect(try books.semanticCollectionSummaryPage(matchingTitle: "helf", limit: 100).items.map(\.localPK) == [1])
+        #expect(try books.bookSummaryPage(limit: 100).items.map(\.localPK) == [1, 2, 3])
+        #expect(try books.semanticBookDetail(localPK: 1)?.assetID == "asset-a")
+        #expect(try books.searchBookSummaries("alpha", field: .title).items.map(\.localPK) == [1])
+        #expect(try books.searchBookSummaries("Fic", field: .genre).items.map(\.localPK) == [1, 2])
 
-        #expect(try books.listAnnotations().map { $0.annotation.localPK } == [10])
-        #expect(try books.annotation(localPK: 11) == nil)
-        #expect(try books.annotations(colorName: "yellow").map { $0.annotation.localPK } == [10])
-        #expect(try books.annotations(matchingHighlightedText: "quote").map { $0.annotation.localPK } == [10])
-        #expect(try books.annotations(matchingNote: "note").map { $0.annotation.localPK } == [10])
-        #expect(try books.annotations(matchingText: "representative").map { $0.annotation.localPK } == [10])
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(limit: 100)).items.map(\.localPK) == [10])
+        #expect(try books.semanticAnnotation(localPK: 11) == nil)
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(color: .yellow, limit: 100)).items.map(\.localPK) == [10])
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(text: "quote", textField: .highlight, limit: 100)).items.map(\.localPK) == [10])
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(text: "note", textField: .note, limit: 100)).items.map(\.localPK) == [10])
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(text: "representative", limit: 100)).items.map(\.localPK) == [10])
         let lower = try #require(CoreDataTime.date(from: 50))
         let upper = try #require(CoreDataTime.date(from: 150))
-        #expect(try books.annotations(createdAtOrAfter: lower, beforeExclusive: upper).map { $0.annotation.localPK } == [10])
+        #expect(try books.semanticAnnotationPage(AnnotationQueryRequest(createdAfter: lower, createdBefore: upper, limit: 100)).items.map(\.localPK) == [10])
 
-        #expect(try books.booksInProgress().map(\.localPK) == [1])
-        #expect(try books.finishedBooks().map(\.localPK) == [2])
-        #expect(try books.unstartedBooks().map(\.localPK) == [3])
-        #expect(try books.recentlyReadBooks().map(\.localPK) == [2, 1])
-        #expect(try books.currentReadingLocation(forBookLocalPK: 1)?.localPK == 11)
-        #expect(try books.currentReadingLocation(forBookLocalPK: 999) == nil)
     }
 
     @Test
@@ -237,7 +231,7 @@ struct AppleBooksFacadeTests {
     }
 
     @Test
-    func currentLocationFailsClosedWhenBookAssetIdColumnIsMissing() throws {
+    func semanticCurrentChapterFailsClosedWhenBookAssetIdColumnIsMissing() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
@@ -260,7 +254,7 @@ struct AppleBooksFacadeTests {
             table: .books,
             columns: ["ZASSETID"]
         )) {
-            _ = try books.currentReadingLocation(forBookLocalPK: 1)
+            _ = try books.semanticCurrentReadingChapter(forBookLocalPK: 1)
         }
     }
 

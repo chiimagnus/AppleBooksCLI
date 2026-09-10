@@ -6,21 +6,6 @@ import Testing
 @Suite("ReadingPositionTests")
 struct ReadingPositionTests {
     @Test
-    func tocBookmarkReturnsExactChapterAndTotal() throws {
-        let fixture = try makeFixture(annotationRows: """
-        (1,0,3,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',100)
-        """)
-        defer { fixture.cleanup() }
-
-        let position = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(position.source == .bookmarkToc)
-        #expect(position.chapterID == "chapter")
-        #expect(position.title == "Section 1")
-        #expect(position.order == 1)
-        #expect(position.totalChapters == 1)
-    }
-
-    @Test
     func semanticBookmarkFacadeReturnsOnlyActionableTocPosition() throws {
         let fixture = try makeFixture(annotationRows: """
         (1,0,3,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',100)
@@ -52,7 +37,6 @@ struct ReadingPositionTests {
         """)
         defer { inferred.cleanup() }
         #expect(try inferred.books.semanticBookmarkedReadingPosition(bookAssetID: "asset") == .unavailable)
-        #expect(try inferred.books.currentReadingPosition(forBookLocalPK: 1)?.source == .recentAnnotationInference)
     }
 
     @Test
@@ -108,89 +92,16 @@ struct ReadingPositionTests {
         #expect(position.chapterOrder == 1)
     }
 
-    @Test
-    func bookmarkHintOutsideTocPreservesRawChapterIdentity() throws {
-        let fixture = try makeFixture(annotationRows: """
-        (1,0,3,'asset','epubcfi(/6/2[outside]!/4/2,:0,:0)',100)
-        """)
-        defer { fixture.cleanup() }
-
-        let position = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(position == ReadingPosition(
-            chapterID: "outside",
-            title: nil,
-            order: nil,
-            totalChapters: nil,
-            source: .bookmarkHint
-        ))
-    }
-
-    @Test
-    func recentUserAnnotationInferenceUsesCreationThenLocalPKAndCanEnrichTitle() throws {
-        let fixture = try makeFixture(annotationRows: """
-        (1,0,3,'asset',NULL,500),
-        (10,0,1,'asset','epubcfi(/6/2[older]!/4/2,:0,:0)',200),
-        (11,0,1,'asset','epubcfi(/6/2[unknown]!/4/2,:0,:0)',300),
-        (12,0,1,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',300),
-        (13,1,1,'asset','epubcfi(/6/2[deleted]!/4/2,:0,:0)',900),
-        (14,0,3,'asset',NULL,900)
-        """)
-        defer { fixture.cleanup() }
-
-        let position = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(position.source == .recentAnnotationInference)
-        #expect(position.chapterID == "chapter")
-        #expect(position.title == "Section 1")
-        #expect(position.order == nil)
-        #expect(position.totalChapters == nil)
-    }
-
-    @Test
-    func inferredUnknownChapterKeepsOnlyIdentityAndNeverWritesBookmark() throws {
-        let fixture = try makeFixture(annotationRows: """
-        (20,0,1,'asset','epubcfi(/6/2[unknown]!/4/2,:0,:0)',400)
-        """)
-        defer { fixture.cleanup() }
-
-        let position = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(position == ReadingPosition(
-            chapterID: "unknown",
-            title: nil,
-            order: nil,
-            totalChapters: nil,
-            source: .recentAnnotationInference
-        ))
-        #expect(try fixture.books.currentReadingLocation(forBookLocalPK: 1) == nil)
-    }
-
-    @Test
-    func noTierReturnsNilWhileContentErrorsRemainStructuredWhenResolutionNeedsContent() throws {
-        let empty = try makeFixture(annotationRows: "")
-        defer { empty.cleanup() }
-        #expect(try empty.books.currentReadingPosition(forBookLocalPK: 1) == nil)
-
-        let unavailable = try makeFixture(
-            annotationRows: "(1,0,3,'asset','epubcfi(/6/2[chapter]!/4/2,:0,:0)',100)",
-            includePath: false
-        )
-        defer { unavailable.cleanup() }
-        #expect(throws: ContentError.bookPathUnavailable) {
-            _ = try unavailable.books.currentReadingPosition(forBookLocalPK: 1)
-        }
-    }
-
     private func makeFixture(
         annotationRows: String,
-        includePath: Bool = true,
         assetID: String = "asset"
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let epub = try makeEPUB(in: root)
-        let pathValue = includePath ? "'\(sql(epub.path))'" : "NULL"
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT);
-        INSERT INTO ZBKLIBRARYASSET VALUES (1,'\(sql(assetID))',\(pathValue));
+        INSERT INTO ZBKLIBRARYASSET VALUES (1,'\(sql(assetID))','\(sql(epub.path))');
         """)
         let annotationsSQL = annotationRows.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""

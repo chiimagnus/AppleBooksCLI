@@ -172,7 +172,7 @@ struct RestoreCoordinatorTests {
     }
 
     @Test
-    func facadeRestoresOnlyByOpaqueLibraryHandle() throws {
+    func facadeRestoresOnlyByOpaqueBackupID() throws {
         let fixture = try fixture(running: false)
         defer { fixture.remove() }
         let books = try AppleBooks(
@@ -184,7 +184,8 @@ struct RestoreCoordinatorTests {
             restoreCoordinator: fixture.coordinator
         )
 
-        let result = try books.restoreLibraryBackup(handle: fixture.selectedBackup.lastPathComponent)
+        let backupID = try #require(BackupMetadata.backupID(fromFilename: fixture.selectedBackup.lastPathComponent))
+        let result = try books.restoreLibraryBackup(backupID: backupID)
 
         #expect(result.restoreApplied)
         #expect(result.restoredFromHandle == fixture.selectedBackup.lastPathComponent)

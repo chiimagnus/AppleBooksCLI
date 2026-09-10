@@ -146,6 +146,7 @@ struct ContentInspectCommandTests {
         #expect(second.stdout.isEmpty)
         let envelope = try fixture.decode(CLIErrorEnvelope.self, second.stderr)
         #expect(envelope.error.code == .writeSafety)
+        #expect(envelope.error.reason == "output_exists")
         #expect(second.stderr.contains(destination.path) == false)
         #expect(try Data(contentsOf: destination) == fixture.coverData)
     }

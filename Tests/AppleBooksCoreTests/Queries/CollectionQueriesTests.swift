@@ -33,25 +33,19 @@ struct CollectionQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
 
-        #expect(try queries.list().map(\.localPK) == [2, 6, 1, 5])
-        #expect(try queries.searchTitle("ALPHA").map(\.localPK) == [2, 6])
-        let first = try #require(try queries.getByLocalPK(1))
+        #expect(try queries.semanticListPage(limit: 100).items.map(\.localPK) == [2, 6, 1, 5])
+        #expect(try queries.semanticSearchTitlePage("ALPHA", limit: 100).items.map(\.localPK) == [2, 6])
+        let first = try #require(try queries.semanticGetByLocalPK(1))
         #expect(first.title == "Beta")
-        #expect(first.isPlaceholder == false)
-        #expect(first.sortKey == 100)
-        #expect(first.sortMode == 6)
-        #expect(first.viewMode == 2)
-        #expect(first.lastModificationDate == CoreDataTime.date(from: 10.5))
-        #expect(first.localModificationDate == CoreDataTime.date(from: 11.5))
-        let optional = try #require(try queries.getByLocalPK(5))
-        #expect(optional.sortKey == nil)
-        #expect(optional.lastModificationDate == nil)
-        #expect(try queries.getByLocalPK(3) == nil)
-        #expect(try queries.getByLocalPK(4) == nil)
+        #expect(first.isHidden == false)
+        let optional = try #require(try queries.semanticGetByLocalPK(5))
+        #expect(optional.isHidden == nil)
+        #expect(try queries.semanticGetByLocalPK(3) == nil)
+        #expect(try queries.semanticGetByLocalPK(4) == nil)
     }
 
     @Test
-    func semanticCollectionBoundsMultiMiBTextAndOversizeIdentityWhileRawCollectionStaysFullFidelity() throws {
+    func semanticCollectionBoundsMultiMiBTextAndOversizeIdentity() throws {
         let title = String(repeating: "t", count: 1_048_576)
         let details = String(repeating: "d", count: 1_048_576)
         let exactID = String(repeating: "i", count: 2_048)
@@ -79,12 +73,6 @@ struct CollectionQueriesTests {
 
         let oversized = try #require(try queries.semanticGetByLocalPK(2))
         #expect(oversized.collectionID == nil)
-
-        let rawExact = try #require(try queries.getByLocalPK(1))
-        #expect(rawExact.title?.utf8.count == title.utf8.count)
-        #expect(rawExact.details?.utf8.count == details.utf8.count)
-        let rawOversized = try #require(try queries.getByLocalPK(2))
-        #expect(rawOversized.collectionID == oversizedID)
     }
 
     @Test
@@ -108,10 +96,7 @@ struct CollectionQueriesTests {
         let queries = try queries(for: fixture)
 
         #expect(throws: StableIdentityError.ambiguousCollectionID) {
-            _ = try queries.getUniqueByCollectionID("duplicate-collection")
-        }
-        #expect(throws: SQLiteRowError.invalidUTF8(column: "ZTITLE")) {
-            _ = try queries.list()
+            _ = try queries.semanticGetUniqueByCollectionID("duplicate-collection")
         }
     }
 
@@ -123,9 +108,9 @@ struct CollectionQueriesTests {
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
-        #expect(try queries.list().map(\.localPK) == [1, 3])
+        #expect(try queries.semanticListPage(limit: 100).items.map(\.localPK) == [1, 3])
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .collections, columns: ["ZTITLE"])) {
-            _ = try queries.searchTitle("anything")
+            _ = try queries.semanticSearchTitlePage("anything")
         }
     }
 
@@ -155,9 +140,8 @@ struct CollectionQueriesTests {
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
-        let maybeCollection = try queries.getByLocalPK(1)
-        let collection = try #require(maybeCollection)
-        #expect(try queries.books(in: collection).map(\.localPK) == [11, 12, 10])
+        let collection = try #require(try queries.semanticGetByLocalPK(1))
+        #expect(try queries.semanticBooksPage(in: collection, limit: 100).items.map(\.localPK) == [11, 12, 10])
     }
 
     @Test
@@ -172,9 +156,8 @@ struct CollectionQueriesTests {
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
-        let maybeCollection = try queries.getByLocalPK(1)
-        let collection = try #require(maybeCollection)
-        #expect(try queries.books(in: collection).map(\.localPK) == [10, 11])
+        let collection = try #require(try queries.semanticGetByLocalPK(1))
+        #expect(try queries.semanticBooksPage(in: collection, limit: 100).items.map(\.localPK) == [10, 11])
     }
 
     @Test
@@ -187,10 +170,9 @@ struct CollectionQueriesTests {
         """)
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
-        let maybeCollection = try queries.getByLocalPK(1)
-        let collection = try #require(maybeCollection)
+        let collection = try #require(try queries.semanticGetByLocalPK(1))
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .collectionMembers, columns: ["ZASSETID"])) {
-            _ = try queries.books(in: collection)
+            _ = try queries.semanticBooksPage(in: collection)
         }
     }
 
@@ -308,7 +290,6 @@ struct CollectionQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
         let semanticCollection = try #require(try queries.semanticGetByLocalPK(1))
-        let rawCollection = try #require(try queries.getByLocalPK(1))
         var expectedMembers: [(memberPK: Int, sortKey: Int?)] = (1...125).map { value in
             (memberPK: value, sortKey: value % 10 == 0 ? nil : value % 7)
         }
@@ -322,10 +303,6 @@ struct CollectionQueriesTests {
         let expectedLocalPKs: [Int64] = expectedMembers.flatMap { row in
             row.memberPK == 1 ? [1, 1_000] : [Int64(row.memberPK)]
         }
-        let fullLocalPKs = try queries.books(in: rawCollection).map(\.localPK)
-        #expect(fullLocalPKs == expectedLocalPKs)
-        #expect(Set(fullLocalPKs).count == 126)
-
         var paged: [BookSummary] = []
         var cursor: String?
         repeat {
@@ -335,7 +312,7 @@ struct CollectionQueriesTests {
             if page.hasMore == false { #expect(cursor == nil) }
         } while cursor != nil
 
-        #expect(paged.map(\.localPK) == fullLocalPKs)
+        #expect(paged.map(\.localPK) == expectedLocalPKs)
         #expect(Set(paged.map(\.localPK)).count == paged.count)
     }
 

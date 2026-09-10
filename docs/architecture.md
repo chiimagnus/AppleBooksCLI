@@ -110,6 +110,8 @@ PDF 的长期边界：
 
 ## Export 分层
 
+`ExportSourceResolver` 统一拥有 export source identity：exact current selector 仍以 current localPK 去重；实际 EPUB document identity 由完整 raw asset identity（缺失时统一 unknown-source）派生，PDF 有唯一 Book identity 时使用完整 asset identity，否则复用 `PDFSourceResolver` 的 canonical `pdfSourceID`，从不以 path 作为 artifact identity。Core 从该 source key 增量计算完整 SHA-256 级 `doc1_...` key，并按 source kind + full key 排序；per-document writer 只消费这个 key 生成稳定文件名。不存在的 current/historical/user-scope identity、歧义和 digest collision 都 fail closed。CLI 先用 library-only probe 调用 Core 的 `exportDependencies`，再按 media 装配 annotations/config 与 PDF worker 的依赖并集；pure PDF 不打开 annotations/config，pure EPUB 不解析 worker。无 selector 的 bulk source scope 是独立层，默认 all；PDF worker 不可用或读取失败允许显式 incomplete partial artifact，exact PDF 则 hard failure。
+
 ```text
 query/content/PDF
 → canonical ExportBundle
@@ -118,7 +120,7 @@ query/content/PDF
 → confined file writer
 ```
 
-不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context；所有文件/附件经过同一 confinement/overwrite 边界。
+不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context。canonical CLI 的 JSON/Markdown renderer 只向 sink 增量写 bytes，不拥有 filesystem path；`ExportFileWriter` 持有 no-follow 打开的 output parent descriptor，temp create、entry classification、exclusive/replace publish 与 cleanup 都相对该 descriptor 完成，并在 publish 前核对 display path 仍指向同一 directory identity。single-file export 与 surviving `content cover` 直接原子发布一个 file；`per-document` 则把完整目录作为 managed transaction：document 与固定 ownership manifest 都先写入同 parent 下的隐藏 staging directory，manifest 只流式记录 version/format/count、opaque full document key 与单组件 filename。`never` 用 exclusive rename 发布；`always` 仅在 held old-directory/manifest FD 验证旧树完全受控后用 `RENAME_SWAP` 一次替换，并继续用同一 held manifest FD 做旧树 cleanup。任何额外 regular file、subdirectory、symlink 或 identity race 都在 swap 前 fail closed；swap 后 cleanup 失败只保留隐藏旧树并返回 bounded warning，不回滚新 artifact。public Core compatibility renderer/writer 可以显式 materialize artifact，但 canonical CLI 不走该路径。
 
 ## CLI 与维护边界
 

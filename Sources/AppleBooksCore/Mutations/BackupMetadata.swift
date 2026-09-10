@@ -5,7 +5,7 @@ public enum LibraryBackupIdentityError: Error, Equatable, Sendable {
 }
 
 public struct LibraryBackup: Equatable, Sendable {
-    public let handle: String
+    let handle: String
     public let backupID: String
     public let createdAt: Date
     public let sizeBytes: Int64
@@ -67,7 +67,7 @@ struct BackupMetadata: Equatable {
         return BackupMetadata(sourceStem: sourceStem, timestamp: identity.timestamp, uuid: identity.uuid)
     }
 
-    static func backupID(fromLegacyFilename filename: String) -> String? {
+    static func backupID(fromFilename filename: String) -> String? {
         guard filename.hasSuffix(".sqlite") else { return nil }
         let body = filename.dropLast(".sqlite".count)
         guard let uuidSeparator = body.range(of: "__", options: .backwards) else { return nil }

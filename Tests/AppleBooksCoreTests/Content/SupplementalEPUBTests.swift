@@ -151,12 +151,12 @@ struct SupplementalEPUBTests {
 
         let configuration = try Self.configuration(epubRoot: supplementalRoot, under: root)
         let libraryURL = root.appendingPathComponent("current.sqlite")
-        let currentBook = try Self.book(path: current.path, under: libraryURL)
-        let currentReader = try EPUBSourceResolver.reader(for: currentBook, configuration: configuration)
+        let currentTarget = try Self.target(path: current.path, under: libraryURL)
+        let currentReader = try EPUBSourceResolver.reader(for: currentTarget, configuration: configuration)
         #expect(try BookContent(reader: currentReader).getChapter("chapter") == "directory wins")
 
         try FileManager.default.removeItem(at: current)
-        let fallbackReader = try EPUBSourceResolver.reader(for: currentBook, configuration: configuration)
+        let fallbackReader = try EPUBSourceResolver.reader(for: currentTarget, configuration: configuration)
         #expect(try BookContent(reader: fallbackReader).getChapter("chapter") == "packed fallback")
 
         let annotationsURL = root.appendingPathComponent("annotations.sqlite")
@@ -166,7 +166,7 @@ struct SupplementalEPUBTests {
             annotationsDB: annotationsURL,
             configurationFile: root.appendingPathComponent("config.json")
         )
-        #expect(try books.bookContent(forBookLocalPK: 1).getChapter("chapter") == "packed fallback")
+        #expect(try books.semanticBookContent(forBookLocalPK: 1).getChapter("chapter") == "packed fallback")
 
         let symlinkRoot = root.appendingPathComponent("symlink", isDirectory: true)
         try FileManager.default.createDirectory(at: symlinkRoot, withIntermediateDirectories: true)
@@ -176,16 +176,16 @@ struct SupplementalEPUBTests {
         )
         let symlinkConfiguration = try Self.configuration(epubRoot: symlinkRoot, under: root, name: "symlink-config.json")
         #expect(throws: ContentError.unavailable(.missing)) {
-            _ = try EPUBSourceResolver.reader(for: currentBook, configuration: symlinkConfiguration)
+            _ = try EPUBSourceResolver.reader(for: currentTarget, configuration: symlinkConfiguration)
         }
 
         let realPrimary = root.appendingPathComponent("real-primary.epub", isDirectory: true)
         try Self.writeMinimalEPUBDirectory(at: realPrimary, chapterText: "unsafe primary")
         let linkedPrimary = root.appendingPathComponent("book.epub")
         try FileManager.default.createSymbolicLink(at: linkedPrimary, withDestinationURL: realPrimary)
-        let linkedBook = try Self.book(path: linkedPrimary.path, under: root.appendingPathComponent("linked.sqlite"))
+        let linkedTarget = try Self.target(path: linkedPrimary.path, under: root.appendingPathComponent("linked.sqlite"))
         #expect(throws: EPUBResourceError.unsafeResource) {
-            _ = try EPUBSourceResolver.reader(for: linkedBook, configuration: configuration)
+            _ = try EPUBSourceResolver.reader(for: linkedTarget, configuration: configuration)
         }
 
         let wrongNameRoot = root.appendingPathComponent("wrong", isDirectory: true)
@@ -193,12 +193,12 @@ struct SupplementalEPUBTests {
         try Self.makeMinimalEPUBZip(at: wrongNameRoot.appendingPathComponent("other.epub"), chapterText: "wrong")
         let wrongConfiguration = try Self.configuration(epubRoot: wrongNameRoot, under: root, name: "wrong-config.json")
         #expect(throws: ContentError.unavailable(.missing)) {
-            _ = try EPUBSourceResolver.reader(for: currentBook, configuration: wrongConfiguration)
+            _ = try EPUBSourceResolver.reader(for: currentTarget, configuration: wrongConfiguration)
         }
 
         let noRootConfiguration = try AppleBooksConfiguration(fileURL: root.appendingPathComponent("missing-config.json"))
         #expect(throws: ContentError.unavailable(.missing)) {
-            _ = try EPUBSourceResolver.reader(for: currentBook, configuration: noRootConfiguration)
+            _ = try EPUBSourceResolver.reader(for: currentTarget, configuration: noRootConfiguration)
         }
     }
 
@@ -325,7 +325,7 @@ struct SupplementalEPUBTests {
         sqlite3_close(handle)
     }
 
-    private static func book(path: String, under databaseURL: URL) throws -> Book {
+    private static func target(path: String, under databaseURL: URL) throws -> BookResourceTarget {
         var handle: OpaquePointer?
         guard sqlite3_open(databaseURL.path, &handle) == SQLITE_OK, let handle else {
             throw EPUBResourceError.unreadableResource
@@ -342,7 +342,7 @@ struct SupplementalEPUBTests {
         sqlite3_bind_text(statement, 1, path, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         guard sqlite3_step(statement) == SQLITE_DONE else { throw EPUBResourceError.unreadableResource }
         _ = sql
-        return try #require(try BookQueries(connection: SQLiteConnection.readOnly(path: databaseURL.path)).getForContent(1))
+        return BookResourceTarget(localPK: 1, assetID: nil, contentType: nil, path: path)
     }
 
     private static func temporaryDirectory() throws -> URL {

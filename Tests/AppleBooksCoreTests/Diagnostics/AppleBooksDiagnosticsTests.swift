@@ -32,9 +32,8 @@ struct AppleBooksDiagnosticsTests {
         #expect(report.annotationWriteReady)
         #expect(report.contentReadPrerequisitesReady)
         #expect(report.pdfReadPrerequisitesReady)
-        #expect(report.readSchemaReady)
-        #expect(report.optionalSchemaComplete == false)
-        #expect(report.writeSchemaReady)
+        #expect(report.libraryOptionalSchemaComplete == false)
+        #expect(report.annotationsOptionalSchemaComplete == false)
         #expect(report.configurationReady)
         #expect(report.supplementalRootConfigured == false)
         #expect(report.supplementalRootReady)
@@ -63,7 +62,6 @@ struct AppleBooksDiagnosticsTests {
         #expect(report.libraryDatabaseReady)
         #expect(report.libraryReadReady)
         #expect(report.contentReadPrerequisitesReady == false)
-        #expect(report.readSchemaReady == false)
         #expect(report.issues.contains(.init(code: .libraryReadSchemaIncompatible, state: .fatal)))
         let encoded = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
         #expect(encoded.contains("ZPATH") == false)
@@ -90,8 +88,6 @@ struct AppleBooksDiagnosticsTests {
         #expect(report.collectionsReadReady)
         #expect(report.collectionWriteReady == false)
         #expect(report.annotationWriteReady)
-        #expect(report.readSchemaReady)
-        #expect(report.writeSchemaReady == false)
         #expect(report.issues.contains(.init(code: .libraryWriteSchemaIncompatible, state: .degraded)))
     }
 
@@ -112,7 +108,7 @@ struct AppleBooksDiagnosticsTests {
             cloudSyncReadiness: { _, _ in true }
         )
 
-        #expect(report.writeSchemaReady == false)
+        #expect(report.annotationWriteReady == false)
         #expect(report.issues.contains(.init(code: .annotationsWriteSchemaIncompatible, state: .degraded)))
     }
 
@@ -283,7 +279,8 @@ struct AppleBooksDiagnosticsTests {
         #expect(report.state == .fatal)
         #expect(report.issues.contains(.init(code: .libraryDatabaseAmbiguous, state: .fatal)))
         #expect(report.issues.contains(.init(code: .annotationsDatabaseMissing, state: .fatal)))
-        #expect(report.optionalSchemaComplete == false)
+        #expect(report.libraryOptionalSchemaComplete == false)
+        #expect(report.annotationsOptionalSchemaComplete == false)
         let encoded = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
         #expect(encoded.contains("BKLibrary-a.sqlite") == false)
         #expect(encoded.contains(root.path) == false)

@@ -12,21 +12,27 @@ public struct ExportRecord: Equatable, Sendable {
         self.payload = payload
     }
 
-    var presentationKind: ExportPresentationKind {
+    var hasHighlight: Bool {
         switch payload {
         case let .epub(enriched):
-            let annotation = enriched.annotation
-            if AnnotationContentSemantics.hasContent(annotation.note) {
-                return .note
-            }
-            return AnnotationContentSemantics.hasContent(annotation.selectedText) ? .highlight : .bookmark
-        case let .pdf(_, highlight):
-            if let note = highlight.note,
-               note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                return .note
-            }
-            return .highlight
+            AnnotationContentSemantics.hasContent(enriched.annotation.selectedText)
+        case .pdf:
+            true
         }
+    }
+
+    var hasNote: Bool {
+        switch payload {
+        case let .epub(enriched):
+            AnnotationContentSemantics.hasContent(enriched.annotation.note)
+        case let .pdf(_, highlight):
+            AnnotationContentSemantics.hasContent(highlight.note)
+        }
+    }
+
+    var semanticColor: ExportPresentationColor? {
+        guard case .epub = payload else { return nil }
+        return presentationColor
     }
 
     var presentationColor: ExportPresentationColor? {
@@ -52,15 +58,14 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    var documentKey: ExportDocumentKey {
-        switch payload {
-        case let .epub(enriched):
-            if let assetID = enriched.annotation.rawAssetID {
-                return .epubAsset(assetID)
+    var documentSourceKey: ResolvedExportSourceKey {
+        get throws {
+            switch payload {
+            case let .epub(enriched):
+                return enriched.annotation.rawAssetID.map(ResolvedExportSourceKey.epubAsset) ?? .epubUnknown
+            case let .pdf(source, _):
+                return try .documentKey(for: source)
             }
-            return .epubLocalPK(enriched.annotation.localPK)
-        case let .pdf(source, _):
-            return .pdfPath(source.fileURL.path)
         }
     }
 
@@ -72,30 +77,13 @@ public struct ExportRecord: Equatable, Sendable {
         return book.contentType == 3
     }
 
-    fileprivate func matches(_ selector: ExportBookSelector) -> Bool {
-        switch (payload, selector) {
-        case let (.epub(enriched), .assetID(assetID)):
-            return enriched.annotation.rawAssetID == assetID
-        case let (.pdf(source, _), .assetID(assetID)):
-            return source.book?.assetID == assetID
-        case let (.epub(enriched), .localPK(localPK)):
-            guard case let .currentLibrary(book) = enriched.source else { return false }
-            return book.localPK == localPK
-        case let (.pdf(source, _), .localPK(localPK)):
-            return source.book?.localPK == localPK
-        case let (.pdf(source, _), .pdfFile(url)):
-            return source.fileURL == url
-        case (.epub, .pdfFile):
-            return false
-        }
-    }
-
-    fileprivate var readingKey: ReadingKey {
+    fileprivate func readingKey(chapterOrder: [String: Int]) -> ReadingKey {
         switch payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
             return .epub(EPUBAnnotationReadingKey.make(
                 rawCFI: annotation.location?.rawCFI,
+                chapterOrder: chapterOrder,
                 createdAt: annotation.createdAt,
                 localPK: annotation.localPK
             ))
@@ -112,40 +100,38 @@ public struct ExportRecord: Equatable, Sendable {
 }
 
 enum ExportSelection {
-    static func apply(options: ExportOptions, to records: [ExportRecord]) -> [ExportRecord] {
+    static func apply(
+        options: ExportOptions,
+        to records: [ExportRecord],
+        chapterOrder: (ExportRecord) throws -> [String: Int] = { _ in [:] }
+    ) throws -> [ExportRecord] {
         let filtered = records.enumerated().compactMap { index, record -> IndexedRecord? in
             guard sourceAllows(options.source, record),
                   record.isKnownCurrentPDFAnnotation == false,
-                  options.bookSelectors.isEmpty || options.bookSelectors.contains(where: record.matches),
-                  options.kinds.contains(record.presentationKind),
-                  options.colors.map({ colors in record.presentationColor.map(colors.contains) == true }) ?? true,
+                  record.hasHighlight || record.hasNote,
+                  options.hasHighlight.map({ $0 == record.hasHighlight }) ?? true,
+                  options.hasNote.map({ $0 == record.hasNote }) ?? true,
+                  options.colors.map({ colors in record.semanticColor.map(colors.contains) == true }) ?? true,
                   options.underline.map({ $0 == record.isUnderline }) ?? true else {
                 return nil
             }
             return IndexedRecord(index: index, record: record)
         }
 
-        switch options.order {
-        case .source:
-            guard options.skipFirstPerBook > 0 else { return filtered.map(\.record) }
-            var seen: [ExportDocumentKey: Int] = [:]
-            return filtered.compactMap { item in
-                let count = seen[item.record.documentKey, default: 0]
-                seen[item.record.documentKey] = count + 1
-                return count < options.skipFirstPerBook ? nil : item.record
-            }
-        case .reading:
-            var groupOrder: [ExportDocumentKey] = []
-            var groups: [ExportDocumentKey: [IndexedRecord]] = [:]
-            for item in filtered {
-                let key = item.record.documentKey
-                if groups[key] == nil { groupOrder.append(key) }
-                groups[key, default: []].append(item)
-            }
-            return groupOrder.flatMap { key in
-                let sorted = (groups[key] ?? []).sorted(by: readingOrder)
-                return sorted.dropFirst(options.skipFirstPerBook).map(\.record)
-            }
+        var groupOrder: [ResolvedExportSourceKey] = []
+        var groups: [ResolvedExportSourceKey: [IndexedRecord]] = [:]
+        for item in filtered {
+            let key = try item.record.documentSourceKey
+            if groups[key] == nil { groupOrder.append(key) }
+            groups[key, default: []].append(item)
+        }
+        return try groupOrder.flatMap { key -> [ExportRecord] in
+            guard let group = groups[key], let first = group.first else { return [] }
+            let chapters = try chapterOrder(first.record)
+            let sorted = group.map {
+                ReadingRecord(index: $0.index, record: $0.record, key: $0.record.readingKey(chapterOrder: chapters))
+            }.sorted(by: readingOrder)
+            return sorted.map(\.record)
         }
     }
 
@@ -156,8 +142,8 @@ enum ExportSelection {
         }
     }
 
-    private static func readingOrder(_ lhs: IndexedRecord, _ rhs: IndexedRecord) -> Bool {
-        switch (lhs.record.readingKey, rhs.record.readingKey) {
+    private static func readingOrder(_ lhs: ReadingRecord, _ rhs: ReadingRecord) -> Bool {
+        switch (lhs.key, rhs.key) {
         case let (.epub(left), .epub(right)):
             return EPUBAnnotationReadingKey.lessThan(left, right)
         case let (.pdf(lp, ly, lx, li), .pdf(rp, ry, rx, ri)):
@@ -178,10 +164,10 @@ private struct IndexedRecord {
     let record: ExportRecord
 }
 
-enum ExportDocumentKey: Hashable, Sendable {
-    case epubAsset(String)
-    case epubLocalPK(Int64)
-    case pdfPath(String)
+private struct ReadingRecord {
+    let index: Int
+    let record: ExportRecord
+    let key: ReadingKey
 }
 
 private enum ReadingKey {

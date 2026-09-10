@@ -11,59 +11,25 @@ struct AnnotationQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let queries = try makeQueries(fixture)
 
-        let results = try queries.list()
-        #expect(results.map { $0.annotation.localPK } == [6, 7, 8, 9, 1])
-        #expect(results.map { $0.annotation.localPK }.contains(2) == false)
-        #expect(results.map { $0.annotation.localPK }.contains(3) == false)
-        #expect(results.map { $0.annotation.localPK }.contains(4) == false)
-        #expect(results.map { $0.annotation.localPK }.contains(5) == false)
+        let results = try queries.semanticPage(AnnotationQueryRequest(limit: 100)).items
+        #expect(results.map(\.localPK) == [6, 7, 8, 9, 1])
+        #expect(results.map(\.localPK).contains(2) == false)
+        #expect(results.map(\.localPK).contains(3) == false)
+        #expect(results.map(\.localPK).contains(4) == false)
+        #expect(results.map(\.localPK).contains(5) == false)
 
-        #expect(sourceKind(results[0].source) == "historical")
-        #expect(sourceKind(results[1].source) == "unmapped")
-        #expect(sourceKind(results[2].source) == "historical")
-        #expect(sourceKind(results[3].source) == "unmapped")
-        #expect(sourceKind(results[4].source) == "current")
+        #expect(results[0].source.kind == .historicalInferred)
+        #expect(results[1].source.kind == .unmapped)
+        #expect(results[2].source.kind == .ambiguousCurrent)
+        #expect(results[3].source.kind == .unmapped)
+        #expect(results[4].source.kind == .currentLibrary)
 
-        #expect(results[0].annotation.selectedText == "")
-        #expect(results[0].annotation.note == "historical note")
-        #expect(results[3].annotation.representativeText == "keep me")
-        #expect(results[1].annotation.style == 99)
-        #expect(results[4].annotation.location?.rawCFI == "epubcfi(/6/8[ch]!/4/2,:1,:2)")
-        #expect(results[4].annotation.physicalLocation == 4)
-    }
-
-    @Test
-    func identityStyleTextAndDateFiltersKeepUserScope() throws {
-        let fixture = try fullFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let queries = try makeQueries(fixture)
-
-        #expect(try queries.getByUUID("u-current").map { $0.annotation.localPK } == [7, 1])
-        #expect(try queries.getByLocalPK(2) == nil)
-        #expect(try queries.getByLocalPK(3) == nil)
-        #expect(try queries.getByLocalPK(4) == nil)
-        #expect(try queries.getByLocalPK(5) == nil)
-        #expect(try queries.byAssetID("asset-current").map { $0.annotation.localPK } == [1])
-        #expect(try queries.byStyle(99).map { $0.annotation.localPK } == [7])
-        #expect(try queries.byColorName("PURPLE").map { $0.annotation.localPK } == [6])
-        #expect(try queries.searchHighlightedText("%_\\").map { $0.annotation.localPK } == [1])
-        #expect(try queries.searchHighlightedText("%_\\", colorName: "yellow").map { $0.annotation.localPK } == [1])
-        #expect(try queries.searchHighlightedText("%_\\", colorName: "green").isEmpty)
-        #expect(try queries.searchNote("O'Reilly %_\\").map { $0.annotation.localPK } == [7])
-        #expect(try queries.searchNote("historical", colorName: "purple").map { $0.annotation.localPK } == [6])
-
-        let lower = try #require(CoreDataTime.date(from: 150))
-        let upper = try #require(CoreDataTime.date(from: 180))
-        #expect(try queries.created(lowerInclusive: lower, upperExclusive: upper).map { $0.annotation.localPK } == [6, 7, 8])
-        #expect(throws: AnnotationQueryInputError.invalidDateRange) {
-            _ = try queries.created(lowerInclusive: upper, upperExclusive: lower)
-        }
-        #expect(throws: AnnotationQueryInputError.unknownColor) {
-            _ = try queries.byColorName("not-a-color")
-        }
-        #expect(throws: AnnotationQueryInputError.unknownColor) {
-            _ = try queries.searchText("keep", colorName: "not-a-color")
-        }
+        #expect(results[0].selectedText == "")
+        #expect(results[0].note == "historical note")
+        #expect(results[3].representativeText == "keep me")
+        #expect(results[1].style == 99)
+        #expect(results[4].rawCFI == "epubcfi(/6/8[ch]!/4/2,:1,:2)")
+        #expect(results[4].physicalLocation == 4)
     }
 
     @Test
@@ -74,18 +40,23 @@ struct AnnotationQueriesTests {
         try setReal(.infinity, column: "ZANNOTATIONMODIFICATIONDATE", localPK: 9, database: fixture.annotations)
         let queries = try makeQueries(fixture)
 
-        let listed = try queries.list()
-        #expect(listed.map { $0.annotation.localPK } == [6, 7, 8, 1, 9])
-        #expect(listed.last?.annotation.createdAt == nil)
-        #expect(listed.last?.annotation.modifiedAt == nil)
-        #expect(try queries.recentlyModified().last?.annotation.localPK == 9)
-        #expect(try queries.recentlyCreated().last?.annotation.localPK == 9)
+        let listed = try queries.semanticPage(AnnotationQueryRequest(limit: 100)).items
+        #expect(listed.map(\.localPK) == [6, 7, 8, 1, 9])
+        #expect(listed.last?.createdAt == nil)
+        #expect(listed.last?.modifiedAt == nil)
+
+        let created = try queries.semanticPage(AnnotationQueryRequest(order: .created, limit: 100)).items
+        #expect(created.last?.localPK == 9)
 
         let lower = try #require(CoreDataTime.date(from: 90))
         let upper = try #require(CoreDataTime.date(from: 200))
-        #expect(try queries.created(lowerInclusive: lower, upperExclusive: upper).map { $0.annotation.localPK } == [6, 7, 8, 1])
-        #expect(throws: AnnotationQueryInputError.invalidDateRange) {
-            _ = try queries.created(lowerInclusive: Date(timeIntervalSince1970: CoreDataTime.maximumUnixSecondsExclusive))
+        #expect(try queries.semanticPage(
+            AnnotationQueryRequest(createdAfter: lower, createdBefore: upper, limit: 100)
+        ).items.map(\.localPK) == [6, 7, 8, 1])
+        #expect(throws: AnnotationQueryRequestError.invalidDateRange) {
+            _ = try AnnotationQueryRequest(
+                createdAfter: Date(timeIntervalSince1970: CoreDataTime.maximumUnixSecondsExclusive)
+            )
         }
     }
 
@@ -116,10 +87,12 @@ struct AnnotationQueriesTests {
             historicalAssets: AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
-        #expect(try queries.getByUUID("u\0x").map { $0.annotation.localPK } == [1])
-        #expect(try queries.getByUUID("u").isEmpty)
-        #expect(try queries.byAssetID("a\0b").map { $0.annotation.localPK } == [1])
-        #expect(try queries.byAssetID("a").isEmpty)
+        let exact = try #require(try queries.semanticGetUniqueByUUID("u\0x"))
+        #expect(exact.localPK == 1)
+        #expect(exact.uuid == nil)
+        #expect(try queries.semanticGetUniqueByUUID("u") == nil)
+        #expect(try queries.exportAnnotations(assetID: "a\0b").map { $0.annotation.localPK } == [1])
+        #expect(try queries.exportAnnotations(assetID: "a").isEmpty)
     }
 
     @Test
@@ -184,11 +157,12 @@ struct AnnotationQueriesTests {
         #expect(unavailable.source.bookAssetID == nil)
         #expect(unavailable.source.bookLocalPK == nil)
 
-        let raw = try #require(try queries.getByLocalPK(1))
+        let rawRows = try queries.exportAnnotations()
+        let raw = try #require(rawRows.first { $0.annotation.localPK == 1 })
         #expect(raw.annotation.selectedText?.utf8.count == body.utf8.count)
         #expect(raw.annotation.representativeText?.utf8.count == body.utf8.count)
         #expect(raw.annotation.note?.utf8.count == body.utf8.count)
-        let rawUnavailable = try #require(try queries.getByLocalPK(2))
+        let rawUnavailable = try #require(rawRows.first { $0.annotation.localPK == 2 })
         #expect(rawUnavailable.annotation.uuid == oversizedUUID)
         #expect(rawUnavailable.annotation.rawAssetID == oversizedAssetID)
     }
@@ -216,7 +190,6 @@ struct AnnotationQueriesTests {
         )
 
         #expect(try aggregate.totalUserAnnotations() == 3)
-        #expect(try aggregate.userAnnotationCount(assetID: "asset-a") == 2)
         #expect(try aggregate.userAnnotationCounts(assetIDs: ["asset-a", "missing"]) == ["asset-a": 2])
         var groups: [UserAnnotationAssetCount] = []
         try aggregate.forEachUserAnnotationAssetCount { groups.append($0) }
@@ -272,15 +245,15 @@ struct AnnotationQueriesTests {
         )
 
         #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
-            _ = try queries.getUniqueByUUID("duplicate-uuid")
+            _ = try queries.semanticGetUniqueByUUID("duplicate-uuid")
         }
         #expect(throws: SQLiteRowError.invalidUTF8(column: "ZANNOTATIONSELECTEDTEXT")) {
-            _ = try queries.getByUUID("duplicate-uuid")
+            _ = try queries.exportAnnotations()
         }
     }
 
     @Test
-    func missingOptionalSortAndAssetColumnsDoNotDropCanonicalRows() throws {
+    func canonicalOrderingFailsClosedWhenRequiredSortColumnsAreMissing() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
@@ -302,13 +275,11 @@ struct AnnotationQueriesTests {
             historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
-        #expect(try queries.list().map { $0.annotation.localPK } == [3, 1])
-        #expect(try queries.list().allSatisfy { $0.source == .unmapped })
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .annotations,
-            columns: ["ZANNOTATIONCREATIONDATE"]
+            columns: ["ZANNOTATIONCREATIONDATE", "ZANNOTATIONMODIFICATIONDATE"]
         )) {
-            _ = try queries.created(lowerInclusive: Date())
+            _ = try queries.semanticPage(AnnotationQueryRequest())
         }
     }
 
@@ -370,14 +341,6 @@ struct AnnotationQueriesTests {
             bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path)),
             historicalAssets: try AppleBooksConfiguration(fileURL: fixture.config).historicalAssets
         )
-    }
-
-    private func sourceKind(_ source: AnnotationSource) -> String {
-        switch source {
-        case .currentLibrary: "current"
-        case .historicalInferred: "historical"
-        case .unmapped: "unmapped"
-        }
     }
 
     private func temporaryDirectory() -> URL {

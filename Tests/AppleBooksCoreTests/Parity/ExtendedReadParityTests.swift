@@ -11,7 +11,8 @@ struct ExtendedReadParityTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let packedBook = try #require(try fixture.books.book(localPK: 1))
+        let rawBooks = BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path))
+        let packedBook = try #require(try rawBooks.getByLocalPK(1))
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
         #expect(packedBook.genresRaw == Data([0x00, 0x01, 0x02, 0xFF]))
@@ -21,16 +22,11 @@ struct ExtendedReadParityTests {
         #expect(packedBook.pageCount == 321)
         #expect(packedBook.rating == 4.5)
 
-        let directoryBook = try #require(try fixture.books.book(localPK: 2))
+        let directoryBook = try #require(try rawBooks.getByLocalPK(2))
         #expect(directoryBook.author == " unknown ")
         #expect(directoryBook.normalizedAuthor == nil)
 
-        let overviews = try fixture.books.annotatedBooks()
-        #expect(overviews.map(\.book.localPK) == [1, 2, 3])
-        #expect(overviews.map(\.userAnnotationCount) == [2, 1, 1])
-        #expect(try fixture.books.bookOverview(assetID: "asset-packed")?.userAnnotationCount == 2)
-
-        let stats = try fixture.books.libraryStats()
+        let stats = try fixture.books.semanticLibraryStats()
         #expect(stats.totalBooks == 4)
         #expect(stats.finishedBooks == 1)
         #expect(stats.inProgressBooks == 1)
@@ -40,28 +36,43 @@ struct ExtendedReadParityTests {
         #expect(stats.unmappedAnnotationCount == 0)
         #expect(stats.ambiguousAnnotationCount == 0)
         #expect(stats.identityUnavailableAnnotationCount == 0)
-        #expect(stats.orphanUserAnnotations == 1)
-        #expect(stats.topAnnotatedBooks.map(\.book.localPK) == [1, 2, 3])
-        #expect(stats.topAnnotatedBooks.map(\.userAnnotationCount) == [2, 1, 1])
         #expect(stats.topAnnotatedBookSummaries.map(\.localPK) == [1, 2, 3])
         #expect(stats.topAnnotatedBookSummaries.map(\.annotationCount) == [2, 1, 1])
 
-        #expect(try fixture.books.recentlyCreatedAnnotations().map { $0.annotation.localPK } == [14, 13, 12, 11, 10])
-        #expect(try fixture.books.annotationsInReadingOrder(bookLocalPK: 1).map { $0.annotation.localPK } == [10, 11])
+        #expect(try fixture.books.semanticAnnotationPage(
+            AnnotationQueryRequest(order: .created, limit: 100)
+        ).items.map(\.localPK) == [14, 13, 12, 11, 10])
+        let readingAnnotations = try fixture.books.semanticAnnotationPage(AnnotationQueryRequest(
+            book: .localPK(1),
+            order: .reading,
+            limit: 100
+        ))
+        #expect(readingAnnotations.items.map(\.localPK) == [10, 11])
 
-        let packed = try fixture.books.bookContent(forBookLocalPK: 1)
-        let directory = try fixture.books.bookContent(forBookLocalPK: 2)
+        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
+        let directory = try fixture.books.semanticBookContent(forBookLocalPK: 2)
         #expect(try packed.listChapters() == directory.listChapters())
         #expect(try packed.getChapter("c1") == directory.getChapter("c1"))
         #expect(try packed.getChapter("c2") == directory.getChapter("c2"))
         #expect(try packed.metadata() == directory.metadata())
         #expect(try packed.cover() == directory.cover())
 
-        let page = try packed.chapterPage(id: "c1", offset: 6, maxCharacters: 1)
+        let packedChapter = try packed.resolveChapter(order: 1)
+        let directoryChapter = try directory.resolveChapter(order: 1)
+        let page = try packed.continuationPage(
+            chapter: packedChapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(page.content == "👨‍👩‍👧‍👦")
-        #expect(page.endOffset == 7)
-        #expect(page.nextOffset == 7)
-        #expect(try directory.chapterPage(id: "c1", offset: 6, maxCharacters: 1) == page)
+        #expect(page.returnedGraphemes == 1)
+        #expect(try directory.continuationPage(
+            chapter: directoryChapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        ) == page)
 
         let metadata = try packed.metadata()
         #expect(metadata.title == "OPF Title")
@@ -83,26 +94,18 @@ struct ExtendedReadParityTests {
         #expect(cover.mediaType == "image/png")
         #expect(cover.data == Fixture.coverData)
 
-        let bookmark = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(bookmark == ReadingPosition(
-            chapterID: "c2",
-            title: "Section 2",
-            order: 2,
-            totalChapters: 2,
-            source: .bookmarkToc
-        ))
-        #expect(try fixture.books.currentReadingPosition(forBookLocalPK: 4) == ReadingPosition(
-            chapterID: "outside",
-            title: nil,
-            order: nil,
-            totalChapters: nil,
-            source: .bookmarkHint
-        ))
+        let bookmark = try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-packed")
+        guard case let .position(position) = bookmark else {
+            Issue.record("expected strict bookmarked reading position")
+            return
+        }
+        #expect(position.chapterOrder == 2)
+        #expect(position.title == "Section 2")
+        #expect(position.totalChapters == 2)
+        #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-hint") == .unavailable)
 
-        let context = try fixture.books.annotationContext(localPK: 10, charsBefore: 8, charsAfter: 8)
+        let context = try #require(try fixture.books.semanticAnnotationContextResult(localPK: 10, charsBefore: 8, charsAfter: 8)).context
         #expect(context.matched == "Visible chapter")
-        #expect(context.markedPresentation.matched)
-        #expect(context.markedPresentation.text.contains("«Visible chapter»"))
     }
 
     @Test
@@ -110,25 +113,20 @@ struct ExtendedReadParityTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let packedBook = try #require(try fixture.books.book(localPK: 1))
+        let rawBooks = BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path))
+        let packedBook = try #require(try rawBooks.getByLocalPK(1))
         #expect(packedBook.genresRaw == Data([0x00, 0x01, 0x02, 0xFF]))
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
 
-        let inferred = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 3))
-        #expect(try fixture.books.currentReadingLocation(forBookLocalPK: 3)?.location == nil)
-        #expect(inferred == ReadingPosition(
-            chapterID: "c1",
-            title: "Section 1",
-            order: nil,
-            totalChapters: nil,
-            source: .recentAnnotationInference
-        ))
+        #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-third") == .unavailable)
 
-        let historical = try #require(try fixture.books.annotation(localPK: 14))
-        #expect(historical.source == .historicalInferred(HistoricalBookMetadata(title: "Historical", author: "Mapped Author")))
+        let historical = try #require(try fixture.books.semanticAnnotation(localPK: 14))
+        #expect(historical.source.kind == .historicalInferred)
+        #expect(historical.source.title == "Historical")
+        #expect(historical.source.author == "Mapped Author")
         #expect(throws: AnnotationContextError.currentBookUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 14)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 14)
         }
 
         #expect(fixture.books.configuration.epubRoot == fixture.supplementalRoot.standardizedFileURL.resolvingSymlinksInPath())
@@ -137,13 +135,19 @@ struct ExtendedReadParityTests {
             author: "Mapped Author"
         ))
 
-        let packed = try fixture.books.bookContent(forBookLocalPK: 1)
+        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
         let metadata = try packed.metadata()
         #expect(metadata.title == "OPF Title")
         #expect(metadata.creator == "OPF Creator")
         #expect(metadata.publisher == "Plist Publisher")
 
-        let page = try packed.chapterPage(id: "c1", offset: 6, maxCharacters: 1)
+        let chapter = try packed.resolveChapter(order: 1)
+        let page = try packed.continuationPage(
+            chapter: chapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(page.content == "👨‍👩‍👧‍👦")
     }
 
@@ -152,6 +156,7 @@ struct ExtendedReadParityTests {
 
         let root: URL
         let supplementalRoot: URL
+        let library: URL
         let books: AppleBooks
 
         init() throws {
@@ -173,7 +178,7 @@ struct ExtendedReadParityTests {
                 resources: resources
             )
 
-            let library = root.appendingPathComponent("library.sqlite")
+            library = root.appendingPathComponent("library.sqlite")
             try Self.createDatabase(library, sql: """
             CREATE TABLE ZBKLIBRARYASSET(
               Z_PK INTEGER PRIMARY KEY,

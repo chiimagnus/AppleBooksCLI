@@ -39,16 +39,16 @@ public enum RestoreFailureCode: String, Equatable, Sendable {
 public struct RestoreResult: Equatable, Sendable {
     public let restoreApplied: Bool
     public let verified: Bool
-    public let restoredFromHandle: String
-    public let safetyBackupHandle: String
+    let restoredFromHandle: String
+    let safetyBackupHandle: String
     public let warnings: [RestoreWarning]
 
     public var restoredFromBackupID: String? {
-        BackupMetadata.backupID(fromLegacyFilename: restoredFromHandle)
+        BackupMetadata.backupID(fromFilename: restoredFromHandle)
     }
 
     public var safetyBackupID: String? {
-        BackupMetadata.backupID(fromLegacyFilename: safetyBackupHandle)
+        BackupMetadata.backupID(fromFilename: safetyBackupHandle)
     }
 
     init(
@@ -67,7 +67,7 @@ public struct RestoreResult: Equatable, Sendable {
 
 public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {
     public let restoreApplied: Bool
-    public let safetyBackupHandle: String?
+    let safetyBackupHandle: String?
     public let code: RestoreFailureCode
     public let warnings: [RestoreWarning]
     let underlying: any Error
@@ -86,7 +86,7 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
     }
 
     public var safetyBackupID: String? {
-        safetyBackupHandle.flatMap(BackupMetadata.backupID(fromLegacyFilename:))
+        safetyBackupHandle.flatMap(BackupMetadata.backupID(fromFilename:))
     }
 
     public var description: String {
@@ -99,7 +99,7 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
 
 public struct MutationResult: Equatable, Sendable {
     public let committed: Bool
-    public let backupHandle: String
+    let backupHandle: String
     public let localPK: Int64?
     public let stableID: String?
     public let changed: Bool
@@ -107,7 +107,7 @@ public struct MutationResult: Equatable, Sendable {
     public let appleBooksURL: String?
 
     public var backupID: String? {
-        BackupMetadata.backupID(fromLegacyFilename: backupHandle)
+        BackupMetadata.backupID(fromFilename: backupHandle)
     }
 
     init(
@@ -130,7 +130,7 @@ public struct MutationResult: Equatable, Sendable {
 
 public struct MutationFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {
     public let committed: Bool
-    public let backupHandle: String?
+    let backupHandle: String?
     public let code: MutationFailureCode
     public let warnings: [MutationWarning]
     let underlying: any Error
@@ -149,7 +149,7 @@ public struct MutationFailure: Error, CustomStringConvertible, CustomDebugString
     }
 
     public var backupID: String? {
-        backupHandle.flatMap(BackupMetadata.backupID(fromLegacyFilename:))
+        backupHandle.flatMap(BackupMetadata.backupID(fromFilename:))
     }
 
     public var description: String {

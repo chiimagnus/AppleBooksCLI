@@ -7,7 +7,7 @@ import Testing
 @Suite("ExportServiceTests")
 struct ExportServiceTests {
     @Test
-    func defaultEPUBExportDoesNotRequirePDFWorkerOrReadEPUBContent() throws {
+    func bulkEPUBExportDoesNotRequirePDFWorkerOrReadEPUBContent() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let missingEPUB = fixture.root.appendingPathComponent("missing.epub", isDirectory: true)
@@ -18,20 +18,44 @@ struct ExportServiceTests {
             .init(pk: 1, assetID: "epub-current", selectedText: "quote"),
         ])
 
-        let bundle = try fixture.service().makeBundle(options: ExportOptions())
+        let bundle = try fixture.service().makeBundle(options: ExportOptions(source: .epub))
 
         #expect(bundle.groups.count == 1)
         #expect(bundle.statistics.recordCount == 1)
         #expect(bundle.statistics.epubAnnotationCount == 1)
         #expect(bundle.statistics.pdfHighlightCount == 0)
         #expect(bundle.warnings.isEmpty)
-        #expect(bundle.groups[0].epubMetadata == nil)
-        #expect(bundle.groups[0].epubCover == nil)
         guard case let .epubCurrent(book) = bundle.groups[0].source else {
             Issue.record("expected current EPUB group")
             return
         }
         #expect(book.assetID == "epub-current")
+    }
+
+    @Test
+    func userScopeExcludesSystemRowsBeforeSelectionAndCountsOverlappingPresence() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "presence", selectedText: "quote", note: "note"),
+            .init(pk: 2, assetID: "presence", selectedText: nil, note: "note"),
+            .init(pk: 3, assetID: "presence", selectedText: "quote"),
+            .init(pk: 4, assetID: "presence", selectedText: " \t\r\n", note: " \t\r\n"),
+            .init(pk: 5, assetID: "presence", selectedText: "system text", note: "system note", type: 3),
+        ])
+        let service = try fixture.service()
+        for selectors: [ExportBookSelector] in [[], [.assetID("presence")]] {
+            let bundle = try service.makeBundle(options: ExportOptions(bookSelectors: selectors))
+            #expect(bundle.sourceTotals.epubAnnotationCount == 4)
+            #expect(bundle.statistics.recordCount == 3)
+            #expect(bundle.statistics.highlightCount == 2)
+            #expect(bundle.statistics.noteCount == 2)
+            let artifact = String(decoding: try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)), as: UTF8.self)
+            #expect(!artifact.contains("system text"))
+            #expect(!artifact.contains("system note"))
+            #expect(!artifact.contains("bookmarkCount"))
+        }
     }
 
     @Test
@@ -55,7 +79,7 @@ struct ExportServiceTests {
         #expect(enriched.annotation.selectedText == body)
         #expect(enriched.annotation.note == body)
 
-        let data = try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        let data = try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0))
         #expect(data.count > body.utf8.count * 2)
     }
 
@@ -99,7 +123,6 @@ struct ExportServiceTests {
         #expect(bundle.statistics.pdfHighlightCount == 1)
         #expect(bundle.statistics.highlightCount == 4)
         #expect(bundle.statistics.noteCount == 0)
-        #expect(bundle.statistics.bookmarkCount == 0)
         #expect(bundle.statistics.historicalEPUBAnnotationCount == 1)
         #expect(bundle.statistics.unmappedEPUBAnnotationCount == 1)
         #expect(bundle.warnings.count == 1)
@@ -130,7 +153,7 @@ struct ExportServiceTests {
     }
 
     @Test
-    func pdfFileSelectorFiltersInventoryBeforeWorkerInvocation() throws {
+    func pdfSourceSelectorFiltersInventoryBeforeWorkerInvocation() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let selected = try fixture.pdf(name: "selected.pdf")
@@ -139,10 +162,12 @@ struct ExportServiceTests {
         try fixture.createAnnotations([])
         let worker = try fixture.worker()
 
+        let service = try fixture.service(worker: worker)
+        let sourceID = try service.pdfSourceResolver.inventoryPage(bookQueries: service.bookQueries)
+            .items.first { $0.title == "selected" }?.pdfSourceID
         let bundle = try fixture.service(worker: worker).makeBundle(
             options: ExportOptions(
-                source: .pdf,
-                bookSelectors: [.pdfFile(selected)]
+                bookSelectors: [.pdfSourceID(try #require(sourceID))]
             )
         )
 
@@ -160,63 +185,43 @@ struct ExportServiceTests {
     }
 
     @Test
-    func explicitEPUBEnrichmentIsBestEffortAndNeverGuessesHistoricalOrUnmappedContent() throws {
+    func documentIdentityMergesUnknownSourceSortsCanonicallyAndRejectsDigestCollision() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let validEPUB = try fixture.epub(name: "valid.epub")
-        let brokenEPUB = fixture.root.appendingPathComponent("missing.epub", isDirectory: true)
         try fixture.createLibrary([
-            .init(pk: 1, assetID: "valid", title: "Valid", contentType: 1, path: validEPUB.path),
-            .init(pk: 2, assetID: "broken", title: "Broken", contentType: 1, path: brokenEPUB.path),
+            .init(pk: 1, assetID: "z-book", title: "Same", contentType: 1, path: nil),
+            .init(pk: 2, assetID: "a-book", title: "Same", contentType: 1, path: nil),
         ])
         try fixture.createAnnotations([
-            .init(pk: 1, assetID: "valid", selectedText: "valid quote"),
-            .init(pk: 2, assetID: "broken", selectedText: "broken quote"),
-            .init(pk: 3, assetID: "historical", selectedText: "history quote"),
-            .init(pk: 4, assetID: "unmapped", selectedText: "orphan quote"),
-        ])
-        try fixture.createConfiguration(historical: [
-            "historical": (title: "History", author: "Archive Author"),
+            .init(pk: 1, assetID: "z-book", selectedText: "z"),
+            .init(pk: 2, assetID: "a-book", selectedText: "a"),
+            .init(pk: 3, assetID: nil, selectedText: "unknown-one"),
+            .init(pk: 4, assetID: nil, selectedText: "unknown-two"),
         ])
 
-        let bundle = try fixture.service().makeBundle(
-            options: ExportOptions(
-                includeEPUBMetadata: true,
-                cover: .inline
-            )
-        )
+        let service = try fixture.service()
+        let forward = try service.makeBundle(options: ExportOptions(
+            bookSelectors: [.assetID("z-book"), .assetID("a-book")]
+        ))
+        let reverse = try service.makeBundle(options: ExportOptions(
+            bookSelectors: [.assetID("a-book"), .assetID("z-book")]
+        ))
+        #expect(forward.groups.map(\.documentIdentity) == reverse.groups.map(\.documentIdentity))
+        #expect(forward.groups.allSatisfy { $0.documentIdentity?.fullKey.hasPrefix("doc1_") == true })
 
-        let valid = try #require(bundle.groups.first { group in
-            if case let .epubCurrent(book) = group.source { return book.assetID == "valid" }
+        let bulk = try service.makeBundle(options: ExportOptions(source: .epub))
+        let unknown = try #require(bulk.groups.first { group in
+            if case .epubUnmapped(assetID: nil) = group.source { return true }
             return false
         })
-        #expect(valid.epubMetadata?.title == "EPUB Enriched")
-        #expect(valid.epubMetadata?.publisher == "Publisher")
-        #expect(valid.epubCover?.mediaType == "image/png")
-        #expect(valid.epubCover?.data == Fixture.png)
+        #expect(unknown.records.count == 2)
+        #expect(bulk.groups.count == 3)
 
-        let broken = try #require(bundle.groups.first { group in
-            if case let .epubCurrent(book) = group.source { return book.assetID == "broken" }
-            return false
-        })
-        #expect(broken.records.count == 1)
-        #expect(broken.epubMetadata == nil)
-        #expect(broken.epubCover == nil)
-        #expect(bundle.warnings.contains(.epubContentUnavailable(bookLocalPK: 2)))
-
-        let historical = try #require(bundle.groups.first { group in
-            if case let .epubHistorical(assetID, _) = group.source { return assetID == "historical" }
-            return false
-        })
-        #expect(historical.epubMetadata == nil)
-        #expect(historical.epubCover == nil)
-        let unmapped = try #require(bundle.groups.first { group in
-            if case let .epubUnmapped(assetID) = group.source { return assetID == "unmapped" }
-            return false
-        })
-        #expect(unmapped.epubMetadata == nil)
-        #expect(unmapped.epubCover == nil)
-        #expect(bundle.statistics.recordCount == 4)
+        var colliding = service
+        colliding.documentIdentityDigest = { _ in Array(repeating: 0, count: 32) }
+        #expect(throws: ExportServiceError.documentIdentityCollision) {
+            _ = try colliding.makeBundle(options: ExportOptions(source: .epub))
+        }
     }
 
     @Test
@@ -232,23 +237,62 @@ struct ExportServiceTests {
 
         let bundle = try fixture.service().makeBundle(
             options: ExportOptions(
-                kinds: [.highlight],
-                skipFirstPerBook: 1
+                hasHighlight: true,
+                hasNote: false
             )
         )
 
         #expect(bundle.sourceTotals.epubAnnotationCount == 3)
         #expect(bundle.sourceTotals.epubDocumentCount == 1)
-        #expect(bundle.statistics.recordCount == 1)
-        #expect(bundle.statistics.highlightCount == 1)
+        #expect(bundle.statistics.recordCount == 2)
+        #expect(bundle.statistics.highlightCount == 2)
         #expect(bundle.statistics.noteCount == 0)
-        #expect(bundle.statistics.bookmarkCount == 0)
-        let remaining = try #require(bundle.groups.first?.records.first)
-        guard case let .epub(enriched) = remaining.payload else {
-            Issue.record("expected EPUB record")
-            return
+        let selected = bundle.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
         }
-        #expect(enriched.annotation.localPK == 1)
+        #expect(selected == [1, 3])
+    }
+
+    @Test
+    func defaultReadingOrderSharesChapterMappingAndFallbackWithAnnotationQueries() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let epub = try fixture.epub(name: "ordered.epub")
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "ordered", title: "Ordered", contentType: 1, path: epub.path),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "ordered", selectedText: "second chapter", cfi: "epubcfi(/6/2[other]!/4/2:1)"),
+            .init(pk: 2, assetID: "ordered", selectedText: "first chapter", cfi: "epubcfi(/6/10[chapter]!/4/2:1)"),
+            .init(pk: 3, assetID: "ordered", selectedText: "no location", cfi: "invalid"),
+        ])
+        let service = try fixture.service()
+        let options = try ExportOptions(bookSelectors: [.assetID("ordered")])
+        let mapped = try service.makeBundle(options: options)
+        let mappedPKs = mapped.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        #expect(mappedPKs == [2, 1, 3])
+        let page = try #require(service.annotationQueries).semanticPage(AnnotationQueryRequest(
+            book: .assetID("ordered"), order: .reading
+        ))
+        #expect(mappedPKs == page.items.map(\.localPK))
+        let markdown = renderMarkdown(mapped)
+        #expect(try #require(markdown.range(of: "first chapter")).lowerBound < #require(markdown.range(of: "second chapter")).lowerBound)
+
+        try FileManager.default.removeItem(at: epub)
+        let fallback = try service.makeBundle(options: options)
+        let fallbackPKs = fallback.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        #expect(fallbackPKs == [1, 2, 3])
+        let unavailablePage = try #require(service.annotationQueries).semanticPage(AnnotationQueryRequest(
+            book: .assetID("ordered"), order: .reading
+        ))
+        #expect(fallbackPKs == unavailablePage.items.map(\.localPK))
     }
 
     @Test
@@ -265,10 +309,10 @@ struct ExportServiceTests {
         ])
 
         let byPK = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.localPK(123)], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.localPK(123)], hasHighlight: true)
         )
         let byAsset = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.assetID("123")], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.assetID("123")], hasHighlight: true)
         )
 
         let pkRows = byPK.groups.flatMap(\.records).compactMap { record -> Int64? in
@@ -296,7 +340,7 @@ struct ExportServiceTests {
         ])
 
         let bundle = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.assetID("historical")], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.assetID("historical")], hasHighlight: true)
         )
 
         #expect(bundle.statistics.recordCount == 1)
@@ -356,7 +400,7 @@ struct ExportServiceTests {
     }
 
     @Test
-    func missingStableSelectorReturnsEmptyBundleWithoutWorker() throws {
+    func missingStableSelectorFailsBeforeWorker() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         _ = try fixture.pdf(name: "unrelated.pdf")
@@ -368,18 +412,11 @@ struct ExportServiceTests {
         ])
         let worker = try fixture.worker()
 
-        let bundle = try fixture.service(worker: worker).makeBundle(
-            options: ExportOptions(
-                source: .all,
-                bookSelectors: [.assetID("missing")]
+        #expect(throws: ExportServiceError.selectorNotFound) {
+            _ = try fixture.service(worker: worker).makeBundle(
+                options: ExportOptions(bookSelectors: [.assetID("missing")])
             )
-        )
-
-        #expect(bundle.groups.isEmpty)
-        #expect(bundle.statistics.recordCount == 0)
-        #expect(bundle.sourceTotals.epubAnnotationCount == 0)
-        #expect(bundle.sourceTotals.pdfAttemptedDocumentCount == 0)
-        #expect(bundle.warnings.isEmpty)
+        }
         #expect(try fixture.workerCallCount() == 0)
     }
 
@@ -404,6 +441,154 @@ struct ExportServiceTests {
                     bookSelectors: [.assetID("duplicate")]
                 )
             )
+        }
+        #expect(try fixture.workerCallCount() == 0)
+    }
+
+    @Test
+    func exactEvidenceAndDuplicateSelectorsUseOneSourceOwner() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "current", title: "Current", contentType: 1, path: nil),
+            .init(pk: 2, assetID: "empty", title: "Empty", contentType: 1, path: nil),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "current", selectedText: "quote"),
+            .init(pk: 2, assetID: "system", selectedText: "system", type: 3),
+            .init(pk: 3, assetID: "unmapped", selectedText: "orphan"),
+        ])
+        try fixture.createConfiguration(historical: ["history": (title: "History", author: "Author")])
+        let service = try fixture.service()
+        let resolver = ExportSourceResolver(bookQueries: service.bookQueries, pdfSourceResolver: service.pdfSourceResolver)
+        for selectors: [ExportBookSelector] in [
+            [.assetID("current"), .localPK(1), .assetID("current")],
+            [.localPK(1), .assetID("current")],
+        ] {
+            #expect(try resolver.resolve(selectors).map(\.key) == [.currentBook(1)])
+            #expect(try service.makeBundle(options: ExportOptions(bookSelectors: selectors)).statistics.recordCount == 1)
+        }
+        for selectors: [ExportBookSelector] in [
+            [.assetID("current"), .assetID("typo")], [.assetID("system")], [.localPK(999)],
+        ] {
+            #expect(throws: ExportServiceError.selectorNotFound) {
+                _ = try service.makeBundle(options: ExportOptions(bookSelectors: selectors))
+            }
+        }
+        for assetID in ["empty", "history"] {
+            let bundle = try service.makeBundle(options: ExportOptions(bookSelectors: [.assetID(assetID)]))
+            #expect(bundle.statistics.recordCount == 0)
+            #expect(bundle.complete)
+        }
+        #expect(try resolver.resolve([.assetID("unmapped")]).map(\.key) == [.epubAsset("unmapped")])
+        #expect(try resolver.resolve([.assetID("\u{e9}"), .assetID("e\u{301}")]).count == 2)
+        #expect(try service.makeBundle(options: ExportOptions(bookSelectors: [.assetID("unmapped")])).statistics.recordCount == 1)
+    }
+
+    @Test
+    func exactPDFSlotsDeduplicateAndUnavailableSourcesFailClosed() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let shared = try fixture.pdf(name: "shared.pdf")
+        let ordinary = try fixture.pdf(name: "ordinary.pdf")
+        let fallback = try fixture.pdf(name: "fallback.pdf")
+        let bad = try fixture.pdf(name: "bad.pdf")
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "shared-one", title: "Shared One", contentType: 3, path: shared.path),
+            .init(pk: 2, assetID: "shared-two", title: "Shared Two", contentType: 3, path: shared.path),
+            .init(pk: 3, assetID: "ordinary", title: "Ordinary", contentType: 3, path: ordinary.path),
+            .init(pk: 4, assetID: "unreadable", title: "Unreadable", contentType: 3, path: bad.path),
+        ])
+        try fixture.createAnnotations([])
+        let service = try fixture.service(worker: fixture.worker())
+        let pdfResolver = service.pdfSourceResolver
+        let resolver = ExportSourceResolver(bookQueries: service.bookQueries, pdfSourceResolver: pdfResolver)
+        let items = try pdfResolver.inventoryPage(bookQueries: service.bookQueries).items
+        let sharedID = try #require(items.first { $0.title == "shared" }?.pdfSourceID)
+        let fallbackID = try #require(items.first { $0.title == "fallback" }?.pdfSourceID)
+        for selectors: [ExportBookSelector] in [
+            [.assetID("shared-one"), .localPK(2), .pdfSourceID(sharedID), .pdfSourceID(sharedID)],
+            [.pdfSourceID(sharedID), .localPK(1), .assetID("shared-two")],
+            [.assetID("ordinary"), .localPK(3)],
+            [.pdfSourceID(fallbackID), .pdfSourceID(fallbackID)],
+        ] {
+            let resolved = try resolver.resolve(selectors)
+            #expect(resolved.count == 1)
+            let source = try #require(resolved.first?.pdfSource)
+            if let sourceID = source.pdfSourceID {
+                #expect(resolved.first?.key == .pdfSourceID(sourceID))
+            } else {
+                #expect(resolved.first?.key == .pdfBookAsset(try #require(source.book?.assetID ?? source.bookSummary?.assetID)))
+            }
+            let before = try fixture.workerCallCount()
+            let bundle = try service.makeBundle(options: ExportOptions(bookSelectors: selectors))
+            #expect(bundle.statistics.recordCount == 1)
+            #expect(bundle.statistics.documentCount == 1)
+            #expect(try fixture.workerCallCount() == before + 1)
+        }
+        for options in [
+            try ExportOptions(bookSelectors: [.assetID("ordinary")], hasHighlight: false),
+            try ExportOptions(bookSelectors: [.assetID("ordinary")], underline: true),
+            try ExportOptions(bookSelectors: [.assetID("ordinary")], hasNote: true),
+        ] {
+            #expect(try service.makeBundle(options: options).statistics.recordCount == 0)
+        }
+        #expect(throws: ExportServiceError.pdfReadFailed) {
+            _ = try service.makeBundle(options: ExportOptions(bookSelectors: [.assetID("unreadable")]))
+        }
+        #expect(throws: ExportServiceError.pdfWorkerUnavailable) {
+            _ = try fixture.service().makeBundle(options: ExportOptions(bookSelectors: [.assetID("ordinary")]))
+        }
+        try FileManager.default.removeItem(at: ordinary)
+        #expect(throws: ExportServiceError.pdfSourceUnavailable) {
+            _ = try service.makeBundle(options: ExportOptions(bookSelectors: [.assetID("ordinary")]))
+        }
+        try FileManager.default.removeItem(at: fallback)
+        #expect(throws: ExportServiceError.selectorNotFound) {
+            _ = try service.makeBundle(options: ExportOptions(bookSelectors: [.pdfSourceID(fallbackID)]))
+        }
+        let missingID = "pdf1_" + String(repeating: "f", count: 64)
+        #expect(throws: ExportServiceError.selectorNotFound) {
+            _ = try service.makeBundle(options: ExportOptions(bookSelectors: [.pdfSourceID(missingID)]))
+        }
+    }
+
+    @Test
+    func bulkAllWithoutWorkerIsExplicitlyIncomplete() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([.init(pk: 1, assetID: "orphan", selectedText: "quote")])
+        let bundle = try fixture.service().makeBundle(options: ExportOptions())
+        #expect(bundle.statistics.recordCount == 1)
+        #expect(bundle.warnings == [.pdfUnavailable])
+        #expect(!bundle.complete)
+    }
+
+    @Test
+    func ambiguousOpaquePDFIdentityFailsBeforeWorker() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        _ = try fixture.pdf(name: "one.pdf")
+        _ = try fixture.pdf(name: "two.pdf")
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([])
+        let existing = try fixture.service(worker: fixture.worker())
+        let pdfResolver = PDFSourceResolver(fallbackRoot: fixture.pdfRoot, sourceIDDigest: { _ in
+            Array(repeating: 0, count: 32)
+        })
+        let service = ExportService(
+            annotationQueries: existing.annotationQueries, bookQueries: existing.bookQueries,
+            configuration: existing.configuration,
+            pdfService: PDFHighlightService(
+                workerClient: try #require(existing.pdfService).workerClient
+            ),
+            pdfSourceResolver: pdfResolver
+        )
+        #expect(throws: PDFInventoryError.ambiguousSourceID) {
+            _ = try service.makeBundle(options: ExportOptions(
+                bookSelectors: [.pdfSourceID("pdf1_" + String(repeating: "0", count: 64))]
+            ))
         }
         #expect(try fixture.workerCallCount() == 0)
     }
@@ -455,7 +640,7 @@ struct ExportServiceTests {
         func createAnnotations(_ rows: [AnnotationRow]) throws {
             var values: [String] = []
             for row in rows {
-                values.append("(\(row.pk),0,\(row.type.map(String.init) ?? "NULL"),\(sql(row.assetID)),\(sql(row.selectedText)),NULL,\(sql(row.note)),\(row.style.map(String.init) ?? "NULL"),\(row.underline.map { $0 ? "1" : "0" } ?? "NULL"),\(sql(row.cfi)))")
+                values.append("(\(row.pk),0,\(row.type.map(String.init) ?? "NULL"),\(sql(row.assetID)),\(sql(row.selectedText)),NULL,\(sql(row.note)),\(row.style.map(String.init) ?? "NULL"),\(row.underline.map { $0 ? "1" : "0" } ?? "NULL"),\(sql(row.cfi)),NULL)")
             }
             var sql = """
             CREATE TABLE ZAEANNOTATION(
@@ -468,7 +653,8 @@ struct ExportServiceTests {
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONSTYLE INTEGER,
               ZANNOTATIONISUNDERLINE INTEGER,
-              ZANNOTATIONLOCATION TEXT
+              ZANNOTATIONLOCATION TEXT,
+              ZANNOTATIONCREATIONDATE REAL
             );
             """
             if values.isEmpty == false {
@@ -503,12 +689,14 @@ struct ExportServiceTests {
               </metadata>
               <manifest>
                 <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+                <item id="other" href="other.xhtml" media-type="application/xhtml+xml"/>
                 <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
               </manifest>
-              <spine><itemref idref="chapter"/></spine>
+              <spine><itemref idref="chapter"/><itemref idref="other"/></spine>
             </package>
             """.utf8).write(to: epub.appendingPathComponent("OPS/package.opf"))
             try Data("<html><body>chapter</body></html>".utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+            try Data("<html><body>other</body></html>".utf8).write(to: epub.appendingPathComponent("OPS/other.xhtml"))
             try Self.png.write(to: epub.appendingPathComponent("OPS/cover.png"))
             return epub.standardizedFileURL.resolvingSymlinksInPath()
         }
@@ -587,8 +775,6 @@ struct ExportServiceTests {
             )
             let pdfService = worker.map {
                 PDFHighlightService(
-                    bookQueries: bookQueries,
-                    sourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
                     workerClient: PDFWorkerClient(workerURL: $0, timeout: timeout, terminationGrace: 0.05)
                 )
             }
@@ -596,7 +782,8 @@ struct ExportServiceTests {
                 annotationQueries: annotationQueries,
                 bookQueries: bookQueries,
                 configuration: configuration,
-                pdfService: pdfService
+                pdfService: pdfService,
+                pdfSourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot)
             )
         }
 

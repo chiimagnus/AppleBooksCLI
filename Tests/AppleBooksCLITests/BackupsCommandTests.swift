@@ -40,7 +40,7 @@ struct BackupsCommandTests {
         let command = try BackupsListCommand.parse([])
         let result = try command.execute(using: fixture.books())
 
-        let backupID = try #require(BackupMetadata.backupID(fromLegacyFilename: backup.lastPathComponent))
+        let backupID = try #require(BackupMetadata.backupID(fromFilename: backup.lastPathComponent))
         #expect(result.items.count == 1)
         #expect(result.items[0].backupID == backupID)
         #expect(result.items[0].sizeBytes > 0)
@@ -101,7 +101,7 @@ struct BackupsCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let source = try fixture.createBackup()
-        let sourceID = try #require(BackupMetadata.backupID(fromLegacyFilename: source.lastPathComponent))
+        let sourceID = try #require(BackupMetadata.backupID(fromFilename: source.lastPathComponent))
         try fixture.setValue("after-backup")
         let lifecycle = Lifecycle(running: true)
         let books = try fixture.books(lifecycle: lifecycle)
@@ -193,7 +193,7 @@ struct BackupsCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let source = try fixture.createBackup()
-        let sourceID = try #require(BackupMetadata.backupID(fromLegacyFilename: source.lastPathComponent))
+        let sourceID = try #require(BackupMetadata.backupID(fromFilename: source.lastPathComponent))
         let lifecycle = Lifecycle(running: true, terminateSucceeds: false)
         let command = try BackupsRestoreCommand.parse([sourceID])
 
@@ -210,7 +210,7 @@ struct BackupsCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let source = try fixture.createBackup()
-        let sourceID = try #require(BackupMetadata.backupID(fromLegacyFilename: source.lastPathComponent))
+        let sourceID = try #require(BackupMetadata.backupID(fromFilename: source.lastPathComponent))
         let lifecycle = Lifecycle(running: true)
         let books = try fixture.books(lifecycle: lifecycle, backupAction: { _ in
             throw FixtureError.forcedBackupFailure

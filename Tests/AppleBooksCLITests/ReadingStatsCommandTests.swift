@@ -180,21 +180,6 @@ struct ReadingStatsCommandTests {
     }
 
     @Test
-    func readingPositionSourceEncodesItsCanonicalCaseNameDirectly() throws {
-        let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        for source in [
-            ReadingPositionSource.bookmarkToc,
-            .bookmarkHint,
-            .recentAnnotationInference,
-        ] {
-            let data = try encoder.encode(source)
-            #expect(String(decoding: data, as: UTF8.self) == "\"\(source.rawValue)\"")
-            #expect(try decoder.decode(ReadingPositionSource.self, from: data) == source)
-        }
-    }
-
-    @Test
     func statsUseCoreAggregateWithoutRecomputingInCLI() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

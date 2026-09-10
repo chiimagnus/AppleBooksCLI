@@ -136,26 +136,4 @@ struct DomainModelTests {
         #expect(Annotation.bookAppleBooksURL(assetID: " bad ") == nil)
         #expect(Annotation.bookAppleBooksURL(assetID: "bad\0id") == nil)
     }
-
-    @Test
-    func collectionKeepsLocalAndSourceIdentitySeparate() {
-        let collection = Collection(
-            localPK: 3,
-            collectionID: nil,
-            title: "Synthetic Shelf",
-            details: nil,
-            isDeleted: false,
-            isHidden: nil,
-            isPlaceholder: nil,
-            sortKey: 42,
-            sortMode: nil,
-            viewMode: nil,
-            lastModificationDate: nil,
-            localModificationDate: nil
-        )
-        #expect(collection.localPK == 3)
-        #expect(collection.collectionID == nil)
-        #expect(collection.title == "Synthetic Shelf")
-        #expect(collection.sortKey == 42)
-    }
 }

@@ -17,19 +17,20 @@ struct AnnotationFullTextSearchTests {
             ZANNOTATIONSELECTEDTEXT TEXT,
             ZANNOTATIONREPRESENTATIVETEXT TEXT,
             ZANNOTATIONNOTE TEXT,
+            ZANNOTATIONCREATIONDATE REAL,
             ZANNOTATIONMODIFICATIONDATE REAL
         );
         INSERT INTO ZAEANNOTATION VALUES
-          (100,0,3,'needle','','',1000),
-          (99,0,3,'','needle','',999),
-          (98,0,3,'','','needle',998),
-          (97,1,1,'needle','','',997),
-          (96,NULL,1,'needle','','',996),
-          (95,0,NULL,'needle','','',995),
-          (1,0,1,'needle','','',300),
-          (2,0,2,'','needle','',200),
-          (3,0,1,'','','needle',100),
-          (4,0,1,'100%_\\ literal','','',50);
+          (100,0,3,'needle','','',1000,1000),
+          (99,0,3,'','needle','',999,999),
+          (98,0,3,'','','needle',998,998),
+          (97,1,1,'needle','','',997,997),
+          (96,NULL,1,'needle','','',996,996),
+          (95,0,NULL,'needle','','',995,995),
+          (1,0,1,'needle','','',300,300),
+          (2,0,2,'','needle','',200,200),
+          (3,0,1,'','','needle',100,100),
+          (4,0,1,'100%_\\ literal','','',50,50);
         """)
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
         CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);
@@ -42,15 +43,19 @@ struct AnnotationFullTextSearchTests {
             historicalAssets: try AppleBooksConfiguration(fileURL: config).historicalAssets
         )
 
-        #expect(try queries.searchText("needle", limit: 2).map { $0.annotation.localPK } == [1, 2])
-        #expect(try queries.searchText("needle", limit: 2, offset: 1).map { $0.annotation.localPK } == [2, 3])
-        #expect(try queries.searchText("needle").map { $0.annotation.localPK } == [1, 2, 3])
-        #expect(try queries.searchText("%_\\").map { $0.annotation.localPK } == [4])
+        let first = try queries.semanticPage(AnnotationQueryRequest(text: "needle", limit: 2))
+        #expect(first.items.map(\.localPK) == [1, 2])
+        let cursor = try #require(first.nextCursor)
+        let second = try queries.semanticPage(AnnotationQueryRequest(text: "needle", limit: 2, cursor: cursor))
+        #expect(second.items.map(\.localPK) == [3])
+        #expect(second.nextCursor == nil)
+        #expect(try queries.semanticPage(AnnotationQueryRequest(text: "needle", limit: 100)).items.map(\.localPK) == [1, 2, 3])
+        #expect(try queries.semanticPage(AnnotationQueryRequest(text: "%_\\", limit: 100)).items.map(\.localPK) == [4])
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .annotations,
             columns: ["ZANNOTATIONSTYLE"]
         )) {
-            _ = try queries.searchText("needle", colorName: "green")
+            _ = try queries.semanticPage(AnnotationQueryRequest(text: "needle", color: .green))
         }
     }
 
@@ -64,7 +69,9 @@ struct AnnotationFullTextSearchTests {
             ZANNOTATIONDELETED INTEGER,
             ZANNOTATIONTYPE INTEGER,
             ZANNOTATIONSELECTEDTEXT TEXT,
-            ZANNOTATIONNOTE TEXT
+            ZANNOTATIONNOTE TEXT,
+            ZANNOTATIONCREATIONDATE REAL,
+            ZANNOTATIONMODIFICATIONDATE REAL
         );
         """)
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);")
@@ -80,7 +87,7 @@ struct AnnotationFullTextSearchTests {
             table: .annotations,
             columns: ["ZANNOTATIONREPRESENTATIVETEXT"]
         )) {
-            _ = try queries.searchText("needle")
+            _ = try queries.semanticPage(AnnotationQueryRequest(text: "needle"))
         }
     }
 

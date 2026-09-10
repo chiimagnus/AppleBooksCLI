@@ -40,12 +40,20 @@ final class AppleBooksLiveContentTests: XCTestCase {
     private func runLiveContentGate() throws -> Bool {
         let discovered = try DatabaseDiscovery().discover()
         let library = try SQLiteConnection.readOnly(path: discovered.libraryDB.path)
-        let books: [Book]
+        let books: [BookResourceTarget]
         do {
             guard sqlite3_db_readonly(library.handle, "main") == 1 else {
                 throw LiveContentGateError.libraryNotReadOnly
             }
-            books = try BookQueries(connection: library).list()
+            let queries = BookQueries(connection: library)
+            var targets: [BookResourceTarget] = []
+            try queries.forEachSummary(afterLocalPK: nil) { summary in
+                if let target = try queries.resourceTarget(localPK: summary.localPK) {
+                    targets.append(target)
+                }
+                return true
+            }
+            books = targets
             try library.close()
         } catch {
             try? library.close()

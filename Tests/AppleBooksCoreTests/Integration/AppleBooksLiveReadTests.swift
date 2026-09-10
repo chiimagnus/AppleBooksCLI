@@ -37,19 +37,13 @@ final class AppleBooksLiveReadTests: XCTestCase {
 
         let bookQueries = BookQueries(connection: library)
         let readingQueries = ReadingQueries(connection: library)
-        let baseBooks = try bookQueries.list()
-        let finished = try readingQueries.finished()
-        let inProgress = try readingQueries.inProgress()
-        let unstarted = try readingQueries.unstarted()
-
-        let base = Set(baseBooks.map(\.localPK))
-        let finishedSet = Set(finished.map(\.localPK))
-        let inProgressSet = Set(inProgress.map(\.localPK))
-        let unstartedSet = Set(unstarted.map(\.localPK))
-        XCTAssertTrue(finishedSet.isDisjoint(with: inProgressSet))
-        XCTAssertTrue(finishedSet.isDisjoint(with: unstartedSet))
-        XCTAssertTrue(inProgressSet.isDisjoint(with: unstartedSet))
-        XCTAssertEqual(finishedSet.union(inProgressSet).union(unstartedSet), base)
+        var baseBooks: [BookSummary] = []
+        try bookQueries.forEachSummary(afterLocalPK: nil) { book in
+            baseBooks.append(book)
+            return true
+        }
+        let partitions = try readingQueries.partitionCounts()
+        XCTAssertEqual(partitions.finished + partitions.inProgress + partitions.unstarted, baseBooks.count)
 
         let canonicalCount = try activeUserAnnotationCount(on: annotations)
         let annotationQueries = AnnotationQueries(
@@ -57,7 +51,13 @@ final class AppleBooksLiveReadTests: XCTestCase {
             bookQueries: bookQueries,
             historicalAssets: try AppleBooksConfiguration.loadDefault().historicalAssets
         )
-        let enriched = try annotationQueries.list()
+        var enriched: [SemanticAnnotation] = []
+        var cursor: String?
+        repeat {
+            let page = try annotationQueries.semanticPage(AnnotationQueryRequest(limit: 100, cursor: cursor))
+            enriched.append(contentsOf: page.items)
+            cursor = page.nextCursor
+        } while cursor != nil
         XCTAssertEqual(enriched.count, canonicalCount)
 
         var currentLibraryAssetCounts: [String: Int] = [:]
@@ -67,13 +67,10 @@ final class AppleBooksLiveReadTests: XCTestCase {
             }
         }
         for item in enriched {
-            let hasUniqueCurrentMatch = item.annotation.rawAssetID
+            let hasUniqueCurrentMatch = item.rawAssetID
                 .flatMap { currentLibraryAssetCounts[$0] } == 1
             guard hasUniqueCurrentMatch == false else { continue }
-            switch item.source {
-            case .historicalInferred, .unmapped:
-                break
-            case .currentLibrary:
+            if item.source.kind == .currentLibrary {
                 XCTFail("non-unique or orphan annotation lost its orphan-safe enrichment state")
             }
         }

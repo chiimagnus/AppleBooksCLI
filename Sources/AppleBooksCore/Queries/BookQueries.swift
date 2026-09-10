@@ -1,10 +1,5 @@
 import Foundation
 
-public enum QueryPaginationError: Error, Equatable, Sendable {
-    case nonPositiveLimit
-    case negativeOffset
-}
-
 public enum QueryDecodingError: Error, Equatable, Sendable {
     case nullRequiredColumn(String)
 }
@@ -13,15 +8,6 @@ public enum BookSearchError: Error, Equatable, Sendable {
     case emptyQuery
     case noSearchableColumns
     case fieldUnavailable(BookSearchField)
-}
-
-func validatePagination(limit: Int?, offset: Int) throws {
-    if let limit, limit <= 0 {
-        throw QueryPaginationError.nonPositiveLimit
-    }
-    if offset < 0 {
-        throw QueryPaginationError.negativeOffset
-    }
 }
 
 struct BookIdentityMultiplicity: Equatable, Sendable {
@@ -36,27 +22,11 @@ struct BookIdentityRow: Equatable, Sendable {
 
 struct BookQueries {
     private enum Filter {
-        case none
         case localPK(Int64)
-        case title(String)
-        case genre(String)
-        case combinedText(String)
-        case pdf
         case assetID(String)
     }
 
     let connection: SQLiteConnection
-
-    func list(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.none, capability: .bookBase, limit: limit, offset: offset)
-    }
-
-    func page(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
-        let effectiveLimit = try resolvedPageLimit(limit, default: 20, offset: offset)
-        let total = try baseTotal()
-        let items = try query(.none, capability: .bookBase, limit: effectiveLimit, offset: offset)
-        return Page(items: items, total: total, limit: effectiveLimit, offset: offset)
-    }
 
     func summaryPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
         try summaryPage(searchText: nil, field: nil, limit: limit, cursor: cursor)
@@ -196,10 +166,6 @@ struct BookQueries {
         try baseTotal()
     }
 
-    func pdfBooks() throws -> [Book] {
-        try query(.pdf, capability: .bookPDF, limit: nil, offset: 0)
-    }
-
     func forEachPDFResourceTarget(
         _ body: (BookResourceTarget, Int) throws -> Bool
     ) throws {
@@ -288,24 +254,11 @@ struct BookQueries {
     }
 
     func getByLocalPK(_ localPK: Int64) throws -> Book? {
-        try query(.localPK(localPK), capability: .bookBase, limit: 1, offset: 0).first
-    }
-
-    func searchTitle(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.title(text), capability: .bookTitleSearch, limit: limit, offset: offset)
-    }
-
-    func searchGenre(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try query(.genre(text), capability: .bookGenreSearch, limit: limit, offset: offset)
-    }
-
-    func search(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        guard text.isEmpty == false else { throw BookSearchError.emptyQuery }
-        return try query(.combinedText(text), capability: .bookBase, limit: limit, offset: offset)
+        try query(.localPK(localPK), capability: .bookBase).first
     }
 
     func getByAssetID(_ assetID: String) throws -> [Book] {
-        try query(.assetID(assetID), capability: .bookAssetLookup, limit: nil, offset: 0)
+        try query(.assetID(assetID), capability: .bookAssetLookup)
     }
 
     func getUniqueByAssetID(_ assetID: String) throws -> Book? {
@@ -331,11 +284,7 @@ struct BookQueries {
     }
 
     func getForCurrentReadingLocation(_ localPK: Int64) throws -> Book? {
-        try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup, limit: 1, offset: 0).first
-    }
-
-    func getForContent(_ localPK: Int64) throws -> Book? {
-        try query(.localPK(localPK), capability: .bookContentPathLookup, limit: 1, offset: 0).first
+        try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup).first
     }
 
     func semanticDetail(localPK: Int64) throws -> SemanticBookDetail? {
@@ -624,95 +573,25 @@ struct BookQueries {
         }
     }
 
-    private func query(
-        _ filter: Filter,
-        capability: SchemaCapability,
-        limit: Int?,
-        offset: Int
-    ) throws -> [Book] {
-        try validatePagination(limit: limit, offset: offset)
+    private func query(_ filter: Filter, capability: SchemaCapability) throws -> [Book] {
         let schema = try AppleBooksSchema.inspect(capability, on: connection)
-        let combinedSearchColumns = [
-            AppleBooksSchema.Book.title,
-            AppleBooksSchema.Book.author,
-            AppleBooksSchema.Book.genre,
-        ].filter(schema.contains)
-        if case .combinedText = filter, combinedSearchColumns.isEmpty {
-            throw BookSearchError.noSearchableColumns
-        }
         let projection = [AppleBooksSchema.Book.localPK] + AppleBooksSchema.Book.allProjection.filter(schema.contains)
         var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.books.rawValue)"
-
         switch filter {
-        case .none:
-            break
         case .localPK:
             sql += " WHERE \(AppleBooksSchema.Book.localPK) = ?"
-        case .title:
-            sql += " WHERE \(AppleBooksSchema.Book.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        case .genre:
-            sql += " WHERE \(AppleBooksSchema.Book.genre) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        case .combinedText:
-            let clauses = combinedSearchColumns.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
-            sql += " WHERE (\(clauses.joined(separator: " OR ")))"
-        case .pdf:
-            sql += " WHERE \(AppleBooksSchema.Book.contentType) = 3"
         case .assetID:
             sql += " WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY"
         }
-
-        var order: [String] = []
-        if schema.contains(AppleBooksSchema.Book.title) {
-            order += [
-                "\(AppleBooksSchema.Book.title) IS NULL",
-                "\(AppleBooksSchema.Book.title) COLLATE NOCASE",
-            ]
-        }
-        if schema.contains(AppleBooksSchema.Book.assetID) {
-            order += [
-                "\(AppleBooksSchema.Book.assetID) IS NULL",
-                AppleBooksSchema.Book.assetID,
-            ]
-        }
-        order.append(AppleBooksSchema.Book.localPK)
-        sql += " ORDER BY \(order.joined(separator: ", "))"
-
-        if limit != nil {
-            sql += " LIMIT ? OFFSET ?"
-        } else if offset > 0 {
-            sql += " LIMIT -1 OFFSET ?"
-        }
+        sql += " ORDER BY \(AppleBooksSchema.Book.localPK)"
 
         let statement = try connection.prepare(sql)
-        var index: Int32 = 1
         switch filter {
-        case .none:
-            break
         case let .localPK(value):
-            try statement.bind(value, at: index)
-            index += 1
-        case let .title(value), let .genre(value):
-            try statement.bind(literalContainsPattern(value), at: index)
-            index += 1
-        case let .combinedText(value):
-            let pattern = literalContainsPattern(value)
-            for _ in combinedSearchColumns {
-                try statement.bind(pattern, at: index)
-                index += 1
-            }
-        case .pdf:
-            break
+            try statement.bind(value, at: 1)
         case let .assetID(value):
-            try statement.bind(value, at: index)
-            index += 1
+            try statement.bind(value, at: 1)
         }
-        if let limit {
-            try statement.bind(Int64(limit), at: index)
-            try statement.bind(Int64(offset), at: index + 1)
-        } else if offset > 0 {
-            try statement.bind(Int64(offset), at: index)
-        }
-
         var books: [Book] = []
         while try statement.step() {
             books.append(try decode(SQLiteRow(statement: statement), schema: schema))

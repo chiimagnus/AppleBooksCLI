@@ -134,7 +134,7 @@ struct CollectionWriter {
                 }
             },
             readBack: { connection, created in
-                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(created.localPK),
+                guard let collection = try Self.readBackCollection(localPK: created.localPK, on: connection),
                       collection.collectionID == created.collectionID,
                       collection.title == created.title else {
                     throw CollectionWriteError.writeFailed
@@ -237,7 +237,7 @@ struct CollectionWriter {
                 }
             },
             readBack: { connection, target in
-                guard let collection = try CollectionQueries(connection: connection).getByLocalPK(target.localPK),
+                guard let collection = try Self.readBackCollection(localPK: target.localPK, on: connection),
                       collection.title == normalizedTitle else {
                     throw CollectionWriteError.writeFailed
                 }
@@ -507,6 +507,27 @@ struct CollectionWriter {
                 }
             }
         )
+    }
+
+    private static func readBackCollection(
+        localPK: Int64,
+        on connection: SQLiteConnection
+    ) throws -> (collectionID: String?, title: String?)? {
+        let statement = try connection.prepare("""
+            SELECT ZCOLLECTIONID, ZTITLE
+            FROM ZBKCOLLECTION
+            WHERE Z_PK = ? AND ZDELETEDFLAG = 0
+            LIMIT 2
+            """)
+        try statement.bind(localPK, at: 1)
+        guard try statement.step() else { return nil }
+        let row = try SQLiteRow(statement: statement)
+        let result = (
+            collectionID: try row.text("ZCOLLECTIONID"),
+            title: try row.text("ZTITLE")
+        )
+        guard try statement.step() == false else { throw CollectionWriteError.writeFailed }
+        return result
     }
 
     private static func resolveCollection(

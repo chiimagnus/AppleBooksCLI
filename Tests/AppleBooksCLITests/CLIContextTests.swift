@@ -111,9 +111,9 @@ struct CLIContextTests {
 
         let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
 
-        #expect(try books.listBooks().map(\.localPK) == [1])
+        #expect(try books.bookSummaryPage(limit: 100).items.map(\.localPK) == [1])
         #expect(throws: AppleBooksDependencyError.unavailable(.annotationsRead)) {
-            _ = try books.listAnnotations()
+            _ = try books.semanticAnnotationPage(AnnotationQueryRequest())
         }
     }
 
@@ -135,7 +135,7 @@ struct CLIContextTests {
         let books = try CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
 
         #expect(throws: AppleBooksDependencyError.unavailable(.libraryRead)) {
-            _ = try books.listBooks()
+            _ = try books.bookSummaryPage()
         }
     }
 
@@ -169,7 +169,16 @@ struct CLIContextTests {
             dependencies: [.libraryRead, .annotationsRead]
         )
 
-        #expect(try books.annotatedBooks().map { $0.book.localPK } == [1])
+        #expect(try books.annotatedBookSummaryPage(limit: 100).items.map { $0.book.localPK } == [1])
+    }
+
+    @Test
+    func pdfWorkerDependencyFailureUsesCanonicalUnavailableError() throws {
+        #expect(throws: CLIError.unavailable("PDF worker is unavailable.")) {
+            try CLIOperation.run {
+                throw AppleBooksDependencyError.unavailable(.pdfWorker)
+            }
+        }
     }
 
     @Test

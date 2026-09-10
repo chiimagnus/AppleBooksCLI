@@ -10,13 +10,13 @@ struct AnnotationContextTests {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let context = try fixture.books.annotationContext(localPK: 1, charsBefore: 8, charsAfter: 8)
+        let context = try #require(try fixture.books.semanticAnnotationContextResult(localPK: 1, charsBefore: 8, charsAfter: 8)).context
         #expect(context.matched == "quick\n\nbrown")
         #expect(context.before.hasSuffix("The "))
         #expect(context.after.hasPrefix(" fox"))
         #expect(context.leadingTruncated)
         #expect(context.trailingTruncated)
-        #expect(context.text.contains("quick\n\nbrown"))
+        #expect((context.before + context.matched + context.after).contains("quick\n\nbrown"))
     }
 
     @Test
@@ -24,7 +24,7 @@ struct AnnotationContextTests {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let context = try fixture.books.annotationContext(localPK: 2, charsBefore: 20, charsAfter: 20)
+        let context = try #require(try fixture.books.semanticAnnotationContextResult(localPK: 2, charsBefore: 20, charsAfter: 20)).context
         #expect(context.matched == "brown fox")
     }
 
@@ -34,16 +34,16 @@ struct AnnotationContextTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         #expect(throws: AnnotationContextError.currentBookUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 3)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 3)
         }
         #expect(throws: AnnotationContextError.currentBookAmbiguous) {
-            _ = try fixture.books.annotationContext(localPK: 4)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 4)
         }
         #expect(throws: AnnotationContextError.assetIdentityUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 5)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 5)
         }
         #expect(throws: AnnotationContextError.contentPathUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 6)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 6)
         }
     }
 
@@ -53,17 +53,13 @@ struct AnnotationContextTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         #expect(throws: AnnotationContextError.invalidWindow) {
-            _ = try fixture.books.annotationContext(localPK: 7, charsBefore: -1, charsAfter: 10)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 7, charsBefore: -1, charsAfter: 10)
         }
         #expect(throws: AnnotationContextError.chapterUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 7)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 7)
         }
-        #expect(throws: AnnotationContextError.annotationUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 8)
-        }
-        #expect(throws: AnnotationContextError.annotationUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 9)
-        }
+        #expect(try fixture.books.semanticAnnotationContextResult(localPK: 8) == nil)
+        #expect(try fixture.books.semanticAnnotationContextResult(localPK: 9) == nil)
     }
 
     @Test

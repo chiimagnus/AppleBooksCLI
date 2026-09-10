@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -31,18 +32,14 @@ struct ExportCommandTests {
             "--book", "asset-b",
             "--book-pk", "11",
             "--book-pk", "12",
-            "--source", "all",
-            "--kind", "bookmark",
-            "--kind", "note",
+            "--has-highlight", "false",
+            "--has-note", "true",
             "--color", "yellow",
             "--color", "blue",
-            "--underline",
+            "--underline", "true",
             "--order", "reading",
-            "--skip-first", "2",
-            "--grouping", "per-book",
-            "--include-epub-metadata",
-            "--cover", "file",
-            "--overwrite", "smart",
+            "--grouping", "per-document",
+            "--overwrite", "always",
             "--output", output.path,
         ])
         let request = try command.makeRequest()
@@ -54,32 +51,45 @@ struct ExportCommandTests {
             .localPK(11),
             .localPK(12),
         ])
-        #expect(request.options.kinds == [.bookmark, .note])
+        #expect(request.options.hasHighlight == false)
+        #expect(request.options.hasNote == true)
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
         #expect(request.options.order == .reading)
-        #expect(request.options.skipFirstPerBook == 2)
-        #expect(request.options.grouping == .perBook)
-        #expect(request.options.includeEPUBMetadata)
-        #expect(request.options.cover == .file)
-        #expect(request.overwrite == .smart)
+        #expect(request.options.grouping == .perDocument)
+        #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
+    }
+
+    @Test
+    func presenceGrammarRejectsLegacyAndInvalidValuesBeforeIO() throws {
+        for option in ["--has-highlight", "--has-note", "--underline"] {
+            for value in ["true", "false"] {
+                let request = try ExportCommand.parse([
+                    "--format", "json", "--output", "/tmp/presence.json", option, value,
+                ]).makeRequest()
+                let actual = option == "--has-highlight" ? request.options.hasHighlight
+                    : option == "--has-note" ? request.options.hasNote : request.options.underline
+                #expect(actual == (value == "true"))
+            }
+            for invalid in ["yes", "1", "TRUE"] {
+                #expect(throws: (any Error).self) {
+                    _ = try ExportCommand.parse(["--format", "json", option, invalid])
+                }
+            }
+        }
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
+            #expect(throws: (any Error).self) {
+                _ = try ExportCommand.parse(["--format", "json"] + arguments)
+            }
+        }
     }
 
     @Test
     func invalidOptionsFailBeforeDatabaseIO() throws {
         let missing = "/definitely/missing/applebooks.sqlite"
         let global = ["--library-db", missing, "--annotations-db", missing]
-
-        let negativeSkip = try ExportCommand.parse([
-            "--format", "json",
-            "--skip-first", "-1",
-            "--output", "/tmp/export.json",
-        ] + global)
-        #expect(throws: CLIError.usageInvalid("--skip-first must not be negative.")) {
-            _ = try negativeSkip.makeRequest()
-        }
 
         let invalidPK = try ExportCommand.parse([
             "--format", "json",
@@ -94,13 +104,6 @@ struct ExportCommandTests {
 
         let noOutput = try ExportCommand.parse(["--format", "json"] + global)
         #expect(throws: ValidationError.self) { _ = try noOutput.makeRequest() }
-
-        let nonMarkdownFileCover = try ExportCommand.parse([
-            "--format", "json",
-            "--cover", "file",
-            "--output", "/tmp/export.json",
-        ] + global)
-        #expect(throws: ValidationError.self) { _ = try nonMarkdownFileCover.makeRequest() }
     }
 
     @Test
@@ -120,14 +123,13 @@ struct ExportCommandTests {
     }
 
     @Test
-    func exactCurrentEPUBWithAllSourceDoesNotResolvePDFWorker() throws {
+    func exactCurrentEPUBDoesNotResolvePDFWorker() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let destination = fixture.root.appendingPathComponent("exact-epub.json")
         let command = try ExportCommand.parse([
             "--format", "json",
             "--book", "asset-a",
-            "--source", "all",
             "--output", destination.path,
             "--library-db", fixture.library.path,
             "--annotations-db", fixture.annotations.path,
@@ -158,6 +160,7 @@ struct ExportCommandTests {
         let destination = fixture.root.appendingPathComponent("annotations.json")
         let command = try ExportCommand.parse([
             "--format", "json",
+            "--source", "epub",
             "--output", destination.path,
         ])
         let capture = Capture()
@@ -179,13 +182,14 @@ struct ExportCommandTests {
     }
 
     @Test
-    func genericPerBookExportReturnsDirectoryCountWithoutFileList() throws {
+    func genericPerDocumentExportReturnsDirectoryCountWithoutFileList() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let directory = fixture.root.appendingPathComponent("json-books", isDirectory: true)
         let command = try ExportCommand.parse([
             "--format", "json",
-            "--grouping", "per-book",
+            "--grouping", "per-document",
+            "--source", "epub",
             "--output", directory.path,
         ])
 
@@ -197,8 +201,257 @@ struct ExportCommandTests {
         #expect(result.warningCount == 0)
         #expect(result.complete)
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        #expect(names.count == 2)
-        #expect(names.allSatisfy { $0.hasSuffix(".json") })
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.count == 2)
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.allSatisfy { $0.hasSuffix(".json") })
+    }
+
+    @Test
+    func managedDirectoryPublishSyncFailureReturnsStructuredSuccessWarning() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let directory = fixture.root.appendingPathComponent("sync-warning", isDirectory: true)
+        let command = try ExportCommand.parse([
+            "--format", "json",
+            "--grouping", "per-document",
+            "--source", "epub",
+            "--output", directory.path,
+        ])
+
+        let result = try command.execute(
+            using: fixture.core(),
+            managedDirectorySyncParentAfterPublish: { _ in false }
+        )
+
+        #expect(result.complete)
+        #expect(result.warningCount == 1)
+        #expect(result.warnings.count == 1)
+        #expect(result.warningsTruncated == false)
+        let warning = try #require(result.warnings.first)
+        #expect(warning.code == "export_directory_sync_failed")
+        #expect(warning.source == "export")
+        #expect(warning.sourceID == nil)
+        #expect(warning.reason == "managed_directory_parent_sync_failed")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+    }
+
+    @Test
+    func exactSelectorsRejectBulkScopeAndMapOpaquePDFIdentity() throws {
+        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
+        for selector in [["--book", "asset-a"], ["--book-pk", "1"], ["--pdf", sourceID]] {
+            for scope in ["epub", "pdf", "all"] {
+                let command = try ExportCommand.parse([
+                    "--format", "json", "--output", "/tmp/export.json", "--source", scope,
+                ] + selector)
+                #expect(throws: ValidationError.self) { _ = try command.makeRequest() }
+            }
+        }
+        let request = try ExportCommand.parse([
+            "--format", "json", "--output", "/tmp/export.json", "--pdf", sourceID, "--pdf", sourceID,
+        ]).makeRequest()
+        #expect(request.options.bookSelectors == [.pdfSourceID(sourceID), .pdfSourceID(sourceID)])
+    }
+
+    @Test
+    func exactPDFDoesNotOpenAnnotationsOrConfigurationAndMixedUsesUnion() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let pdf = fixture.root.appendingPathComponent("fixture.pdf")
+        try Data("%PDF-synthetic".utf8).write(to: pdf)
+        try Fixture.createDatabase(fixture.library, sql: """
+            ALTER TABLE ZBKLIBRARYASSET ADD COLUMN ZPATH TEXT;
+            INSERT INTO ZBKLIBRARYASSET VALUES (3,'pdf-book','PDF Book','Author',3,'\(pdf.path)');
+            """)
+        let worker = fixture.root.appendingPathComponent("worker")
+        try Data("""
+            #!/bin/sh
+            IFS= read -r request || true
+            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
+            """.utf8).write(to: worker)
+        #expect(chmod(worker.path, 0o700) == 0)
+        let missing = fixture.root.appendingPathComponent("missing").path
+        let arguments = ["--format", "json", "--library-db", fixture.library.path]
+        let exact = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--output", fixture.root.appendingPathComponent("pdf.json").path,
+            "--annotations-db", missing, "--config", missing,
+        ])
+        var workerCalls = 0
+        let result = try exact.execute(workerURLProvider: { workerCalls += 1; return worker })
+        #expect(result.complete)
+        #expect(workerCalls == 1)
+        let mixed = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--book", "asset-a",
+            "--output", fixture.root.appendingPathComponent("mixed.json").path,
+            "--annotations-db", fixture.annotations.path, "--config", fixture.configuration.path,
+        ])
+        let mixedResult = try mixed.execute(workerURLProvider: { workerCalls += 1; return worker })
+        #expect(mixedResult.complete)
+        #expect(workerCalls == 2)
+        let artifact = try String(contentsOfFile: mixedResult.destination, encoding: .utf8)
+        #expect(artifact.contains("Quote A"))
+        let probe = try AppleBooks(
+            libraryDB: fixture.library, annotationsDB: nil, configurationFile: nil,
+            dependencies: .libraryRead,
+            manageCollectionBooksApplication: false,
+            manageAnnotationBooksApplication: false
+        )
+        #expect(try probe.exportDependencies(options: exact.makeRequest().options) == [.libraryRead, .pdfWorker])
+        #expect(try probe.exportDependencies(options: mixed.makeRequest().options) == [.libraryRead, .annotationsRead, .configuration, .pdfWorker])
+        #expect(try probe.exportDependencies(options: ExportOptions(bookSelectors: [.assetID("historical")])) == [.libraryRead, .annotationsRead, .configuration])
+        try Data("""
+            #!/bin/sh
+            IFS= read -r request || true
+            printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
+            """.utf8).write(to: worker)
+        let failedDestination = fixture.root.appendingPathComponent("failed.json")
+        let failing = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--output", failedDestination.path,
+            "--annotations-db", missing, "--config", missing,
+        ])
+        #expect(throws: CLIError.unavailable("Selected PDF could not be read. Check its local availability.")) {
+            _ = try failing.execute(workerURLProvider: { worker })
+        }
+        #expect(!FileManager.default.fileExists(atPath: failedDestination.path))
+    }
+
+    @Test
+    func unavailableBulkPDFWritesPartialArtifactWithStructuredWarning() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let command = try ExportCommand.parse([
+            "--format", "json", "--output", fixture.root.appendingPathComponent("partial.json").path,
+            "--library-db", fixture.library.path, "--annotations-db", fixture.annotations.path,
+            "--config", fixture.configuration.path,
+        ])
+        let result = try command.execute(workerURLProvider: { throw FixtureError.workerMustNotBeResolved })
+        #expect(!result.complete)
+        #expect(result.warningCount == 1)
+        #expect(result.warnings.count == 1)
+        let warning = try #require(result.warnings.first)
+        #expect(warning.code == "pdf_unavailable")
+        #expect(warning.source == "pdf")
+        #expect(warning.sourceID == nil)
+        #expect(warning.reason == "worker_unavailable")
+        #expect(result.warningsTruncated == false)
+        #expect(try String(contentsOfFile: result.destination, encoding: .utf8).contains("Quote A"))
+    }
+
+    @Test
+    func structuredWarningsAreBoundedSanitizedAndSuccessfulOutputUsesOnlyStdout() throws {
+        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
+        let source = PDFSource(
+            fileURL: URL(fileURLWithPath: "/private/secret/never-reflect.pdf"),
+            book: nil,
+            provenance: .fallback,
+            pdfSourceID: sourceID
+        )
+        let warnings = (0..<101).map { index in
+            ExportWarning.pdfFailure(PDFHighlightServiceFailure(
+                source: source,
+                reason: index == 0 ? .timeout : .worker(.nonzeroExit(123))
+            ))
+        }
+        let summary = try ExportRunWarning.summaries(warnings)
+        #expect(summary.items.count == 100)
+        #expect(summary.truncated)
+        #expect(summary.items[0].reason == "timeout")
+        #expect(summary.items[1].reason == "worker_nonzero_exit")
+        #expect(summary.items.allSatisfy { $0.code == "pdf_read_failed" && $0.source == "pdf" && $0.sourceID == sourceID })
+
+        var result = ExportRunResult(
+            destination: "/safe/export.json",
+            disposition: .file,
+            documentCount: 1,
+            warningCount: warnings.count,
+            complete: false
+        )
+        result.warnings = summary.items
+        result.warningsTruncated = summary.truncated
+        let capture = Capture()
+        try capture.output.writeJSON(result)
+        #expect(capture.stderr.isEmpty)
+        #expect(capture.stdout.contains("never-reflect") == false)
+        #expect(capture.stdout.contains("/private/secret") == false)
+        #expect(capture.stdout.contains("123") == false)
+        let encoded = try JSONDecoder().decode(ExportRunResult.self, from: Data(capture.stdout.utf8))
+        #expect(encoded.warningCount == 101)
+        #expect(encoded.warnings.count == 100)
+        #expect(encoded.warningsTruncated)
+
+        let additionalSummary = try ExportRunWarning.summaries(
+            [warnings[0]],
+            additional: [.managedDirectoryPublishSyncFailed, .oldExportCleanupFailed]
+        )
+        #expect(additionalSummary.truncated == false)
+        #expect(additionalSummary.items.count == 3)
+        #expect(additionalSummary.items[0].code == "export_directory_sync_failed")
+        #expect(additionalSummary.items[0].source == "export")
+        #expect(additionalSummary.items[0].sourceID == nil)
+        #expect(additionalSummary.items[0].reason == "managed_directory_parent_sync_failed")
+        #expect(additionalSummary.items[1].code == "old_export_cleanup_failed")
+        #expect(additionalSummary.items[1].source == "export")
+        #expect(additionalSummary.items[1].sourceID == nil)
+        #expect(additionalSummary.items[1].reason == "managed_directory_cleanup_failed")
+        #expect(additionalSummary.items[2].code == "pdf_read_failed")
+    }
+
+    @Test
+    func defaultMarkdownIgnoresExtensionsAndGroupingAloneChoosesNodeType() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let defaultFile = fixture.root.appendingPathComponent("not-json.json")
+        let explicitFile = fixture.root.appendingPathComponent("explicit")
+        let directory = fixture.root.appendingPathComponent("documents.json")
+        let defaultCommand = try ExportCommand.parse(["--source", "epub", "--output", defaultFile.path])
+        let explicitCommand = try ExportCommand.parse(["--source", "epub", "--format", "markdown", "--output", explicitFile.path])
+        let directoryCommand = try ExportCommand.parse(["--source", "epub", "--grouping", "per-document", "--output", directory.path])
+        #expect(try defaultCommand.makeRequest().format == .markdown)
+        #expect(try defaultCommand.execute(using: fixture.core()).disposition == .file)
+        #expect(try explicitCommand.execute(using: fixture.core()).disposition == .file)
+        #expect(try directoryCommand.execute(using: fixture.core()).disposition == .directory)
+        #expect(try Data(contentsOf: defaultFile) == Data(contentsOf: explicitFile))
+        #expect(try String(contentsOf: defaultFile, encoding: .utf8).hasPrefix("# Apple Books export"))
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.count == 2)
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.allSatisfy { $0.hasSuffix(".md") })
+        let relative = try ExportCommand.parse(["--output", "relative"]).makeRequest(currentDirectory: fixture.root)
+        #expect(relative.outputURL == fixture.root.appendingPathComponent("relative").standardizedFileURL)
+        #expect(throws: ValidationError.self) { _ = try ExportCommand.parse([]).makeRequest() }
+    }
+
+    @Test
+    func wrongOutputNodeFailsWithoutReplacingExistingResource() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let file = fixture.root.appendingPathComponent("original")
+        let directory = fixture.root.appendingPathComponent("directory")
+        try Data("original".utf8).write(to: file)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        for (target, grouping) in [(file, "per-document"), (directory, "single")] {
+            for policy in ["never", "always"] {
+                let command = try ExportCommand.parse([
+                    "--source", "epub", "--output", target.path, "--grouping", grouping, "--overwrite", policy,
+                ])
+                do {
+                    _ = try command.execute(using: fixture.core())
+                    Issue.record("Expected node-type failure")
+                } catch let error as CLIError {
+                    #expect(error.code == .writeSafety)
+                    #expect(error.reason == (policy == "never" ? "output_exists" : "unsafe_output"))
+                }
+            }
+        }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        for count in [1, 100_001] {
+            let result = ExportRunResult(destination: "/synthetic/export", disposition: .directory, documentCount: count, warningCount: 0, complete: true)
+            #expect(try JSONEncoder().encode(result).count < 200)
+        }
     }
 
     private final class Capture {
@@ -287,7 +540,7 @@ struct ExportCommandTests {
         );
         """
 
-        private static func createDatabase(_ url: URL, sql: String) throws {
+        static func createDatabase(_ url: URL, sql: String) throws {
             var handle: OpaquePointer?
             guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else {
                 if let handle { sqlite3_close_v2(handle) }

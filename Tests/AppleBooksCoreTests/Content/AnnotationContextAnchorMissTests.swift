@@ -44,7 +44,7 @@ struct AnnotationContextAnchorMissTests {
             charsAfter: 20
         )
         #expect(context.matched == "token\n\nnext")
-        #expect(context.text.contains("\n\n"))
+        #expect((context.before + context.matched + context.after).contains("\n\n"))
     }
 
     @Test
@@ -59,7 +59,7 @@ struct AnnotationContextAnchorMissTests {
         #expect(context.matched == "高亮 文本")
         #expect(context.before.contains("�") == false)
         #expect(context.after.contains("�") == false)
-        #expect(context.text.contains("高亮 文本"))
+        #expect((context.before + context.matched + context.after).contains("高亮 文本"))
     }
 
     @Test

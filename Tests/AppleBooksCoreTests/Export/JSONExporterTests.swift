@@ -35,7 +35,7 @@ struct JSONExporterTests {
         let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
         let group = ExportGroup(source: .epubUnmapped(assetID: "asset-archive"), records: [record])
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub, kinds: [.highlight]),
+            options: try ExportOptions(source: .epub, hasHighlight: true),
             groups: [group],
             warnings: [],
             statistics: ExportStatistics(
@@ -47,7 +47,6 @@ struct JSONExporterTests {
                 pdfHighlightCount: 0,
                 highlightCount: 1,
                 noteCount: 0,
-                bookmarkCount: 0,
                 historicalEPUBAnnotationCount: 0,
                 unmappedEPUBAnnotationCount: 1
             ),
@@ -61,7 +60,7 @@ struct JSONExporterTests {
             )
         )
 
-        let root = try object(JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
         let groups = try array(root["groups"])
         let exportedGroup = try dictionary(groups[0])
         let records = try array(exportedGroup["records"])
@@ -74,28 +73,30 @@ struct JSONExporterTests {
     }
 
     @Test
-    func singleFilePreservesSourceSpecificRawFieldsMetadataAndWarnings() throws {
+    func singleFilePreservesSourceSpecificRawFieldsAndWarnings() throws {
         let fixture = try Fixture()
-        let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
+        let data = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 2)
+        #expect(root["schemaVersion"] as? Int == 9)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
         #expect(options["source"] as? String == "all")
-        #expect(options["kinds"] as? [String] == ["bookmark", "highlight", "note"])
+        #expect(options["kinds"] == nil)
+        #expect(options["hasHighlight"] as? Bool == true)
+        #expect(options["hasNote"] as? Bool == false)
         #expect(options["colors"] as? [String] == ["blue", "yellow"])
         #expect(options["order"] as? String == "reading")
-        #expect(options["skipFirstPerBook"] as? Int == 2)
-        #expect(options["grouping"] as? String == "perBook")
-        #expect(options["includeEPUBMetadata"] as? Bool == true)
-        #expect(options["cover"] as? String == "inline")
+        #expect(options["skipFirstPerBook"] == nil)
+        #expect(options["grouping"] as? String == "per-document")
+        #expect(options["includeEPUBMetadata"] == nil)
+        #expect(options["cover"] == nil)
         let selectors = try array(options["bookSelectors"])
         #expect(try dictionary(selectors[0])["kind"] as? String == "assetID")
         #expect(try dictionary(selectors[0])["value"] as? String == "current-asset")
-        #expect(try dictionary(selectors[1])["kind"] as? String == "pdfFile")
-        #expect(try dictionary(selectors[1])["value"] as? String == fixture.pdfURL.path)
+        #expect(try dictionary(selectors[1])["kind"] as? String == "pdfSourceID")
+        #expect(try dictionary(selectors[1])["value"] as? String == "pdf1_" + String(repeating: "a", count: 64))
 
         let statistics = try dictionary(root["statistics"])
         #expect(statistics["documentCount"] as? Int == 3)
@@ -130,22 +131,24 @@ struct JSONExporterTests {
         #expect(location["rawCFI"] as? String == fixture.rawCFI)
 
         let current = try dictionary(groups[1])
+        let currentRecord = try dictionary(try array(current["records"])[0])
+        let presence = try dictionary(currentRecord["presentation"])
+        #expect(presence["hasHighlight"] as? Bool == true)
+        #expect(presence["hasNote"] as? Bool == true)
+        #expect(presence["kind"] == nil)
         let currentSource = try dictionary(current["source"])
         #expect(currentSource["kind"] as? String == "epubCurrent")
         let currentBook = try dictionary(currentSource["book"])
         #expect(currentBook["assetID"] as? String == "current-asset")
         #expect(currentBook["genresRawBase64"] as? String == "AAH/")
         #expect(currentBook["creationDate"] as? String == "2020-09-13T12:26:40.500Z")
+        #expect(currentBook["readingProgressRaw"] as? Double == 0.25)
+        #expect(currentBook["durationRawMilliseconds"] as? Double == 12_345)
+        #expect(currentBook["rating"] as? Double == 4.5)
+        #expect(try array(currentBook["numericAnomalies"]).isEmpty)
         #expect(currentBook["normalizedAuthor"] == nil)
-        let metadata = try dictionary(current["epubMetadata"])
-        #expect(metadata["publisher"] as? String == "Publisher")
-        #expect(metadata["coverItemID"] as? String == "cover-item")
-        let cover = try dictionary(current["epubCover"])
-        #expect(cover["dataBase64"] as? String == "iVBORw==")
-        #expect(cover["declaredMediaType"] as? String == "image/jpeg")
-        #expect(cover["detectedMediaType"] as? String == "image/png")
-        #expect(cover["mediaType"] as? String == "image/png")
-        #expect(cover["source"] as? String == "manifestProperty")
+        #expect(current["epubMetadata"] == nil)
+        #expect(current["epubCover"] == nil)
 
         let pdf = try dictionary(groups[2])
         let pdfSource = try dictionary(try dictionary(pdf["source"])["pdfSource"])
@@ -155,6 +158,9 @@ struct JSONExporterTests {
         let pdfRecord = try dictionary(try array(pdf["records"])[0])
         #expect(pdfRecord["source"] as? String == "pdf")
         #expect(pdfRecord["annotation"] == nil)
+        let pdfPresence = try dictionary(pdfRecord["presentation"])
+        #expect(pdfPresence["hasHighlight"] as? Bool == true)
+        #expect(pdfPresence["hasNote"] as? Bool == false)
         let highlight = try dictionary(pdfRecord["pdfHighlight"])
         #expect(highlight["page"] as? Int == 4)
         #expect(highlight["traversalIndex"] as? Int == 7)
@@ -168,17 +174,79 @@ struct JSONExporterTests {
         #expect(color["color"] as? String == "yellow")
         #expect(color["distance"] as? Double == 0.125)
         #expect(color["isApproximate"] as? Bool == true)
+        #expect(try ExportSelection.apply(
+            options: try ExportOptions(source: .pdf, colors: [.yellow]),
+            to: fixture.bundle.groups.flatMap(\.records)
+        ).isEmpty)
 
         let warnings = try array(root["warnings"])
-        #expect(warnings.count == 2)
-        #expect(try dictionary(warnings[0])["code"] as? String == "epubCoverUnavailable")
-        let pdfWarning = try dictionary(warnings[1])
+        #expect(warnings.count == 1)
+        let pdfWarning = try dictionary(warnings[0])
         #expect(pdfWarning["code"] as? String == "pdfFailure")
         let failure = try dictionary(pdfWarning["pdfFailure"])
         #expect(failure["kind"] as? String == "worker")
         let workerError = try dictionary(failure["workerError"])
         #expect(workerError["code"] as? String == "workerFailure")
         #expect(workerError["workerCode"] as? String == "unreadableDocument")
+    }
+
+    @Test
+    func nonFiniteBookNumericsEncodeAsNullWithStableBoundedAnomalies() throws {
+        let books = [
+            book(localPK: 1, readingProgressRaw: nil, durationRawMilliseconds: nil, rating: nil),
+            book(
+                localPK: 2,
+                readingProgressRaw: 0.25,
+                durationRawMilliseconds: Double.greatestFiniteMagnitude,
+                rating: 4.5
+            ),
+            book(
+                localPK: 3,
+                readingProgressRaw: .infinity,
+                durationRawMilliseconds: -.infinity,
+                rating: .infinity
+            ),
+        ]
+        let bundle = try bundle(books: books)
+        let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        #expect(root["schemaVersion"] as? Int == 9)
+        let groups = try array(root["groups"])
+
+        let nilSource = try dictionary(try dictionary(groups[0])["source"])
+        let nilBook = try dictionary(nilSource["book"])
+        #expect(nilBook["readingProgressRaw"] is NSNull)
+        #expect(nilBook["durationRawMilliseconds"] is NSNull)
+        #expect(nilBook["rating"] is NSNull)
+        #expect(try array(nilBook["numericAnomalies"]).isEmpty)
+
+        let finiteSource = try dictionary(try dictionary(groups[1])["source"])
+        let finiteBook = try dictionary(finiteSource["book"])
+        #expect(finiteBook["readingProgressRaw"] as? Double == 0.25)
+        #expect(finiteBook["durationRawMilliseconds"] as? Double == Double.greatestFiniteMagnitude)
+        #expect(finiteBook["rating"] as? Double == 4.5)
+        #expect(try array(finiteBook["numericAnomalies"]).isEmpty)
+
+        let anomalousSource = try dictionary(try dictionary(groups[2])["source"])
+        let anomalousBook = try dictionary(anomalousSource["book"])
+        #expect(anomalousBook["readingProgressRaw"] is NSNull)
+        #expect(anomalousBook["durationRawMilliseconds"] is NSNull)
+        #expect(anomalousBook["rating"] is NSNull)
+        let anomalies = try array(anomalousBook["numericAnomalies"]).map { try dictionary($0) }
+        #expect(anomalies.count == 3)
+        #expect(anomalies.compactMap { $0["field"] as? String } == [
+            "readingProgressRaw", "durationRawMilliseconds", "rating",
+        ])
+        #expect(anomalies.compactMap { $0["kind"] as? String } == [
+            "positiveInfinity", "negativeInfinity", "positiveInfinity",
+        ])
+
+        let document = try object(renderDocumentJSON(
+            bundle.groups[2], from: bundle, exportedAt: Date(timeIntervalSince1970: 0)
+        ))
+        #expect(document["schemaVersion"] as? Int == 9)
+        let documentSource = try dictionary(try dictionary(document["group"])["source"])
+        let documentBook = try dictionary(documentSource["book"])
+        #expect(try array(documentBook["numericAnomalies"]).count == 3)
     }
 
     @Test
@@ -223,7 +291,7 @@ struct JSONExporterTests {
         let base = try Fixture()
 
         let document = try object(
-            JSONExporter.renderDocument(group, from: base.bundle, exportedAt: base.exportedAt)
+            renderDocumentJSON(group, from: base.bundle, exportedAt: base.exportedAt)
         )
         let source = try dictionary(try dictionary(document["group"])["source"])
 
@@ -237,27 +305,194 @@ struct JSONExporterTests {
     }
 
     @Test
+    func streamingRendererProducesValidBoundedFullAndPerDocumentArtifacts() throws {
+        let fixture = try Fixture()
+        var streamed = Data()
+        var maximumBuffer = 0
+        try JSONExporter.stream(
+            fixture.bundle,
+            exportedAt: fixture.exportedAt,
+            observeBufferedBytes: { maximumBuffer = max(maximumBuffer, $0) }
+        ) { streamed.append($0) }
+        _ = try JSONSerialization.jsonObject(with: streamed)
+        #expect(maximumBuffer <= ExportFileWriter.maximumChunkBytes)
+
+        var documentStream = Data()
+        var documentMaximumBuffer = 0
+        try JSONExporter.streamDocument(
+            fixture.bundle.groups[1],
+            from: fixture.bundle,
+            exportedAt: fixture.exportedAt,
+            observeBufferedBytes: { documentMaximumBuffer = max(documentMaximumBuffer, $0) }
+        ) { documentStream.append($0) }
+        _ = try JSONSerialization.jsonObject(with: documentStream)
+        #expect(documentMaximumBuffer <= ExportFileWriter.maximumChunkBytes)
+    }
+
+    @Test
+    func streamingJSONEscapesHostileTextAndBase64AcrossChunkBoundaries() throws {
+        let hostile = String((0...31).compactMap(UnicodeScalar.init).map(Character.init))
+            + " quote=\" slash=\\ unicode=界🙂\r\nend"
+        let book = Book(
+            localPK: 91,
+            assetID: "hostile",
+            title: hostile,
+            author: nil,
+            description: hostile,
+            epubID: nil,
+            genre: nil,
+            genresRaw: Data([0, 1, 2, 3, 4]),
+            comments: hostile,
+            language: nil,
+            year: nil,
+            contentType: 1,
+            pageCount: nil,
+            path: nil,
+            fileSize: nil,
+            coverURL: nil,
+            isFinished: nil,
+            readingProgressRaw: nil,
+            durationRawMilliseconds: nil,
+            creationDate: nil,
+            modificationDate: nil,
+            finishedDate: nil,
+            lastOpenDate: nil,
+            purchaseDate: nil,
+            releaseDate: nil,
+            isExplicit: nil,
+            isLocked: nil,
+            isEphemeral: nil,
+            isHidden: nil,
+            isSample: nil,
+            isStoreAudiobook: nil,
+            rating: nil
+        )
+        let annotation = Annotation(
+            localPK: 92,
+            uuid: nil,
+            rawAssetID: "hostile",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: hostile,
+            selectedText: hostile,
+            note: hostile,
+            location: nil,
+            chapterHint: hostile,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .currentLibrary(book))))
+        let group = ExportGroup(source: .epubCurrent(book), records: [record])
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub), groups: [group], warnings: [],
+            statistics: ExportStatistics(documentCount: 1, epubDocumentCount: 1, pdfDocumentCount: 0, recordCount: 1, epubAnnotationCount: 1, pdfHighlightCount: 0, highlightCount: 1, noteCount: 1, historicalEPUBAnnotationCount: 0, unmappedEPUBAnnotationCount: 0),
+            sourceTotals: ExportSourceTotals(epubDocumentCount: 1, epubAnnotationCount: 1, pdfAttemptedDocumentCount: 0, pdfSucceededDocumentCount: 0, pdfFailedDocumentCount: 0, pdfHighlightCount: 0)
+        )
+        var streamed = Data()
+        try JSONExporter.stream(bundle, exportedAt: Date(timeIntervalSince1970: 0)) { streamed.append($0) }
+        let compatibility = try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        #expect(try normalized(JSONSerialization.jsonObject(with: streamed)) == normalized(JSONSerialization.jsonObject(with: compatibility)))
+        let root = try object(streamed)
+        let source = try dictionary(try dictionary(try array(root["groups"])[0])["source"])
+        let exportedBook = try dictionary(source["book"])
+        #expect(exportedBook["title"] as? String == hostile)
+        #expect(exportedBook["genresRawBase64"] as? String == Data([0, 1, 2, 3, 4]).base64EncodedString())
+    }
+
+    @Test
+    func streamingSingleRawFieldOver128MiBKeepsOnlyFixedSizeChunks() throws {
+        let rawText = String(repeating: "x", count: 128 * 1_024 * 1_024 + 1)
+        let annotation = Annotation(
+            localPK: 501,
+            uuid: nil,
+            rawAssetID: "large-asset",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: nil,
+            selectedText: rawText,
+            note: nil,
+            location: nil,
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: [record])
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: [group],
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: 1,
+                epubDocumentCount: 1,
+                pdfDocumentCount: 0,
+                recordCount: 1,
+                epubAnnotationCount: 1,
+                pdfHighlightCount: 0,
+                highlightCount: 1,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: 1
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: 1,
+                epubAnnotationCount: 1,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
+        var totalBytes = 0
+        var maximumChunk = 0
+        var maximumBuffered = 0
+        try JSONExporter.stream(
+            bundle,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            observeBufferedBytes: { maximumBuffered = max(maximumBuffered, $0) }
+        ) { chunk in
+            totalBytes += chunk.count
+            maximumChunk = max(maximumChunk, chunk.count)
+        }
+
+        #expect(totalBytes > 128 * 1_024 * 1_024)
+        #expect(maximumChunk <= ExportFileWriter.maximumChunkBytes)
+        #expect(maximumBuffered <= ExportFileWriter.maximumChunkBytes)
+    }
+
+    @Test
     func fixedTimestampAndSortedCollectionsProduceDeterministicBytes() throws {
         let fixture = try Fixture()
 
-        let first = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
-        let second = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
+        let first = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
+        let second = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
 
         #expect(first == second)
         let text = try #require(String(data: first, encoding: .utf8))
         #expect(text.contains("\"exportedAt\":\"2023-11-14T22:13:20.125Z\""))
-        #expect(text.contains("\"kinds\":[\"bookmark\",\"highlight\",\"note\"]"))
+        #expect(text.contains("\"hasHighlight\":true"))
+        #expect(text.contains("\"hasNote\":false"))
         #expect(text.contains("\"colors\":[\"blue\",\"yellow\"]"))
     }
 
     @Test
     func perDocumentOutputReusesTheExactGroupDTOWithoutGlobalRunState() throws {
         let fixture = try Fixture()
-        let full = try object(JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt))
+        let full = try object(renderJSON(fixture.bundle, exportedAt: fixture.exportedAt))
         let fullPDFGroup = try array(full["groups"])[2]
 
         let document = try object(
-            JSONExporter.renderDocument(
+            renderDocumentJSON(
                 fixture.bundle.groups[2],
                 from: fixture.bundle,
                 exportedAt: fixture.exportedAt
@@ -265,7 +500,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 2)
+        #expect(document["schemaVersion"] as? Int == 9)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -288,6 +523,77 @@ struct JSONExporterTests {
 
     private func normalized(_ value: Any?) throws -> Data {
         try JSONSerialization.data(withJSONObject: try #require(value), options: [.sortedKeys])
+    }
+
+    private func book(
+        localPK: Int64,
+        readingProgressRaw: Double?,
+        durationRawMilliseconds: Double?,
+        rating: Double?
+    ) -> Book {
+        Book(
+            localPK: localPK,
+            assetID: "numeric-\(localPK)",
+            title: "Numeric \(localPK)",
+            author: nil,
+            description: nil,
+            epubID: nil,
+            genre: nil,
+            genresRaw: nil,
+            comments: nil,
+            language: nil,
+            year: nil,
+            contentType: 1,
+            pageCount: nil,
+            path: nil,
+            fileSize: nil,
+            coverURL: nil,
+            isFinished: nil,
+            readingProgressRaw: readingProgressRaw,
+            durationRawMilliseconds: durationRawMilliseconds,
+            creationDate: nil,
+            modificationDate: nil,
+            finishedDate: nil,
+            lastOpenDate: nil,
+            purchaseDate: nil,
+            releaseDate: nil,
+            isExplicit: nil,
+            isLocked: nil,
+            isEphemeral: nil,
+            isHidden: nil,
+            isSample: nil,
+            isStoreAudiobook: nil,
+            rating: rating
+        )
+    }
+
+    private func bundle(books: [Book]) throws -> ExportBundle {
+        let groups = books.map { ExportGroup(source: .epubCurrent($0), records: []) }
+        return ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: groups,
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: groups.count,
+                epubDocumentCount: groups.count,
+                pdfDocumentCount: 0,
+                recordCount: 0,
+                epubAnnotationCount: 0,
+                pdfHighlightCount: 0,
+                highlightCount: 0,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: 0
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: groups.count,
+                epubAnnotationCount: 0,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
     }
 
     private struct Fixture {
@@ -390,25 +696,6 @@ struct JSONExporterTests {
                 textIsApproximate: true,
                 textUnavailableReason: nil
             )
-            let metadata = EPUBMetadata(
-                title: "EPUB Title",
-                creator: "EPUB Creator",
-                identifiers: ["id-1", "id-2"],
-                isbn: "9780306406157",
-                language: "en",
-                publisher: "Publisher",
-                publicationDate: "2020-01-02",
-                rights: "Rights",
-                subjects: ["One", "Two"],
-                coverItemID: "cover-item"
-            )
-            let cover = EPUBCover(
-                data: Data([0x89, 0x50, 0x4E, 0x47]),
-                declaredMediaType: "image/jpeg",
-                detectedMediaType: "image/png",
-                source: .manifestProperty
-            )
-
             let groups = [
                 ExportGroup(
                     source: .epubUnmapped(assetID: "orphan-asset"),
@@ -422,9 +709,7 @@ struct JSONExporterTests {
                                 EnrichedAnnotation(annotation: currentAnnotation, source: .currentLibrary(currentBook))
                             )
                         ),
-                    ],
-                    epubMetadata: metadata,
-                    epubCover: cover
+                    ]
                 ),
                 ExportGroup(
                     source: .pdf(pdfSource),
@@ -433,20 +718,17 @@ struct JSONExporterTests {
             ]
             let options = try ExportOptions(
                 source: .all,
-                bookSelectors: [.assetID("current-asset"), .pdfFile(pdfURL)],
-                kinds: [.note, .highlight, .bookmark],
+                bookSelectors: [.assetID("current-asset"), .pdfSourceID("pdf1_" + String(repeating: "a", count: 64))],
+                hasHighlight: true,
+                hasNote: false,
                 colors: [.yellow, .blue],
                 order: .reading,
-                skipFirstPerBook: 2,
-                grouping: .perBook,
-                includeEPUBMetadata: true,
-                cover: .inline
+                grouping: .perDocument
             )
             bundle = ExportBundle(
                 options: options,
                 groups: groups,
                 warnings: [
-                    .epubCoverUnavailable(bookLocalPK: 11),
                     .pdfFailure(
                         PDFHighlightServiceFailure(
                             source: pdfSource,
@@ -463,7 +745,6 @@ struct JSONExporterTests {
                     pdfHighlightCount: 1,
                     highlightCount: 2,
                     noteCount: 1,
-                    bookmarkCount: 0,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 1
                 ),

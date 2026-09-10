@@ -79,7 +79,7 @@ struct PDFColorMappingTests {
         let url = root.appendingPathComponent("roundtrip.pdf")
         #expect(document.write(to: url))
 
-        let highlight = try #require(try PDFHighlightReader().read(fileURL: url).first)
+        let highlight = try #require(try PDFHighlightReader().readPage(fileURL: url, start: nil, limit: 100).highlights.first)
         #expect(abs((highlight.modifiedAt ?? .distantPast).timeIntervalSince(modified)) < 1)
         let rgba = try #require(highlight.pdfKitRGBA)
         #expect(rgba.count == 4)

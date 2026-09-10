@@ -26,6 +26,7 @@ enum CLIError: Error, Equatable, Sendable {
     case unavailableWithReason(message: String, reason: String)
     case internalFailure
     case writeSafety(String)
+    case writeSafetyWithReason(message: String, reason: String)
     case permission(String)
 
     var code: CLIErrorCode {
@@ -34,7 +35,7 @@ enum CLIError: Error, Equatable, Sendable {
         case .notFound: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
-        case .writeSafety: .writeSafety
+        case .writeSafety, .writeSafetyWithReason: .writeSafety
         case .permission: .permission
         }
     }
@@ -45,6 +46,7 @@ enum CLIError: Error, Equatable, Sendable {
              let .notFound(message),
              let .unavailable(message),
              let .writeSafety(message),
+             let .writeSafetyWithReason(message, _),
              let .permission(message):
             message
         case let .unavailableWithReason(message, _):
@@ -55,8 +57,10 @@ enum CLIError: Error, Equatable, Sendable {
     }
 
     var reason: String? {
-        if case let .unavailableWithReason(_, reason) = self { return reason }
-        return nil
+        switch self {
+        case let .unavailableWithReason(_, reason), let .writeSafetyWithReason(_, reason): reason
+        default: nil
+        }
     }
 
     var exitCode: CLIProcessExit {
@@ -65,7 +69,7 @@ enum CLIError: Error, Equatable, Sendable {
         case .notFound: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
-        case .writeSafety: .writeSafety
+        case .writeSafety, .writeSafetyWithReason: .writeSafety
         case .permission: .permission
         }
     }
@@ -83,9 +87,6 @@ enum CLIOperation {
     }
 
     private static func translate(_ error: Error) -> CLIError {
-        if error is QueryPaginationError || error is PageInputError {
-            return .usageInvalid("Invalid pagination parameters.")
-        }
         if let cursorError = error as? CursorPaginationError {
             switch cursorError {
             case .limitOutOfRange, .invalidCursor, .filterMismatch:
@@ -122,13 +123,8 @@ enum CLIOperation {
                 return .unavailable("Requested Apple Books search field is unavailable.")
             }
         }
-        if let annotationInputError = error as? AnnotationQueryInputError {
-            switch annotationInputError {
-            case .unknownColor:
-                return .usageInvalid("Invalid annotation color.")
-            case .invalidDateRange:
-                return .usageInvalid("Invalid annotation date range.")
-            }
+        if error is AnnotationQueryInputError {
+            return .usageInvalid("Invalid annotation color.")
         }
         if let collectionWriteError = error as? CollectionWriteError {
             switch collectionWriteError {
@@ -203,7 +199,7 @@ enum CLIOperation {
                 return .unavailable("Apple Books cloud sync did not reach acknowledgement.")
             }
         }
-        if error is PDFHighlightFacadeError {
+        if error as? AppleBooksDependencyError == .unavailable(.pdfWorker) {
             return .unavailable("PDF worker is unavailable.")
         }
         if error is PDFWorkerClientError {
@@ -213,8 +209,6 @@ enum CLIOperation {
             switch contextError {
             case .invalidWindow:
                 return .usageInvalid("Invalid annotation context window.")
-            case .annotationUnavailable:
-                return .notFound("Annotation not found.")
             case .assetIdentityUnavailable,
                  .currentBookUnavailable,
                  .currentBookAmbiguous,
@@ -232,8 +226,6 @@ enum CLIOperation {
                 return .notFound("Chapter not found.")
             case .invalidMaximumCharacters:
                 return .usageInvalid("Invalid chapter pagination parameters.")
-            case .chapterOffsetOutOfRange:
-                return .usageInvalid("Chapter offset is out of range.")
             }
         }
         if error is XHTMLTextError {
@@ -249,10 +241,6 @@ enum CLIOperation {
         }
         if let optionsError = error as? ExportOptionsError {
             switch optionsError {
-            case .negativeSkip:
-                return .usageInvalid("--skip-first must not be negative.")
-            case .emptyKinds:
-                return .usageInvalid("At least one export kind is required.")
             case .emptyColors:
                 return .usageInvalid("At least one export color is required when filtering by color.")
             case .invalidBookSelector:
@@ -261,11 +249,29 @@ enum CLIOperation {
                 return .usageInvalid("Export options conflict.")
             }
         }
-        if error is ExportServiceError {
-            return .unavailable("PDF worker is unavailable for the requested export source.")
+        if let exportError = error as? ExportServiceError {
+            switch exportError {
+            case .selectorNotFound:
+                return .notFound("Export selector was not found. Refresh books or pdf list.")
+            case .pdfWorkerUnavailable:
+                return .unavailable("PDF worker is unavailable for the requested export source.")
+            case .pdfSourceUnavailable:
+                return .unavailable("Selected PDF is not locally readable. Refresh pdf list.")
+            case .pdfReadFailed:
+                return .unavailable("Selected PDF could not be read. Check its local availability.")
+            case .documentIdentityCollision:
+                return .unavailable("Export document identity is ambiguous.")
+            }
         }
-        if error is ExportFileWriterError {
-            return .writeSafety("Output path is unsafe or already exists.")
+        if let writerError = error as? ExportFileWriterError {
+            switch writerError {
+            case .destinationExists:
+                return .writeSafetyWithReason(message: "Output already exists. Choose another destination or explicitly allow overwrite.", reason: "output_exists")
+            case .invalidOutputRoot, .unsafeOutputRoot, .invalidFileName, .unsafeParent, .unsafeDestination:
+                return .writeSafetyWithReason(message: "Output path is unsafe or has the wrong node type.", reason: "unsafe_output")
+            case .writeFailed:
+                return .writeSafety("Output could not be written.")
+            }
         }
         return .internalFailure
     }

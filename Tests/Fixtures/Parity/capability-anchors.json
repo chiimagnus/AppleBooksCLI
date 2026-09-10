@@ -207,7 +207,8 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportService.swift"
+      "Sources/AppleBooksCore/Export/ExportService.swift",
+      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
@@ -216,6 +217,10 @@
       [
         "export",
         "--source"
+      ],
+      [
+        "export",
+        "--pdf"
       ]
     ]
   },
@@ -246,22 +251,6 @@
       [
         "export",
         "--format"
-      ]
-    ]
-  },
-  "Markdown smart overwrite": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/OverwritePolicy.swift",
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--overwrite"
       ]
     ]
   },
@@ -626,22 +615,6 @@
       ]
     ]
   },
-  "cover inline / cover file": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--cover"
-      ]
-    ]
-  },
   "cover 提取": {
     "owner": "core",
     "implementationPaths": [
@@ -804,6 +777,7 @@
   "export single/multiple file": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift",
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift"
     ],
@@ -833,7 +807,7 @@
       ]
     ]
   },
-  "export 类型过滤": {
+  "export 属性过滤": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
@@ -845,7 +819,8 @@
     "cliHelpArgs": [
       [
         "export",
-        "--kind"
+        "--has-highlight",
+        "--has-note"
       ]
     ]
   },
@@ -980,7 +955,7 @@
     "cliHelpArgs": [
       [
         "export",
-        "--kind",
+        "--has-highlight",
         "--color"
       ]
     ]
@@ -1079,7 +1054,7 @@
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
+      "Tests/AppleBooksCoreTests/Reading/AnnotatedBookSummaryTests.swift"
     ],
     "cliHelpArgs": [
       [
@@ -1146,29 +1121,13 @@
       ]
     ]
   },
-  "partial export offset": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportRecord.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--skip-first"
-      ]
-    ]
-  },
   "recent annotations by creation": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/RecentlyCreatedAnnotationTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
@@ -1184,7 +1143,7 @@
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/RecentlyModifiedAnnotationTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [

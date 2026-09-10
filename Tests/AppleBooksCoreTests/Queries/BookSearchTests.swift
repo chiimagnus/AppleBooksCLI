@@ -31,8 +31,8 @@ struct BookSearchTests {
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
         let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
-        #expect(try core.books(matching: "Alpha").map(\.localPK) == [1, 2, 3])
-        #expect(try core.books(matching: "%_").map(\.localPK) == [4])
+        #expect(try core.searchBookSummaries("Alpha").items.map(\.localPK) == [1, 2, 3])
+        #expect(try core.searchBookSummaries("%_").items.map(\.localPK) == [4])
     }
 
     @Test
@@ -46,7 +46,7 @@ struct BookSearchTests {
         """)
         let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: library.path))
 
-        #expect(try queries.search("needle").map(\.localPK) == [2])
+        #expect(try queries.searchSummaryPage("needle").items.map(\.localPK) == [2])
     }
 
     @Test
@@ -58,14 +58,14 @@ struct BookSearchTests {
         try createDatabase(noTable, sql: "CREATE TABLE placeholder(value INTEGER);")
         let emptyQueries = BookQueries(connection: try SQLiteConnection.readOnly(path: noTable.path))
         #expect(throws: BookSearchError.emptyQuery) {
-            _ = try emptyQueries.search("")
+            _ = try emptyQueries.searchSummaryPage("")
         }
 
         let noSearchColumns = root.appendingPathComponent("no-search.sqlite")
         try createDatabase(noSearchColumns, sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY); INSERT INTO ZBKLIBRARYASSET VALUES (1);")
         let noSearchQueries = BookQueries(connection: try SQLiteConnection.readOnly(path: noSearchColumns.path))
         #expect(throws: BookSearchError.noSearchableColumns) {
-            _ = try noSearchQueries.search("anything")
+            _ = try noSearchQueries.searchSummaryPage("anything")
         }
     }
 

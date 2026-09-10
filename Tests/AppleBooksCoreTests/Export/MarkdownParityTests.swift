@@ -8,7 +8,7 @@ struct MarkdownParityTests {
     @Test
     func bundleRendererPreservesFinalOrderAndContainsHostileTextInSafeContexts() throws {
         let fixture = try Fixture()
-        let markdown = MarkdownAnnotationExporter.render(fixture.bundle)
+        let markdown = renderMarkdown(fixture.bundle)
 
         #expect(markdown.hasPrefix("# Apple Books export\n\n"))
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
@@ -16,7 +16,8 @@ struct MarkdownParityTests {
         #expect(markdown.contains("**Source:** EPUB"))
         #expect(markdown.contains("**Source:** PDF"))
         #expect(markdown.contains("**Page:** 7"))
-        #expect(markdown.contains("**Date:** 2020-09-13T12:26:40.500Z"))
+        #expect(markdown.contains("**Created:** 2020-09-13T12:26:40.500Z"))
+        #expect(markdown.contains("**Modified:** 2020-09-13T12:26:40.500Z"))
         #expect(markdown.contains("**Color:** purple"))
         #expect(markdown.contains("**Underline:** true"))
 
@@ -27,10 +28,12 @@ struct MarkdownParityTests {
         #expect(lines.contains("---") == false)
         #expect(lines.contains { $0.hasPrefix("```") } == false)
         #expect(markdown.contains("<script>") == false)
-        #expect(markdown.contains("**Location:** [epubcfi"))
-        #expect(markdown.contains("](<\(fixture.secondAnnotation.appleBooksURL!)>)"))
-        #expect(markdown.contains("Open in Apple Books") == false)
+        #expect(markdown.contains("**Chapter:** Chapter 2"))
+        #expect(markdown.contains("**Location:** 42"))
+        #expect(markdown.contains("epubcfi") == false)
         #expect(markdown.contains("**Apple Books:** [Open book](<ibooks://assetid/"))
+        #expect(markdown.contains(try #require(fixture.book.assetID)) == false)
+        #expect(markdown.contains("/tmp/") == false)
         #expect(markdown.contains("]( <script>") == false)
         #expect(markdown.contains("](<script>") == false)
         #expect(markdown.contains("\\<script\\>"))
@@ -57,13 +60,138 @@ struct MarkdownParityTests {
     @Test
     func perDocumentRendererUsesSameGroupAndDoesNotResortRecords() throws {
         let fixture = try Fixture()
-        let markdown = MarkdownAnnotationExporter.render(fixture.bundle.groups[0])
+        let markdown = renderMarkdown(fixture.bundle.groups[0])
 
         #expect(markdown.hasPrefix("# "))
         #expect(markdown.contains("# Apple Books export") == false)
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
         #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("## ") } == 0)
         #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("### ") } == 2)
+    }
+
+    @Test
+    func whitespacePresenceUsesSharedSemanticsAndDoesNotEmitBlankQuotesOrNotes() throws {
+        let annotation = Annotation(
+            localPK: 1,
+            uuid: nil,
+            rawAssetID: "asset",
+            isDeleted: false,
+            isUnderline: false,
+            style: 1,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: "representative fallback",
+            selectedText: " \t\r\n",
+            note: "\r\n\t ",
+            location: nil,
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let epubRecord = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let epub = renderMarkdown(
+            ExportGroup(source: .epubUnmapped(assetID: "asset"), records: [epubRecord])
+        )
+        #expect(AnnotationContentSemantics.hasContent(annotation.selectedText) == false)
+        #expect(epubRecord.hasHighlight == false)
+        #expect(epubRecord.hasNote == false)
+        #expect(epub.contains("> representative fallback"))
+        #expect(epub.contains("**Note:**") == false)
+        #expect(epub.contains(">  ") == false)
+
+        let pdfSource = PDFSource(fileURL: URL(fileURLWithPath: "/synthetic/whitespace.pdf"), book: nil)
+        let pdfRecord = ExportRecord(payload: .pdf(
+            source: pdfSource,
+            highlight: PDFHighlight(
+                page: 1,
+                traversalIndex: 0,
+                bounds: .zero,
+                quadrilateralPoints: [],
+                note: " \t\r\n",
+                pdfKitRGBA: nil,
+                presentationColor: nil,
+                modifiedAt: nil,
+                text: "PDF quote",
+                textSource: .boundsFallback,
+                textIsApproximate: true,
+                textUnavailableReason: nil
+            )
+        ))
+        let pdf = renderMarkdown(
+            ExportGroup(source: .pdf(pdfSource), records: [pdfRecord])
+        )
+        #expect(pdfRecord.hasNote == false)
+        #expect(pdf.contains("> PDF quote"))
+        #expect(pdf.contains("**Note:**") == false)
+    }
+
+    @Test
+    func streamingManyRecordsOver256MiBKeepsOnlyFixedSizeChunks() throws {
+        let rawText = String(repeating: "m", count: 1_024 * 1_024)
+        let records = (0..<257).map { index in
+            let annotation = Annotation(
+                localPK: Int64(index + 1),
+                uuid: nil,
+                rawAssetID: "large-asset",
+                isDeleted: false,
+                isUnderline: false,
+                style: nil,
+                type: 1,
+                createdAt: nil,
+                modifiedAt: nil,
+                representativeText: nil,
+                selectedText: rawText,
+                note: nil,
+                location: nil,
+                chapterHint: nil,
+                physicalLocation: nil,
+                rangeStart: nil,
+                rangeEnd: nil
+            )
+            return ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        }
+        let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: records)
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: [group],
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: 1,
+                epubDocumentCount: 1,
+                pdfDocumentCount: 0,
+                recordCount: records.count,
+                epubAnnotationCount: records.count,
+                pdfHighlightCount: 0,
+                highlightCount: records.count,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: records.count
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: 1,
+                epubAnnotationCount: records.count,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
+        var totalBytes = 0
+        var maximumChunk = 0
+        var maximumBuffered = 0
+        try MarkdownAnnotationExporter.stream(
+            bundle,
+            observeBufferedBytes: { maximumBuffered = max(maximumBuffered, $0) }
+        ) { chunk in
+            totalBytes += chunk.count
+            maximumChunk = max(maximumChunk, chunk.count)
+        }
+
+        #expect(totalBytes > 256 * 1_024 * 1_024)
+        #expect(maximumChunk <= ExportFileWriter.maximumChunkBytes)
+        #expect(maximumBuffered <= ExportFileWriter.maximumChunkBytes)
     }
 
     @Test
@@ -82,7 +210,6 @@ struct MarkdownParityTests {
                 pdfHighlightCount: 0,
                 highlightCount: 0,
                 noteCount: 0,
-                bookmarkCount: 0,
                 historicalEPUBAnnotationCount: 0,
                 unmappedEPUBAnnotationCount: 0
             ),
@@ -95,12 +222,12 @@ struct MarkdownParityTests {
                 pdfHighlightCount: 0
             )
         )
-        #expect(MarkdownAnnotationExporter.render(emptyBundle) == "# Apple Books export\n\n_No records._\n")
+        #expect(renderMarkdown(emptyBundle) == "# Apple Books export\n\n_No records._\n")
 
         let group = ExportGroup(source: .epubUnmapped(assetID: "missing"), records: [])
-        let renderedGroup = MarkdownAnnotationExporter.render(group)
+        let renderedGroup = renderMarkdown(group)
         #expect(renderedGroup.contains("# Unmapped EPUB"))
-        #expect(renderedGroup.contains("**Identity:** missing"))
+        #expect(renderedGroup.contains("**Identity:**") == false)
         #expect(renderedGroup.contains("_No records._"))
     }
 
@@ -165,8 +292,8 @@ struct MarkdownParityTests {
                 selectedText: hostileQuote,
                 note: hostileNote,
                 location: Location(rawCFI: "epubcfi(/6/4[chapter]!/4/2,:3,:9) ]( <script>"),
-                chapterHint: nil,
-                physicalLocation: nil,
+                chapterHint: "Chapter 2",
+                physicalLocation: 42,
                 rangeStart: nil,
                 rangeEnd: nil
             )
@@ -229,7 +356,7 @@ struct MarkdownParityTests {
                 ),
             ]
             bundle = ExportBundle(
-                options: try ExportOptions(source: .all, kinds: [.highlight, .note, .bookmark]),
+                options: try ExportOptions(source: .all),
                 groups: groups,
                 warnings: [],
                 statistics: ExportStatistics(
@@ -241,7 +368,6 @@ struct MarkdownParityTests {
                     pdfHighlightCount: 1,
                     highlightCount: 3,
                     noteCount: 0,
-                    bookmarkCount: 0,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 0
                 ),

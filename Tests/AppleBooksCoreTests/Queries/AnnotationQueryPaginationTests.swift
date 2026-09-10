@@ -248,35 +248,6 @@ struct AnnotationQueryPaginationTests {
     }
 
     @Test
-    func publicOffsetReadingWrapperMatchesCanonicalCursorOrder() throws {
-        let fixture = try orderedFixture()
-        defer { fixture.remove() }
-        let core = try AppleBooks(
-            libraryDB: fixture.library,
-            annotationsDB: fixture.annotations,
-            configurationFile: fixture.config
-        )
-
-        var cursor: String?
-        var canonical: [Int64] = []
-        repeat {
-            let page = try fixture.queries.semanticPage(AnnotationQueryRequest(
-                book: .localPK(10),
-                order: .reading,
-                limit: 2,
-                cursor: cursor
-            ))
-            canonical.append(contentsOf: page.items.map(\.localPK))
-            cursor = page.nextCursor
-        } while cursor != nil
-
-        let compatibility = try core.annotationsInReadingOrder(bookLocalPK: 10)
-        #expect(compatibility.map(\.annotation.localPK) == canonical)
-        let compatibilityMiddle = try core.annotationsInReadingOrder(bookLocalPK: 10, limit: 2, offset: 2)
-        #expect(compatibilityMiddle.map(\.annotation.localPK) == Array(canonical.dropFirst(2).prefix(2)))
-    }
-
-    @Test
     func sharedReadingKeyIgnoresAssertionDigitsAndPinsFallbackBuckets() {
         let assertionA = EPUBAnnotationReadingKey.make(
             rawCFI: "epubcfi(/6/2[ch99]!/4/10[text123])",

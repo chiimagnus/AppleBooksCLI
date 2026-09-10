@@ -2,12 +2,10 @@ import Foundation
 
 public enum ExportServiceError: Error, Equatable, Sendable {
     case pdfWorkerUnavailable
-}
-
-private enum ResolvedExportBookSelector {
-    case assetID(String, currentBook: Book?)
-    case localPK(Book?)
-    case pdfFile(URL)
+    case selectorNotFound
+    case pdfSourceUnavailable
+    case pdfReadFailed
+    case documentIdentityCollision
 }
 
 struct ExportService {
@@ -15,9 +13,17 @@ struct ExportService {
     let bookQueries: BookQueries
     let configuration: AppleBooksConfiguration?
     let pdfService: PDFHighlightService?
+    var pdfSourceResolver: PDFSourceResolver = PDFSourceResolver()
+    var documentIdentityDigest: (ResolvedExportSourceKey) throws -> [UInt8] = {
+        try ExportDocumentIdentity.defaultDigest(for: $0)
+    }
 
     func makeBundle(options: ExportOptions) throws -> ExportBundle {
-        let resolvedSelectors = try resolveBookSelectors(options.bookSelectors)
+        let resolver = ExportSourceResolver(
+            bookQueries: bookQueries,
+            pdfSourceResolver: pdfSourceResolver
+        )
+        let resolvedSelectors = try resolver.resolve(options.bookSelectors)
 
         var records: [ExportRecord] = []
         var warnings: [ExportWarning] = []
@@ -28,34 +34,39 @@ struct ExportService {
         }
 
         var pdfResult: PDFHighlightServiceResult?
-        if shouldReadPDF(options: options, resolvedSelectors: resolvedSelectors) {
-            guard let pdfService else { throw ExportServiceError.pdfWorkerUnavailable }
-            let sources = try selectedPDFSources(
-                service: pdfService,
-                selectors: resolvedSelectors
-            )
-            let result = pdfService.readHighlights(sources: sources)
-            pdfResult = result
-            warnings.append(contentsOf: result.failures.map(ExportWarning.pdfFailure))
-            for document in result.documents {
-                records.append(contentsOf: document.highlights.map {
-                    ExportRecord(payload: .pdf(source: document.source, highlight: $0))
-                })
+        let exactPDFSources = resolvedSelectors.compactMap(\.pdfSource)
+        let readsPDF = options.bookSelectors.isEmpty ? options.source != .epub : !exactPDFSources.isEmpty
+        if readsPDF {
+            do {
+                guard let pdfService else { throw ExportServiceError.pdfWorkerUnavailable }
+                let sources = try options.bookSelectors.isEmpty
+                    ? pdfSourceResolver.exportInventory(bookQueries: bookQueries)
+                    : exactPDFSources
+                let result = pdfService.readHighlights(sources: sources)
+                if !options.bookSelectors.isEmpty, result.failedCount > 0 {
+                    throw ExportServiceError.pdfReadFailed
+                }
+                pdfResult = result
+                warnings.append(contentsOf: result.failures.map(ExportWarning.pdfFailure))
+                for document in result.documents {
+                    records.append(contentsOf: document.highlights.map {
+                        ExportRecord(payload: .pdf(source: document.source, highlight: $0))
+                    })
+                }
+            } catch {
+                guard options.bookSelectors.isEmpty, options.source == .all else { throw error }
+                warnings.append(.pdfUnavailable)
             }
         }
 
         let sourceClassified = records.filter { $0.isKnownCurrentPDFAnnotation == false }
-        let sourceTotals = makeSourceTotals(records: sourceClassified, pdfResult: pdfResult)
-        let selected = ExportSelection.apply(options: options, to: sourceClassified)
-        var groups = makeGroups(records: selected)
-
-        if options.includeEPUBMetadata || options.cover != .none {
-            for index in groups.indices {
-                let result = try enrich(group: groups[index], options: options)
-                groups[index] = result.group
-                warnings.append(contentsOf: result.warnings)
-            }
+        let sourceTotals = try makeSourceTotals(records: sourceClassified, pdfResult: pdfResult)
+        let selected = try ExportSelection.apply(options: options, to: sourceClassified) { record in
+            guard case let .epub(enriched) = record.payload,
+                  case let .currentLibrary(book) = enriched.source else { return [:] }
+            return try annotationQueries?.resolveReadingContext(bookLocalPK: book.localPK).chapterOrder ?? [:]
         }
+        let groups = try makeGroups(records: selected)
 
         return ExportBundle(
             options: options,
@@ -68,103 +79,63 @@ struct ExportService {
 
     private func epubAnnotations(
         options: ExportOptions,
-        resolvedSelectors: [ResolvedExportBookSelector]
+        resolvedSelectors: [ResolvedExportSource]
     ) throws -> [EnrichedAnnotation] {
         if options.bookSelectors.isEmpty {
             guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
-            return try annotationQueries.list(scope: .activeRaw)
+            return try annotationQueries.exportAnnotations()
         }
-        let assetIDs = uniqueEPUBAssetIDs(resolvedSelectors)
-        guard assetIDs.isEmpty == false else { return [] }
+        let epubSources = resolvedSelectors.filter { $0.pdfSource == nil }
+        guard !epubSources.isEmpty else { return [] }
         guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
 
         var annotations: [EnrichedAnnotation] = []
-        for assetID in assetIDs {
-            annotations.append(contentsOf: try annotationQueries.byAssetID(assetID, scope: .activeRaw))
+        for source in epubSources {
+            guard let assetID = source.epubAssetID else { continue }
+            let selected = try annotationQueries.exportAnnotations(assetID: assetID)
+            if source.requiresHistoricalEvidence,
+               selected.isEmpty,
+               annotationQueries.historicalAssets.metadata(for: assetID) == nil {
+                throw ExportServiceError.selectorNotFound
+            }
+            annotations.append(contentsOf: selected)
         }
         return annotations
     }
 
-    private func shouldReadPDF(
-        options: ExportOptions,
-        resolvedSelectors: [ResolvedExportBookSelector]
-    ) -> Bool {
-        guard options.source != .epub else { return false }
-        guard resolvedSelectors.isEmpty == false else { return true }
-        return resolvedSelectors.contains { selector in
-            switch selector {
-            case let .assetID(_, currentBook):
-                return currentBook?.contentType == 3
-            case let .localPK(book):
-                return book?.contentType == 3
-            case .pdfFile:
-                return true
-            }
-        }
-    }
-
-    private func selectedPDFSources(
-        service: PDFHighlightService,
-        selectors: [ResolvedExportBookSelector]
-    ) throws -> [PDFSource] {
-        let sources = try service.inventory()
-        guard selectors.isEmpty == false else { return sources }
-        return sources.filter { source in
-            selectors.contains { selector in
-                switch selector {
-                case let .assetID(assetID, _):
-                    return source.book?.assetID == assetID
-                case let .localPK(book):
-                    return book.map { source.book?.localPK == $0.localPK } ?? false
-                case let .pdfFile(url):
-                    return source.fileURL == url
-                }
-            }
-        }
-    }
-
-    private func resolveBookSelectors(_ selectors: [ExportBookSelector]) throws -> [ResolvedExportBookSelector] {
-        try selectors.map { selector in
-            switch selector {
-            case let .assetID(assetID):
-                return .assetID(assetID, currentBook: try bookQueries.getUniqueByAssetID(assetID))
-            case let .localPK(localPK):
-                return .localPK(try bookQueries.getByLocalPK(localPK))
-            case let .pdfFile(url):
-                return .pdfFile(url)
-            }
-        }
-    }
-
-    private func uniqueEPUBAssetIDs(_ selectors: [ResolvedExportBookSelector]) -> [String] {
-        var seen = Set<String>()
-        return selectors.compactMap { selector in
-            let assetID: String?
-            switch selector {
-            case let .assetID(value, currentBook):
-                assetID = currentBook?.contentType == 3 ? nil : value
-            case let .localPK(book):
-                guard let book, book.contentType != 3 else { return nil }
-                assetID = book.assetID
-            case .pdfFile:
-                assetID = nil
-            }
-            guard let assetID, seen.insert(assetID).inserted else { return nil }
-            return assetID
-        }
-    }
-
-    private func makeGroups(records: [ExportRecord]) -> [ExportGroup] {
-        var order: [ExportDocumentKey] = []
-        var grouped: [ExportDocumentKey: [ExportRecord]] = [:]
+    private func makeGroups(records: [ExportRecord]) throws -> [ExportGroup] {
+        var grouped: [ResolvedExportSourceKey: [ExportRecord]] = [:]
         for record in records {
-            if grouped[record.documentKey] == nil { order.append(record.documentKey) }
-            grouped[record.documentKey, default: []].append(record)
+            grouped[try record.documentSourceKey, default: []].append(record)
         }
-        return order.compactMap { key in
-            guard let records = grouped[key], let first = records.first else { return nil }
-            return ExportGroup(source: groupSource(record: first), records: records)
+
+        var prepared: [(sourceKey: ResolvedExportSourceKey, group: ExportGroup)] = []
+        prepared.reserveCapacity(grouped.count)
+        for (sourceKey, records) in grouped {
+            guard let first = records.first else { continue }
+            let identity = try ExportDocumentIdentity.make(
+                sourceKey: sourceKey,
+                digest: documentIdentityDigest
+            )
+            prepared.append((
+                sourceKey,
+                ExportGroup(
+                    source: groupSource(record: first),
+                    records: records,
+                    documentIdentity: identity
+                )
+            ))
         }
+        prepared.sort { $0.group.documentIdentity! < $1.group.documentIdentity! }
+        for index in prepared.indices.dropFirst() {
+            let previous = prepared[prepared.index(before: index)]
+            let current = prepared[index]
+            if previous.group.documentIdentity == current.group.documentIdentity,
+               previous.sourceKey != current.sourceKey {
+                throw ExportServiceError.documentIdentityCollision
+            }
+        }
+        return prepared.map(\.group)
     }
 
     private func groupSource(record: ExportRecord) -> ExportGroupSource {
@@ -186,62 +157,19 @@ struct ExportService {
         }
     }
 
-    private func enrich(
-        group: ExportGroup,
-        options: ExportOptions
-    ) throws -> (group: ExportGroup, warnings: [ExportWarning]) {
-        guard case let .epubCurrent(book) = group.source else { return (group, []) }
-        guard let configuration else { throw AppleBooksDependencyError.unavailable(.configuration) }
-
-        let content: BookContent
-        do {
-            content = try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: configuration))
-        } catch {
-            return (
-                group,
-                [.epubContentUnavailable(bookLocalPK: book.localPK)]
-            )
-        }
-
-        var metadata: EPUBMetadata?
-        var cover: EPUBCover?
-        var warnings: [ExportWarning] = []
-
-        if options.includeEPUBMetadata {
-            do {
-                metadata = try content.metadata()
-            } catch {
-                warnings.append(.epubMetadataUnavailable(bookLocalPK: book.localPK))
-            }
-        }
-        if options.cover != .none {
-            do {
-                cover = try content.cover()
-            } catch {
-                warnings.append(.epubCoverUnavailable(bookLocalPK: book.localPK))
-            }
-        }
-
-        return (
-            ExportGroup(
-                source: group.source,
-                records: group.records,
-                epubMetadata: metadata,
-                epubCover: cover
-            ),
-            warnings
-        )
-    }
-
     private func makeSourceTotals(
         records: [ExportRecord],
         pdfResult: PDFHighlightServiceResult?
-    ) -> ExportSourceTotals {
+    ) throws -> ExportSourceTotals {
         let epubRecords = records.filter {
             if case .epub = $0.payload { return true }
             return false
         }
-        let epubDocuments = Set(epubRecords.map(\.documentKey)).count
+        var epubDocumentKeys = Set<ResolvedExportSourceKey>()
+        for record in epubRecords {
+            epubDocumentKeys.insert(try record.documentSourceKey)
+        }
+        let epubDocuments = epubDocumentKeys.count
         let pdfHighlights = records.count {
             if case .pdf = $0.payload { return true }
             return false
@@ -263,7 +191,6 @@ struct ExportService {
         var pdfHighlights = 0
         var highlights = 0
         var notes = 0
-        var bookmarks = 0
         var historical = 0
         var unmapped = 0
 
@@ -286,11 +213,8 @@ struct ExportService {
             }
 
             for record in group.records {
-                switch record.presentationKind {
-                case .highlight: highlights += 1
-                case .note: notes += 1
-                case .bookmark: bookmarks += 1
-                }
+                if record.hasHighlight { highlights += 1 }
+                if record.hasNote { notes += 1 }
             }
         }
 
@@ -303,7 +227,6 @@ struct ExportService {
             pdfHighlightCount: pdfHighlights,
             highlightCount: highlights,
             noteCount: notes,
-            bookmarkCount: bookmarks,
             historicalEPUBAnnotationCount: historical,
             unmappedEPUBAnnotationCount: unmapped
         )

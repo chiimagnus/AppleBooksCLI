@@ -17,12 +17,20 @@ final class AppleBooksLiveSupplementalContentTests: XCTestCase {
 
         let discovered = try DatabaseDiscovery().discover()
         let library = try SQLiteConnection.readOnly(path: discovered.libraryDB.path)
-        let books: [Book]
+        let books: [BookResourceTarget]
         do {
             guard sqlite3_db_readonly(library.handle, "main") == 1 else {
                 throw LiveSupplementalContentGateError.libraryNotReadOnly
             }
-            books = try BookQueries(connection: library).list()
+            let queries = BookQueries(connection: library)
+            var targets: [BookResourceTarget] = []
+            try queries.forEachSummary(afterLocalPK: nil) { summary in
+                if let target = try queries.resourceTarget(localPK: summary.localPK) {
+                    targets.append(target)
+                }
+                return true
+            }
+            books = targets
             try library.close()
         } catch {
             try? library.close()
@@ -52,7 +60,7 @@ final class AppleBooksLiveSupplementalContentTests: XCTestCase {
         XCTAssertFalse(chapter.href.isEmpty)
     }
 
-    private static func isEligibleForPackedFallback(_ book: Book, supplementalRoot: URL) throws -> Bool {
+    private static func isEligibleForPackedFallback(_ book: BookResourceTarget, supplementalRoot: URL) throws -> Bool {
         guard let rawPath = book.path else { return false }
         let primary = URL(fileURLWithPath: rawPath).standardizedFileURL
         guard primary.pathExtension.lowercased() == "epub" else { return false }

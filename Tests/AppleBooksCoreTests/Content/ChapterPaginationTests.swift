@@ -6,72 +6,31 @@ import ZIPFoundation
 @Suite("ChapterPaginationTests")
 struct ChapterPaginationTests {
     @Test
-    func pagesByExtendedGraphemeClustersWithoutSplittingVisibleCharacters() throws {
+    func continuationPagesByExtendedGraphemeClustersWithoutSplittingVisibleCharacters() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let content = try BookContent(root: fixture.epub)
+        let chapter = try content.resolveChapter(order: 1)
 
-        let page = try content.chapterPage(id: "unicode", offset: 1, maxCharacters: 2)
+        let page = try content.continuationPage(
+            chapter: chapter,
+            offset: 1,
+            maximumGraphemes: 2,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(page.content == "🇸🇬e\u{301}")
-        #expect(page.offset == 1)
-        #expect(page.endOffset == 3)
-        #expect(page.totalCharacters == 6)
+        #expect(page.returnedGraphemes == 2)
         #expect(page.hasMore)
-        #expect(page.nextOffset == 3)
 
-        let remainder = try content.chapterPage(id: "unicode", offset: 3, maxCharacters: nil)
+        let remainder = try content.continuationPage(
+            chapter: chapter,
+            offset: 3,
+            maximumGraphemes: 10,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(remainder.content == "中🙂Z")
-        #expect(remainder.offset == 3)
-        #expect(remainder.endOffset == 6)
-        #expect(remainder.totalCharacters == 6)
+        #expect(remainder.returnedGraphemes == 3)
         #expect(remainder.hasMore == false)
-        #expect(remainder.nextOffset == nil)
-    }
-
-    @Test
-    func normalizesNegativeOffsetAndRejectsInvalidBounds() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let content = try BookContent(root: fixture.epub)
-
-        let first = try content.chapterPage(id: "unicode", offset: -100, maxCharacters: 2)
-        #expect(first.content == "A🇸🇬")
-        #expect(first.offset == 0)
-        #expect(first.nextOffset == 2)
-
-        #expect(throws: BookContentError.invalidMaximumCharacters) {
-            _ = try content.chapterPage(id: "unicode", maxCharacters: 0)
-        }
-        #expect(throws: BookContentError.invalidMaximumCharacters) {
-            _ = try content.chapterPage(id: "unicode", maxCharacters: -1)
-        }
-        #expect(throws: BookContentError.chapterOffsetOutOfRange(offset: 6, total: 6)) {
-            _ = try content.chapterPage(id: "unicode", offset: 6)
-        }
-        #expect(throws: BookContentError.chapterOffsetOutOfRange(offset: Int.max, total: 6)) {
-            _ = try content.chapterPage(id: "unicode", offset: Int.max, maxCharacters: Int.max)
-        }
-    }
-
-    @Test
-    func defaultCapAndHugeCapHaveStableContinuationMetadata() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let content = try BookContent(root: fixture.epub)
-
-        let first = try content.chapterPage(id: "long")
-        #expect(first.content.count == 10_000)
-        #expect(first.offset == 0)
-        #expect(first.endOffset == 10_000)
-        #expect(first.totalCharacters == 10_002)
-        #expect(first.hasMore)
-        #expect(first.nextOffset == 10_000)
-
-        let rest = try content.chapterPage(id: "long", offset: 10_000, maxCharacters: Int.max)
-        #expect(rest.content == "aa")
-        #expect(rest.endOffset == 10_002)
-        #expect(rest.hasMore == false)
-        #expect(rest.nextOffset == nil)
     }
 
     @Test
@@ -212,20 +171,21 @@ struct ChapterPaginationTests {
     }
 
     @Test
-    func imageOnlyChapterReturnsLegalEmptyPage() throws {
+    func imageOnlyChapterReturnsLegalEmptyContinuationPage() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let content = try BookContent(root: fixture.epub)
+        let chapter = try content.resolveChapter(order: 3)
 
-        let page = try content.chapterPage(id: "empty", offset: 999, maxCharacters: 10)
-        #expect(page == ChapterPage(
-            content: "",
+        let page = try content.continuationPage(
+            chapter: chapter,
             offset: 0,
-            endOffset: 0,
-            totalCharacters: 0,
-            hasMore: false,
-            nextOffset: nil
-        ))
+            maximumGraphemes: 10,
+            maximumUTF8Bytes: 1_024
+        )
+        #expect(page.content.isEmpty)
+        #expect(page.returnedGraphemes == 0)
+        #expect(page.hasMore == false)
     }
 
     private static func chapterFingerprint() throws -> CursorQueryFingerprint {

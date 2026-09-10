@@ -6,7 +6,7 @@ import Testing
 @Suite("ExportPublicAPITests")
 struct ExportPublicAPITests {
     @Test
-    func publicFacadeBuildsCanonicalBundleAndRendersSupportedFormats() throws {
+    func publicFacadeBuildsCanonicalBundle() throws {
         let fixture = try Fixture(kind: .currentBook)
         defer { fixture.remove() }
 
@@ -17,9 +17,8 @@ struct ExportPublicAPITests {
         )
         let bundle = try core.exportBundle(
             options: ExportOptions(
-                source: .epub,
                 bookSelectors: [.assetID("asset-a")],
-                kinds: [.highlight]
+                hasHighlight: true
             )
         )
 
@@ -27,23 +26,12 @@ struct ExportPublicAPITests {
         #expect(bundle.statistics.recordCount == 1)
         #expect(bundle.statistics.epubAnnotationCount == 1)
         #expect(bundle.groups.count == 1)
-
-        let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        let json = try JSONExporter.render(bundle, exportedAt: exportedAt)
-        let jsonDocument = try JSONExporter.renderDocument(
-            try #require(bundle.groups.first),
-            from: bundle,
-            exportedAt: exportedAt
-        )
-        let markdown = MarkdownAnnotationExporter.render(bundle)
-
-        for data in [json, jsonDocument] {
-            let text = try #require(String(data: data, encoding: .utf8))
-            #expect(text.contains("public quote"))
-            #expect(text.contains("deleted quote") == false)
+        let record = try #require(bundle.groups.first?.records.first)
+        guard case let .epub(enriched) = record.payload else {
+            Issue.record("expected EPUB export record")
+            return
         }
-        #expect(markdown.contains("public quote"))
-        #expect(markdown.contains("deleted quote") == false)
+        #expect(enriched.annotation.selectedText == "public quote")
     }
 
     @Test
@@ -59,7 +47,7 @@ struct ExportPublicAPITests {
 
         #expect(throws: ExportServiceError.pdfWorkerUnavailable) {
             _ = try core.exportBundle(
-                options: ExportOptions(source: .pdf, kinds: [.highlight])
+                options: ExportOptions(source: .pdf, hasHighlight: true)
             )
         }
     }

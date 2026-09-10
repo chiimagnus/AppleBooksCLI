@@ -32,11 +32,11 @@ struct CurrentReadingChapterTests {
         """)
         let books = try makeAppleBooks(library: library, annotations: annotations, root: root)
 
-        let chapter = try #require(try books.currentReadingChapter(forBookLocalPK: 1))
+        let chapter = try #require(try books.semanticCurrentReadingChapter(forBookLocalPK: 1))
         #expect(chapter.id == "chapter")
         #expect(chapter.order == 1)
-        #expect(try books.currentReadingChapter(forBookLocalPK: 2) == nil)
-        #expect(try books.currentReadingChapter(forBookLocalPK: 3) == nil)
+        #expect(try books.semanticCurrentReadingChapter(forBookLocalPK: 2) == nil)
+        #expect(try books.semanticCurrentReadingChapter(forBookLocalPK: 3) == nil)
     }
 
     @Test
@@ -54,7 +54,7 @@ struct CurrentReadingChapterTests {
         let books = try makeAppleBooks(library: library, annotations: annotations, root: root)
 
         #expect(throws: ContentError.bookPathUnavailable) {
-            _ = try books.currentReadingChapter(forBookLocalPK: 1)
+            _ = try books.semanticCurrentReadingChapter(forBookLocalPK: 1)
         }
     }
 
@@ -73,7 +73,7 @@ struct CurrentReadingChapterTests {
         """)
         let books = try makeAppleBooks(library: library, annotations: annotations, root: root)
 
-        let chapter = try #require(try books.currentReadingChapter(forBookLocalPK: 1))
+        let chapter = try #require(try books.semanticCurrentReadingChapter(forBookLocalPK: 1))
         #expect(chapter.id == "2")
         #expect(chapter.order == 2)
     }

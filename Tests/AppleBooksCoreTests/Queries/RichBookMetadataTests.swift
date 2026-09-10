@@ -73,7 +73,8 @@ struct RichBookMetadataTests {
         """)
         defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
 
-        let books = try queries(for: database).list()
+        let queries = try queries(for: database)
+        let books = try (1...7).map { try #require(try queries.getByLocalPK(Int64($0))) }
         #expect(books.map(\.author) == [
             "\u{E83A}UnknownAuthor",
             " unknown ",

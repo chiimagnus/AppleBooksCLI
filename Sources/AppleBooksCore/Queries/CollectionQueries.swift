@@ -3,24 +3,10 @@ import Foundation
 struct CollectionQueries {
     private enum Filter {
         case none
-        case localPK(Int64)
-        case collectionID(String)
         case title(String)
     }
 
     let connection: SQLiteConnection
-
-    func list(limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try query(.none, capability: .collectionBase, limit: limit, offset: offset)
-    }
-
-    func getByLocalPK(_ localPK: Int64) throws -> Collection? {
-        try query(.localPK(localPK), capability: .collectionBase, limit: 1, offset: 0).first
-    }
-
-    func searchTitle(_ text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try query(.title(text), capability: .collectionTitleSearch, limit: limit, offset: offset)
-    }
 
     func semanticGetByLocalPK(_ localPK: Int64) throws -> SemanticCollection? {
         let schema = try AppleBooksSchema.inspect(.collectionBase, on: connection)
@@ -66,29 +52,6 @@ struct CollectionQueries {
         }
         if try statement.step() { throw StableIdentityError.ambiguousCollectionID }
         return try semanticGetByLocalPK(localPK)
-    }
-
-    func getUniqueByCollectionID(_ collectionID: String) throws -> Collection? {
-        _ = try AppleBooksSchema.inspect(.collectionIDLookup, on: connection)
-        let statement = try connection.prepare("""
-            SELECT \(AppleBooksSchema.Collection.localPK), \(AppleBooksSchema.Collection.collectionID)
-            FROM \(AppleBooksTable.collections.rawValue)
-            WHERE \(AppleBooksSchema.Collection.isDeleted) = 0
-              AND \(AppleBooksSchema.Collection.collectionID) = ? COLLATE BINARY
-            ORDER BY \(AppleBooksSchema.Collection.localPK)
-            LIMIT 2
-            """)
-        try statement.bind(collectionID, at: 1)
-        guard try statement.step() else { return nil }
-        let first = try SQLiteRow(statement: statement)
-        guard let localPK = try first.int64(AppleBooksSchema.Collection.localPK),
-              try first.text(AppleBooksSchema.Collection.collectionID) == collectionID else {
-            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Collection.localPK)
-        }
-        if try statement.step() {
-            throw StableIdentityError.ambiguousCollectionID
-        }
-        return try getByLocalPK(localPK)
     }
 
     func semanticBooksPage(
@@ -144,29 +107,6 @@ struct CollectionQueries {
             afterGeneration: afterGeneration,
             locator: { try .rowID($0.localPK) }
         )
-    }
-
-    func books(in collection: Collection) throws -> [Book] {
-        let memberSchema = try AppleBooksSchema.inspect(.collectionMembers, on: connection)
-        let bookSchema = try AppleBooksSchema.inspect(.collectionMemberBooks, on: connection)
-        let projection = ["b.\(AppleBooksSchema.Book.localPK) AS \(AppleBooksSchema.Book.localPK)"]
-            + AppleBooksSchema.Book.allProjection.filter(bookSchema.contains).map { "b.\($0) AS \($0)" }
-        let sql = """
-        WITH \(canonicalMembershipCTE(memberSchema: memberSchema))
-        SELECT \(projection.joined(separator: ", "))
-        FROM canonical_members AS cm
-        JOIN \(AppleBooksTable.books.rawValue) AS b
-          ON b.\(AppleBooksSchema.Book.localPK) = cm.bookPK
-        ORDER BY \(membershipOrder(memberSchema: memberSchema, alias: "cm").joined(separator: ", "))
-        """
-        let statement = try connection.prepare(sql)
-        try statement.bind(collection.localPK, at: 1)
-        let decoder = BookQueries(connection: connection)
-        var result: [Book] = []
-        while try statement.step() {
-            result.append(try decoder.decode(SQLiteRow(statement: statement), schema: bookSchema))
-        }
-        return result
     }
 
     private func semanticMembershipCandidates(
@@ -345,7 +285,6 @@ struct CollectionQueries {
         switch filter {
         case .none: "collections.list"
         case .title: "collections.search"
-        case .localPK, .collectionID: "collections.exact"
         }
     }
 
@@ -568,17 +507,8 @@ struct CollectionQueries {
                 maximumUTF8Bytes: SQLiteSemanticTextBudget.detail
             )
         }
-        for column in [
-            AppleBooksSchema.Collection.isDeleted,
-            AppleBooksSchema.Collection.isHidden,
-            AppleBooksSchema.Collection.isPlaceholder,
-            AppleBooksSchema.Collection.sortKey,
-            AppleBooksSchema.Collection.sortMode,
-            AppleBooksSchema.Collection.viewMode,
-            AppleBooksSchema.Collection.lastModificationDate,
-            AppleBooksSchema.Collection.localModificationDate,
-        ] where schema.contains(column) {
-            projection.append("\(prefix)\(column) AS \(column)")
+        if schema.contains(AppleBooksSchema.Collection.isHidden) {
+            projection.append("\(prefix)\(AppleBooksSchema.Collection.isHidden) AS \(AppleBooksSchema.Collection.isHidden)")
         }
         return projection
     }
@@ -599,131 +529,19 @@ struct CollectionQueries {
         var truncated: [String] = []
         if title.wasByteTruncated { truncated.append("title") }
         if details.wasByteTruncated { truncated.append("details") }
-        func int64(_ column: String) throws -> Int64? { schema.contains(column) ? try row.int64(column) : nil }
-        func date(_ column: String) throws -> Date? {
-            guard schema.contains(column) else { return nil }
-            return CoreDataTime.date(from: try row.double(column))
-        }
+        let isHidden = schema.contains(AppleBooksSchema.Collection.isHidden)
+            ? try row.int64(AppleBooksSchema.Collection.isHidden).map { $0 != 0 }
+            : nil
         return SemanticCollection(
             localPK: localPK,
             collectionID: identity.publicID,
             title: title.value,
             details: details.value,
-            isDeleted: try int64(AppleBooksSchema.Collection.isDeleted).map { $0 != 0 },
-            isHidden: try int64(AppleBooksSchema.Collection.isHidden).map { $0 != 0 },
-            isPlaceholder: try int64(AppleBooksSchema.Collection.isPlaceholder).map { $0 != 0 },
-            sortKey: try int64(AppleBooksSchema.Collection.sortKey),
-            sortMode: try int64(AppleBooksSchema.Collection.sortMode),
-            viewMode: try int64(AppleBooksSchema.Collection.viewMode),
-            lastModificationDate: try date(AppleBooksSchema.Collection.lastModificationDate),
-            localModificationDate: try date(AppleBooksSchema.Collection.localModificationDate),
+            isHidden: isHidden,
             canEditCollection: identity.capabilities.canEditCollection,
             canEditMembership: identity.capabilities.canEditMembership,
             byteTruncatedFields: truncated
         )
     }
 
-    private func query(
-        _ filter: Filter,
-        capability: SchemaCapability,
-        limit: Int?,
-        offset: Int
-    ) throws -> [Collection] {
-        try validatePagination(limit: limit, offset: offset)
-        let schema = try AppleBooksSchema.inspect(capability, on: connection)
-        let projection = [AppleBooksSchema.Collection.localPK]
-            + AppleBooksSchema.Collection.allProjection.filter(schema.contains)
-        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.collections.rawValue)"
-        sql += " WHERE \(AppleBooksSchema.Collection.isDeleted) = 0"
-
-        switch filter {
-        case .none:
-            break
-        case .localPK:
-            sql += " AND \(AppleBooksSchema.Collection.localPK) = ?"
-        case .collectionID:
-            sql += " AND \(AppleBooksSchema.Collection.collectionID) = ? COLLATE BINARY"
-        case .title:
-            sql += " AND \(AppleBooksSchema.Collection.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        }
-
-        var order: [String] = []
-        if schema.contains(AppleBooksSchema.Collection.title) {
-            order += [
-                "\(AppleBooksSchema.Collection.title) IS NULL",
-                "\(AppleBooksSchema.Collection.title) COLLATE NOCASE",
-            ]
-        }
-        order.append(AppleBooksSchema.Collection.localPK)
-        sql += " ORDER BY \(order.joined(separator: ", "))"
-
-        if limit != nil {
-            sql += " LIMIT ? OFFSET ?"
-        } else if offset > 0 {
-            sql += " LIMIT -1 OFFSET ?"
-        }
-
-        let statement = try connection.prepare(sql)
-        var index: Int32 = 1
-        switch filter {
-        case .none:
-            break
-        case let .localPK(value):
-            try statement.bind(value, at: index)
-            index += 1
-        case let .collectionID(value):
-            try statement.bind(value, at: index)
-            index += 1
-        case let .title(value):
-            try statement.bind(literalContainsPattern(value), at: index)
-            index += 1
-        }
-        if let limit {
-            try statement.bind(Int64(limit), at: index)
-            try statement.bind(Int64(offset), at: index + 1)
-        } else if offset > 0 {
-            try statement.bind(Int64(offset), at: index)
-        }
-
-        var collections: [Collection] = []
-        while try statement.step() {
-            collections.append(try decode(SQLiteRow(statement: statement), schema: schema))
-        }
-        return collections
-    }
-
-    private func decode(_ row: SQLiteRow, schema: SchemaAvailability) throws -> Collection {
-        guard let localPK = try row.int64(AppleBooksSchema.Collection.localPK) else {
-            throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Collection.localPK)
-        }
-
-        func text(_ column: String) throws -> String? {
-            schema.contains(column) ? try row.text(column) : nil
-        }
-        func int64(_ column: String) throws -> Int64? {
-            schema.contains(column) ? try row.int64(column) : nil
-        }
-        func bool(_ column: String) throws -> Bool? {
-            try int64(column).map { $0 != 0 }
-        }
-        func date(_ column: String) throws -> Date? {
-            guard schema.contains(column) else { return nil }
-            return CoreDataTime.date(from: try row.double(column))
-        }
-
-        return Collection(
-            localPK: localPK,
-            collectionID: try text(AppleBooksSchema.Collection.collectionID),
-            title: try text(AppleBooksSchema.Collection.title),
-            details: try text(AppleBooksSchema.Collection.details),
-            isDeleted: try bool(AppleBooksSchema.Collection.isDeleted),
-            isHidden: try bool(AppleBooksSchema.Collection.isHidden),
-            isPlaceholder: try bool(AppleBooksSchema.Collection.isPlaceholder),
-            sortKey: try int64(AppleBooksSchema.Collection.sortKey),
-            sortMode: try int64(AppleBooksSchema.Collection.sortMode),
-            viewMode: try int64(AppleBooksSchema.Collection.viewMode),
-            lastModificationDate: try date(AppleBooksSchema.Collection.lastModificationDate),
-            localModificationDate: try date(AppleBooksSchema.Collection.localModificationDate)
-        )
-    }
 }

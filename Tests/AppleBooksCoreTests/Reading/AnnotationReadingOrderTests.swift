@@ -10,20 +10,11 @@ struct AnnotationReadingOrderTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let byPK = try fixture.core.annotationsInReadingOrder(bookLocalPK: 1)
-        #expect(byPK.map { $0.annotation.localPK } == [2, 3, 1, 4, 5])
+        let byPK = try collect(fixture.queries, book: .localPK(1))
+        #expect(byPK == [2, 3, 1, 4, 5])
 
-        let byAsset = try fixture.core.annotationsInReadingOrder(bookAssetID: "asset-one")
+        let byAsset = try collect(fixture.queries, book: .assetID("asset-one"))
         #expect(byAsset == byPK)
-
-        let limited = try fixture.core.annotationsInReadingOrder(bookLocalPK: 1, limit: 2)
-        #expect(limited.map { $0.annotation.localPK } == [2, 3])
-
-        let page = try fixture.core.annotationsInReadingOrder(bookLocalPK: 1, limit: 2, offset: 1)
-        #expect(page.map { $0.annotation.localPK } == [3, 1])
-
-        let suffix = try fixture.core.annotationsInReadingOrder(bookAssetID: "asset-one", offset: 3)
-        #expect(suffix.map { $0.annotation.localPK } == [4, 5])
     }
 
     @Test
@@ -31,36 +22,33 @@ struct AnnotationReadingOrderTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let annotations = try fixture.core.annotationsInReadingOrder(bookLocalPK: 2)
-        #expect(annotations.map { $0.annotation.localPK } == [11, 10, 12])
+        let annotations = try collect(fixture.queries, book: .localPK(2))
+        #expect(annotations == [11, 10, 12])
         #expect(annotations.count == 3)
     }
 
-    @Test
-    func missingIdentityAndInvalidLimitFailAtTheirExplicitBoundaries() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        #expect(try fixture.core.annotationsInReadingOrder(bookLocalPK: 3).isEmpty)
-        #expect(try fixture.core.annotationsInReadingOrder(bookLocalPK: 999).isEmpty)
-        #expect(try fixture.core.annotationsInReadingOrder(bookAssetID: "missing").isEmpty)
-        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
-            _ = try fixture.core.annotationsInReadingOrder(bookAssetID: "asset-dup")
-        }
-        #expect(throws: QueryPaginationError.nonPositiveLimit) {
-            _ = try fixture.core.annotationsInReadingOrder(bookLocalPK: 999, limit: 0)
-        }
-        #expect(throws: QueryPaginationError.nonPositiveLimit) {
-            _ = try fixture.core.annotationsInReadingOrder(bookAssetID: "missing", limit: -1)
-        }
-        #expect(throws: QueryPaginationError.negativeOffset) {
-            _ = try fixture.core.annotationsInReadingOrder(bookLocalPK: 999, offset: -1)
-        }
+    private func collect(
+        _ queries: AnnotationQueries,
+        book: AnnotationQueryBookSelector
+    ) throws -> [Int64] {
+        var cursor: String?
+        var result: [Int64] = []
+        repeat {
+            let page = try queries.semanticPage(AnnotationQueryRequest(
+                book: book,
+                order: .reading,
+                limit: 2,
+                cursor: cursor
+            ))
+            result.append(contentsOf: page.items.map(\.localPK))
+            cursor = page.nextCursor
+        } while cursor != nil
+        return result
     }
 
     private final class Fixture {
         let root: URL
-        let core: AppleBooks
+        let queries: AnnotationQueries
 
         init() throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -109,7 +97,14 @@ struct AnnotationReadingOrderTests {
 
             let config = root.appendingPathComponent("config.json")
             try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-            core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
+            let configuration = try AppleBooksConfiguration(fileURL: config)
+            queries = AnnotationQueries(
+                annotationConnection: try SQLiteConnection.readOnly(path: annotations.path),
+                bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
+                historicalAssets: configuration.historicalAssets,
+                configuration: configuration,
+                configurationFileURL: config
+            )
         }
 
         func remove() {

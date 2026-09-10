@@ -1,5 +1,3 @@
-import Foundation
-
 package struct SemanticCollectionSummary: Equatable, Sendable {
     package let localPK: Int64
     package let collectionID: String?
@@ -9,20 +7,13 @@ package struct SemanticCollectionSummary: Equatable, Sendable {
     package let byteTruncatedFields: [String]
 }
 
-public struct SemanticCollection: Equatable, Sendable {
-    public let localPK: Int64
-    public let collectionID: String?
-    public let title: String?
-    public let details: String?
-    public let isDeleted: Bool?
-    public let isHidden: Bool?
-    public let isPlaceholder: Bool?
-    public let sortKey: Int64?
-    public let sortMode: Int64?
-    public let viewMode: Int64?
-    public let lastModificationDate: Date?
-    public let localModificationDate: Date?
-    public let canEditCollection: Bool
-    public let canEditMembership: Bool
-    public let byteTruncatedFields: [String]
+package struct SemanticCollection: Equatable, Sendable {
+    package let localPK: Int64
+    package let collectionID: String?
+    package let title: String?
+    package let details: String?
+    package let isHidden: Bool?
+    package let canEditCollection: Bool
+    package let canEditMembership: Bool
+    package let byteTruncatedFields: [String]
 }

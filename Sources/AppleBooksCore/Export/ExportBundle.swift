@@ -10,26 +10,21 @@ public enum ExportGroupSource: Equatable, Sendable {
 public struct ExportGroup: Equatable, Sendable {
     public let source: ExportGroupSource
     public let records: [ExportRecord]
-    public let epubMetadata: EPUBMetadata?
-    public let epubCover: EPUBCover?
+    let documentIdentity: ExportDocumentIdentity?
 
     init(
         source: ExportGroupSource,
         records: [ExportRecord],
-        epubMetadata: EPUBMetadata? = nil,
-        epubCover: EPUBCover? = nil
+        documentIdentity: ExportDocumentIdentity? = nil
     ) {
         self.source = source
         self.records = records
-        self.epubMetadata = epubMetadata
-        self.epubCover = epubCover
+        self.documentIdentity = documentIdentity
     }
 }
 
 public enum ExportWarning: Equatable, Sendable {
-    case epubContentUnavailable(bookLocalPK: Int64)
-    case epubMetadataUnavailable(bookLocalPK: Int64)
-    case epubCoverUnavailable(bookLocalPK: Int64)
+    case pdfUnavailable
     case pdfFailure(PDFHighlightServiceFailure)
 }
 
@@ -51,7 +46,6 @@ public struct ExportStatistics: Equatable, Sendable {
     public let pdfHighlightCount: Int
     public let highlightCount: Int
     public let noteCount: Int
-    public let bookmarkCount: Int
     public let historicalEPUBAnnotationCount: Int
     public let unmappedEPUBAnnotationCount: Int
 }
@@ -62,4 +56,8 @@ public struct ExportBundle: Equatable, Sendable {
     public let warnings: [ExportWarning]
     public let statistics: ExportStatistics
     public let sourceTotals: ExportSourceTotals
+
+    public var complete: Bool {
+        sourceTotals.pdfFailedDocumentCount == 0 && !warnings.contains(.pdfUnavailable)
+    }
 }

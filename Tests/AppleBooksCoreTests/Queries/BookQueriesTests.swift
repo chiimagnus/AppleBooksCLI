@@ -6,7 +6,7 @@ import Testing
 @Suite("BookQueriesTests")
 struct BookQueriesTests {
     @Test
-    func listAndSearchUseStableOrderingAndLiteralContains() throws {
+    func exactRawLookupPreservesFullFidelityAndStableAssetMatches() throws {
         let fixture = try database(sql: """
         CREATE TABLE ZBKLIBRARYASSET(
             Z_PK INTEGER PRIMARY KEY,
@@ -27,14 +27,6 @@ struct BookQueriesTests {
         defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
         let queries = try queries(for: fixture)
 
-        #expect(try queries.list().map(\.localPK) == [2, 3, 1, 6, 5, 4])
-        #expect(try queries.list(limit: 2, offset: 1).map(\.localPK) == [3, 1])
-        #expect(try queries.searchTitle("ALPHA").map(\.localPK) == [2, 3])
-        #expect(try queries.searchTitle("%").map(\.localPK) == [5])
-        #expect(try queries.searchTitle("_").map(\.localPK) == [5])
-        #expect(try queries.searchTitle("\\").map(\.localPK) == [5])
-        #expect(try queries.searchTitle("O'Reilly").map(\.localPK) == [5])
-        #expect(try queries.searchGenre("Sci%").map(\.localPK) == [2])
         #expect(try queries.getByAssetID("asset-a").map(\.localPK) == [2, 6])
         #expect(try queries.getByLocalPK(999) == nil)
         #expect(try queries.getByLocalPK(5)?.readingProgressRaw == 1.25)
@@ -267,56 +259,6 @@ struct BookQueriesTests {
         }
         #expect(throws: BookSearchError.fieldUnavailable(.genre)) {
             _ = try queries.searchSummaryPage("alp", field: .genre)
-        }
-    }
-
-    @Test
-    func baseListSurvivesMissingOptionalColumns() throws {
-        let fixture = try database(sql: """
-        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);
-        INSERT INTO ZBKLIBRARYASSET VALUES (3), (1), (2);
-        """)
-        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
-        let queries = try queries(for: fixture)
-        let books = try queries.list()
-        #expect(books.map(\.localPK) == [1, 2, 3])
-        #expect(books.allSatisfy { $0.title == nil && $0.assetID == nil })
-
-        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZTITLE"])) {
-            _ = try queries.searchTitle("anything")
-        }
-        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZGENRE"])) {
-            _ = try queries.searchGenre("anything")
-        }
-        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZASSETID"])) {
-            _ = try queries.getByAssetID("asset")
-        }
-    }
-
-    @Test
-    func listCanUseTitleWithoutAssetIdAndAssetLookupStillFailsClosed() throws {
-        let fixture = try database(sql: """
-        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZTITLE TEXT);
-        INSERT INTO ZBKLIBRARYASSET VALUES (2, 'Beta'), (1, 'Alpha');
-        """)
-        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
-        let queries = try queries(for: fixture)
-        #expect(try queries.list().map(\.localPK) == [1, 2])
-        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZASSETID"])) {
-            _ = try queries.getByAssetID("asset")
-        }
-    }
-
-    @Test
-    func paginationValidationRunsBeforeDatabaseAccess() throws {
-        let fixture = try database(sql: "CREATE TABLE unrelated(id INTEGER);")
-        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
-        let queries = try queries(for: fixture)
-        #expect(throws: QueryPaginationError.nonPositiveLimit) {
-            _ = try queries.list(limit: 0)
-        }
-        #expect(throws: QueryPaginationError.negativeOffset) {
-            _ = try queries.list(offset: -1)
         }
     }
 

@@ -72,7 +72,7 @@ struct ExportService {
     ) throws -> [EnrichedAnnotation] {
         if options.bookSelectors.isEmpty {
             guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
-            return try annotationQueries.list(scope: .activeRaw)
+            return try annotationQueries.list(scope: .user)
         }
         let assetIDs = uniqueEPUBAssetIDs(resolvedSelectors)
         guard assetIDs.isEmpty == false else { return [] }
@@ -80,7 +80,7 @@ struct ExportService {
 
         var annotations: [EnrichedAnnotation] = []
         for assetID in assetIDs {
-            annotations.append(contentsOf: try annotationQueries.byAssetID(assetID, scope: .activeRaw))
+            annotations.append(contentsOf: try annotationQueries.byAssetID(assetID, scope: .user))
         }
         return annotations
     }
@@ -263,7 +263,6 @@ struct ExportService {
         var pdfHighlights = 0
         var highlights = 0
         var notes = 0
-        var bookmarks = 0
         var historical = 0
         var unmapped = 0
 
@@ -286,11 +285,8 @@ struct ExportService {
             }
 
             for record in group.records {
-                switch record.presentationKind {
-                case .highlight: highlights += 1
-                case .note: notes += 1
-                case .bookmark: bookmarks += 1
-                }
+                if record.hasHighlight { highlights += 1 }
+                if record.hasNote { notes += 1 }
             }
         }
 
@@ -303,7 +299,6 @@ struct ExportService {
             pdfHighlightCount: pdfHighlights,
             highlightCount: highlights,
             noteCount: notes,
-            bookmarkCount: bookmarks,
             historicalEPUBAnnotationCount: historical,
             unmappedEPUBAnnotationCount: unmapped
         )

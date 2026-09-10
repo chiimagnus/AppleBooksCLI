@@ -1,7 +1,6 @@
 import Foundation
 
 public enum ExportOptionsError: Error, Equatable, Sendable {
-    case emptyKinds
     case emptyColors
     case negativeSkip
     case invalidBookSelector
@@ -12,12 +11,6 @@ public enum ExportSourceScope: String, Equatable, Hashable, Sendable {
     case epub
     case pdf
     case all
-}
-
-public enum ExportPresentationKind: String, Equatable, Hashable, Sendable {
-    case highlight
-    case note
-    case bookmark
 }
 
 public enum ExportPresentationColor: String, Equatable, Hashable, Sendable {
@@ -53,7 +46,8 @@ public enum ExportBookSelector: Equatable, Hashable, Sendable {
 public struct ExportOptions: Equatable, Sendable {
     public let source: ExportSourceScope
     public let bookSelectors: [ExportBookSelector]
-    public let kinds: Set<ExportPresentationKind>
+    public let hasHighlight: Bool?
+    public let hasNote: Bool?
     public let colors: Set<ExportPresentationColor>?
     public let underline: Bool?
     public let order: ExportOrder
@@ -65,7 +59,8 @@ public struct ExportOptions: Equatable, Sendable {
     public init(
         source: ExportSourceScope = .epub,
         bookSelectors: [ExportBookSelector] = [],
-        kinds: Set<ExportPresentationKind> = [.highlight, .note],
+        hasHighlight: Bool? = nil,
+        hasNote: Bool? = nil,
         colors: Set<ExportPresentationColor>? = nil,
         underline: Bool? = nil,
         order: ExportOrder = .source,
@@ -74,7 +69,6 @@ public struct ExportOptions: Equatable, Sendable {
         includeEPUBMetadata: Bool = false,
         cover: ExportCoverMode = .none
     ) throws {
-        guard kinds.isEmpty == false else { throw ExportOptionsError.emptyKinds }
         if let colors {
             guard colors.isEmpty == false else { throw ExportOptionsError.emptyColors }
         }
@@ -105,7 +99,8 @@ public struct ExportOptions: Equatable, Sendable {
         }
         self.source = source
         self.bookSelectors = bookSelectors
-        self.kinds = kinds
+        self.hasHighlight = hasHighlight
+        self.hasNote = hasNote
         self.colors = colors
         self.underline = underline
         self.order = order

@@ -302,7 +302,7 @@ struct ExportFileWriterTests {
         private static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
             let count = groups.reduce(0) { $0 + $1.records.count }
             return ExportBundle(
-                options: try! ExportOptions(source: .epub, kinds: [.highlight]),
+                options: try! ExportOptions(source: .epub, hasHighlight: true),
                 groups: groups,
                 warnings: [],
                 statistics: ExportStatistics(
@@ -314,7 +314,6 @@ struct ExportFileWriterTests {
                     pdfHighlightCount: 0,
                     highlightCount: count,
                     noteCount: 0,
-                    bookmarkCount: 0,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 0
                 ),

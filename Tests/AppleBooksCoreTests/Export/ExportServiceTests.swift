@@ -35,6 +35,32 @@ struct ExportServiceTests {
     }
 
     @Test
+    func userScopeExcludesSystemRowsBeforeSelectionAndCountsOverlappingPresence() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "presence", selectedText: "quote", note: "note"),
+            .init(pk: 2, assetID: "presence", selectedText: nil, note: "note"),
+            .init(pk: 3, assetID: "presence", selectedText: "quote"),
+            .init(pk: 4, assetID: "presence", selectedText: " \t\r\n", note: " \t\r\n"),
+            .init(pk: 5, assetID: "presence", selectedText: "system text", note: "system note", type: 3),
+        ])
+        let service = try fixture.service()
+        for selectors: [ExportBookSelector] in [[], [.assetID("presence")]] {
+            let bundle = try service.makeBundle(options: ExportOptions(bookSelectors: selectors))
+            #expect(bundle.sourceTotals.epubAnnotationCount == 4)
+            #expect(bundle.statistics.recordCount == 3)
+            #expect(bundle.statistics.highlightCount == 2)
+            #expect(bundle.statistics.noteCount == 2)
+            let artifact = String(decoding: try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)), as: UTF8.self)
+            #expect(!artifact.contains("system text"))
+            #expect(!artifact.contains("system note"))
+            #expect(!artifact.contains("bookmarkCount"))
+        }
+    }
+
+    @Test
     func archivalExportPreservesLargeAnnotationTextWithoutOrdinaryQueryBudgets() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -99,7 +125,6 @@ struct ExportServiceTests {
         #expect(bundle.statistics.pdfHighlightCount == 1)
         #expect(bundle.statistics.highlightCount == 4)
         #expect(bundle.statistics.noteCount == 0)
-        #expect(bundle.statistics.bookmarkCount == 0)
         #expect(bundle.statistics.historicalEPUBAnnotationCount == 1)
         #expect(bundle.statistics.unmappedEPUBAnnotationCount == 1)
         #expect(bundle.warnings.count == 1)
@@ -232,7 +257,8 @@ struct ExportServiceTests {
 
         let bundle = try fixture.service().makeBundle(
             options: ExportOptions(
-                kinds: [.highlight],
+                hasHighlight: true,
+                hasNote: false,
                 skipFirstPerBook: 1
             )
         )
@@ -242,7 +268,6 @@ struct ExportServiceTests {
         #expect(bundle.statistics.recordCount == 1)
         #expect(bundle.statistics.highlightCount == 1)
         #expect(bundle.statistics.noteCount == 0)
-        #expect(bundle.statistics.bookmarkCount == 0)
         let remaining = try #require(bundle.groups.first?.records.first)
         guard case let .epub(enriched) = remaining.payload else {
             Issue.record("expected EPUB record")
@@ -265,10 +290,10 @@ struct ExportServiceTests {
         ])
 
         let byPK = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.localPK(123)], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.localPK(123)], hasHighlight: true)
         )
         let byAsset = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.assetID("123")], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.assetID("123")], hasHighlight: true)
         )
 
         let pkRows = byPK.groups.flatMap(\.records).compactMap { record -> Int64? in
@@ -296,7 +321,7 @@ struct ExportServiceTests {
         ])
 
         let bundle = try fixture.service().makeBundle(
-            options: ExportOptions(bookSelectors: [.assetID("historical")], kinds: [.highlight])
+            options: ExportOptions(bookSelectors: [.assetID("historical")], hasHighlight: true)
         )
 
         #expect(bundle.statistics.recordCount == 1)

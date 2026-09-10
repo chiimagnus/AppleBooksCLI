@@ -32,11 +32,11 @@ struct ExportCommandTests {
             "--book-pk", "11",
             "--book-pk", "12",
             "--source", "all",
-            "--kind", "bookmark",
-            "--kind", "note",
+            "--has-highlight", "false",
+            "--has-note", "true",
             "--color", "yellow",
             "--color", "blue",
-            "--underline",
+            "--underline", "true",
             "--order", "reading",
             "--skip-first", "2",
             "--grouping", "per-book",
@@ -54,7 +54,8 @@ struct ExportCommandTests {
             .localPK(11),
             .localPK(12),
         ])
-        #expect(request.options.kinds == [.bookmark, .note])
+        #expect(request.options.hasHighlight == false)
+        #expect(request.options.hasNote == true)
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
         #expect(request.options.order == .reading)
@@ -65,6 +66,30 @@ struct ExportCommandTests {
         #expect(request.overwrite == .smart)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
+    }
+
+    @Test
+    func presenceGrammarRejectsLegacyAndInvalidValuesBeforeIO() throws {
+        for option in ["--has-highlight", "--has-note", "--underline"] {
+            for value in ["true", "false"] {
+                let request = try ExportCommand.parse([
+                    "--format", "json", "--output", "/tmp/presence.json", option, value,
+                ]).makeRequest()
+                let actual = option == "--has-highlight" ? request.options.hasHighlight
+                    : option == "--has-note" ? request.options.hasNote : request.options.underline
+                #expect(actual == (value == "true"))
+            }
+            for invalid in ["yes", "1", "TRUE"] {
+                #expect(throws: (any Error).self) {
+                    _ = try ExportCommand.parse(["--format", "json", option, invalid])
+                }
+            }
+        }
+        for arguments in [["--kind", "highlight"], ["--underline"]] {
+            #expect(throws: (any Error).self) {
+                _ = try ExportCommand.parse(["--format", "json"] + arguments)
+            }
+        }
     }
 
     @Test

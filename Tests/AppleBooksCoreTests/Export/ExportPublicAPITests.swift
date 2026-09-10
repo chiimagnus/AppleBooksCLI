@@ -19,7 +19,7 @@ struct ExportPublicAPITests {
             options: ExportOptions(
                 source: .epub,
                 bookSelectors: [.assetID("asset-a")],
-                kinds: [.highlight]
+                hasHighlight: true
             )
         )
 
@@ -59,7 +59,7 @@ struct ExportPublicAPITests {
 
         #expect(throws: ExportServiceError.pdfWorkerUnavailable) {
             _ = try core.exportBundle(
-                options: ExportOptions(source: .pdf, kinds: [.highlight])
+                options: ExportOptions(source: .pdf, hasHighlight: true)
             )
         }
     }

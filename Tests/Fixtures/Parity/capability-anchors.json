@@ -833,7 +833,7 @@
       ]
     ]
   },
-  "export 类型过滤": {
+  "export 属性过滤": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
@@ -845,7 +845,8 @@
     "cliHelpArgs": [
       [
         "export",
-        "--kind"
+        "--has-highlight",
+        "--has-note"
       ]
     ]
   },
@@ -980,7 +981,7 @@
     "cliHelpArgs": [
       [
         "export",
-        "--kind",
+        "--has-highlight",
         "--color"
       ]
     ]

@@ -89,7 +89,7 @@ public enum MarkdownAnnotationExporter {
     }
 
     private static func formatPlainRecord(_ record: ExportRecord) -> String {
-        var blocks = ["### \(presentationKindLabel(record.presentationKind))"]
+        var blocks = [record.hasNote ? "### Note" : "### Highlight"]
         switch record.payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
@@ -212,14 +212,6 @@ public enum MarkdownAnnotationExporter {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
-    }
-
-    private static func presentationKindLabel(_ kind: ExportPresentationKind) -> String {
-        switch kind {
-        case .highlight: "Highlight"
-        case .note: "Note"
-        case .bookmark: "Bookmark"
-        }
     }
 
     private static func escapeMarkdown(_ text: String) -> String {

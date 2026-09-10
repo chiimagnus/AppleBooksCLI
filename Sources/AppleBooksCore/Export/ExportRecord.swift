@@ -12,21 +12,27 @@ public struct ExportRecord: Equatable, Sendable {
         self.payload = payload
     }
 
-    var presentationKind: ExportPresentationKind {
+    var hasHighlight: Bool {
         switch payload {
         case let .epub(enriched):
-            let annotation = enriched.annotation
-            if AnnotationContentSemantics.hasContent(annotation.note) {
-                return .note
-            }
-            return AnnotationContentSemantics.hasContent(annotation.selectedText) ? .highlight : .bookmark
-        case let .pdf(_, highlight):
-            if let note = highlight.note,
-               note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                return .note
-            }
-            return .highlight
+            AnnotationContentSemantics.hasContent(enriched.annotation.selectedText)
+        case .pdf:
+            true
         }
+    }
+
+    var hasNote: Bool {
+        switch payload {
+        case let .epub(enriched):
+            AnnotationContentSemantics.hasContent(enriched.annotation.note)
+        case let .pdf(_, highlight):
+            AnnotationContentSemantics.hasContent(highlight.note)
+        }
+    }
+
+    var semanticColor: ExportPresentationColor? {
+        guard case .epub = payload else { return nil }
+        return presentationColor
     }
 
     var presentationColor: ExportPresentationColor? {
@@ -117,8 +123,10 @@ enum ExportSelection {
             guard sourceAllows(options.source, record),
                   record.isKnownCurrentPDFAnnotation == false,
                   options.bookSelectors.isEmpty || options.bookSelectors.contains(where: record.matches),
-                  options.kinds.contains(record.presentationKind),
-                  options.colors.map({ colors in record.presentationColor.map(colors.contains) == true }) ?? true,
+                  record.hasHighlight || record.hasNote,
+                  options.hasHighlight.map({ $0 == record.hasHighlight }) ?? true,
+                  options.hasNote.map({ $0 == record.hasNote }) ?? true,
+                  options.colors.map({ colors in record.semanticColor.map(colors.contains) == true }) ?? true,
                   options.underline.map({ $0 == record.isUnderline }) ?? true else {
                 return nil
             }

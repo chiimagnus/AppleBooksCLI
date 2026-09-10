@@ -22,14 +22,6 @@ enum ExportSourceArgument: String, ExpressibleByArgument, Sendable {
     var coreValue: ExportSourceScope { ExportSourceScope(rawValue: rawValue)! }
 }
 
-enum ExportKindArgument: String, ExpressibleByArgument, Sendable {
-    case highlight
-    case note
-    case bookmark
-
-    var coreValue: ExportPresentationKind { ExportPresentationKind(rawValue: rawValue)! }
-}
-
 enum ExportColorArgument: String, ExpressibleByArgument, Sendable {
     case green
     case blue
@@ -117,14 +109,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Source scope: epub, pdf, or all.")
     var source: ExportSourceArgument?
 
-    @Option(name: .long, help: "Presentation kind: highlight, note, or bookmark. Repeatable.")
-    var kind: [ExportKindArgument] = []
+    @Option(name: .long, help: "Filter highlight presence: true or false.")
+    var hasHighlight: AnnotationBooleanArgument?
 
-    @Option(name: .long, help: "Presentation color. Repeatable.")
+    @Option(name: .long, help: "Filter note presence: true or false.")
+    var hasNote: AnnotationBooleanArgument?
+
+    @Option(name: .long, help: "Canonical annotation color (PDF approximate colors do not match). Repeatable.")
     var color: [ExportColorArgument] = []
 
-    @Flag(name: .long, help: "Keep only underlined presentations.")
-    var underline = false
+    @Option(name: .long, help: "Filter underline state: true or false.")
+    var underline: AnnotationBooleanArgument?
 
     @Option(name: .long, help: "Stable ordering: source or reading.")
     var order: ExportOrderArgument?
@@ -163,7 +158,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
         let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
-        let kinds = kind.isEmpty ? defaults.kinds : Set(kind.map(\.coreValue))
         let colors: Set<ExportPresentationColor>? = color.isEmpty ? defaults.colors : Set(color.map(\.coreValue))
         let resolvedSource = source?.coreValue ?? defaults.source
         let resolvedOrder = order?.coreValue ?? defaults.order
@@ -175,9 +169,10 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             try ExportOptions(
                 source: resolvedSource,
                 bookSelectors: selectors,
-                kinds: kinds,
+                hasHighlight: hasHighlight?.value,
+                hasNote: hasNote?.value,
                 colors: colors,
-                underline: underline ? true : defaults.underline,
+                underline: underline?.value,
                 order: resolvedOrder,
                 skipFirstPerBook: resolvedSkip,
                 grouping: resolvedGrouping,

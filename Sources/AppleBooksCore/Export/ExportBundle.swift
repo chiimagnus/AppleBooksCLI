@@ -51,7 +51,6 @@ public struct ExportStatistics: Equatable, Sendable {
     public let pdfHighlightCount: Int
     public let highlightCount: Int
     public let noteCount: Int
-    public let bookmarkCount: Int
     public let historicalEPUBAnnotationCount: Int
     public let unmappedEPUBAnnotationCount: Int
 }

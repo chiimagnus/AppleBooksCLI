@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 2
+    static let schemaVersion = 3
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -71,7 +71,8 @@ private struct JSONExportMapper {
                     JSONBookSelectorDTO(kind: "pdfFile", value: url.path)
                 }
             },
-            kinds: value.kinds.map(\.rawValue).sorted(),
+            hasHighlight: value.hasHighlight,
+            hasNote: value.hasNote,
             colors: value.colors?.map(\.rawValue).sorted(),
             underline: value.underline,
             order: value.order.rawValue,
@@ -110,7 +111,8 @@ private struct JSONExportMapper {
 
     private func record(_ value: ExportRecord) -> JSONRecordDTO {
         let presentation = JSONPresentationDTO(
-            kind: value.presentationKind.rawValue,
+            hasHighlight: value.hasHighlight,
+            hasNote: value.hasNote,
             color: value.presentationColor?.rawValue,
             underline: value.isUnderline
         )
@@ -254,7 +256,8 @@ private struct JSONDocumentRootDTO: Encodable {
 private struct JSONOptionsDTO: Encodable {
     let source: String
     let bookSelectors: [JSONBookSelectorDTO]
-    let kinds: [String]
+    let hasHighlight: Bool?
+    let hasNote: Bool?
     let colors: [String]?
     let underline: Bool?
     let order: String
@@ -306,7 +309,8 @@ private struct JSONRecordDTO: Encodable {
 }
 
 private struct JSONPresentationDTO: Encodable {
-    let kind: String
+    let hasHighlight: Bool
+    let hasNote: Bool
     let color: String?
     let underline: Bool
 }
@@ -522,7 +526,6 @@ private struct JSONStatisticsDTO: Encodable {
     let pdfHighlightCount: Int
     let highlightCount: Int
     let noteCount: Int
-    let bookmarkCount: Int
     let historicalEPUBAnnotationCount: Int
     let unmappedEPUBAnnotationCount: Int
 
@@ -535,7 +538,6 @@ private struct JSONStatisticsDTO: Encodable {
         pdfHighlightCount = value.pdfHighlightCount
         highlightCount = value.highlightCount
         noteCount = value.noteCount
-        bookmarkCount = value.bookmarkCount
         historicalEPUBAnnotationCount = value.historicalEPUBAnnotationCount
         unmappedEPUBAnnotationCount = value.unmappedEPUBAnnotationCount
     }

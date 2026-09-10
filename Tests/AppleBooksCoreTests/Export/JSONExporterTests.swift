@@ -35,7 +35,7 @@ struct JSONExporterTests {
         let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
         let group = ExportGroup(source: .epubUnmapped(assetID: "asset-archive"), records: [record])
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub, kinds: [.highlight]),
+            options: try ExportOptions(source: .epub, hasHighlight: true),
             groups: [group],
             warnings: [],
             statistics: ExportStatistics(
@@ -47,7 +47,6 @@ struct JSONExporterTests {
                 pdfHighlightCount: 0,
                 highlightCount: 1,
                 noteCount: 0,
-                bookmarkCount: 0,
                 historicalEPUBAnnotationCount: 0,
                 unmappedEPUBAnnotationCount: 1
             ),
@@ -79,12 +78,14 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 2)
+        #expect(root["schemaVersion"] as? Int == 3)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
         #expect(options["source"] as? String == "all")
-        #expect(options["kinds"] as? [String] == ["bookmark", "highlight", "note"])
+        #expect(options["kinds"] == nil)
+        #expect(options["hasHighlight"] as? Bool == true)
+        #expect(options["hasNote"] as? Bool == false)
         #expect(options["colors"] as? [String] == ["blue", "yellow"])
         #expect(options["order"] as? String == "reading")
         #expect(options["skipFirstPerBook"] as? Int == 2)
@@ -130,6 +131,11 @@ struct JSONExporterTests {
         #expect(location["rawCFI"] as? String == fixture.rawCFI)
 
         let current = try dictionary(groups[1])
+        let currentRecord = try dictionary(try array(current["records"])[0])
+        let presence = try dictionary(currentRecord["presentation"])
+        #expect(presence["hasHighlight"] as? Bool == true)
+        #expect(presence["hasNote"] as? Bool == true)
+        #expect(presence["kind"] == nil)
         let currentSource = try dictionary(current["source"])
         #expect(currentSource["kind"] as? String == "epubCurrent")
         let currentBook = try dictionary(currentSource["book"])
@@ -155,6 +161,9 @@ struct JSONExporterTests {
         let pdfRecord = try dictionary(try array(pdf["records"])[0])
         #expect(pdfRecord["source"] as? String == "pdf")
         #expect(pdfRecord["annotation"] == nil)
+        let pdfPresence = try dictionary(pdfRecord["presentation"])
+        #expect(pdfPresence["hasHighlight"] as? Bool == true)
+        #expect(pdfPresence["hasNote"] as? Bool == false)
         let highlight = try dictionary(pdfRecord["pdfHighlight"])
         #expect(highlight["page"] as? Int == 4)
         #expect(highlight["traversalIndex"] as? Int == 7)
@@ -168,6 +177,10 @@ struct JSONExporterTests {
         #expect(color["color"] as? String == "yellow")
         #expect(color["distance"] as? Double == 0.125)
         #expect(color["isApproximate"] as? Bool == true)
+        #expect(ExportSelection.apply(
+            options: try ExportOptions(source: .pdf, colors: [.yellow]),
+            to: fixture.bundle.groups.flatMap(\.records)
+        ).isEmpty)
 
         let warnings = try array(root["warnings"])
         #expect(warnings.count == 2)
@@ -246,7 +259,8 @@ struct JSONExporterTests {
         #expect(first == second)
         let text = try #require(String(data: first, encoding: .utf8))
         #expect(text.contains("\"exportedAt\":\"2023-11-14T22:13:20.125Z\""))
-        #expect(text.contains("\"kinds\":[\"bookmark\",\"highlight\",\"note\"]"))
+        #expect(text.contains("\"hasHighlight\":true"))
+        #expect(text.contains("\"hasNote\":false"))
         #expect(text.contains("\"colors\":[\"blue\",\"yellow\"]"))
     }
 
@@ -265,7 +279,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 2)
+        #expect(document["schemaVersion"] as? Int == 3)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -434,7 +448,8 @@ struct JSONExporterTests {
             let options = try ExportOptions(
                 source: .all,
                 bookSelectors: [.assetID("current-asset"), .pdfFile(pdfURL)],
-                kinds: [.note, .highlight, .bookmark],
+                hasHighlight: true,
+                hasNote: false,
                 colors: [.yellow, .blue],
                 order: .reading,
                 skipFirstPerBook: 2,
@@ -463,7 +478,6 @@ struct JSONExporterTests {
                     pdfHighlightCount: 1,
                     highlightCount: 2,
                     noteCount: 1,
-                    bookmarkCount: 0,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 1
                 ),

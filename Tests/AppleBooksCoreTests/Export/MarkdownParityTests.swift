@@ -82,7 +82,6 @@ struct MarkdownParityTests {
                 pdfHighlightCount: 0,
                 highlightCount: 0,
                 noteCount: 0,
-                bookmarkCount: 0,
                 historicalEPUBAnnotationCount: 0,
                 unmappedEPUBAnnotationCount: 0
             ),
@@ -229,7 +228,7 @@ struct MarkdownParityTests {
                 ),
             ]
             bundle = ExportBundle(
-                options: try ExportOptions(source: .all, kinds: [.highlight, .note, .bookmark]),
+                options: try ExportOptions(source: .all),
                 groups: groups,
                 warnings: [],
                 statistics: ExportStatistics(
@@ -241,7 +240,6 @@ struct MarkdownParityTests {
                     pdfHighlightCount: 1,
                     highlightCount: 3,
                     noteCount: 0,
-                    bookmarkCount: 0,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 0
                 ),

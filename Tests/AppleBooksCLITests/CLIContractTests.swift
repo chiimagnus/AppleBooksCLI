@@ -557,9 +557,9 @@ struct CLIContractTests {
         let groups = try #require(exportRoot["groups"] as? [[String: Any]])
         #expect(groups.count == 2)
 
-        let markdownFile = fixture.root.appendingPathComponent("export.md")
+        let markdownFile = fixture.harness.cwd.appendingPathComponent("export-notes")
         let markdown = try fixture.run([
-            "export", "--format", "markdown", "--source", "epub", "--output", markdownFile.path,
+            "export", "--source", "epub", "--output", markdownFile.lastPathComponent,
         ] + fixture.globals)
         #expect(markdown.status == 0)
         #expect(markdown.stderr.isEmpty)

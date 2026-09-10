@@ -26,6 +26,7 @@ enum CLIError: Error, Equatable, Sendable {
     case unavailableWithReason(message: String, reason: String)
     case internalFailure
     case writeSafety(String)
+    case writeSafetyWithReason(message: String, reason: String)
     case permission(String)
 
     var code: CLIErrorCode {
@@ -34,7 +35,7 @@ enum CLIError: Error, Equatable, Sendable {
         case .notFound: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
-        case .writeSafety: .writeSafety
+        case .writeSafety, .writeSafetyWithReason: .writeSafety
         case .permission: .permission
         }
     }
@@ -45,6 +46,7 @@ enum CLIError: Error, Equatable, Sendable {
              let .notFound(message),
              let .unavailable(message),
              let .writeSafety(message),
+             let .writeSafetyWithReason(message, _),
              let .permission(message):
             message
         case let .unavailableWithReason(message, _):
@@ -55,8 +57,10 @@ enum CLIError: Error, Equatable, Sendable {
     }
 
     var reason: String? {
-        if case let .unavailableWithReason(_, reason) = self { return reason }
-        return nil
+        switch self {
+        case let .unavailableWithReason(_, reason), let .writeSafetyWithReason(_, reason): reason
+        default: nil
+        }
     }
 
     var exitCode: CLIProcessExit {
@@ -65,7 +69,7 @@ enum CLIError: Error, Equatable, Sendable {
         case .notFound: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
-        case .writeSafety: .writeSafety
+        case .writeSafety, .writeSafetyWithReason: .writeSafety
         case .permission: .permission
         }
     }
@@ -271,8 +275,15 @@ enum CLIOperation {
                 return .unavailable("Selected PDF could not be read. Check its local availability.")
             }
         }
-        if error is ExportFileWriterError {
-            return .writeSafety("Output path is unsafe or already exists.")
+        if let writerError = error as? ExportFileWriterError {
+            switch writerError {
+            case .destinationExists:
+                return .writeSafetyWithReason(message: "Output already exists. Choose another destination or explicitly allow overwrite.", reason: "output_exists")
+            case .invalidOutputRoot, .unsafeOutputRoot, .invalidFileName, .unsafeParent, .unsafeDestination:
+                return .writeSafetyWithReason(message: "Output path is unsafe or has the wrong node type.", reason: "unsafe_output")
+            case .unsupportedCoverMediaType, .writeFailed:
+                return .writeSafety("Output could not be written.")
+            }
         }
         return .internalFailure
     }

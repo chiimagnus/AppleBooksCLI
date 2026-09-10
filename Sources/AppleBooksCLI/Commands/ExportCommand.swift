@@ -73,7 +73,7 @@ struct ExportCLIRequest: Equatable, Sendable {
     let outputURL: URL
 
     var producesMultipleFiles: Bool {
-        options.grouping == .perBook || (format == .markdown && options.cover == .file)
+        options.grouping == .perBook
     }
 }
 
@@ -102,8 +102,8 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         abstract: "Export Apple Books annotations and PDF highlights."
     )
 
-    @Option(name: .long, help: "Export format: json or markdown.")
-    var format: ExportFormatArgument
+    @Option(name: .long, help: "Export format: markdown (default) or archival json.")
+    var format: ExportFormatArgument = .markdown
 
     @Option(name: .long, help: "Select an exact Apple Books asset ID. Repeatable.")
     var book: [String] = []
@@ -160,7 +160,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         try output.writeJSON(try execute())
     }
 
-    func makeRequest() throws -> ExportCLIRequest {
+    func makeRequest(currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)) throws -> ExportCLIRequest {
         for localPK in bookPK {
             try LocalPKPolicy.validateInput(localPK, optionName: "--book-pk")
         }
@@ -199,14 +199,15 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         guard let output else {
             throw ValidationError("Export requires --output.")
         }
-        let outputURL = URL(fileURLWithPath: output).standardizedFileURL
+        let outputURL = try CLIOperation.run {
+            try ExportFileWriter.destination(path: output, currentDirectory: currentDirectory)
+        }
         let request = ExportCLIRequest(
             format: format,
             options: options,
             overwrite: overwritePolicy,
             outputURL: outputURL
         )
-        try validateOutputContract(request)
         return request
     }
 
@@ -241,12 +242,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     private func validateFormatSpecificOptions(options: ExportOptions) throws {
         if options.cover == .file, format != .markdown {
             throw ValidationError("--cover file requires --format markdown.")
-        }
-    }
-
-    private func validateOutputContract(_ request: ExportCLIRequest) throws {
-        guard request.outputURL.lastPathComponent.isEmpty == false else {
-            throw ValidationError("--output must name a file or directory.")
         }
     }
 
@@ -291,6 +286,9 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         outputURL: URL,
         exportedAt: Date
     ) throws -> ExportRunResult {
+        try ExportFileWriter.validateDestination(
+            outputURL, grouping: request.options.grouping, overwrite: request.overwrite
+        )
         if request.producesMultipleFiles {
             return try writeMultiple(
                 bundle,
@@ -303,16 +301,16 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         let parent = outputURL.deletingLastPathComponent().standardizedFileURL
         let writer = try ExportFileWriter(outputRoot: parent)
         if request.format == .markdown {
-            let result = try writer.writeMarkdown(
+            let count = try writer.writeMarkdownCount(
                 bundle,
                 layout: .single(fileName: outputURL.lastPathComponent),
                 coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
             return ExportRunResult(
-                destination: outputURL.path,
+                destination: writer.outputRoot.appendingPathComponent(outputURL.lastPathComponent).path,
                 disposition: .file,
-                documentCount: result.documentFileCount,
+                documentCount: count,
                 warningCount: bundle.warnings.count,
                 complete: bundle.complete
             )
@@ -339,20 +337,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         outputDirectory: URL,
         exportedAt: Date
     ) throws -> ExportRunResult {
-        let result: ExportDirectoryWriteResult
+        let count: Int
         let writer = try ExportFileWriter(outputRoot: outputDirectory)
         if request.format == .markdown {
-            let layout: ExportFileLayout = request.options.grouping == .perBook
-                ? .perBook
-                : .single(fileName: "apple-books-export.md")
-            result = try writer.writeMarkdown(
+            count = try writer.writeMarkdownCount(
                 bundle,
-                layout: layout,
+                layout: .perBook,
                 coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
         } else {
-            result = try writer.writeDocuments(
+            count = try writer.writeDocumentsCount(
                 bundle,
                 fileExtension: request.format.fileExtension,
                 overwrite: request.overwrite
@@ -361,9 +356,9 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             }
         }
         return ExportRunResult(
-            destination: outputDirectory.path,
+            destination: writer.outputRoot.path,
             disposition: .directory,
-            documentCount: result.documentFileCount,
+            documentCount: count,
             warningCount: bundle.warnings.count,
             complete: bundle.complete
         )

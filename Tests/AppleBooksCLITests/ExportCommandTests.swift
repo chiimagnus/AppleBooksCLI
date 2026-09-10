@@ -322,6 +322,62 @@ struct ExportCommandTests {
         #expect(try String(contentsOfFile: result.destination, encoding: .utf8).contains("Quote A"))
     }
 
+    @Test
+    func defaultMarkdownIgnoresExtensionsAndGroupingAloneChoosesNodeType() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let defaultFile = fixture.root.appendingPathComponent("not-json.json")
+        let explicitFile = fixture.root.appendingPathComponent("explicit")
+        let directory = fixture.root.appendingPathComponent("documents.json")
+        let defaultCommand = try ExportCommand.parse(["--source", "epub", "--output", defaultFile.path])
+        let explicitCommand = try ExportCommand.parse(["--source", "epub", "--format", "markdown", "--output", explicitFile.path])
+        let directoryCommand = try ExportCommand.parse(["--source", "epub", "--grouping", "per-book", "--output", directory.path])
+        #expect(try defaultCommand.makeRequest().format == .markdown)
+        #expect(try defaultCommand.execute(using: fixture.core()).disposition == .file)
+        #expect(try explicitCommand.execute(using: fixture.core()).disposition == .file)
+        #expect(try directoryCommand.execute(using: fixture.core()).disposition == .directory)
+        #expect(try Data(contentsOf: defaultFile) == Data(contentsOf: explicitFile))
+        #expect(try String(contentsOf: defaultFile, encoding: .utf8).hasPrefix("# Apple Books export"))
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(names.count == 2)
+        #expect(names.allSatisfy { $0.hasSuffix(".md") })
+        let relative = try ExportCommand.parse(["--output", "relative"]).makeRequest(currentDirectory: fixture.root)
+        #expect(relative.outputURL == fixture.root.appendingPathComponent("relative").standardizedFileURL)
+        let coverFile = try ExportCommand.parse(["--output", "cover.md", "--cover", "file"]).makeRequest(currentDirectory: fixture.root)
+        #expect(!coverFile.producesMultipleFiles)
+        #expect(throws: ValidationError.self) { _ = try ExportCommand.parse([]).makeRequest() }
+    }
+
+    @Test
+    func wrongOutputNodeFailsWithoutReplacingExistingResource() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let file = fixture.root.appendingPathComponent("original")
+        let directory = fixture.root.appendingPathComponent("directory")
+        try Data("original".utf8).write(to: file)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        for (target, grouping) in [(file, "per-book"), (directory, "single")] {
+            for policy in ["never", "always"] {
+                let command = try ExportCommand.parse([
+                    "--source", "epub", "--output", target.path, "--grouping", grouping, "--overwrite", policy,
+                ])
+                do {
+                    _ = try command.execute(using: fixture.core())
+                    Issue.record("Expected node-type failure")
+                } catch let error as CLIError {
+                    #expect(error.code == .writeSafety)
+                    #expect(error.reason == (policy == "never" ? "output_exists" : "unsafe_output"))
+                }
+            }
+        }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        for count in [1, 100_001] {
+            let result = ExportRunResult(destination: "/synthetic/export", disposition: .directory, documentCount: count, warningCount: 0, complete: true)
+            #expect(try JSONEncoder().encode(result).count < 200)
+        }
+    }
+
     private final class Capture {
         var stdout = ""
         var stderr = ""

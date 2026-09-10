@@ -74,22 +74,71 @@ public struct ExportFileWriter {
         overwrite: OverwritePolicy = .never,
         render: (ExportGroup) throws -> Data
     ) throws -> ExportDirectoryWriteResult {
-        try Self.validateFileExtension(fileExtension)
-        var allocator = ExportFilenameAllocator()
         var files: [URL] = []
-        for group in bundle.groups {
-            let fileName = allocator.allocate(
-                derivedFrom: Self.fileStem(for: group),
-                extension: fileExtension
-            )
+        let count = try forEachDocument(bundle, fileExtension: fileExtension) { group, fileName in
             let data = try render(group)
             let result = try write(data, fileName: fileName, overwrite: overwrite)
             files.append(result.destination)
         }
         return ExportDirectoryWriteResult(
-            documentFileCount: files.count,
+            documentFileCount: count,
             files: files
         )
+    }
+
+    package func writeDocumentsCount(
+        _ bundle: ExportBundle,
+        fileExtension: String,
+        overwrite: OverwritePolicy = .never,
+        render: (ExportGroup) throws -> Data
+    ) throws -> Int {
+        try forEachDocument(bundle, fileExtension: fileExtension) { group, fileName in
+            _ = try write(render(group), fileName: fileName, overwrite: overwrite)
+        }
+    }
+
+    func forEachDocument(
+        _ bundle: ExportBundle,
+        fileExtension: String,
+        materialize: (ExportGroup, String) throws -> Void
+    ) throws -> Int {
+        try Self.validateFileExtension(fileExtension)
+        var allocator = ExportFilenameAllocator()
+        var count = 0
+        for group in bundle.groups {
+            let fileName = allocator.allocate(derivedFrom: Self.fileStem(for: group), extension: fileExtension)
+            try materialize(group, fileName)
+            count += 1
+        }
+        return count
+    }
+
+    package func writeMarkdownCount(
+        _ bundle: ExportBundle,
+        layout: ExportFileLayout,
+        coverMode: ExportCoverMode = .none,
+        overwrite: OverwritePolicy = .never
+    ) throws -> Int {
+        var attachmentAllocator = ExportFilenameAllocator()
+        switch layout {
+        case let .single(fileName):
+            let contexts = try markdownContexts(
+                groups: bundle.groups, coverMode: coverMode, overwrite: overwrite,
+                attachmentAllocator: &attachmentAllocator, didWrite: { _ in }
+            )
+            let data = Data(MarkdownAnnotationExporter.render(bundle, contexts: contexts).utf8)
+            _ = try write(data, fileName: fileName, overwrite: overwrite)
+            return 1
+        case .perBook:
+            return try forEachDocument(bundle, fileExtension: "md") { group, fileName in
+                let contexts = try markdownContexts(
+                    groups: [group], coverMode: coverMode, overwrite: overwrite,
+                    attachmentAllocator: &attachmentAllocator, didWrite: { _ in }
+                )
+                let data = Data(MarkdownAnnotationExporter.render(group, context: contexts[0] ?? MarkdownRenderContext()).utf8)
+                _ = try write(data, fileName: fileName, overwrite: overwrite)
+            }
+        }
     }
 
     public func writeMarkdown(
@@ -108,7 +157,7 @@ public struct ExportFileWriter {
                 coverMode: coverMode,
                 overwrite: overwrite,
                 attachmentAllocator: &attachmentAllocator,
-                files: &files
+                didWrite: { files.append($0) }
             )
             let stable = Data(MarkdownAnnotationExporter.render(bundle, contexts: contexts).utf8)
             let result = try writeGenerated(
@@ -131,7 +180,7 @@ public struct ExportFileWriter {
                 coverMode: coverMode,
                 overwrite: overwrite,
                 attachmentAllocator: &attachmentAllocator,
-                files: &files
+                didWrite: { files.append($0) }
             )
             var documentFiles: [URL] = []
             for (index, group) in bundle.groups.enumerated() {
@@ -162,7 +211,7 @@ public struct ExportFileWriter {
         coverMode: ExportCoverMode,
         overwrite: OverwritePolicy,
         attachmentAllocator: inout ExportFilenameAllocator,
-        files: inout [URL]
+        didWrite: (URL) -> Void
     ) throws -> [Int: MarkdownRenderContext] {
         var contexts: [Int: MarkdownRenderContext] = [:]
         let attachments = coverMode == .file ? try controlledDirectory(named: "Attachments") : nil
@@ -191,7 +240,7 @@ public struct ExportFileWriter {
                         parent: attachments,
                         overwrite: overwrite
                     ) { _, _ in cover.data }
-                    files.append(result.destination)
+                    didWrite(result.destination)
                     context.cover = .file(relativePath: "Attachments/\(fileName)")
                 }
             }
@@ -218,6 +267,7 @@ public struct ExportFileWriter {
         let existing = Self.nodeType(destination)
         let disposition: ExportFileWriteDisposition
         if let existing {
+            if overwrite == .never { throw ExportFileWriterError.destinationExists }
             guard existing == S_IFREG else { throw ExportFileWriterError.unsafeDestination }
             switch overwrite {
             case .never:
@@ -333,6 +383,33 @@ public struct ExportFileWriter {
             throw ExportFileWriterError.unsafeOutputRoot
         }
         return canonical
+    }
+
+    package static func destination(path: String, currentDirectory: URL) throws -> URL {
+        guard currentDirectory.isFileURL,
+              currentDirectory.path.hasPrefix("/"),
+              !path.unicodeScalars.contains(where: { $0.value == 0 }),
+              let component = path.split(separator: "/").last else {
+            throw ExportFileWriterError.invalidFileName
+        }
+        try validateFileName(String(component))
+        let destination = path.hasPrefix("/")
+            ? URL(fileURLWithPath: path).standardizedFileURL
+            : currentDirectory.appendingPathComponent(path).standardizedFileURL
+        try validateFileName(destination.lastPathComponent)
+        return destination
+    }
+
+    package static func validateDestination(
+        _ destination: URL,
+        grouping: ExportFileGrouping,
+        overwrite: OverwritePolicy
+    ) throws {
+        try validateFileName(destination.lastPathComponent)
+        guard let type = nodeType(destination) else { return }
+        if overwrite == .never { throw ExportFileWriterError.destinationExists }
+        let expected = grouping == .single ? S_IFREG : S_IFDIR
+        guard type == expected else { throw ExportFileWriterError.unsafeDestination }
     }
 
     private static func validateFileExtension(_ fileExtension: String) throws {

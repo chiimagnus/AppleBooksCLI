@@ -250,6 +250,77 @@ struct ExportFileWriterTests {
         }
     }
 
+    @Test
+    func countOnlyWritersMatchLegacyArtifactsWithoutReturningPaths() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let bundle = FixtureFactory.bundleWithDuplicateTitles(cover: FixtureFactory.pngCover)
+        let legacy = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("legacy"))
+        let canonical = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("canonical"))
+        let result = try legacy.writeMarkdown(bundle, layout: .perBook, coverMode: .file)
+        let count = try canonical.writeMarkdownCount(bundle, layout: .perBook, coverMode: .file)
+        #expect(count == 2)
+        #expect(result.documentFileCount == count)
+        #expect(result.files.count == 4)
+        for path in result.files {
+            let relative = String(path.path.dropFirst(legacy.outputRoot.path.count + 1))
+            #expect(try Data(contentsOf: path) == Data(contentsOf: canonical.outputRoot.appendingPathComponent(relative)))
+        }
+        let json = try canonical.writeDocumentsCount(bundle, fileExtension: "json") { _ in Data("{}".utf8) }
+        #expect(json == count)
+    }
+
+    @Test
+    func countOnlyDocumentTraversalKeepsScalarResultsForLargeExports() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let groups = (0..<100_001).map { index in
+            ExportGroup(source: .epubUnmapped(assetID: "synthetic-\(index)"), records: [])
+        }
+        let bundle = FixtureFactory.makeBundle(groups: groups)
+        var materialized = 0
+        let count = try writer.forEachDocument(bundle, fileExtension: "md") { _, fileName in
+            #expect(fileName == "synthetic-\(materialized).md")
+            materialized += 1
+        }
+        #expect(count == 100_001)
+        #expect(materialized == count)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).isEmpty)
+    }
+
+    @Test
+    func destinationNodeTypeDependsOnlyOnGroupingAndNeverRefusesEveryExistingNode() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let file = fixture.output.appendingPathComponent("file")
+        try Data("original".utf8).write(to: file)
+        let directory = fixture.output.appendingPathComponent("directory")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let link = fixture.output.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        for target in [file, directory, link] {
+            for grouping in [ExportFileGrouping.single, .perBook] {
+                #expect(throws: ExportFileWriterError.destinationExists) {
+                    try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .never)
+                }
+            }
+        }
+        for (target, grouping) in [(file, ExportFileGrouping.perBook), (directory, .single), (link, .single)] {
+            #expect(throws: ExportFileWriterError.unsafeDestination) {
+                try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .always)
+            }
+        }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
+        for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v1"] {
+            #expect(throws: ExportFileWriterError.invalidFileName) {
+                _ = try ExportFileWriter.destination(path: invalid, currentDirectory: fixture.output)
+            }
+        }
+        let relative = try ExportFileWriter.destination(path: "new", currentDirectory: fixture.output)
+        #expect(relative == fixture.output.appendingPathComponent("new").standardizedFileURL)
+    }
+
     private final class FileFixture {
         let root: URL
         let output: URL
@@ -299,7 +370,7 @@ struct ExportFileWriterTests {
             ])
         }
 
-        private static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
+        static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
             let count = groups.reduce(0) { $0 + $1.records.count }
             return ExportBundle(
                 options: try! ExportOptions(source: .epub, hasHighlight: true),

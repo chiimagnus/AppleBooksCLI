@@ -36,7 +36,9 @@ Mutation commands use the same JSON-only operational transport. The current resu
 
 ### Export output
 
-`export` requires explicit `--output`. Full Markdown or archival JSON payloads are written only through the guarded file/directory writer and never streamed to stdout. Stdout contains only the compact write result (`destination`, `disposition`, `documentCount`, `warningCount`, `complete`); multi-document results do not enumerate every generated path.
+`export` requires explicit `--output` and defaults to Markdown; `--format json` requests archival JSON. Relative paths resolve against cwd, and results use the canonical absolute destination. Grouping alone determines the output node type (`single` file or `per-book` directory), never the extension or existing node. Root, `.`/`..`, and internal hidden names are invalid destinations. `overwrite=never` rejects any existing node with `code=write_safety`, `reason=output_exists`; a wrong node type or unsafe path uses `reason=unsafe_output`, including under `overwrite=always`. The same typed writer-error mapping applies to content-cover writes.
+
+Full Markdown or archival JSON payloads are written only through the guarded file/directory writer and never streamed to stdout. Stdout contains only the compact write result (`destination`, `disposition`, `documentCount`, `warningCount`, `complete`, `warnings`); multi-document results do not enumerate every generated path. The canonical CLI uses count-only writer methods, which do not accumulate destination URLs; the public Core file-list methods remain explicit compatibility APIs.
 
 ## Parse / help behavior
 

@@ -73,14 +73,15 @@ Prefer stable identities for exact operations: book asset ID, annotation UUID, c
 ## Export
 
 ```sh
-applebookscli export --format markdown --output ~/Desktop/apple-books.md
+applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
-applebookscli export --book <asset-id> --format markdown --output notes.md
-applebookscli export --pdf <pdfSourceID> --format markdown --output pdf-notes.md
+applebookscli export --book <asset-id> --output notes.md
+applebookscli export --pdf <pdfSourceID> --output pdf-notes.md
 applebookscli export --help
 ```
 
 Export artifacts are written only to the explicit output file/directory. Stdout returns a compact JSON write result; all operational commands otherwise return JSON directly on stdout.
+Markdown is the default; request `--format json` for archival JSON. Output paths may be relative to the current directory or absolute. Grouping alone chooses a file (`single`) or directory (`per-book`), regardless of extension. Results return the canonical destination and document count, not a list of generated paths. Existing targets with `--overwrite never` fail with reason `output_exists`; replacing a file with a directory or vice versa is always rejected as `unsafe_output`.
 Exact `--book`, `--book-pk`, and `--pdf` selectors are repeatable, deduplicate equivalent sources, and route EPUB/PDF automatically. Missing or ambiguous identities fail; a valid book without annotations may export zero records. Use opaque `pdfSourceID` from `pdf list`, never a PDF path. Without selectors, export covers EPUB and PDF; `--source epub|pdf|all` narrows bulk scope and cannot be combined with exact selectors. Bulk PDF failures produce a partial artifact with `complete=false` and structured warnings; exact PDF read failures produce no artifact.
 Records within each document use reading order by default: available EPUB chapter order and CFI, or PDF page and geometry, with deterministic fallbacks when location is unavailable.
 

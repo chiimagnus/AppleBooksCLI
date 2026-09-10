@@ -1578,16 +1578,6 @@ public final class AppleBooks {
         )
     }
 
-    package func semanticBookSummariesInCanonicalOrder() throws -> [BookSummary] {
-        let queries = try requiredBookQueries()
-        var summaries: [BookSummary] = []
-        try queries.forEachSummary(afterLocalPK: nil) { summary in
-            summaries.append(summary)
-            return true
-        }
-        return summaries
-    }
-
     public func booksInProgress(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
         try requiredReadingQueries().inProgress(limit: limit, offset: offset)
     }

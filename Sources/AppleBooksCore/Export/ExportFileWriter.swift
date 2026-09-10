@@ -484,17 +484,14 @@ package struct ExportFileWriter {
                 )
             }
 
-            guard let swappedIdentity = try Self.entryIdentity(parentFD: parentFD, name: stageName),
-                  swappedIdentity.0 == existing.directoryIdentity.0,
-                  swappedIdentity.1 == existing.directoryIdentity.1 else {
-                _ = renameatx_np(parentFD, stageName, parentFD, destinationName, UInt32(RENAME_SWAP))
-                _ = fsync(parentFD)
-                throw ExportFileWriterError.unsafeDestination
-            }
-
             var cleanupFailed = false
             do {
                 try afterSwapBeforeCleanup?()
+                guard let swappedIdentity = try Self.entryIdentity(parentFD: parentFD, name: stageName),
+                      swappedIdentity.0 == existing.directoryIdentity.0,
+                      swappedIdentity.1 == existing.directoryIdentity.1 else {
+                    throw ExportFileWriterError.unsafeDestination
+                }
                 try Self.cleanupManagedOldDirectory(
                     parentFD: parentFD,
                     stageName: stageName,

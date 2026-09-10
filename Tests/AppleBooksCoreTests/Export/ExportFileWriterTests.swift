@@ -461,6 +461,55 @@ struct ExportFileWriterTests {
     }
 
     @Test
+    func managedDirectoryNeverRollsBackCommittedSwapWhenOldStageNameChanges() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 2)
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, sink in
+            try sink(Data("old".utf8))
+        }
+        let oldSnapshot = try directorySnapshot(destination)
+        var replacementStage: URL?
+        var heldOld: URL?
+
+        let result = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json",
+            overwrite: .always,
+            afterSwapBeforeCleanup: {
+                let stageName = try #require(
+                    FileManager.default.contentsOfDirectory(atPath: fixture.output.path)
+                        .first { $0.hasPrefix(".applebookscli-export-stage-") }
+                )
+                let stage = fixture.output.appendingPathComponent(stageName, isDirectory: true)
+                let held = fixture.output.appendingPathComponent("held-old", isDirectory: true)
+                try FileManager.default.moveItem(at: stage, to: held)
+                try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
+                try Data("intruder".utf8).write(to: stage.appendingPathComponent("intruder.txt"))
+                replacementStage = stage
+                heldOld = held
+            }
+        ) { _, sink in
+            try sink(Data("new".utf8))
+        }
+
+        #expect(result.cleanupFailed)
+        #expect(result.publishSyncFailed == false)
+        let newSnapshot = try directorySnapshot(destination)
+        #expect(newSnapshot != oldSnapshot)
+        #expect(newSnapshot.values.contains(Data("new".utf8)))
+        #expect(try directorySnapshot(try #require(heldOld)) == oldSnapshot)
+        #expect(try String(contentsOf: try #require(replacementStage).appendingPathComponent("intruder.txt"), encoding: .utf8) == "intruder")
+    }
+
+    @Test
     func managedDirectoryCleanupFailureKeepsNewArtifactAndDoesNotDeleteReplacementManifest() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }

@@ -385,6 +385,9 @@ package struct ExportFileWriter {
             throw ExportFileWriterError.writeFailed
         }
         defer { close(stageFD) }
+        guard let stageIdentity = Self.descriptorIdentity(stageFD) else {
+            throw ExportFileWriterError.writeFailed
+        }
 
         let manifestFD = openat(
             stageFD,
@@ -404,6 +407,7 @@ package struct ExportFileWriter {
                 Self.cleanupUnpublishedStage(
                     parentFD: parentFD,
                     stageName: stageName,
+                    stageIdentity: stageIdentity,
                     stageFD: stageFD,
                     manifestFD: manifestFD
                 )
@@ -445,6 +449,11 @@ package struct ExportFileWriter {
               displayIdentity.0 == parentIdentity.0,
               displayIdentity.1 == parentIdentity.1 else {
             throw ExportFileWriterError.unsafeParent
+        }
+        guard try Self.entryIdentity(parentFD: parentFD, name: stageName).map({
+            $0.0 == stageIdentity.0 && $0.1 == stageIdentity.1
+        }) == true else {
+            throw ExportFileWriterError.unsafeDestination
         }
 
         if let existing {
@@ -629,6 +638,7 @@ package struct ExportFileWriter {
     private static func cleanupUnpublishedStage(
         parentFD: Int32,
         stageName: String,
+        stageIdentity: (UInt64, UInt64),
         stageFD: Int32,
         manifestFD: Int32
     ) {
@@ -650,7 +660,11 @@ package struct ExportFileWriter {
            }) == true {
             _ = unlinkat(stageFD, ManagedExportManifestWriter.fileName, 0)
         }
-        _ = unlinkat(parentFD, stageName, AT_REMOVEDIR)
+        if (try? entryIdentity(parentFD: parentFD, name: stageName))?.map({
+            $0.0 == stageIdentity.0 && $0.1 == stageIdentity.1
+        }) == true {
+            _ = unlinkat(parentFD, stageName, AT_REMOVEDIR)
+        }
     }
 
     private static func cleanupManagedOldDirectory(

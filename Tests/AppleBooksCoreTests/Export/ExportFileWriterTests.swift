@@ -344,6 +344,74 @@ struct ExportFileWriterTests {
     }
 
     @Test
+    func managedDirectoryRejectsReplacedStageNameWithoutPublishingOrDeletingReplacement() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 2)
+
+        func replaceStageName() throws -> URL {
+            let stageName = try #require(
+                FileManager.default.contentsOfDirectory(atPath: fixture.output.path)
+                    .first { name in
+                        guard name.hasPrefix(".applebookscli-export-stage-") else { return false }
+                        return FileManager.default.fileExists(
+                            atPath: fixture.output
+                                .appendingPathComponent(name, isDirectory: true)
+                                .appendingPathComponent(ManagedExportManifestWriter.fileName)
+                                .path
+                        )
+                    }
+            )
+            let stage = fixture.output.appendingPathComponent(stageName, isDirectory: true)
+            let held = fixture.output.appendingPathComponent("held-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.moveItem(at: stage, to: held)
+            try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false)
+            try Data("intruder".utf8).write(to: stage.appendingPathComponent("intruder.txt"))
+            return stage
+        }
+
+        let missingDestination = fixture.output.appendingPathComponent("missing", isDirectory: true)
+        var replacement: URL?
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: missingDestination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "json",
+                beforePublish: { replacement = try replaceStageName() }
+            ) { _, sink in
+                try sink(Data("new".utf8))
+            }
+        }
+        #expect(FileManager.default.fileExists(atPath: missingDestination.path) == false)
+        #expect(try String(contentsOf: try #require(replacement).appendingPathComponent("intruder.txt"), encoding: .utf8) == "intruder")
+
+        let managedDestination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: managedDestination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, sink in
+            try sink(Data("old".utf8))
+        }
+        let oldSnapshot = try directorySnapshot(managedDestination)
+        replacement = nil
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: managedDestination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "json",
+                overwrite: .always,
+                beforePublish: { replacement = try replaceStageName() }
+            ) { _, sink in
+                try sink(Data("new".utf8))
+            }
+        }
+        #expect(try directorySnapshot(managedDestination) == oldSnapshot)
+        #expect(try String(contentsOf: try #require(replacement).appendingPathComponent("intruder.txt"), encoding: .utf8) == "intruder")
+    }
+
+    @Test
     func managedDirectoryCleanupFailureKeepsNewArtifactAndDoesNotDeleteReplacementManifest() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }

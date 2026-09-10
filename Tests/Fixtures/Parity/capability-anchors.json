@@ -1152,22 +1152,6 @@
       ]
     ]
   },
-  "partial export offset": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportRecord.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportOptionsTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--skip-first"
-      ]
-    ]
-  },
   "recent annotations by creation": {
     "owner": "core",
     "implementationPaths": [

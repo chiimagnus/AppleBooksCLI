@@ -132,9 +132,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Document ordering: reading (default).")
     var order: ExportOrderArgument?
 
-    @Option(name: .customLong("skip-first"), parsing: .unconditional, help: "Skip the first N records per final sorted document.")
-    var skipFirst: Int?
-
     @Option(name: .long, help: "File grouping: single or per-book.")
     var grouping: ExportGroupingArgument?
 
@@ -173,7 +170,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         let colors: Set<ExportPresentationColor>? = color.isEmpty ? defaults.colors : Set(color.map(\.coreValue))
         let resolvedSource = source?.coreValue ?? defaults.source
         let resolvedOrder = order?.coreValue ?? defaults.order
-        let resolvedSkip = skipFirst ?? defaults.skipFirstPerBook
         let resolvedGrouping = grouping?.coreValue ?? defaults.grouping
         let resolvedCover = cover?.coreValue ?? defaults.cover
 
@@ -186,7 +182,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 colors: colors,
                 underline: underline?.value,
                 order: resolvedOrder,
-                skipFirstPerBook: resolvedSkip,
                 grouping: resolvedGrouping,
                 includeEPUBMetadata: includeEPUBMetadata,
                 cover: resolvedCover

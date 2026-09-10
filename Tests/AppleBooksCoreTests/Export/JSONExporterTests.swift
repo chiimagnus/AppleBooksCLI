@@ -78,7 +78,7 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 5)
+        #expect(root["schemaVersion"] as? Int == 6)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -88,7 +88,7 @@ struct JSONExporterTests {
         #expect(options["hasNote"] as? Bool == false)
         #expect(options["colors"] as? [String] == ["blue", "yellow"])
         #expect(options["order"] as? String == "reading")
-        #expect(options["skipFirstPerBook"] as? Int == 2)
+        #expect(options["skipFirstPerBook"] == nil)
         #expect(options["grouping"] as? String == "perBook")
         #expect(options["includeEPUBMetadata"] as? Bool == true)
         #expect(options["cover"] as? String == "inline")
@@ -279,7 +279,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 5)
+        #expect(document["schemaVersion"] as? Int == 6)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -452,7 +452,6 @@ struct JSONExporterTests {
                 hasNote: false,
                 colors: [.yellow, .blue],
                 order: .reading,
-                skipFirstPerBook: 2,
                 grouping: .perBook,
                 includeEPUBMetadata: true,
                 cover: .inline

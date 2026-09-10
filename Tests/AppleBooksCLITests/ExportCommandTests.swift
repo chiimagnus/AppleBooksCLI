@@ -38,7 +38,6 @@ struct ExportCommandTests {
             "--color", "blue",
             "--underline", "true",
             "--order", "reading",
-            "--skip-first", "2",
             "--grouping", "per-book",
             "--include-epub-metadata",
             "--cover", "file",
@@ -59,7 +58,6 @@ struct ExportCommandTests {
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
         #expect(request.options.order == .reading)
-        #expect(request.options.skipFirstPerBook == 2)
         #expect(request.options.grouping == .perBook)
         #expect(request.options.includeEPUBMetadata)
         #expect(request.options.cover == .file)
@@ -85,7 +83,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }
@@ -96,15 +94,6 @@ struct ExportCommandTests {
     func invalidOptionsFailBeforeDatabaseIO() throws {
         let missing = "/definitely/missing/applebooks.sqlite"
         let global = ["--library-db", missing, "--annotations-db", missing]
-
-        let negativeSkip = try ExportCommand.parse([
-            "--format", "json",
-            "--skip-first", "-1",
-            "--output", "/tmp/export.json",
-        ] + global)
-        #expect(throws: CLIError.usageInvalid("--skip-first must not be negative.")) {
-            _ = try negativeSkip.makeRequest()
-        }
 
         let invalidPK = try ExportCommand.parse([
             "--format", "json",

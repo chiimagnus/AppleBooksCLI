@@ -253,8 +253,6 @@ enum CLIOperation {
         }
         if let optionsError = error as? ExportOptionsError {
             switch optionsError {
-            case .negativeSkip:
-                return .usageInvalid("--skip-first must not be negative.")
             case .emptyColors:
                 return .usageInvalid("At least one export color is required when filtering by color.")
             case .invalidBookSelector:

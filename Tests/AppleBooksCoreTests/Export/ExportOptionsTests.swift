@@ -15,16 +15,12 @@ struct ExportOptionsTests {
         #expect(options.colors == nil)
         #expect(options.underline == nil)
         #expect(options.order == .reading)
-        #expect(options.skipFirstPerBook == 0)
         #expect(options.grouping == .single)
         #expect(options.includeEPUBMetadata == false)
         #expect(options.cover == .none)
 
         #expect(throws: ExportOptionsError.emptyColors) {
             _ = try ExportOptions(colors: [])
-        }
-        #expect(throws: ExportOptionsError.negativeSkip) {
-            _ = try ExportOptions(skipFirstPerBook: -1)
         }
         #expect(throws: ExportOptionsError.invalidBookSelector) {
             _ = try ExportOptions(bookSelectors: [.assetID("")])
@@ -250,13 +246,13 @@ struct ExportOptionsTests {
     }
 
     @Test
-    func skipFirstPerBookRunsAfterPresenceFilterAndFinalOrderingForEveryAnnotationRow() throws {
-        let a = [
+    func completeExportIncludesFirstRecordOfEveryDocumentInReadingOrder() throws {
+        let firstDocument = [
             epubRecord(pk: 1, assetID: "a", selected: "highlight-a1", note: nil, cfi: "epubcfi(/6/8)"),
             epubRecord(pk: 2, assetID: "a", selected: "highlight-a2", note: nil, cfi: "epubcfi(/6/2)"),
             epubRecord(pk: 3, assetID: "a", selected: "quote", note: "note-a", cfi: "epubcfi(/6/1)"),
         ]
-        let b = [
+        let secondDocument = [
             epubRecord(pk: 4, assetID: "b", selected: "highlight-b1", note: nil, cfi: "epubcfi(/6/4)"),
             epubRecord(pk: 5, assetID: "b", selected: "highlight-b2", note: nil, cfi: "epubcfi(/6/3)"),
         ]
@@ -264,16 +260,15 @@ struct ExportOptionsTests {
         let ordered = try ExportSelection.apply(
             options: try ExportOptions(
                 hasHighlight: true,
-                order: .reading,
-                skipFirstPerBook: 1
+                order: .reading
             ),
-            to: a + b
+            to: firstDocument + secondDocument
         )
-        #expect(ordered.compactMap(\.epubPK) == [2, 1, 4])
+        #expect(ordered.compactMap(\.epubPK) == [3, 2, 1, 5, 4])
 
         let defaultOrdered = try ExportSelection.apply(
-            options: try ExportOptions(hasHighlight: true, skipFirstPerBook: 1),
-            to: a + b
+            options: try ExportOptions(hasHighlight: true),
+            to: firstDocument + secondDocument
         )
         #expect(defaultOrdered == ordered)
     }

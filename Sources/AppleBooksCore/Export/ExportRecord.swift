@@ -132,7 +132,7 @@ enum ExportSelection {
             let sorted = group.map {
                 ReadingRecord(index: $0.index, record: $0.record, key: $0.record.readingKey(chapterOrder: chapters))
             }.sorted(by: readingOrder)
-            return sorted.dropFirst(options.skipFirstPerBook).map(\.record)
+            return sorted.map(\.record)
         }
     }
 

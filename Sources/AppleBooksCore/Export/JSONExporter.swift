@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 5
+    static let schemaVersion = 6
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -76,7 +76,6 @@ private struct JSONExportMapper {
             colors: value.colors?.map(\.rawValue).sorted(),
             underline: value.underline,
             order: value.order.rawValue,
-            skipFirstPerBook: value.skipFirstPerBook,
             grouping: value.grouping.rawValue,
             includeEPUBMetadata: value.includeEPUBMetadata,
             cover: value.cover.rawValue
@@ -263,7 +262,6 @@ private struct JSONOptionsDTO: Encodable {
     let colors: [String]?
     let underline: Bool?
     let order: String
-    let skipFirstPerBook: Int
     let grouping: String
     let includeEPUBMetadata: Bool
     let cover: String

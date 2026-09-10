@@ -260,22 +260,20 @@ struct ExportServiceTests {
         let bundle = try fixture.service().makeBundle(
             options: ExportOptions(
                 hasHighlight: true,
-                hasNote: false,
-                skipFirstPerBook: 1
+                hasNote: false
             )
         )
 
         #expect(bundle.sourceTotals.epubAnnotationCount == 3)
         #expect(bundle.sourceTotals.epubDocumentCount == 1)
-        #expect(bundle.statistics.recordCount == 1)
-        #expect(bundle.statistics.highlightCount == 1)
+        #expect(bundle.statistics.recordCount == 2)
+        #expect(bundle.statistics.highlightCount == 2)
         #expect(bundle.statistics.noteCount == 0)
-        let remaining = try #require(bundle.groups.first?.records.first)
-        guard case let .epub(enriched) = remaining.payload else {
-            Issue.record("expected EPUB record")
-            return
+        let selected = bundle.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
         }
-        #expect(enriched.annotation.localPK == 3)
+        #expect(selected == [1, 3])
     }
 
     @Test

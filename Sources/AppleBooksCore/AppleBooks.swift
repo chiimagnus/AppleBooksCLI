@@ -1126,53 +1126,18 @@ public final class AppleBooks {
         )
     }
 
-    public func listAnnotations(
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().list(scope: scope, limit: limit, offset: offset)
-    }
-
     package func semanticAnnotationPage(
         _ request: AnnotationQueryRequest
     ) throws -> CursorPage<SemanticAnnotation> {
         try requiredAnnotationQueries().semanticPage(request)
     }
 
-    package func semanticAnnotation(
-        localPK: Int64,
-        scope: AnnotationScope = .user
-    ) throws -> SemanticAnnotation? {
-        try requiredAnnotationQueries().semanticGetByLocalPK(localPK, scope: scope)
+    package func semanticAnnotation(localPK: Int64) throws -> SemanticAnnotation? {
+        try requiredAnnotationQueries().semanticGetByLocalPK(localPK)
     }
 
-    package func semanticAnnotation(
-        uuid: String,
-        scope: AnnotationScope = .user
-    ) throws -> SemanticAnnotation? {
-        try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid, scope: scope)
-    }
-
-    public func annotationPage(
-        scope: AnnotationScope = .activeRaw,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> Page<EnrichedAnnotation> {
-        try requiredAnnotationQueries().page(scope: scope, limit: limit, offset: offset)
-    }
-
-    public func annotationPage(
-        colorName: String,
-        scope: AnnotationScope = .activeRaw,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> Page<EnrichedAnnotation> {
-        try requiredAnnotationQueries().page(colorName: colorName, scope: scope, limit: limit, offset: offset)
-    }
-
-    public func annotation(localPK: Int64, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
-        try requiredAnnotationQueries().getByLocalPK(localPK, scope: scope)
+    package func semanticAnnotation(uuid: String) throws -> SemanticAnnotation? {
+        try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid)
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
@@ -1189,30 +1154,6 @@ public final class AppleBooks {
 
     public func deleteAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
         try requiredAnnotationWriter().delete(uuid: uuid, syncCloud: syncCloud)
-    }
-
-    public func annotation(uuid: String, scope: AnnotationScope = .user) throws -> EnrichedAnnotation? {
-        try requiredAnnotationQueries().getUniqueByUUID(uuid, scope: scope)
-    }
-
-    public func annotations(
-        bookAssetID: String,
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().byAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
-    }
-
-    public func annotations(
-        bookLocalPK: Int64,
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try validatePagination(limit: limit, offset: offset)
-        guard let book = try requiredBookQueries().getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
-        return try requiredAnnotationQueries().byAssetID(assetID, scope: scope, limit: limit, offset: offset)
     }
 
     package func semanticAnnotationContextResult(
@@ -1290,59 +1231,6 @@ public final class AppleBooks {
             annotationLocalPK: annotation.localPK,
             annotationUUID: annotation.uuid,
             context: context
-        )
-    }
-
-    public func annotations(colorName: String, limit: Int? = nil, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().byColorName(colorName, limit: limit, offset: offset)
-    }
-
-    public func annotations(
-        matchingHighlightedText text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().searchHighlightedText(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
-    public func annotations(
-        matchingNote text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().searchNote(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
-    public func annotations(
-        matchingText text: String,
-        colorName: String? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().searchText(text, colorName: colorName, limit: limit, offset: offset)
-    }
-
-    public func recentlyCreatedAnnotations(limit: Int? = 10, offset: Int = 0) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().recentlyCreated(limit: limit, offset: offset)
-    }
-
-    public func recentlyModifiedAnnotations() throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().recentlyModified()
-    }
-
-    public func annotations(
-        createdAtOrAfter lowerInclusive: Date? = nil,
-        beforeExclusive upperExclusive: Date? = nil,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [EnrichedAnnotation] {
-        try requiredAnnotationQueries().created(
-            lowerInclusive: lowerInclusive,
-            upperExclusive: upperExclusive,
-            limit: limit,
-            offset: offset
         )
     }
 

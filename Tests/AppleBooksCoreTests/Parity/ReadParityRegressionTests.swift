@@ -37,28 +37,38 @@ final class ReadParityRegressionTests: XCTestCase {
         XCTAssertEqual(try books.semanticCollectionSummaryPage(limit: 100).items.map(\.localPK).sorted(), [1, 2])
         XCTAssertEqual(try books.semanticCollection(localPK: 1)?.title, "Shelf A")
 
-        let annotations = try books.listAnnotations().map(\.annotation)
+        let annotations = try books.semanticAnnotationPage(AnnotationQueryRequest(limit: 100)).items
         XCTAssertEqual(annotations.map(\.localPK).sorted(), [101, 102, 103, 104, 105])
         XCTAssertFalse(annotations.contains { $0.type == 3 })
-        XCTAssertEqual(try books.annotations(matchingHighlightedText: "needle-selected").map { $0.annotation.localPK }, [101])
-        XCTAssertEqual(try books.annotations(matchingNote: "needle-note").map { $0.annotation.localPK }, [102])
-        XCTAssertEqual(try books.annotations(matchingText: "representative").map { $0.annotation.localPK }.sorted(), [101, 102, 103, 104, 105])
+        XCTAssertEqual(try books.semanticAnnotationPage(
+            AnnotationQueryRequest(text: "needle-selected", textField: .highlight, limit: 100)
+        ).items.map(\.localPK), [101])
+        XCTAssertEqual(try books.semanticAnnotationPage(
+            AnnotationQueryRequest(text: "needle-note", textField: .note, limit: 100)
+        ).items.map(\.localPK), [102])
+        XCTAssertEqual(try books.semanticAnnotationPage(
+            AnnotationQueryRequest(text: "representative", limit: 100)
+        ).items.map(\.localPK).sorted(), [101, 102, 103, 104, 105])
 
-        let expectedColors: [String: Int64] = [
-            "green": 101,
-            "blue": 102,
-            "yellow": 103,
-            "pink": 104,
-            "purple": 105,
+        let expectedColors: [AnnotationColor: Int64] = [
+            .green: 101,
+            .blue: 102,
+            .yellow: 103,
+            .pink: 104,
+            .purple: 105,
         ]
-        for (name, expectedID) in expectedColors {
-            XCTAssertEqual(try books.annotations(colorName: name).map { $0.annotation.localPK }, [expectedID])
+        for (color, expectedID) in expectedColors {
+            XCTAssertEqual(try books.semanticAnnotationPage(
+                AnnotationQueryRequest(color: color, limit: 100)
+            ).items.map(\.localPK), [expectedID])
         }
 
         let lower = try XCTUnwrap(CoreDataTime.date(from: 102))
         let upper = try XCTUnwrap(CoreDataTime.date(from: 104))
         XCTAssertEqual(
-            try books.annotations(createdAtOrAfter: lower, beforeExclusive: upper).map { $0.annotation.localPK }.sorted(),
+            try books.semanticAnnotationPage(
+                AnnotationQueryRequest(createdAfter: lower, createdBefore: upper, limit: 100)
+            ).items.map(\.localPK).sorted(),
             [102, 103]
         )
 

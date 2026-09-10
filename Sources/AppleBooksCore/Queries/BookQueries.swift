@@ -1,10 +1,5 @@
 import Foundation
 
-public enum QueryPaginationError: Error, Equatable, Sendable {
-    case nonPositiveLimit
-    case negativeOffset
-}
-
 public enum QueryDecodingError: Error, Equatable, Sendable {
     case nullRequiredColumn(String)
 }
@@ -13,15 +8,6 @@ public enum BookSearchError: Error, Equatable, Sendable {
     case emptyQuery
     case noSearchableColumns
     case fieldUnavailable(BookSearchField)
-}
-
-func validatePagination(limit: Int?, offset: Int) throws {
-    if let limit, limit <= 0 {
-        throw QueryPaginationError.nonPositiveLimit
-    }
-    if offset < 0 {
-        throw QueryPaginationError.negativeOffset
-    }
 }
 
 struct BookIdentityMultiplicity: Equatable, Sendable {

@@ -14,16 +14,15 @@ struct StableSelectorTests {
         #expect(try fixture.core.semanticBookDetail(assetID: "BOOK-12")?.localPK == 13)
         #expect(try fixture.core.semanticCollection(collectionID: "collection-12")?.localPK == 12)
         #expect(try fixture.core.semanticCollection(collectionID: "COLLECTION-12")?.localPK == 13)
-        #expect(try fixture.core.annotation(uuid: "annotation-12")?.annotation.localPK == 12)
-        #expect(try fixture.core.annotation(uuid: "ANNOTATION-12")?.annotation.localPK == 15)
+        #expect(try fixture.core.semanticAnnotation(uuid: "annotation-12")?.localPK == 12)
+        #expect(try fixture.core.semanticAnnotation(uuid: "ANNOTATION-12")?.localPK == 15)
 
         #expect(try fixture.core.semanticBookDetail(assetID: "12abc") == nil)
         #expect(try fixture.core.semanticCollection(collectionID: "12abc") == nil)
-        #expect(try fixture.core.annotation(uuid: "12abc") == nil)
+        #expect(try fixture.core.semanticAnnotation(uuid: "12abc") == nil)
         #expect(try fixture.core.semanticCollection(collectionID: "collection-deleted") == nil)
-        #expect(try fixture.core.annotation(uuid: "annotation-deleted", scope: .activeRaw) == nil)
-        #expect(try fixture.core.annotation(uuid: "annotation-bookmark") == nil)
-        #expect(try fixture.core.annotation(uuid: "annotation-bookmark", scope: .activeRaw)?.annotation.localPK == 13)
+        #expect(try fixture.core.semanticAnnotation(uuid: "annotation-deleted") == nil)
+        #expect(try fixture.core.semanticAnnotation(uuid: "annotation-bookmark") == nil)
     }
 
     @Test
@@ -38,7 +37,7 @@ struct StableSelectorTests {
             _ = try fixture.core.semanticCollection(collectionID: "collection-dup")
         }
         #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
-            _ = try fixture.core.annotation(uuid: "annotation-dup")
+            _ = try fixture.core.semanticAnnotation(uuid: "annotation-dup")
         }
     }
 
@@ -47,15 +46,27 @@ struct StableSelectorTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let user = try fixture.core.annotations(bookAssetID: "book-12")
-        #expect(Set(user.map { $0.annotation.localPK }) == [12, 20, 21])
-        #expect(try fixture.core.annotations(bookAssetID: "BOOK-12").map { $0.annotation.localPK } == [15])
+        let user = try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .assetID("book-12"), limit: 100)
+        )
+        #expect(Set(user.items.map(\.localPK)) == [12, 20, 21])
+        #expect(try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .assetID("BOOK-12"), limit: 100)
+        ).items.map(\.localPK) == [15])
 
-        let raw = try fixture.core.annotations(bookLocalPK: 12, scope: .activeRaw)
-        #expect(Set(raw.map { $0.annotation.localPK }) == [12, 13, 14, 20, 21])
-        #expect(try fixture.core.annotations(bookAssetID: "12abc").isEmpty)
-        #expect(try fixture.core.annotations(bookLocalPK: 999).isEmpty)
-        #expect(try fixture.core.annotations(bookLocalPK: 30).isEmpty)
+        let byPK = try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .localPK(12), limit: 100)
+        )
+        #expect(Set(byPK.items.map(\.localPK)) == [12, 20, 21])
+        #expect(try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .assetID("12abc"), limit: 100)
+        ).items.isEmpty)
+        #expect(try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .localPK(999), limit: 100)
+        ).items.isEmpty)
+        #expect(try fixture.core.semanticAnnotationPage(
+            AnnotationQueryRequest(book: .localPK(30), limit: 100)
+        ).items.isEmpty)
     }
 
     private final class Fixture {
@@ -97,16 +108,18 @@ struct StableSelectorTests {
                 ZANNOTATIONUUID TEXT COLLATE NOCASE,
                 ZANNOTATIONASSETID TEXT COLLATE NOCASE,
                 ZANNOTATIONDELETED INTEGER,
-                ZANNOTATIONTYPE INTEGER
+                ZANNOTATIONTYPE INTEGER,
+                ZANNOTATIONCREATIONDATE REAL,
+                ZANNOTATIONMODIFICATIONDATE REAL
             );
             INSERT INTO ZAEANNOTATION VALUES
-                (12,'annotation-12','book-12',0,1),
-                (13,'annotation-bookmark','book-12',0,3),
-                (14,'annotation-null-type','book-12',0,NULL),
-                (15,'ANNOTATION-12','BOOK-12',0,1),
-                (20,'annotation-dup','book-12',0,1),
-                (21,'annotation-dup','book-12',0,1),
-                (30,'annotation-deleted','book-12',1,1);
+                (12,'annotation-12','book-12',0,1,12,12),
+                (13,'annotation-bookmark','book-12',0,3,13,13),
+                (14,'annotation-null-type','book-12',0,NULL,14,14),
+                (15,'ANNOTATION-12','BOOK-12',0,1,15,15),
+                (20,'annotation-dup','book-12',0,1,20,20),
+                (21,'annotation-dup','book-12',0,1,21,21),
+                (30,'annotation-deleted','book-12',1,1,30,30);
             """)
 
             let config = root.appendingPathComponent("config.json")

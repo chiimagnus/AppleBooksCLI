@@ -113,7 +113,7 @@ struct CLIContextTests {
 
         #expect(try books.bookSummaryPage(limit: 100).items.map(\.localPK) == [1])
         #expect(throws: AppleBooksDependencyError.unavailable(.annotationsRead)) {
-            _ = try books.listAnnotations()
+            _ = try books.semanticAnnotationPage(AnnotationQueryRequest())
         }
     }
 

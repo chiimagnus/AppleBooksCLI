@@ -83,7 +83,7 @@ struct ExportService {
     ) throws -> [EnrichedAnnotation] {
         if options.bookSelectors.isEmpty {
             guard let annotationQueries else { throw AppleBooksDependencyError.unavailable(.annotationsRead) }
-            return try annotationQueries.list(scope: .user)
+            return try annotationQueries.exportAnnotations()
         }
         let epubSources = resolvedSelectors.filter { $0.pdfSource == nil }
         guard !epubSources.isEmpty else { return [] }
@@ -92,7 +92,7 @@ struct ExportService {
         var annotations: [EnrichedAnnotation] = []
         for source in epubSources {
             guard let assetID = source.epubAssetID else { continue }
-            let selected = try annotationQueries.byAssetID(assetID, scope: .user)
+            let selected = try annotationQueries.exportAnnotations(assetID: assetID)
             if source.requiresHistoricalEvidence,
                selected.isEmpty,
                annotationQueries.historicalAssets.metadata(for: assetID) == nil {

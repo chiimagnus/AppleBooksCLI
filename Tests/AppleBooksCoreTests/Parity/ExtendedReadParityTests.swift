@@ -39,7 +39,9 @@ struct ExtendedReadParityTests {
         #expect(stats.topAnnotatedBookSummaries.map(\.localPK) == [1, 2, 3])
         #expect(stats.topAnnotatedBookSummaries.map(\.annotationCount) == [2, 1, 1])
 
-        #expect(try fixture.books.recentlyCreatedAnnotations().map { $0.annotation.localPK } == [14, 13, 12, 11, 10])
+        #expect(try fixture.books.semanticAnnotationPage(
+            AnnotationQueryRequest(order: .created, limit: 100)
+        ).items.map(\.localPK) == [14, 13, 12, 11, 10])
         let readingAnnotations = try fixture.books.semanticAnnotationPage(AnnotationQueryRequest(
             book: .localPK(1),
             order: .reading,
@@ -120,8 +122,10 @@ struct ExtendedReadParityTests {
         #expect(try fixture.books.currentReadingLocation(forBookLocalPK: 3)?.location == nil)
         #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-third") == .unavailable)
 
-        let historical = try #require(try fixture.books.annotation(localPK: 14))
-        #expect(historical.source == .historicalInferred(HistoricalBookMetadata(title: "Historical", author: "Mapped Author")))
+        let historical = try #require(try fixture.books.semanticAnnotation(localPK: 14))
+        #expect(historical.source.kind == .historicalInferred)
+        #expect(historical.source.title == "Historical")
+        #expect(historical.source.author == "Mapped Author")
         #expect(throws: AnnotationContextError.currentBookUnavailable) {
             _ = try fixture.books.semanticAnnotationContextResult(localPK: 14)
         }

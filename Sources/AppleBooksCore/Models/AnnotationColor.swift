@@ -1,6 +1,5 @@
 public enum AnnotationQueryInputError: Error, Equatable, Sendable {
     case unknownColor
-    case invalidDateRange
 }
 
 public enum AnnotationColor: Int64, CaseIterable, Sendable {

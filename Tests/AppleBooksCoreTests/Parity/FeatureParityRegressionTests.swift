@@ -20,29 +20,23 @@ struct FeatureParityRegressionTests {
         #expect(bookPage.total == expected.bookPageTotal)
         #expect(bookPage.items.count == min(20, expected.bookPageTotal))
 
-        #expect(try fixture.books.annotation(uuid: expected.annotationStableUUID)?.annotation.localPK == expected.annotationStableLocalPK)
-        #expect(try fixture.books.annotation(localPK: expected.annotationExplicitLocalPK)?.annotation.uuid == "uuid-local-12")
+        #expect(try fixture.books.semanticAnnotation(uuid: expected.annotationStableUUID)?.localPK == expected.annotationStableLocalPK)
+        #expect(try fixture.books.semanticAnnotation(localPK: expected.annotationExplicitLocalPK)?.uuid == "uuid-local-12")
         #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
-            _ = try fixture.books.annotation(uuid: "dup")
+            _ = try fixture.books.semanticAnnotation(uuid: "dup")
         }
 
-        let activeRaw = try fixture.books.annotationPage(scope: .activeRaw)
-        #expect(activeRaw.total == expected.annotationPageTotal)
-        #expect(activeRaw.limit == 50)
-        #expect(activeRaw.items.contains { $0.annotation.type == 3 })
-        #expect(activeRaw.items.contains { $0.annotation.type == nil })
-        #expect(activeRaw.items.contains { $0.annotation.localPK == 104 } == false)
+        let annotations = try fixture.books.semanticAnnotationPage(AnnotationQueryRequest(limit: 100))
+        #expect(annotations.items.map(\.localPK) == expected.annotationModifiedLocalPKs)
+        #expect(annotations.items.allSatisfy { $0.type != 3 })
+        #expect(annotations.items.allSatisfy { $0.type != nil })
 
-        let green = try fixture.books.annotationPage(colorName: "green", scope: .activeRaw)
-        #expect(green.items.map { $0.annotation.localPK } == expected.greenPageLocalPKs)
-        #expect(green.total == expected.greenPageLocalPKs.count)
-
-        #expect(
-            try fixture.books.recentlyModifiedAnnotations().map { $0.annotation.localPK }
-                == expected.recentlyModifiedLocalPKs
+        let green = try fixture.books.semanticAnnotationPage(
+            AnnotationQueryRequest(color: .green, limit: 100)
         )
-        #expect(try fixture.books.annotation(uuid: "uuid-deleted", scope: .activeRaw) == nil)
-        #expect(try fixture.books.annotation(uuid: "uuid-unknown-delete", scope: .activeRaw) == nil)
+        #expect(green.items.map(\.localPK) == expected.greenAnnotationLocalPKs)
+        #expect(try fixture.books.semanticAnnotation(uuid: "uuid-deleted") == nil)
+        #expect(try fixture.books.semanticAnnotation(uuid: "uuid-unknown-delete") == nil)
 
         let orphanExport = try fixture.books.exportBundle(
             options: ExportOptions(
@@ -347,9 +341,8 @@ struct FeatureParityRegressionTests {
         let bookExplicitLocalAssetID: String
         let combinedSearchLocalPKs: [Int64]
         let bookPageTotal: Int
-        let annotationPageTotal: Int
-        let greenPageLocalPKs: [Int64]
-        let recentlyModifiedLocalPKs: [Int64]
+        let annotationModifiedLocalPKs: [Int64]
+        let greenAnnotationLocalPKs: [Int64]
         let annotationStableUUID: String
         let annotationStableLocalPK: Int64
         let annotationExplicitLocalPK: Int64

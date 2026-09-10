@@ -87,9 +87,6 @@ enum CLIOperation {
     }
 
     private static func translate(_ error: Error) -> CLIError {
-        if error is QueryPaginationError || error is PageInputError {
-            return .usageInvalid("Invalid pagination parameters.")
-        }
         if let cursorError = error as? CursorPaginationError {
             switch cursorError {
             case .limitOutOfRange, .invalidCursor, .filterMismatch:
@@ -126,13 +123,8 @@ enum CLIOperation {
                 return .unavailable("Requested Apple Books search field is unavailable.")
             }
         }
-        if let annotationInputError = error as? AnnotationQueryInputError {
-            switch annotationInputError {
-            case .unknownColor:
-                return .usageInvalid("Invalid annotation color.")
-            case .invalidDateRange:
-                return .usageInvalid("Invalid annotation date range.")
-            }
+        if error is AnnotationQueryInputError {
+            return .usageInvalid("Invalid annotation color.")
         }
         if let collectionWriteError = error as? CollectionWriteError {
             switch collectionWriteError {

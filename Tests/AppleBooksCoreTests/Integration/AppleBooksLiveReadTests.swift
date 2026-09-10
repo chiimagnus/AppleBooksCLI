@@ -51,7 +51,13 @@ final class AppleBooksLiveReadTests: XCTestCase {
             bookQueries: bookQueries,
             historicalAssets: try AppleBooksConfiguration.loadDefault().historicalAssets
         )
-        let enriched = try annotationQueries.list()
+        var enriched: [SemanticAnnotation] = []
+        var cursor: String?
+        repeat {
+            let page = try annotationQueries.semanticPage(AnnotationQueryRequest(limit: 100, cursor: cursor))
+            enriched.append(contentsOf: page.items)
+            cursor = page.nextCursor
+        } while cursor != nil
         XCTAssertEqual(enriched.count, canonicalCount)
 
         var currentLibraryAssetCounts: [String: Int] = [:]
@@ -61,13 +67,10 @@ final class AppleBooksLiveReadTests: XCTestCase {
             }
         }
         for item in enriched {
-            let hasUniqueCurrentMatch = item.annotation.rawAssetID
+            let hasUniqueCurrentMatch = item.rawAssetID
                 .flatMap { currentLibraryAssetCounts[$0] } == 1
             guard hasUniqueCurrentMatch == false else { continue }
-            switch item.source {
-            case .historicalInferred, .unmapped:
-                break
-            case .currentLibrary:
+            if item.source.kind == .currentLibrary {
                 XCTFail("non-unique or orphan annotation lost its orphan-safe enrichment state")
             }
         }

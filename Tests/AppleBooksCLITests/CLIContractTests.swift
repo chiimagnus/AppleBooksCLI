@@ -515,6 +515,21 @@ struct CLIContractTests {
     }
 
     @Test
+    func sourceBuildProcessDiscoversSiblingWorkerForDoctorAndPDFHighlights() throws {
+        let fixture = try ProcessFixture(layout: .swiftPM)
+        defer { fixture.remove() }
+
+        let doctor = try fixture.runJSON(["doctor"])
+        let components = try #require(doctor["components"] as? [String: Any])
+        #expect(components["pdfWorkerReady"] as? Bool == true)
+
+        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
+        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
+        let rows = try #require(highlights["items"] as? [[String: Any]])
+        #expect(rows.first?["note"] as? String == "black box pdf")
+    }
+
+    @Test
     func processExportWritesNativePayloadsOnlyToExplicitFiles() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
@@ -578,6 +593,11 @@ private struct ProcessInvocation {
 }
 
 private final class ProcessHarness {
+    enum Layout {
+        case installed
+        case swiftPM
+    }
+
     let root: URL
     let home: URL
     let cwd: URL
@@ -587,36 +607,49 @@ private final class ProcessHarness {
         home.appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
     }
 
-    init() throws {
+    init(layout: Layout = .installed) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("applebookscli-contract-\(UUID().uuidString)", isDirectory: true)
         home = root.appendingPathComponent("home", isDirectory: true)
         cwd = root.appendingPathComponent("cwd", isDirectory: true)
-        let install = root.appendingPathComponent("install", isDirectory: true)
-        let bin = install.appendingPathComponent("bin", isDirectory: true)
-        let libexec = install.appendingPathComponent("libexec/applebookscli", isDirectory: true)
-        for directory in [home, cwd, bin, libexec] {
+        for directory in [home, cwd] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let debug = repository.appendingPathComponent(".build/debug", isDirectory: true)
-        let sourceCLI = debug.appendingPathComponent("applebookscli")
-        let sourceWorker = debug.appendingPathComponent("applebookscli-pdf-worker")
+        let products = try Self.swiftPMProductDirectory()
+        let sourceCLI = products.appendingPathComponent("applebookscli")
+        let sourceWorker = products.appendingPathComponent("applebookscli-pdf-worker")
         guard FileManager.default.isExecutableFile(atPath: sourceCLI.path),
               FileManager.default.isExecutableFile(atPath: sourceWorker.path) else {
             throw ContractFixtureError.missingExecutable
         }
 
-        executable = bin.appendingPathComponent("applebookscli")
-        try FileManager.default.copyItem(at: sourceCLI, to: executable)
-        try FileManager.default.copyItem(
-            at: sourceWorker,
-            to: libexec.appendingPathComponent("applebookscli-pdf-worker")
-        )
+        switch layout {
+        case .swiftPM:
+            executable = sourceCLI
+        case .installed:
+            let install = root.appendingPathComponent("install", isDirectory: true)
+            let bin = install.appendingPathComponent("bin", isDirectory: true)
+            let libexec = install.appendingPathComponent("libexec/applebookscli", isDirectory: true)
+            for directory in [bin, libexec] {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            executable = bin.appendingPathComponent("applebookscli")
+            try FileManager.default.copyItem(at: sourceCLI, to: executable)
+            try FileManager.default.copyItem(
+                at: sourceWorker,
+                to: libexec.appendingPathComponent("applebookscli-pdf-worker")
+            )
+        }
+    }
+
+    private static func swiftPMProductDirectory() throws -> URL {
+        let products = Bundle(for: ProcessHarness.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .standardizedFileURL
+        guard products.isFileURL else { throw ContractFixtureError.missingExecutable }
+        return products
     }
 
     func run(_ arguments: [String]) throws -> ProcessInvocation {
@@ -686,8 +719,8 @@ private final class ProcessFixture {
         ]
     }
 
-    init() throws {
-        harness = try ProcessHarness()
+    init(layout: ProcessHarness.Layout = .installed) throws {
+        harness = try ProcessHarness(layout: layout)
         root = harness.root.appendingPathComponent("fixture", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         epub = root.appendingPathComponent("synthetic.epub", isDirectory: true)

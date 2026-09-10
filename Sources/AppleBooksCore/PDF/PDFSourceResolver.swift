@@ -166,6 +166,23 @@ struct PDFSourceResolver {
         return PDFSource(fileURL: validated.fileURL, book: book, provenance: .library)
     }
 
+    func exportSource(book: Book, bookQueries: BookQueries) throws -> PDFSource? {
+        guard book.contentType == 3,
+              let rawPath = book.path,
+              let validated = validatedLibraryPDF(rawPath: rawPath),
+              let group = try libraryGroup(fileIdentity: validated.fileIdentity, bookQueries: bookQueries) else {
+            return nil
+        }
+        let candidate = try libraryCandidate(group)
+        let canonicalBook = try candidate.summaryLocalPK.flatMap { try bookQueries.getByLocalPK($0) }
+        return PDFSource(
+            fileURL: candidate.fileURL,
+            book: canonicalBook,
+            provenance: .library,
+            pdfSourceID: candidate.key.kind == .source ? candidate.key.value : nil
+        )
+    }
+
     func resolve(fileURL: URL, pdfBooks: [Book]) -> PDFSource? {
         guard let validated = validatedPDFURL(fileURL: fileURL) else { return nil }
         let booksByPath = booksByValidatedPath(pdfBooks)

@@ -101,14 +101,14 @@
 | --- | --- | --- |
 | export output destination | 已实现（强化） | 完整artifact只写显式confined file/dir；stdout仅compact JSON write result；默认不覆盖 unsafe/existing target |
 | Markdown export | 已实现 | plain Markdown；使用 canonical records |
-| JSON export | 已实现 | schemaVersion=4；保留 source-specific raw fields/warnings/statistics；presence 属性独立编码 |
+| JSON export | 已实现 | schemaVersion=5；保留 source-specific raw fields/warnings/statistics；presence 属性独立编码，PDF selector 使用 opaque source ID |
 | export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 user annotations 与 PDF highlights |
 | export 颜色过滤 | 已实现 | canonical EPUB colors；PDF approximate presentation color 不参与 hard filter |
 | export single/multiple file | 已实现 | single/per-document；统一经过 confinement/overwrite file writer |
 | partial export offset | 已实现 | 在最终 selection/order 后按 book skip |
 | export statistics | 已实现 | final selection stats 与 sourceTotals 分开；highlightCount/noteCount 独立且可重叠，无 bookmarkCount |
 | annotation export ordering | 已实现（强化） | 默认 reading；EPUB 与批注查询复用章节映射/CFI/creation/localPK 顺序，PDF 按 page geometry；不支持 source order |
-| EPUB/PDF source scope | 已实现（CLI 等价） | `epub / pdf / all` 明确分轨，不猜 historical/unmapped source |
+| EPUB/PDF source scope | 已实现（CLI 等价） | bulk 默认 all，可用 `--source epub / pdf / all` 收窄；exact `--book / --book-pk / --pdf` 自动路由、去重、missing/ambiguous fail closed；bulk PDF 不可用明确 incomplete |
 | 自选有 AEAnnotation highlights 的书 | 已实现（CLI 等价） | exact stable asset ID / canonical PDF selector；missing 返回 empty，duplicate fail closed |
 | Markdown smart overwrite | 已实现（CLI 等价） | `smart / always / never`；默认 never，plain Markdown 按稳定正文判定 unchanged |
 | cover inline / cover file | 已实现（CLI 等价） | 使用真实 media type；安全 filename、不覆盖 |

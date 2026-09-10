@@ -50,6 +50,7 @@ metadata:
 ## 导出与失败处理
 
 - `export` 必须显式指定 output destination；完整 Markdown/archival JSON 写文件，stdout 只返回 compact command result。
+- 精确导出用 `--book <assetID>`（或显式 `--book-pk`）；没有唯一 Book identity 的 PDF 用 `pdf list` 返回的 `--pdf <pdfSourceID>`，不要传路径。selector 可重复，媒体自动路由；missing/ambiguous 失败，有效但无批注的书允许空结果。无 selector 时 bulk 默认覆盖 EPUB+PDF，只有 bulk 可用 `--source epub|pdf|all`；检查 `complete` 与 `warnings` 后再判断 artifact 是否完整，exact PDF 读取失败不写 artifact。
 - 导出默认按各文档内的阅读顺序排列，无需指定 order。
 - 导出属性过滤使用 `--has-highlight true|false`、`--has-note true|false`、`--underline true|false`；省略不筛，多条件按 AND 组合，Highlight 与 Note 可以同时存在。`--color` 只匹配 EPUB canonical color，不匹配 PDF 近似色；PDF highlight 即使未提取到文字仍算 highlight。
 - 权限、DB discovery、schema 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。

@@ -78,7 +78,7 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 4)
+        #expect(root["schemaVersion"] as? Int == 5)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -95,8 +95,8 @@ struct JSONExporterTests {
         let selectors = try array(options["bookSelectors"])
         #expect(try dictionary(selectors[0])["kind"] as? String == "assetID")
         #expect(try dictionary(selectors[0])["value"] as? String == "current-asset")
-        #expect(try dictionary(selectors[1])["kind"] as? String == "pdfFile")
-        #expect(try dictionary(selectors[1])["value"] as? String == fixture.pdfURL.path)
+        #expect(try dictionary(selectors[1])["kind"] as? String == "pdfSourceID")
+        #expect(try dictionary(selectors[1])["value"] as? String == "pdf1_" + String(repeating: "a", count: 64))
 
         let statistics = try dictionary(root["statistics"])
         #expect(statistics["documentCount"] as? Int == 3)
@@ -279,7 +279,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 4)
+        #expect(document["schemaVersion"] as? Int == 5)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -447,7 +447,7 @@ struct JSONExporterTests {
             ]
             let options = try ExportOptions(
                 source: .all,
-                bookSelectors: [.assetID("current-asset"), .pdfFile(pdfURL)],
+                bookSelectors: [.assetID("current-asset"), .pdfSourceID("pdf1_" + String(repeating: "a", count: 64))],
                 hasHighlight: true,
                 hasNote: false,
                 colors: [.yellow, .blue],

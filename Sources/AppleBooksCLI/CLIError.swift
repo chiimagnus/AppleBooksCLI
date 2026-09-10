@@ -259,8 +259,17 @@ enum CLIOperation {
                 return .usageInvalid("Export options conflict.")
             }
         }
-        if error is ExportServiceError {
-            return .unavailable("PDF worker is unavailable for the requested export source.")
+        if let exportError = error as? ExportServiceError {
+            switch exportError {
+            case .selectorNotFound:
+                return .notFound("Export selector was not found. Refresh books or pdf list.")
+            case .pdfWorkerUnavailable:
+                return .unavailable("PDF worker is unavailable for the requested export source.")
+            case .pdfSourceUnavailable:
+                return .unavailable("Selected PDF is not locally readable. Refresh pdf list.")
+            case .pdfReadFailed:
+                return .unavailable("Selected PDF could not be read. Check its local availability.")
+            }
         }
         if error is ExportFileWriterError {
             return .writeSafety("Output path is unsafe or already exists.")

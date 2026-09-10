@@ -876,6 +876,25 @@ public final class AppleBooks {
         )
     }
 
+    package func exportDependencies(options: ExportOptions) throws -> AppleBooksDependencies {
+        if options.bookSelectors.isEmpty {
+            switch options.source {
+            case .epub: return [.libraryRead, .annotationsRead, .configuration]
+            case .pdf: return [.libraryRead, .pdfWorker]
+            case .all: return [.libraryRead, .annotationsRead, .configuration, .pdfWorker]
+            }
+        }
+        let sources = try ExportSourceResolver(
+            bookQueries: requiredBookQueries(), pdfSourceResolver: pdfSourceResolver
+        ).resolve(options.bookSelectors)
+        var required: AppleBooksDependencies = .libraryRead
+        for source in sources {
+            if source.pdfSource != nil { required.insert(.pdfWorker) }
+            else { required.formUnion([.annotationsRead, .configuration]) }
+        }
+        return required
+    }
+
     public func exportBundle(options: ExportOptions) throws -> ExportBundle {
         let pdfService: PDFHighlightService?
         if let pdfWorkerClient {
@@ -891,7 +910,8 @@ public final class AppleBooks {
             annotationQueries: annotationQueries,
             bookQueries: try requiredBookQueries(),
             configuration: dependencies.contains(.configuration) ? configuration : nil,
-            pdfService: pdfService
+            pdfService: pdfService,
+            pdfSourceResolver: pdfSourceResolver
         ).makeBundle(options: options)
     }
 

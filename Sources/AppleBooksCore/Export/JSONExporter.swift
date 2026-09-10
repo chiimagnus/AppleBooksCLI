@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 4
+    static let schemaVersion = 5
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -67,8 +67,8 @@ private struct JSONExportMapper {
                     JSONBookSelectorDTO(kind: "assetID", value: assetID)
                 case let .localPK(localPK):
                     JSONBookSelectorDTO(kind: "localPK", value: String(localPK))
-                case let .pdfFile(url):
-                    JSONBookSelectorDTO(kind: "pdfFile", value: url.path)
+                case let .pdfSourceID(value):
+                    JSONBookSelectorDTO(kind: "pdfSourceID", value: value)
                 }
             },
             hasHighlight: value.hasHighlight,
@@ -209,6 +209,8 @@ private struct JSONExportMapper {
 
     private func warning(_ value: ExportWarning) -> JSONWarningDTO {
         switch value {
+        case .pdfUnavailable:
+            return JSONWarningDTO(code: "pdfUnavailable")
         case let .epubContentUnavailable(bookLocalPK):
             return JSONWarningDTO(code: "epubContentUnavailable", bookLocalPK: bookLocalPK)
         case let .epubMetadataUnavailable(bookLocalPK):

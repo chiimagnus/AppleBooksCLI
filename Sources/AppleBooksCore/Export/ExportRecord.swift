@@ -78,24 +78,6 @@ public struct ExportRecord: Equatable, Sendable {
         return book.contentType == 3
     }
 
-    fileprivate func matches(_ selector: ExportBookSelector) -> Bool {
-        switch (payload, selector) {
-        case let (.epub(enriched), .assetID(assetID)):
-            return enriched.annotation.rawAssetID == assetID
-        case let (.pdf(source, _), .assetID(assetID)):
-            return source.book?.assetID == assetID
-        case let (.epub(enriched), .localPK(localPK)):
-            guard case let .currentLibrary(book) = enriched.source else { return false }
-            return book.localPK == localPK
-        case let (.pdf(source, _), .localPK(localPK)):
-            return source.book?.localPK == localPK
-        case let (.pdf(source, _), .pdfFile(url)):
-            return source.fileURL == url
-        case (.epub, .pdfFile):
-            return false
-        }
-    }
-
     fileprivate func readingKey(chapterOrder: [String: Int]) -> ReadingKey {
         switch payload {
         case let .epub(enriched):
@@ -127,7 +109,6 @@ enum ExportSelection {
         let filtered = records.enumerated().compactMap { index, record -> IndexedRecord? in
             guard sourceAllows(options.source, record),
                   record.isKnownCurrentPDFAnnotation == false,
-                  options.bookSelectors.isEmpty || options.bookSelectors.contains(where: record.matches),
                   record.hasHighlight || record.hasNote,
                   options.hasHighlight.map({ $0 == record.hasHighlight }) ?? true,
                   options.hasNote.map({ $0 == record.hasNote }) ?? true,

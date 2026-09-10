@@ -207,7 +207,8 @@
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportService.swift"
+      "Sources/AppleBooksCore/Export/ExportService.swift",
+      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift"
     ],
     "testPaths": [
       "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
@@ -216,6 +217,10 @@
       [
         "export",
         "--source"
+      ],
+      [
+        "export",
+        "--pdf"
       ]
     ]
   },

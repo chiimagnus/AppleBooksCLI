@@ -544,7 +544,7 @@ struct CLIContractTests {
 
         let jsonFile = fixture.root.appendingPathComponent("export.json")
         let json = try fixture.run([
-            "export", "--format", "json", "--output", jsonFile.path,
+            "export", "--format", "json", "--source", "epub", "--output", jsonFile.path,
         ] + fixture.globals)
         #expect(json.status == 0)
         #expect(json.stderr.isEmpty)
@@ -559,7 +559,7 @@ struct CLIContractTests {
 
         let markdownFile = fixture.root.appendingPathComponent("export.md")
         let markdown = try fixture.run([
-            "export", "--format", "markdown", "--output", markdownFile.path,
+            "export", "--format", "markdown", "--source", "epub", "--output", markdownFile.path,
         ] + fixture.globals)
         #expect(markdown.status == 0)
         #expect(markdown.stderr.isEmpty)

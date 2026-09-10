@@ -88,6 +88,12 @@ struct ExportRunResult: Codable, Equatable, Sendable {
     let documentCount: Int
     let warningCount: Int
     let complete: Bool
+    var warnings: [ExportRunWarning] = []
+}
+
+struct ExportRunWarning: Codable, Equatable, Sendable {
+    let code: String
+    let source: String
 }
 
 struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
@@ -105,7 +111,10 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .customLong("book-pk"), help: "Select an explicit local book primary key. Repeatable.")
     var bookPK: [Int64] = []
 
-    @Option(name: .long, help: "Source scope: epub, pdf, or all.")
+    @Option(name: .long, help: "Select an opaque PDF source ID from pdf list. Repeatable.")
+    var pdf: [String] = []
+
+    @Option(name: .long, help: "Bulk source scope: epub, pdf, or all (default). Cannot combine with exact selectors.")
     var source: ExportSourceArgument?
 
     @Option(name: .long, help: "Filter highlight presence: true or false.")
@@ -157,6 +166,10 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
         let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
+            + pdf.map(ExportBookSelector.pdfSourceID)
+        guard selectors.isEmpty || source == nil else {
+            throw ValidationError("--source cannot be combined with exact selectors.")
+        }
         let colors: Set<ExportPresentationColor>? = color.isEmpty ? defaults.colors : Set(color.map(\.coreValue))
         let resolvedSource = source?.coreValue ?? defaults.source
         let resolvedOrder = order?.coreValue ?? defaults.order
@@ -210,12 +223,18 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 workerURLProvider: workerURLProvider
             )
             let bundle = try books.exportBundle(options: request.options)
-            return try write(
+            var result = try write(
                 bundle,
                 request: request,
                 outputURL: request.outputURL,
                 exportedAt: exportedAt
             )
+            if bundle.warnings.contains(.pdfUnavailable) {
+                result.warnings = [ExportRunWarning(code: "pdf_unavailable", source: "pdf")]
+            } else if bundle.sourceTotals.pdfFailedDocumentCount > 0 {
+                result.warnings = [ExportRunWarning(code: "pdf_read_failed", source: "pdf")]
+            }
+            return result
         }
     }
 
@@ -236,42 +255,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         workerURLProvider: () throws -> URL
     ) throws -> AppleBooks {
         let context = CLIContext(global: global)
-        var dependencies: AppleBooksDependencies = [.libraryRead]
-
-        if options.bookSelectors.isEmpty {
-            switch options.source {
-            case .epub:
-                dependencies.formUnion([.annotationsRead, .configuration])
-            case .pdf:
-                dependencies.insert(.pdfWorker)
-            case .all:
-                dependencies.formUnion([.annotationsRead, .configuration, .pdfWorker])
-            }
-        } else {
-            let probe = try context.makeAppleBooks(dependencies: .libraryRead)
-            for selector in options.bookSelectors {
-                switch selector {
-                case let .assetID(assetID):
-                    let current = try probe.book(assetID: assetID)
-                    if current?.contentType == 3 {
-                        if options.source != .epub { dependencies.insert(.pdfWorker) }
-                    } else if options.source != .pdf {
-                        dependencies.formUnion([.annotationsRead, .configuration])
-                    }
-                case let .localPK(localPK):
-                    guard let current = try probe.book(localPK: localPK) else { continue }
-                    if current.contentType == 3 {
-                        if options.source != .epub { dependencies.insert(.pdfWorker) }
-                    } else if options.source != .pdf {
-                        dependencies.formUnion([.annotationsRead, .configuration])
-                    }
-                case .pdfFile:
-                    if options.source != .epub { dependencies.insert(.pdfWorker) }
-                }
+        let probe = try context.makeAppleBooks(dependencies: .libraryRead)
+        var dependencies = try probe.exportDependencies(options: options)
+        var workerURL: URL?
+        if dependencies.contains(.pdfWorker) {
+            do {
+                workerURL = try workerURLProvider()
+            } catch {
+                guard options.bookSelectors.isEmpty, options.source == .all else { throw error }
+                dependencies.remove(.pdfWorker)
             }
         }
-
-        let workerURL = dependencies.contains(.pdfWorker) ? try workerURLProvider() : nil
         return try context.makeAppleBooks(
             dependencies: dependencies,
             pdfWorkerURL: workerURL
@@ -320,7 +314,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 disposition: .file,
                 documentCount: result.documentFileCount,
                 warningCount: bundle.warnings.count,
-                complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+                complete: bundle.complete
             )
         }
 
@@ -335,7 +329,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             disposition: .file,
             documentCount: 1,
             warningCount: bundle.warnings.count,
-            complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+            complete: bundle.complete
         )
     }
 
@@ -371,7 +365,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             disposition: .directory,
             documentCount: result.documentFileCount,
             warningCount: bundle.warnings.count,
-            complete: bundle.sourceTotals.pdfFailedDocumentCount == 0
+            complete: bundle.complete
         )
     }
 

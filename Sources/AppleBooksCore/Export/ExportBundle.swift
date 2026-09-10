@@ -27,6 +27,7 @@ public struct ExportGroup: Equatable, Sendable {
 }
 
 public enum ExportWarning: Equatable, Sendable {
+    case pdfUnavailable
     case epubContentUnavailable(bookLocalPK: Int64)
     case epubMetadataUnavailable(bookLocalPK: Int64)
     case epubCoverUnavailable(bookLocalPK: Int64)
@@ -61,4 +62,8 @@ public struct ExportBundle: Equatable, Sendable {
     public let warnings: [ExportWarning]
     public let statistics: ExportStatistics
     public let sourceTotals: ExportSourceTotals
+
+    public var complete: Bool {
+        sourceTotals.pdfFailedDocumentCount == 0 && !warnings.contains(.pdfUnavailable)
+    }
 }

@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -31,7 +32,6 @@ struct ExportCommandTests {
             "--book", "asset-b",
             "--book-pk", "11",
             "--book-pk", "12",
-            "--source", "all",
             "--has-highlight", "false",
             "--has-note", "true",
             "--color", "yellow",
@@ -145,14 +145,13 @@ struct ExportCommandTests {
     }
 
     @Test
-    func exactCurrentEPUBWithAllSourceDoesNotResolvePDFWorker() throws {
+    func exactCurrentEPUBDoesNotResolvePDFWorker() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let destination = fixture.root.appendingPathComponent("exact-epub.json")
         let command = try ExportCommand.parse([
             "--format", "json",
             "--book", "asset-a",
-            "--source", "all",
             "--output", destination.path,
             "--library-db", fixture.library.path,
             "--annotations-db", fixture.annotations.path,
@@ -183,6 +182,7 @@ struct ExportCommandTests {
         let destination = fixture.root.appendingPathComponent("annotations.json")
         let command = try ExportCommand.parse([
             "--format", "json",
+            "--source", "epub",
             "--output", destination.path,
         ])
         let capture = Capture()
@@ -211,6 +211,7 @@ struct ExportCommandTests {
         let command = try ExportCommand.parse([
             "--format", "json",
             "--grouping", "per-book",
+            "--source", "epub",
             "--output", directory.path,
         ])
 
@@ -224,6 +225,101 @@ struct ExportCommandTests {
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         #expect(names.count == 2)
         #expect(names.allSatisfy { $0.hasSuffix(".json") })
+    }
+
+    @Test
+    func exactSelectorsRejectBulkScopeAndMapOpaquePDFIdentity() throws {
+        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
+        for selector in [["--book", "asset-a"], ["--book-pk", "1"], ["--pdf", sourceID]] {
+            for scope in ["epub", "pdf", "all"] {
+                let command = try ExportCommand.parse([
+                    "--format", "json", "--output", "/tmp/export.json", "--source", scope,
+                ] + selector)
+                #expect(throws: ValidationError.self) { _ = try command.makeRequest() }
+            }
+        }
+        let request = try ExportCommand.parse([
+            "--format", "json", "--output", "/tmp/export.json", "--pdf", sourceID, "--pdf", sourceID,
+        ]).makeRequest()
+        #expect(request.options.bookSelectors == [.pdfSourceID(sourceID), .pdfSourceID(sourceID)])
+    }
+
+    @Test
+    func exactPDFDoesNotOpenAnnotationsOrConfigurationAndMixedUsesUnion() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let pdf = fixture.root.appendingPathComponent("fixture.pdf")
+        try Data("%PDF-synthetic".utf8).write(to: pdf)
+        try Fixture.createDatabase(fixture.library, sql: """
+            ALTER TABLE ZBKLIBRARYASSET ADD COLUMN ZPATH TEXT;
+            INSERT INTO ZBKLIBRARYASSET VALUES (3,'pdf-book','PDF Book','Author',3,'\(pdf.path)');
+            """)
+        let worker = fixture.root.appendingPathComponent("worker")
+        try Data("""
+            #!/bin/sh
+            IFS= read -r request || true
+            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
+            """.utf8).write(to: worker)
+        #expect(chmod(worker.path, 0o700) == 0)
+        let missing = fixture.root.appendingPathComponent("missing").path
+        let arguments = ["--format", "json", "--library-db", fixture.library.path]
+        let exact = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--output", fixture.root.appendingPathComponent("pdf.json").path,
+            "--annotations-db", missing, "--config", missing,
+        ])
+        var workerCalls = 0
+        let result = try exact.execute(workerURLProvider: { workerCalls += 1; return worker })
+        #expect(result.complete)
+        #expect(workerCalls == 1)
+        let mixed = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--book", "asset-a",
+            "--output", fixture.root.appendingPathComponent("mixed.json").path,
+            "--annotations-db", fixture.annotations.path, "--config", fixture.configuration.path,
+        ])
+        let mixedResult = try mixed.execute(workerURLProvider: { workerCalls += 1; return worker })
+        #expect(mixedResult.complete)
+        #expect(workerCalls == 2)
+        let artifact = try String(contentsOfFile: mixedResult.destination, encoding: .utf8)
+        #expect(artifact.contains("Quote A"))
+        let probe = try AppleBooks(
+            libraryDB: fixture.library, annotationsDB: nil, configurationFile: nil,
+            dependencies: .libraryRead,
+            manageCollectionBooksApplication: false,
+            manageAnnotationBooksApplication: false
+        )
+        #expect(try probe.exportDependencies(options: exact.makeRequest().options) == [.libraryRead, .pdfWorker])
+        #expect(try probe.exportDependencies(options: mixed.makeRequest().options) == [.libraryRead, .annotationsRead, .configuration, .pdfWorker])
+        #expect(try probe.exportDependencies(options: ExportOptions(bookSelectors: [.assetID("historical")])) == [.libraryRead, .annotationsRead, .configuration])
+        try Data("""
+            #!/bin/sh
+            IFS= read -r request || true
+            printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
+            """.utf8).write(to: worker)
+        let failedDestination = fixture.root.appendingPathComponent("failed.json")
+        let failing = try ExportCommand.parse(arguments + [
+            "--book", "pdf-book", "--output", failedDestination.path,
+            "--annotations-db", missing, "--config", missing,
+        ])
+        #expect(throws: CLIError.unavailable("Selected PDF could not be read. Check its local availability.")) {
+            _ = try failing.execute(workerURLProvider: { worker })
+        }
+        #expect(!FileManager.default.fileExists(atPath: failedDestination.path))
+    }
+
+    @Test
+    func unavailableBulkPDFWritesPartialArtifactWithStructuredWarning() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let command = try ExportCommand.parse([
+            "--format", "json", "--output", fixture.root.appendingPathComponent("partial.json").path,
+            "--library-db", fixture.library.path, "--annotations-db", fixture.annotations.path,
+            "--config", fixture.configuration.path,
+        ])
+        let result = try command.execute(workerURLProvider: { throw FixtureError.workerMustNotBeResolved })
+        #expect(!result.complete)
+        #expect(result.warningCount == 1)
+        #expect(result.warnings == [ExportRunWarning(code: "pdf_unavailable", source: "pdf")])
+        #expect(try String(contentsOfFile: result.destination, encoding: .utf8).contains("Quote A"))
     }
 
     private final class Capture {
@@ -312,7 +408,7 @@ struct ExportCommandTests {
         );
         """
 
-        private static func createDatabase(_ url: URL, sql: String) throws {
+        static func createDatabase(_ url: URL, sql: String) throws {
             var handle: OpaquePointer?
             guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else {
                 if let handle { sqlite3_close_v2(handle) }

@@ -6,9 +6,9 @@ import Testing
 @Suite("ExportOptionsTests")
 struct ExportOptionsTests {
     @Test
-    func canonicalDefaultsAreLowIOAndInvalidOptionsFailBeforeUse() throws {
+    func canonicalDefaultsCoverAllSourcesAndInvalidOptionsFailBeforeUse() throws {
         let options = try ExportOptions()
-        #expect(options.source == .epub)
+        #expect(options.source == .all)
         #expect(options.bookSelectors.isEmpty)
         #expect(options.hasHighlight == nil)
         #expect(options.hasNote == nil)
@@ -30,15 +30,15 @@ struct ExportOptionsTests {
             _ = try ExportOptions(bookSelectors: [.assetID("")])
         }
         #expect(throws: ExportOptionsError.invalidBookSelector) {
-            _ = try ExportOptions(bookSelectors: [.pdfFile(URL(string: "https://example.invalid/book.pdf")!)])
+            _ = try ExportOptions(bookSelectors: [.pdfSourceID("https://example.invalid/book.pdf")])
         }
         #expect(throws: ExportOptionsError.invalidBookSelector) {
-            _ = try ExportOptions(bookSelectors: [.pdfFile(URL(fileURLWithPath: "/tmp/one/../book.pdf"))])
+            _ = try ExportOptions(bookSelectors: [.pdfSourceID("/tmp/one/../book.pdf")])
         }
         #expect(throws: ExportOptionsError.conflictingOptions) {
             _ = try ExportOptions(
                 source: .epub,
-                bookSelectors: [.pdfFile(URL(fileURLWithPath: "/tmp/book.pdf"))]
+                bookSelectors: [.pdfSourceID("pdf1_" + String(repeating: "a", count: 64))]
             )
         }
         #expect(throws: ExportOptionsError.conflictingOptions) {
@@ -172,7 +172,7 @@ struct ExportOptionsTests {
     }
 
     @Test
-    func colorUnderlineAndSelectorsFilterPresentationWithoutRewritingRawFields() throws {
+    func colorAndUnderlineFilterPresentationWithoutRewritingRawFields() throws {
         let underlined = ExportRecord(payload: .epub(.init(
             annotation: annotation(pk: 1, assetID: "asset-a", selectedText: "one", style: 0, underline: true),
             source: .unmapped
@@ -202,7 +202,6 @@ struct ExportOptionsTests {
         let yellowPDF = try ExportSelection.apply(
             options: try ExportOptions(
                 source: .pdf,
-                bookSelectors: [.pdfFile(pdfURL)],
                 hasHighlight: true,
                 colors: [.yellow]
             ),
@@ -210,26 +209,6 @@ struct ExportOptionsTests {
         )
         #expect(yellowPDF.isEmpty)
 
-        let assetSelected = try ExportSelection.apply(
-            options: try ExportOptions(
-                source: .all,
-                bookSelectors: [.assetID("asset-a")],
-                hasHighlight: true
-            ),
-            to: [underlined, styleOnly, pdf]
-        )
-        #expect(assetSelected == [underlined, styleOnly])
-
-        let currentBook = book(localPK: 77, assetID: "asset-local", contentType: 1)
-        let localRecord = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 3, assetID: "asset-local", selectedText: "local"),
-            source: .currentLibrary(currentBook)
-        )))
-        let localSelected = try ExportSelection.apply(
-            options: try ExportOptions(bookSelectors: [.localPK(77)], hasHighlight: true),
-            to: [underlined, localRecord]
-        )
-        #expect(localSelected == [localRecord])
     }
 
     @Test

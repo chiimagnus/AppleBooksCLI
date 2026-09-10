@@ -47,7 +47,6 @@ struct FeatureParityRegressionTests {
 
         let orphanExport = try fixture.books.exportBundle(
             options: ExportOptions(
-                source: .epub,
                 bookSelectors: [.assetID("orphan-asset")]
             )
         )

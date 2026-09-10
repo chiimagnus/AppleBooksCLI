@@ -50,6 +50,7 @@ For annotation reads, repeat every selector/filter/order when continuing `annota
 ## Export and failures
 
 - `export` requires an explicit output destination. Full Markdown/archival JSON goes to files; stdout contains the compact command result.
+- Export an exact book with `--book <assetID>` (or explicit `--book-pk`), or a non-Book-identified PDF with `--pdf <pdfSourceID>` from `pdf list`; selectors are repeatable and media routing is automatic. Missing/ambiguous selectors fail, while a valid empty book is allowed. With no selectors, bulk export covers EPUB+PDF; only bulk accepts `--source epub|pdf|all`. Check `complete` and `warnings` before treating a bulk artifact as complete; exact PDF read failure writes no artifact.
 - Export records use reading order within each document by default; no order flag is needed.
 - Filter export with `--has-highlight true|false`, `--has-note true|false`, and `--underline true|false`; omitted properties are unrestricted, combined properties use AND. Highlight and Note can overlap. `--color` matches canonical EPUB colors, never approximate PDF colors. PDF highlights count as highlights even without extracted text.
 - Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.

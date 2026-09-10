@@ -39,7 +39,7 @@ public enum ExportCoverMode: String, Equatable, Sendable {
 public enum ExportBookSelector: Equatable, Hashable, Sendable {
     case assetID(String)
     case localPK(Int64)
-    case pdfFile(URL)
+    case pdfSourceID(String)
 }
 
 public struct ExportOptions: Equatable, Sendable {
@@ -56,7 +56,7 @@ public struct ExportOptions: Equatable, Sendable {
     public let cover: ExportCoverMode
 
     public init(
-        source: ExportSourceScope = .epub,
+        source: ExportSourceScope = .all,
         bookSelectors: [ExportBookSelector] = [],
         hasHighlight: Bool? = nil,
         hasNote: Bool? = nil,
@@ -78,19 +78,13 @@ public struct ExportOptions: Equatable, Sendable {
                 guard value.isEmpty == false else { throw ExportOptionsError.invalidBookSelector }
             case .localPK:
                 break
-            case let .pdfFile(url):
-                guard url.isFileURL,
-                      url.path.hasPrefix("/"),
-                      url.standardizedFileURL.path == url.path else {
+            case let .pdfSourceID(value):
+                guard (try? PDFSourceID.parse(value)) != nil else {
                     throw ExportOptionsError.invalidBookSelector
                 }
             }
         }
-        if source == .epub,
-           bookSelectors.contains(where: { selector in
-               if case .pdfFile = selector { return true }
-               return false
-           }) {
+        if !bookSelectors.isEmpty, source != .all {
             throw ExportOptionsError.conflictingOptions
         }
         if source == .pdf, includeEPUBMetadata || cover != .none {

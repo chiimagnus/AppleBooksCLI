@@ -17,7 +17,6 @@ struct ExportPublicAPITests {
         )
         let bundle = try core.exportBundle(
             options: ExportOptions(
-                source: .epub,
                 bookSelectors: [.assetID("asset-a")],
                 hasHighlight: true
             )

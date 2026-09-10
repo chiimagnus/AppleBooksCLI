@@ -110,6 +110,8 @@ PDF 的长期边界：
 
 ## Export 分层
 
+`ExportSourceResolver` 将 exact selector 归一到唯一 `ResolvedExportSourceKey`：current EPUB 使用 current localPK，historical/unmapped 使用完整 asset identity，PDF 复用 `PDFSourceResolver` 的 canonical source slot。等价 selector 在读取前去重；不存在的 current/historical/user-scope identity 与歧义 fail closed，type-3 row 不能证明 selector 有效。CLI 先用 library-only probe 调用 Core 的 `exportDependencies`，再按 media 装配 annotations/config 与 PDF worker 的依赖并集；pure PDF 不打开 annotations/config，pure EPUB 不解析 worker。无 selector 的 bulk source scope 是独立层，默认 all；PDF worker 不可用或读取失败允许显式 incomplete partial artifact，exact PDF 则 hard failure。
+
 ```text
 query/content/PDF
 → canonical ExportBundle

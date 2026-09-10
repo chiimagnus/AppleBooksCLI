@@ -702,23 +702,6 @@ public final class AppleBooks {
         try requiredBookQueries().semanticDetail(assetID: assetID)
     }
 
-    public func pdfSources() throws -> [PDFSource] {
-        pdfSourceResolver.resolve(pdfBooks: try requiredBookQueries().pdfBooks())
-    }
-
-    public func pdfSource(forBookLocalPK localPK: Int64) throws -> PDFSource? {
-        let queries = try requiredBookQueries()
-        guard try queries.pdfResourceTarget(localPK: localPK) != nil,
-              let book = try queries.getByLocalPK(localPK) else {
-            return nil
-        }
-        return pdfSourceResolver.resolve(book: book)
-    }
-
-    public func pdfSource(fileURL: URL) throws -> PDFSource? {
-        pdfSourceResolver.resolve(fileURL: fileURL, pdfBooks: try requiredBookQueries().pdfBooks())
-    }
-
     package func semanticPDFSourcePage(
         limit: Int? = nil,
         cursor: String? = nil
@@ -797,14 +780,6 @@ public final class AppleBooks {
             nextCursor: nextCursor,
             hasMore: workerPage.hasMore
         )
-    }
-
-    public func pdfHighlights() throws -> PDFHighlightServiceResult {
-        try pdfHighlightService().readHighlights()
-    }
-
-    public func pdfHighlights(source: PDFSource) throws -> PDFHighlightServiceResult {
-        try pdfHighlightService().readHighlights(sources: [source])
     }
 
     private func pdfHighlightCursorIdentity(_ source: PDFSource) throws -> (kind: String, value: String) {

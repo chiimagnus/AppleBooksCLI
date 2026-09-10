@@ -63,7 +63,6 @@ package struct PDFInventorySummary: Equatable, Sendable {
 public enum PDFSourceProvenance: String, Equatable, Sendable {
     case library
     case fallback
-    case explicit
 }
 
 public struct PDFSource: Equatable, Sendable {

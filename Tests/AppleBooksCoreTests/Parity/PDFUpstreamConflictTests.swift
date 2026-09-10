@@ -25,11 +25,7 @@ struct PDFUpstreamConflictTests {
         #expect(String(decoding: try Data(contentsOf: markerNegative), as: UTF8.self).contains("/Highlight") == false)
 
         let library = root.appendingPathComponent("library.sqlite")
-        let annotations = root.appendingPathComponent("annotations.sqlite")
         try execute(library, "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZCONTENTTYPE INTEGER,ZPATH TEXT);")
-        try execute(annotations, "CREATE TABLE placeholder(value INTEGER);")
-        let config = root.appendingPathComponent("config.json")
-        try Data("{}".utf8).write(to: config)
 
         let worker = root.appendingPathComponent("worker")
         let script = """
@@ -51,17 +47,12 @@ struct PDFUpstreamConflictTests {
         try Data(script.utf8).write(to: worker)
         #expect(chmod(worker.path, 0o700) == 0)
 
-        let core = try AppleBooks(
-            libraryDB: library,
-            annotationsDB: annotations,
-            configurationFile: config,
-            collectionWriter: CollectionWriter(database: library),
-            annotationWriter: AnnotationWriter(database: annotations),
-            pdfSourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
-            pdfWorkerClient: PDFWorkerClient(workerURL: worker, timeout: 1)
+        let service = PDFHighlightService(
+            bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
+            sourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
+            workerClient: PDFWorkerClient(workerURL: worker, timeout: 1)
         )
-
-        let result = try core.pdfHighlights()
+        let result = service.readHighlights(sources: try service.inventory())
         #expect(result.attemptedCount == 3)
         #expect(result.succeededCount == 2)
         #expect(result.noHighlightsCount == 1)

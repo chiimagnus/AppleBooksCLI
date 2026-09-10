@@ -18,7 +18,7 @@ struct PDFHighlightServiceTests {
         let worker = try fixture.worker()
         let service = try fixture.service(worker: worker, timeout: 2)
 
-        let result = try service.readHighlights()
+        let result = service.readHighlights(sources: try service.inventory())
 
         #expect(result.attemptedCount == 4)
         #expect(result.succeededCount == 2)
@@ -56,8 +56,8 @@ struct PDFHighlightServiceTests {
         let worker = try fixture.worker()
         let service = try fixture.service(worker: worker, timeout: 1)
 
-        #expect(try service.readHighlights().attemptedCount == 2)
-        #expect(try service.readHighlights().attemptedCount == 2)
+        #expect(service.readHighlights(sources: try service.inventory()).attemptedCount == 2)
+        #expect(service.readHighlights(sources: try service.inventory()).attemptedCount == 2)
 
         let calls = try String(contentsOf: fixture.counter, encoding: .utf8)
         #expect(calls.count == 4)

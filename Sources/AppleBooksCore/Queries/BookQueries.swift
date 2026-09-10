@@ -41,7 +41,6 @@ struct BookQueries {
         case title(String)
         case genre(String)
         case combinedText(String)
-        case pdf
         case assetID(String)
     }
 
@@ -194,10 +193,6 @@ struct BookQueries {
 
     func totalCount() throws -> Int {
         try baseTotal()
-    }
-
-    func pdfBooks() throws -> [Book] {
-        try query(.pdf, capability: .bookPDF, limit: nil, offset: 0)
     }
 
     func forEachPDFResourceTarget(
@@ -655,8 +650,6 @@ struct BookQueries {
         case .combinedText:
             let clauses = combinedSearchColumns.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
             sql += " WHERE (\(clauses.joined(separator: " OR ")))"
-        case .pdf:
-            sql += " WHERE \(AppleBooksSchema.Book.contentType) = 3"
         case .assetID:
             sql += " WHERE \(AppleBooksSchema.Book.assetID) = ? COLLATE BINARY"
         }
@@ -700,8 +693,6 @@ struct BookQueries {
                 try statement.bind(pattern, at: index)
                 index += 1
             }
-        case .pdf:
-            break
         case let .assetID(value):
             try statement.bind(value, at: index)
             index += 1

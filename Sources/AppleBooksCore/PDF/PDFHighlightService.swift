@@ -66,10 +66,6 @@ struct PDFHighlightService {
         try sourceResolver.exportInventory(bookQueries: bookQueries)
     }
 
-    func readHighlights() throws -> PDFHighlightServiceResult {
-        readHighlights(sources: try inventory())
-    }
-
     func readAgentPage(
         source: PDFSource,
         limit: Int,

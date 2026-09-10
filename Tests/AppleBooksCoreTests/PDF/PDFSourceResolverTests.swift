@@ -7,7 +7,7 @@ import Testing
 @Suite("PDFSourceResolverTests")
 struct PDFSourceResolverTests {
     @Test
-    func pdfBooksRequireContentTypeAndFilterExactThree() throws {
+    func pdfResourceTargetsRequireContentTypeAndFilterExactThree() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let database = root.appendingPathComponent("library.sqlite")
@@ -25,16 +25,20 @@ struct PDFSourceResolverTests {
         """)
         let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
 
-        let books = try queries.pdfBooks()
-        #expect(books.map(\.localPK) == [1])
-        #expect(books[0].contentType == 3)
-        #expect(books[0].path == "/tmp/current.pdf")
+        var targets: [BookResourceTarget] = []
+        try queries.forEachPDFResourceTarget { target, _ in
+            targets.append(target)
+            return true
+        }
+        #expect(targets.map(\.localPK) == [1])
+        #expect(targets[0].contentType == 3)
+        #expect(targets[0].path == "/tmp/current.pdf")
 
         let missingColumn = root.appendingPathComponent("missing-content-type.sqlite")
         try createDatabase(missingColumn, sql: "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY, ZPATH TEXT);")
         let incomplete = BookQueries(connection: try SQLiteConnection.readOnly(path: missingColumn.path))
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZCONTENTTYPE"])) {
-            _ = try incomplete.pdfBooks()
+            try incomplete.forEachPDFResourceTarget { _, _ in true }
         }
     }
 
@@ -341,9 +345,9 @@ struct PDFSourceResolverTests {
             pdfSourceResolver: PDFSourceResolver(fallbackRoot: root.appendingPathComponent("missing"))
         )
 
-        let source = try #require(try core.pdfSource(forBookLocalPK: 1))
+        let source = try #require(try core.semanticPDFSource(bookAssetID: "selected"))
         #expect(source.fileURL == pdf.standardizedFileURL)
-        #expect(source.book?.localPK == 1)
+        #expect(source.bookSummary?.localPK == 1)
     }
 
     private func temporaryDirectory() throws -> URL {

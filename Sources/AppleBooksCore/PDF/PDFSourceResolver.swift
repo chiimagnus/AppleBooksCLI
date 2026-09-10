@@ -14,24 +14,6 @@ struct PDFSourceResolver {
         self.sourceIDDigest = sourceIDDigest
     }
 
-    // Full materialization remains for explicit archival/export compatibility.
-    func resolve(pdfBooks: [Book]) -> [PDFSource] {
-        let booksByPath = booksByValidatedPath(pdfBooks)
-        let fallbackPaths = fallbackPDFs()
-        var allPaths = Set(booksByPath.keys)
-        allPaths.formUnion(fallbackPaths)
-
-        return allPaths
-            .sorted { binaryLess($0.path, $1.path) }
-            .map {
-                source(
-                    fileURL: $0,
-                    booksByPath: booksByPath,
-                    provenance: booksByPath[$0] == nil ? .fallback : .library
-                )
-            }
-    }
-
     func exportInventory(bookQueries: BookQueries) throws -> [PDFSource] {
         let library = try scanLibrary(bookQueries: bookQueries)
         var candidates = try library.groups.values.map(libraryCandidate)
@@ -183,15 +165,6 @@ struct PDFSourceResolver {
         return match
     }
 
-    func resolve(book: Book) -> PDFSource? {
-        guard book.contentType == 3,
-              let rawPath = book.path,
-              let validated = validatedLibraryPDF(rawPath: rawPath) else {
-            return nil
-        }
-        return PDFSource(fileURL: validated.fileURL, book: book, provenance: .library)
-    }
-
     func exportSource(book: Book, bookQueries: BookQueries) throws -> PDFSource? {
         guard book.contentType == 3,
               let rawPath = book.path,
@@ -206,16 +179,6 @@ struct PDFSourceResolver {
             book: canonicalBook,
             provenance: .library,
             pdfSourceID: candidate.key.kind == .source ? candidate.key.value : nil
-        )
-    }
-
-    func resolve(fileURL: URL, pdfBooks: [Book]) -> PDFSource? {
-        guard let validated = validatedPDFURL(fileURL: fileURL) else { return nil }
-        let booksByPath = booksByValidatedPath(pdfBooks)
-        return source(
-            fileURL: validated,
-            booksByPath: booksByPath,
-            provenance: booksByPath[validated] == nil ? .explicit : .library
         )
     }
 
@@ -582,15 +545,6 @@ struct PDFSourceResolver {
         return openRegularPDF(standardized)
     }
 
-    private func validatedPDFURL(fileURL: URL) -> URL? {
-        let standardized = fileURL.standardizedFileURL
-        guard standardized.pathExtension.lowercased() == "pdf",
-              let validated = openRegularPDF(standardized) else {
-            return nil
-        }
-        return validated.fileURL
-    }
-
     private func openRegularPDF(_ fileURL: URL) -> ValidatedFile? {
         let fd = open(fileURL.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { return nil }
@@ -616,37 +570,6 @@ struct PDFSourceResolver {
             size: UInt64(max(0, info.st_size)),
             modificationSeconds: Int64(info.st_mtimespec.tv_sec),
             modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec)
-        )
-    }
-
-    private func fallbackPDFs() -> Set<URL> {
-        var result = Set<URL>()
-        _ = try? scanFallback { result.insert($0.fileURL) }
-        return result
-    }
-
-    private func booksByValidatedPath(_ pdfBooks: [Book]) -> [URL: [Book]] {
-        var booksByPath: [URL: [Book]] = [:]
-        for book in pdfBooks {
-            guard let rawPath = book.path,
-                  let validated = validatedLibraryPDF(rawPath: rawPath) else {
-                continue
-            }
-            booksByPath[validated.fileURL, default: []].append(book)
-        }
-        return booksByPath
-    }
-
-    private func source(
-        fileURL: URL,
-        booksByPath: [URL: [Book]],
-        provenance: PDFSourceProvenance
-    ) -> PDFSource {
-        let matches = booksByPath[fileURL] ?? []
-        return PDFSource(
-            fileURL: fileURL,
-            book: matches.count == 1 ? matches[0] : nil,
-            provenance: provenance
         )
     }
 

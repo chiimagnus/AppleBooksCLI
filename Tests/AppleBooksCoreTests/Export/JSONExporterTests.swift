@@ -305,6 +305,173 @@ struct JSONExporterTests {
     }
 
     @Test
+    func streamingRendererMatchesCompatibilityJSONForFullAndPerDocumentArtifacts() throws {
+        let fixture = try Fixture()
+        var streamed = Data()
+        var maximumBuffer = 0
+        try JSONExporter.stream(
+            fixture.bundle,
+            exportedAt: fixture.exportedAt,
+            observeBufferedBytes: { maximumBuffer = max(maximumBuffer, $0) }
+        ) { streamed.append($0) }
+        let compatibility = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
+        #expect(try normalized(JSONSerialization.jsonObject(with: streamed)) == normalized(JSONSerialization.jsonObject(with: compatibility)))
+        #expect(maximumBuffer <= ExportFileWriter.maximumChunkBytes)
+
+        var documentStream = Data()
+        try JSONExporter.streamDocument(
+            fixture.bundle.groups[1],
+            from: fixture.bundle,
+            exportedAt: fixture.exportedAt
+        ) { documentStream.append($0) }
+        let documentCompatibility = try JSONExporter.renderDocument(
+            fixture.bundle.groups[1], from: fixture.bundle, exportedAt: fixture.exportedAt
+        )
+        #expect(try normalized(JSONSerialization.jsonObject(with: documentStream)) == normalized(JSONSerialization.jsonObject(with: documentCompatibility)))
+    }
+
+    @Test
+    func streamingJSONEscapesHostileTextAndBase64AcrossChunkBoundaries() throws {
+        let hostile = String((0...31).compactMap(UnicodeScalar.init).map(Character.init))
+            + " quote=\" slash=\\ unicode=界🙂\r\nend"
+        let book = Book(
+            localPK: 91,
+            assetID: "hostile",
+            title: hostile,
+            author: nil,
+            description: hostile,
+            epubID: nil,
+            genre: nil,
+            genresRaw: Data([0, 1, 2, 3, 4]),
+            comments: hostile,
+            language: nil,
+            year: nil,
+            contentType: 1,
+            pageCount: nil,
+            path: nil,
+            fileSize: nil,
+            coverURL: nil,
+            isFinished: nil,
+            readingProgressRaw: nil,
+            durationRawMilliseconds: nil,
+            creationDate: nil,
+            modificationDate: nil,
+            finishedDate: nil,
+            lastOpenDate: nil,
+            purchaseDate: nil,
+            releaseDate: nil,
+            isExplicit: nil,
+            isLocked: nil,
+            isEphemeral: nil,
+            isHidden: nil,
+            isSample: nil,
+            isStoreAudiobook: nil,
+            rating: nil
+        )
+        let annotation = Annotation(
+            localPK: 92,
+            uuid: nil,
+            rawAssetID: "hostile",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: hostile,
+            selectedText: hostile,
+            note: hostile,
+            location: nil,
+            chapterHint: hostile,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .currentLibrary(book))))
+        let group = ExportGroup(source: .epubCurrent(book), records: [record])
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub), groups: [group], warnings: [],
+            statistics: ExportStatistics(documentCount: 1, epubDocumentCount: 1, pdfDocumentCount: 0, recordCount: 1, epubAnnotationCount: 1, pdfHighlightCount: 0, highlightCount: 1, noteCount: 1, historicalEPUBAnnotationCount: 0, unmappedEPUBAnnotationCount: 0),
+            sourceTotals: ExportSourceTotals(epubDocumentCount: 1, epubAnnotationCount: 1, pdfAttemptedDocumentCount: 0, pdfSucceededDocumentCount: 0, pdfFailedDocumentCount: 0, pdfHighlightCount: 0)
+        )
+        var streamed = Data()
+        try JSONExporter.stream(bundle, exportedAt: Date(timeIntervalSince1970: 0)) { streamed.append($0) }
+        let compatibility = try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        #expect(try normalized(JSONSerialization.jsonObject(with: streamed)) == normalized(JSONSerialization.jsonObject(with: compatibility)))
+        let root = try object(streamed)
+        let source = try dictionary(try dictionary(try array(root["groups"])[0])["source"])
+        let exportedBook = try dictionary(source["book"])
+        #expect(exportedBook["title"] as? String == hostile)
+        #expect(exportedBook["genresRawBase64"] as? String == Data([0, 1, 2, 3, 4]).base64EncodedString())
+    }
+
+    @Test
+    func streamingSingleRawFieldOver128MiBKeepsOnlyFixedSizeChunks() throws {
+        let rawText = String(repeating: "x", count: 128 * 1_024 * 1_024 + 1)
+        let annotation = Annotation(
+            localPK: 501,
+            uuid: nil,
+            rawAssetID: "large-asset",
+            isDeleted: false,
+            isUnderline: false,
+            style: nil,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: nil,
+            selectedText: rawText,
+            note: nil,
+            location: nil,
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: [record])
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: [group],
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: 1,
+                epubDocumentCount: 1,
+                pdfDocumentCount: 0,
+                recordCount: 1,
+                epubAnnotationCount: 1,
+                pdfHighlightCount: 0,
+                highlightCount: 1,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: 1
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: 1,
+                epubAnnotationCount: 1,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
+        var totalBytes = 0
+        var maximumChunk = 0
+        var maximumBuffered = 0
+        try JSONExporter.stream(
+            bundle,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            observeBufferedBytes: { maximumBuffered = max(maximumBuffered, $0) }
+        ) { chunk in
+            totalBytes += chunk.count
+            maximumChunk = max(maximumChunk, chunk.count)
+        }
+
+        #expect(totalBytes > 128 * 1_024 * 1_024)
+        #expect(maximumChunk <= ExportFileWriter.maximumChunkBytes)
+        #expect(maximumBuffered <= ExportFileWriter.maximumChunkBytes)
+    }
+
+    @Test
     func fixedTimestampAndSortedCollectionsProduceDeterministicBytes() throws {
         let fixture = try Fixture()
 

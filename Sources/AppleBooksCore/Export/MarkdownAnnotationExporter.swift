@@ -2,84 +2,156 @@ import Foundation
 
 public enum MarkdownAnnotationExporter {
     public static func render(_ bundle: ExportBundle) -> String {
-        guard bundle.groups.isEmpty == false else {
-            return "# Apple Books export\n\n_No records._\n"
-        }
-        return "# Apple Books export\n\n" + bundle.groups
-            .map { renderPlain(group: $0, headingLevel: 2) }
-            .joined(separator: "\n\n") + "\n"
+        var data = Data()
+        try! stream(bundle) { data.append($0) }
+        return String(decoding: data, as: UTF8.self)
     }
 
     static func render(_ group: ExportGroup) -> String {
-        renderPlain(group: group, headingLevel: 1) + "\n"
+        var data = Data()
+        try! stream(group) { data.append($0) }
+        return String(decoding: data, as: UTF8.self)
     }
 
-    private static func renderPlain(
-        group: ExportGroup,
-        headingLevel: Int
-    ) -> String {
-        let source = sourceContext(group)
-        var blocks = ["\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))"]
-        if let author = source.author {
-            blocks.append("**Author:** \(escapeInline(author))")
+    package static func stream(
+        _ bundle: ExportBundle,
+        observeBufferedBytes: ((Int) -> Void)? = nil,
+        to sink: (Data) throws -> Void
+    ) throws {
+        try withoutActuallyEscaping(sink) { escapingSink in
+            let writer = StreamingMarkdownWriter(sink: escapingSink, observeBufferedBytes: observeBufferedBytes)
+            try writer.writeBundle(bundle)
+            try writer.finish()
         }
-        blocks.append("**Source:** \(source.kind)")
+    }
+
+    package static func stream(
+        _ group: ExportGroup,
+        observeBufferedBytes: ((Int) -> Void)? = nil,
+        to sink: (Data) throws -> Void
+    ) throws {
+        try withoutActuallyEscaping(sink) { escapingSink in
+            let writer = StreamingMarkdownWriter(sink: escapingSink, observeBufferedBytes: observeBufferedBytes)
+            try writer.writeDocument(group)
+            try writer.finish()
+        }
+    }
+}
+
+private final class StreamingMarkdownWriter {
+    private let sink: (Data) throws -> Void
+    private let observeBufferedBytes: ((Int) -> Void)?
+    private var buffer: [UInt8] = []
+    private let dateFormatter: ISO8601DateFormatter
+
+    init(sink: @escaping (Data) throws -> Void, observeBufferedBytes: ((Int) -> Void)?) {
+        self.sink = sink
+        self.observeBufferedBytes = observeBufferedBytes
+        buffer.reserveCapacity(ExportFileWriter.maximumChunkBytes)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        dateFormatter = formatter
+    }
+
+    func finish() throws { try flush() }
+
+    func writeBundle(_ bundle: ExportBundle) throws {
+        if bundle.groups.isEmpty {
+            try raw("# Apple Books export\n\n_No records._\n")
+            return
+        }
+        try raw("# Apple Books export\n\n")
+        for (index, group) in bundle.groups.enumerated() {
+            if index > 0 { try raw("\n\n") }
+            try writeGroup(group, headingLevel: 2)
+        }
+        try raw("\n")
+    }
+
+    func writeDocument(_ group: ExportGroup) throws {
+        try writeGroup(group, headingLevel: 1)
+        try raw("\n")
+    }
+
+    private func writeGroup(_ group: ExportGroup, headingLevel: Int) throws {
+        let source = sourceContext(group)
+        var firstBlock = true
+        try block(&firstBlock) {
+            try raw(String(repeating: "#", count: headingLevel) + " ")
+            try inline(source.title)
+        }
+        if let author = source.author {
+            try block(&firstBlock) {
+                try raw("**Author:** ")
+                try inline(author)
+            }
+        }
+        try block(&firstBlock) { try raw("**Source:** " + source.kind) }
         if let appleBooksURL = source.appleBooksURL {
-            blocks.append("**Apple Books:** [Open book](<\(appleBooksURL)>)")
+            try block(&firstBlock) {
+                try raw("**Apple Books:** [Open book](<")
+                try raw(appleBooksURL)
+                try raw(">)")
+            }
         }
         if group.records.isEmpty {
-            blocks.append("_No records._")
-            return blocks.joined(separator: "\n\n")
+            try block(&firstBlock) { try raw("_No records._") }
+            return
         }
-        blocks.append(contentsOf: group.records.map(formatPlainRecord))
-        return blocks.joined(separator: "\n\n")
+        for record in group.records {
+            try block(&firstBlock) { try writeRecord(record) }
+        }
     }
 
-    private static func formatPlainRecord(_ record: ExportRecord) -> String {
-        var blocks = [record.hasNote ? "### Note" : "### Highlight"]
+    private func writeRecord(_ record: ExportRecord) throws {
+        var firstBlock = true
+        try block(&firstBlock) { try raw(record.hasNote ? "### Note" : "### Highlight") }
         switch record.payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
             if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
-                blocks.append(blockquote(label: "Quote", text: quote))
+                try block(&firstBlock) { try blockquote(label: "Quote", text: quote) }
             }
             if let note = content(annotation.note) {
-                blocks.append(blockquote(label: "Note", text: note))
+                try block(&firstBlock) { try blockquote(label: "Note", text: note) }
             }
             if let chapter = content(annotation.chapterHint) {
-                blocks.append("**Chapter:** \(escapeInline(chapter))")
+                try block(&firstBlock) {
+                    try raw("**Chapter:** ")
+                    try inline(chapter)
+                }
             }
             if let physicalLocation = annotation.physicalLocation {
-                blocks.append("**Location:** \(physicalLocation)")
+                try block(&firstBlock) { try raw("**Location:** \(physicalLocation)") }
             }
             if let createdAt = annotation.createdAt {
-                blocks.append("**Created:** \(formatDate(createdAt))")
+                try block(&firstBlock) { try raw("**Created:** " + dateFormatter.string(from: createdAt)) }
             }
             if let modifiedAt = annotation.modifiedAt {
-                blocks.append("**Modified:** \(formatDate(modifiedAt))")
+                try block(&firstBlock) { try raw("**Modified:** " + dateFormatter.string(from: modifiedAt)) }
             }
         case let .pdf(_, highlight):
             if let quote = content(highlight.text) {
-                blocks.append(blockquote(label: "Quote", text: quote))
+                try block(&firstBlock) { try blockquote(label: "Quote", text: quote) }
             }
             if let note = content(highlight.note) {
-                blocks.append(blockquote(label: "Note", text: note))
+                try block(&firstBlock) { try blockquote(label: "Note", text: note) }
             }
-            blocks.append("**Page:** \(highlight.page)")
+            try block(&firstBlock) { try raw("**Page:** \(highlight.page)") }
             if let modifiedAt = highlight.modifiedAt {
-                blocks.append("**Modified:** \(formatDate(modifiedAt))")
+                try block(&firstBlock) { try raw("**Modified:** " + dateFormatter.string(from: modifiedAt)) }
             }
         }
         if let color = record.presentationColor {
-            blocks.append("**Color:** \(color.rawValue)")
+            try block(&firstBlock) { try raw("**Color:** " + color.rawValue) }
         }
         if record.isUnderline {
-            blocks.append("**Underline:** true")
+            try block(&firstBlock) { try raw("**Underline:** true") }
         }
-        return blocks.joined(separator: "\n\n")
     }
 
-    private static func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {
+    private func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {
         switch group.source {
         case let .epubCurrent(book):
             return MarkdownSourceContext(
@@ -112,53 +184,93 @@ public enum MarkdownAnnotationExporter {
         }
     }
 
-    private static func blockquote(label: String, text: String) -> String {
-        let lines = normalizedLines(text)
-        return "**\(label):**\n" + lines.map { "> \(escapeInline($0))" }.joined(separator: "\n")
+    private func block(_ first: inout Bool, body: () throws -> Void) throws {
+        if first { first = false } else { try raw("\n\n") }
+        try body()
     }
 
-    private static func normalizedLines(_ text: String) -> [String] {
-        text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
+    private func blockquote(label: String, text: String) throws {
+        try raw("**\(label):**\n> ")
+        var pendingCR = false
+        for byte in text.utf8 {
+            if pendingCR {
+                if byte == 0x0a {
+                    try raw("\n> ")
+                    pendingCR = false
+                    continue
+                }
+                try raw("\n> ")
+                pendingCR = false
+            }
+            if byte == 0x0d {
+                pendingCR = true
+            } else if byte == 0x0a {
+                try raw("\n> ")
+            } else {
+                try escaped(byte)
+            }
+        }
+        if pendingCR { try raw("\n> ") }
     }
 
-    private static func escapeHeading(_ text: String) -> String {
-        escapeInline(normalizedLines(text).joined(separator: " "))
+    private func inline(_ text: String) throws {
+        var pendingCR = false
+        for byte in text.utf8 {
+            if pendingCR {
+                if byte == 0x0a {
+                    try appendByte(0x20)
+                    pendingCR = false
+                    continue
+                }
+                try appendByte(0x20)
+                pendingCR = false
+            }
+            if byte == 0x0d {
+                pendingCR = true
+            } else if byte == 0x0a {
+                try appendByte(0x20)
+            } else {
+                try escaped(byte)
+            }
+        }
+        if pendingCR { try appendByte(0x20) }
     }
 
-    private static func escapeInline(_ text: String) -> String {
-        escapeMarkdown(normalizedLines(text).joined(separator: " "))
+    private func escaped(_ byte: UInt8) throws {
+        switch byte {
+        case 0x5c, 0x60, 0x2a, 0x5f, 0x7b, 0x7d, 0x5b, 0x5d, 0x3c, 0x3e,
+             0x28, 0x29, 0x23, 0x2b, 0x21, 0x7c:
+            try appendByte(0x5c)
+        default:
+            break
+        }
+        try appendByte(byte)
     }
 
-    private static func content(_ text: String?) -> String? {
+    private func content(_ text: String?) -> String? {
         guard AnnotationContentSemantics.hasContent(text) else { return nil }
         return text
     }
 
-    private static func nonEmpty(_ text: String?) -> String? {
+    private func nonEmpty(_ text: String?) -> String? {
         guard let text, text.isEmpty == false else { return nil }
         return text
     }
 
-    private static func formatDate(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
+    private func raw(_ text: String) throws {
+        for byte in text.utf8 { try appendByte(byte) }
     }
 
-    private static func escapeMarkdown(_ text: String) -> String {
-        let structural = Set("\\`*_{}[]<>()#+!|")
-        var escaped = ""
-        escaped.reserveCapacity(text.count)
-        for character in text {
-            if structural.contains(character) {
-                escaped.append("\\")
-            }
-            escaped.append(character)
-        }
-        return escaped
+    private func appendByte(_ byte: UInt8) throws {
+        if buffer.count == ExportFileWriter.maximumChunkBytes { try flush() }
+        buffer.append(byte)
+    }
+
+    private func flush() throws {
+        guard buffer.isEmpty == false else { return }
+        observeBufferedBytes?(buffer.count)
+        try sink(Data(buffer))
+        buffer.removeAll(keepingCapacity: true)
     }
 }
 

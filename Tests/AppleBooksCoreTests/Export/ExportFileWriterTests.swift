@@ -48,6 +48,85 @@ struct ExportFileWriterTests {
     }
 
     @Test
+    func incrementalRenderFailureCleansTemporaryFileAndPreservesDestination() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let destination = fixture.output.appendingPathComponent("report.json")
+        try Data("original".utf8).write(to: destination)
+
+        #expect(throws: FixtureError.stopped) {
+            _ = try writer.writeIncrementally(
+                fileName: "report.json",
+                overwrite: .always
+            ) { sink in
+                try sink(Data("partial".utf8))
+                throw FixtureError.stopped
+            }
+        }
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasSuffix(".part") } == false)
+    }
+
+    @Test
+    func descriptorRelativePublishFailsClosedAcrossParentAndDestinationRaces() throws {
+        let parentFixture = try FileFixture()
+        defer { parentFixture.remove() }
+        let parentWriter = try ExportFileWriter(outputRoot: parentFixture.output)
+        let heldOutput = parentFixture.root.appendingPathComponent("held-output", isDirectory: true)
+        #expect(throws: ExportFileWriterError.unsafeParent) {
+            _ = try parentWriter.writeIncrementally(
+                fileName: "report.json",
+                beforePublish: {
+                    try FileManager.default.moveItem(at: parentFixture.output, to: heldOutput)
+                    try FileManager.default.createDirectory(at: parentFixture.output, withIntermediateDirectories: false)
+                }
+            ) { sink in
+                try sink(Data("safe".utf8))
+            }
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: parentFixture.output.path).isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: heldOutput.path).contains { $0.hasSuffix(".part") } == false)
+
+        let symlinkFixture = try FileFixture()
+        defer { symlinkFixture.remove() }
+        let symlinkWriter = try ExportFileWriter(outputRoot: symlinkFixture.output)
+        let outside = symlinkFixture.root.appendingPathComponent("outside.txt")
+        try Data("outside".utf8).write(to: outside)
+        let destination = symlinkFixture.output.appendingPathComponent("report.json")
+        try Data("original".utf8).write(to: destination)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try symlinkWriter.writeIncrementally(
+                fileName: "report.json",
+                overwrite: .always,
+                beforePublish: {
+                    try FileManager.default.removeItem(at: destination)
+                    try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: outside)
+                }
+            ) { sink in
+                try sink(Data("replacement".utf8))
+            }
+        }
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
+
+        let competitorFixture = try FileFixture()
+        defer { competitorFixture.remove() }
+        let competitorWriter = try ExportFileWriter(outputRoot: competitorFixture.output)
+        let competitor = competitorFixture.output.appendingPathComponent("report.json")
+        #expect(throws: ExportFileWriterError.destinationExists) {
+            _ = try competitorWriter.writeIncrementally(
+                fileName: "report.json",
+                beforePublish: {
+                    try Data("competitor".utf8).write(to: competitor)
+                }
+            ) { sink in
+                try sink(Data("ours".utf8))
+            }
+        }
+        #expect(try String(contentsOf: competitor, encoding: .utf8) == "competitor")
+    }
+
+    @Test
     func derivedNamesStaySingleComponentsBoundedAndCollisionsReceiveStableSuffixes() throws {
         let hostile = " ../A/B:C\0\n.. "
         let safe = ExportPathComponent.safe(hostile)
@@ -210,7 +289,9 @@ struct ExportFileWriterTests {
         let legacy = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("legacy"))
         let canonical = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("canonical"))
         let result = try legacy.writeMarkdown(bundle, layout: .perDocument)
-        let count = try canonical.writeMarkdownCount(bundle, layout: .perDocument)
+        let count = try canonical.writeDocumentsIncrementallyCount(bundle, fileExtension: "md") { group, sink in
+            try MarkdownAnnotationExporter.stream(group, to: sink)
+        }
         #expect(count == 2)
         #expect(result.documentFileCount == count)
         #expect(result.files.count == 2)
@@ -218,7 +299,9 @@ struct ExportFileWriterTests {
             let relative = String(path.path.dropFirst(legacy.outputRoot.path.count + 1))
             #expect(try Data(contentsOf: path) == Data(contentsOf: canonical.outputRoot.appendingPathComponent(relative)))
         }
-        let json = try canonical.writeDocumentsCount(bundle, fileExtension: "json") { _ in Data("{}".utf8) }
+        let json = try canonical.writeDocumentsIncrementallyCount(bundle, fileExtension: "json") { _, sink in
+            try sink(Data("{}".utf8))
+        }
         #expect(json == count)
     }
 
@@ -280,12 +363,16 @@ struct ExportFileWriterTests {
         #expect(relative == fixture.output.appendingPathComponent("new").standardizedFileURL)
     }
 
+    private enum FixtureError: Error, Equatable {
+        case stopped
+    }
+
     private final class FileFixture {
         let root: URL
         let output: URL
 
         init() throws {
-            root = FileManager.default.temporaryDirectory
+            root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
             output = root.appendingPathComponent("output", isDirectory: true)

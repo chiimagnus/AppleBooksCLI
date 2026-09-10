@@ -125,11 +125,12 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
                 throw CLIError.unavailable("Book cover is unavailable.")
             }
             let writer = try ExportFileWriter(outputRoot: destination.deletingLastPathComponent())
-            let writeResult = try writer.write(
-                inspection.cover.data,
+            let writeResult = try writer.writeIncrementally(
                 fileName: destination.lastPathComponent,
                 overwrite: .never
-            )
+            ) { sink in
+                try sink(inspection.cover.data)
+            }
             return ContentCoverResult(inspection: inspection, writeResult: writeResult)
         }
     }

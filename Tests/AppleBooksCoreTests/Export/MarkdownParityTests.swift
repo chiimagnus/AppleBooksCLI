@@ -128,6 +128,73 @@ struct MarkdownParityTests {
     }
 
     @Test
+    func streamingManyRecordsOver256MiBKeepsOnlyFixedSizeChunks() throws {
+        let rawText = String(repeating: "m", count: 1_024 * 1_024)
+        let records = (0..<257).map { index in
+            let annotation = Annotation(
+                localPK: Int64(index + 1),
+                uuid: nil,
+                rawAssetID: "large-asset",
+                isDeleted: false,
+                isUnderline: false,
+                style: nil,
+                type: 1,
+                createdAt: nil,
+                modifiedAt: nil,
+                representativeText: nil,
+                selectedText: rawText,
+                note: nil,
+                location: nil,
+                chapterHint: nil,
+                physicalLocation: nil,
+                rangeStart: nil,
+                rangeEnd: nil
+            )
+            return ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        }
+        let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: records)
+        let bundle = ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: [group],
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: 1,
+                epubDocumentCount: 1,
+                pdfDocumentCount: 0,
+                recordCount: records.count,
+                epubAnnotationCount: records.count,
+                pdfHighlightCount: 0,
+                highlightCount: records.count,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: records.count
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: 1,
+                epubAnnotationCount: records.count,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
+        var totalBytes = 0
+        var maximumChunk = 0
+        var maximumBuffered = 0
+        try MarkdownAnnotationExporter.stream(
+            bundle,
+            observeBufferedBytes: { maximumBuffered = max(maximumBuffered, $0) }
+        ) { chunk in
+            totalBytes += chunk.count
+            maximumChunk = max(maximumChunk, chunk.count)
+        }
+
+        #expect(totalBytes > 256 * 1_024 * 1_024)
+        #expect(maximumChunk <= ExportFileWriter.maximumChunkBytes)
+        #expect(maximumBuffered <= ExportFileWriter.maximumChunkBytes)
+    }
+
+    @Test
     func emptyBundleAndEmptyDocumentHaveExplicitStates() throws {
         let options = try ExportOptions()
         let emptyBundle = ExportBundle(

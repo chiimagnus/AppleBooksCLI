@@ -120,7 +120,7 @@ query/content/PDF
 → confined file writer
 ```
 
-不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context；所有文件/附件经过同一 confinement/overwrite 边界。
+不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context。canonical CLI 的 JSON/Markdown renderer 只向 sink 增量写 bytes，不拥有 filesystem path；`ExportFileWriter` 持有 no-follow 打开的 output parent descriptor，temp create、entry classification、exclusive/replace publish 与 cleanup 都相对该 descriptor 完成，并在 publish 前核对 display path 仍指向同一 directory identity。`export` 与 surviving `content cover` 共用这条 descriptor-relative publish rail；public Core compatibility renderer/writer 可以显式 materialize artifact，但 canonical CLI 不走该路径。
 
 ## CLI 与维护边界
 

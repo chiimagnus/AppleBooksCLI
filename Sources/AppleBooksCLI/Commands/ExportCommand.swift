@@ -315,19 +315,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         )
     }
 
-    private func renderSingle(
-        _ bundle: ExportBundle,
-        request: ExportCLIRequest,
-        exportedAt: Date
-    ) throws -> String {
-        switch request.format {
-        case .json:
-            return String(decoding: try JSONExporter.render(bundle, exportedAt: exportedAt), as: UTF8.self)
-        case .markdown:
-            return MarkdownAnnotationExporter.render(bundle)
-        }
-    }
-
     private func write(
         _ bundle: ExportBundle,
         request: ExportCLIRequest,
@@ -348,27 +335,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
 
         let parent = outputURL.deletingLastPathComponent().standardizedFileURL
         let writer = try ExportFileWriter(outputRoot: parent)
-        if request.format == .markdown {
-            let count = try writer.writeMarkdownCount(
-                bundle,
-                layout: .single(fileName: outputURL.lastPathComponent),
-                overwrite: request.overwrite
-            )
-            return ExportRunResult(
-                destination: writer.outputRoot.appendingPathComponent(outputURL.lastPathComponent).path,
-                disposition: .file,
-                documentCount: count,
-                warningCount: bundle.warnings.count,
-                complete: bundle.complete
-            )
-        }
-
-        let data = try renderData(bundle, request: request, exportedAt: exportedAt)
-        let file = try writer.write(
-            data,
+        let file = try writer.writeIncrementally(
             fileName: outputURL.lastPathComponent,
             overwrite: request.overwrite
-        )
+        ) { sink in
+            switch request.format {
+            case .json:
+                try JSONExporter.stream(bundle, exportedAt: exportedAt, to: sink)
+            case .markdown:
+                try MarkdownAnnotationExporter.stream(bundle, to: sink)
+            }
+        }
         return ExportRunResult(
             destination: file.destination.path,
             disposition: .file,
@@ -384,21 +361,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         outputDirectory: URL,
         exportedAt: Date
     ) throws -> ExportRunResult {
-        let count: Int
         let writer = try ExportFileWriter(outputRoot: outputDirectory)
-        if request.format == .markdown {
-            count = try writer.writeMarkdownCount(
-                bundle,
-                layout: .perDocument,
-                overwrite: request.overwrite
-            )
-        } else {
-            count = try writer.writeDocumentsCount(
-                bundle,
-                fileExtension: request.format.fileExtension,
-                overwrite: request.overwrite
-            ) { group in
-                try renderDocumentData(group, bundle: bundle, request: request, exportedAt: exportedAt)
+        let count = try writer.writeDocumentsIncrementallyCount(
+            bundle,
+            fileExtension: request.format.fileExtension,
+            overwrite: request.overwrite
+        ) { group, sink in
+            switch request.format {
+            case .json:
+                try JSONExporter.streamDocument(group, from: bundle, exportedAt: exportedAt, to: sink)
+            case .markdown:
+                try MarkdownAnnotationExporter.stream(group, to: sink)
             }
         }
         return ExportRunResult(
@@ -408,33 +381,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             warningCount: bundle.warnings.count,
             complete: bundle.complete
         )
-    }
-
-    private func renderData(
-        _ bundle: ExportBundle,
-        request: ExportCLIRequest,
-        exportedAt: Date
-    ) throws -> Data {
-        switch request.format {
-        case .json:
-            try JSONExporter.render(bundle, exportedAt: exportedAt)
-        case .markdown:
-            Data(try renderSingle(bundle, request: request, exportedAt: exportedAt).utf8)
-        }
-    }
-
-    private func renderDocumentData(
-        _ group: ExportGroup,
-        bundle: ExportBundle,
-        request: ExportCLIRequest,
-        exportedAt: Date
-    ) throws -> Data {
-        switch request.format {
-        case .json:
-            try JSONExporter.renderDocument(group, from: bundle, exportedAt: exportedAt)
-        case .markdown:
-            throw CLIError.internalFailure
-        }
     }
 
 

@@ -234,8 +234,6 @@ enum CLIOperation {
                 return .notFound("Chapter not found.")
             case .invalidMaximumCharacters:
                 return .usageInvalid("Invalid chapter pagination parameters.")
-            case .chapterOffsetOutOfRange:
-                return .usageInvalid("Chapter offset is out of range.")
             }
         }
         if error is XHTMLTextError {

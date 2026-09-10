@@ -62,11 +62,22 @@ struct ExtendedReadParityTests {
         #expect(try packed.metadata() == directory.metadata())
         #expect(try packed.cover() == directory.cover())
 
-        let page = try packed.chapterPage(id: "c1", offset: 6, maxCharacters: 1)
+        let packedChapter = try packed.resolveChapter(order: 1)
+        let directoryChapter = try directory.resolveChapter(order: 1)
+        let page = try packed.continuationPage(
+            chapter: packedChapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(page.content == "👨‍👩‍👧‍👦")
-        #expect(page.endOffset == 7)
-        #expect(page.nextOffset == 7)
-        #expect(try directory.chapterPage(id: "c1", offset: 6, maxCharacters: 1) == page)
+        #expect(page.returnedGraphemes == 1)
+        #expect(try directory.continuationPage(
+            chapter: directoryChapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        ) == page)
 
         let metadata = try packed.metadata()
         #expect(metadata.title == "OPF Title")
@@ -133,7 +144,13 @@ struct ExtendedReadParityTests {
         #expect(metadata.creator == "OPF Creator")
         #expect(metadata.publisher == "Plist Publisher")
 
-        let page = try packed.chapterPage(id: "c1", offset: 6, maxCharacters: 1)
+        let chapter = try packed.resolveChapter(order: 1)
+        let page = try packed.continuationPage(
+            chapter: chapter,
+            offset: 6,
+            maximumGraphemes: 1,
+            maximumUTF8Bytes: 1_024
+        )
         #expect(page.content == "👨‍👩‍👧‍👦")
     }
 

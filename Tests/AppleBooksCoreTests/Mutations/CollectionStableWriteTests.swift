@@ -207,7 +207,7 @@ struct CollectionStableWriteTests {
         #expect(removed.changed)
         let deleted = try books.deleteCollection(collectionID: collectionID)
         #expect(deleted.stableID == collectionID)
-        #expect(try books.collection(collectionID: collectionID) == nil)
+        #expect(try books.semanticCollection(collectionID: collectionID) == nil)
     }
 
     private func makeFixture() throws -> Fixture {

@@ -12,15 +12,15 @@ struct StableSelectorTests {
 
         #expect(try fixture.core.semanticBookDetail(assetID: "book-12")?.localPK == 12)
         #expect(try fixture.core.semanticBookDetail(assetID: "BOOK-12")?.localPK == 13)
-        #expect(try fixture.core.collection(collectionID: "collection-12")?.localPK == 12)
-        #expect(try fixture.core.collection(collectionID: "COLLECTION-12")?.localPK == 13)
+        #expect(try fixture.core.semanticCollection(collectionID: "collection-12")?.localPK == 12)
+        #expect(try fixture.core.semanticCollection(collectionID: "COLLECTION-12")?.localPK == 13)
         #expect(try fixture.core.annotation(uuid: "annotation-12")?.annotation.localPK == 12)
         #expect(try fixture.core.annotation(uuid: "ANNOTATION-12")?.annotation.localPK == 15)
 
         #expect(try fixture.core.semanticBookDetail(assetID: "12abc") == nil)
-        #expect(try fixture.core.collection(collectionID: "12abc") == nil)
+        #expect(try fixture.core.semanticCollection(collectionID: "12abc") == nil)
         #expect(try fixture.core.annotation(uuid: "12abc") == nil)
-        #expect(try fixture.core.collection(collectionID: "collection-deleted") == nil)
+        #expect(try fixture.core.semanticCollection(collectionID: "collection-deleted") == nil)
         #expect(try fixture.core.annotation(uuid: "annotation-deleted", scope: .activeRaw) == nil)
         #expect(try fixture.core.annotation(uuid: "annotation-bookmark") == nil)
         #expect(try fixture.core.annotation(uuid: "annotation-bookmark", scope: .activeRaw)?.annotation.localPK == 13)
@@ -35,7 +35,7 @@ struct StableSelectorTests {
             _ = try fixture.core.semanticBookDetail(assetID: "book-dup")
         }
         #expect(throws: StableIdentityError.ambiguousCollectionID) {
-            _ = try fixture.core.collection(collectionID: "collection-dup")
+            _ = try fixture.core.semanticCollection(collectionID: "collection-dup")
         }
         #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
             _ = try fixture.core.annotation(uuid: "annotation-dup")

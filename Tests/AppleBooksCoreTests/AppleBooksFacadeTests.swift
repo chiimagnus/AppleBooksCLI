@@ -15,9 +15,9 @@ struct AppleBooksFacadeTests {
             configurationFile: fixture.config
         )
 
-        #expect(try books.listCollections().map(\.localPK) == [1])
-        #expect(try books.collection(localPK: 1)?.title == "Shelf")
-        #expect(try books.collections(matchingTitle: "helf").map(\.localPK) == [1])
+        #expect(try books.semanticCollectionSummaryPage(limit: 100).items.map(\.localPK) == [1])
+        #expect(try books.semanticCollection(localPK: 1)?.title == "Shelf")
+        #expect(try books.semanticCollectionSummaryPage(matchingTitle: "helf", limit: 100).items.map(\.localPK) == [1])
         #expect(try books.bookSummaryPage(limit: 100).items.map(\.localPK) == [1, 2, 3])
         #expect(try books.semanticBookDetail(localPK: 1)?.assetID == "asset-a")
         #expect(try books.searchBookSummaries("alpha", field: .title).items.map(\.localPK) == [1])

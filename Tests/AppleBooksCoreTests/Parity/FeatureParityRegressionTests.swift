@@ -14,7 +14,7 @@ struct FeatureParityRegressionTests {
         #expect(try fixture.books.semanticBookDetail(assetID: expected.bookStableAssetID)?.localPK == expected.bookStableLocalPK)
         #expect(try fixture.books.semanticBookDetail(localPK: expected.bookExplicitLocalPK)?.assetID == expected.bookExplicitLocalAssetID)
         #expect(try fixture.books.searchBookSummaries("Ada").items.map(\.localPK) == expected.combinedSearchLocalPKs)
-        #expect(try fixture.books.collection(collectionID: expected.collectionID)?.localPK == 10)
+        #expect(try fixture.books.semanticCollection(collectionID: expected.collectionID)?.localPK == 10)
 
         let bookPage = try fixture.books.bookSummaryPage()
         #expect(bookPage.total == expected.bookPageTotal)

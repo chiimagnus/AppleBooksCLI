@@ -34,8 +34,8 @@ final class ReadParityRegressionTests: XCTestCase {
         XCTAssertEqual(try books.searchBookSummaries("Alpha", field: .title).items.map(\.localPK), [1])
         XCTAssertEqual(try books.searchBookSummaries("Fiction", field: .genre).items.map(\.localPK).sorted(), [1, 2])
 
-        XCTAssertEqual(try books.listCollections().map(\.localPK).sorted(), [1, 2])
-        XCTAssertEqual(try books.collection(localPK: 1)?.title, "Shelf A")
+        XCTAssertEqual(try books.semanticCollectionSummaryPage(limit: 100).items.map(\.localPK).sorted(), [1, 2])
+        XCTAssertEqual(try books.semanticCollection(localPK: 1)?.title, "Shelf A")
 
         let annotations = try books.listAnnotations().map(\.annotation)
         XCTAssertEqual(annotations.map(\.localPK).sorted(), [101, 102, 103, 104, 105])

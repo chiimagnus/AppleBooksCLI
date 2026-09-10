@@ -303,25 +303,11 @@ public final class AppleBooks {
         return try requiredRestoreCoordinator().restoreLibrary(handle: handle)
     }
 
-    // Stable deterministic order + validated pagination.
-    public func listCollections(limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try requiredCollectionQueries().list(limit: limit, offset: offset)
-    }
-
     package func semanticCollectionSummaryPage(
         limit: Int? = nil,
         cursor: String? = nil
     ) throws -> CursorPage<SemanticCollectionSummary> {
         try requiredCollectionQueries().semanticListPage(limit: limit, cursor: cursor)
-    }
-
-    // Missing or deleted collections return nil.
-    public func collection(localPK: Int64) throws -> Collection? {
-        try requiredCollectionQueries().getByLocalPK(localPK)
-    }
-
-    public func collection(collectionID: String) throws -> Collection? {
-        try requiredCollectionQueries().getUniqueByCollectionID(collectionID)
     }
 
     package func semanticCollection(localPK: Int64) throws -> SemanticCollection? {
@@ -332,27 +318,12 @@ public final class AppleBooks {
         try requiredCollectionQueries().semanticGetUniqueByCollectionID(collectionID)
     }
 
-    // Title is a search field, never collection identity.
-    public func collections(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
-        try requiredCollectionQueries().searchTitle(text, limit: limit, offset: offset)
-    }
-
     package func semanticCollectionSummaryPage(
         matchingTitle text: String,
         limit: Int? = nil,
         cursor: String? = nil
     ) throws -> CursorPage<SemanticCollectionSummary> {
         try requiredCollectionQueries().semanticSearchTitlePage(text, limit: limit, cursor: cursor)
-    }
-
-    public func books(inCollectionLocalPK localPK: Int64) throws -> [Book]? {
-        guard let collection = try requiredCollectionQueries().getByLocalPK(localPK) else { return nil }
-        return try requiredCollectionQueries().books(in: collection)
-    }
-
-    public func books(inCollectionID collectionID: String) throws -> [Book]? {
-        guard let collection = try requiredCollectionQueries().getUniqueByCollectionID(collectionID) else { return nil }
-        return try requiredCollectionQueries().books(in: collection)
     }
 
     package func semanticBookSummaryPage(

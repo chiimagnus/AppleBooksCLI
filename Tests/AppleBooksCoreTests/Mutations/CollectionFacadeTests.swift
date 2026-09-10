@@ -16,7 +16,7 @@ struct CollectionFacadeTests {
         #expect(created.committed)
         #expect(created.changed)
         #expect(created.warnings.isEmpty)
-        let readBackCollection = try books.collection(localPK: createdPK)
+        let readBackCollection = try books.semanticCollection(localPK: createdPK)
         let createdCollection = try #require(readBackCollection)
         #expect(createdCollection.title == "New Shelf")
         #expect(createdCollection.details == "details")
@@ -25,7 +25,7 @@ struct CollectionFacadeTests {
         let renamed = try books.renameCollection(localPK: createdPK, newTitle: "Renamed")
         #expect(renamed.localPK == createdPK)
         #expect(renamed.changed)
-        #expect(try books.collection(localPK: createdPK)?.title == "Renamed")
+        #expect(try books.semanticCollection(localPK: createdPK)?.title == "Renamed")
 
         #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: createdPK).changed)
         #expect(try books.addBook(bookLocalPK: 1, toCollectionLocalPK: createdPK).changed == false)
@@ -33,7 +33,7 @@ struct CollectionFacadeTests {
         #expect(try books.removeBook(bookLocalPK: 1, fromCollectionLocalPK: createdPK).changed == false)
 
         #expect(try books.deleteCollection(localPK: createdPK).changed)
-        #expect(try books.collection(localPK: createdPK) == nil)
+        #expect(try books.semanticCollection(localPK: createdPK) == nil)
     }
 
     @Test

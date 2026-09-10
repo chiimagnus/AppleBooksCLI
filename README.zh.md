@@ -50,12 +50,11 @@ applebookscli stats
 applebookscli collections list   # 返回 nextCursor 时用 --cursor 继续
 applebookscli doctor   # ready / partial / unavailable + 固定 capability map
 
-# 最近批注
-applebookscli annotations recent
-
-# 单条批注与对应 EPUB 上下文
+# 批注查询 / 精确详情
+applebookscli annotations list --has-note true --order modified   # 默认 20；返回 nextCursor 时用 --cursor 继续
+applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
-applebookscli content context <annotation-uuid>
+applebookscli annotations context <annotation-uuid>
 
 # PDF inventory / 提取
 applebookscli pdf list   # 返回 nextCursor 时用 --cursor 继续

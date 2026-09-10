@@ -42,11 +42,11 @@ package struct PDFAgentHighlightSummary: Equatable, Sendable {
     package let truncatedFields: [String]
 }
 
-package struct PDFAgentWorkerPage: Equatable, Sendable {
-    package let items: [PDFAgentHighlightSummary]
-    package let nextTraversal: PDFWorkerTraversal?
-    package let hasMore: Bool
-    package let generation: String
+struct PDFAgentWorkerPage: Equatable, Sendable {
+    let items: [PDFAgentHighlightSummary]
+    let nextTraversal: PDFWorkerTraversal?
+    let hasMore: Bool
+    let generation: String
 }
 
 package struct SemanticPDFHighlightPage: Equatable, Sendable {

@@ -17,7 +17,7 @@ struct PDFWorkerProtocolTests {
             limit: 20
         ))
 
-        let invocation = PDFWorkerProtocol.run(requestData: request)
+        let invocation = PDFWorkerProtocol.run(requestData: request, afterOpen: nil)
         let response = try PDFWorkerProtocol.decodeResponse(invocation.stdout)
         #expect(response.version == 2)
         #expect(response.status == .success)
@@ -69,7 +69,7 @@ struct PDFWorkerProtocolTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let pdf = try fixture.highlightPDF()
-        let malformed = PDFWorkerProtocol.run(requestData: Data("not-json secret-path".utf8))
+        let malformed = PDFWorkerProtocol.run(requestData: Data("not-json secret-path".utf8), afterOpen: nil)
         #expect(try PDFWorkerProtocol.decodeResponse(malformed.stdout).errorCode == .malformedRequest)
         #expect(malformed.stderrCode == "malformedRequest")
         #expect(String(decoding: malformed.stdout, as: UTF8.self).contains("secret-path") == false)
@@ -80,7 +80,7 @@ struct PDFWorkerProtocolTests {
             mode: .agentSummary,
             limit: 1
         ))
-        let unsupportedInvocation = PDFWorkerProtocol.run(requestData: unsupported)
+        let unsupportedInvocation = PDFWorkerProtocol.run(requestData: unsupported, afterOpen: nil)
         #expect(try PDFWorkerProtocol.decodeResponse(unsupportedInvocation.stdout).errorCode == .unsupportedVersion)
         #expect(String(decoding: unsupportedInvocation.stdout, as: UTF8.self).contains("secret.pdf") == false)
 
@@ -89,7 +89,7 @@ struct PDFWorkerProtocolTests {
         let paddingCount = PDFWorkerProtocol.requestByteLimit - prefix.utf8.count - suffix.utf8.count
         let exact = Data((prefix + String(repeating: "a", count: paddingCount) + suffix).utf8)
         #expect(exact.count == PDFWorkerProtocol.requestByteLimit)
-        #expect(try PDFWorkerProtocol.decodeResponse(PDFWorkerProtocol.run(requestData: exact).stdout).status == .success)
+        #expect(try PDFWorkerProtocol.decodeResponse(PDFWorkerProtocol.run(requestData: exact, afterOpen: nil).stdout).status == .success)
 
         let pipe = Pipe()
         let writer = pipe.fileHandleForWriting
@@ -195,7 +195,7 @@ struct PDFWorkerProtocolTests {
             continuation: continuation,
             generation: generation
         ))
-        return try PDFWorkerProtocol.decodeResponse(PDFWorkerProtocol.run(requestData: request).stdout)
+        return try PDFWorkerProtocol.decodeResponse(PDFWorkerProtocol.run(requestData: request, afterOpen: nil).stdout)
     }
 
     private final class Fixture {

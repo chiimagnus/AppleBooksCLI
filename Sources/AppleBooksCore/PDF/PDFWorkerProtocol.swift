@@ -2,7 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-public enum PDFWorkerStatus: String, Codable, Equatable, Sendable {
+enum PDFWorkerStatus: String, Codable, Equatable, Sendable {
     case success
     case failure
 }
@@ -20,30 +20,30 @@ public enum PDFWorkerErrorCode: String, Codable, Equatable, Sendable {
     case internalFailure
 }
 
-public enum PDFWorkerMode: String, Codable, Equatable, Sendable {
+enum PDFWorkerMode: String, Codable, Equatable, Sendable {
     case agentSummary
     case archive
 }
 
-public struct PDFWorkerTraversal: Codable, Equatable, Sendable {
-    public let pageIndex: Int
-    public let annotationIndex: Int
+struct PDFWorkerTraversal: Codable, Equatable, Sendable {
+    let pageIndex: Int
+    let annotationIndex: Int
 
-    public init(pageIndex: Int, annotationIndex: Int) {
+    init(pageIndex: Int, annotationIndex: Int) {
         self.pageIndex = pageIndex
         self.annotationIndex = annotationIndex
     }
 }
 
-public struct PDFWorkerRequest: Codable, Equatable, Sendable {
-    public let version: Int
-    public let path: String
-    public let mode: PDFWorkerMode
-    public let limit: Int
-    public let continuation: PDFWorkerTraversal?
-    public let generation: String?
+struct PDFWorkerRequest: Codable, Equatable, Sendable {
+    let version: Int
+    let path: String
+    let mode: PDFWorkerMode
+    let limit: Int
+    let continuation: PDFWorkerTraversal?
+    let generation: String?
 
-    public init(
+    init(
         version: Int = PDFWorkerProtocol.version,
         path: String,
         mode: PDFWorkerMode,
@@ -60,37 +60,37 @@ public struct PDFWorkerRequest: Codable, Equatable, Sendable {
     }
 }
 
-public struct PDFWorkerPoint: Codable, Equatable, Sendable {
-    public let x: Double
-    public let y: Double
+struct PDFWorkerPoint: Codable, Equatable, Sendable {
+    let x: Double
+    let y: Double
 }
 
-public struct PDFWorkerRect: Codable, Equatable, Sendable {
-    public let x: Double
-    public let y: Double
-    public let width: Double
-    public let height: Double
+struct PDFWorkerRect: Codable, Equatable, Sendable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
 }
 
-public struct PDFWorkerColorMatch: Codable, Equatable, Sendable {
-    public let color: String
-    public let distance: Double
-    public let isApproximate: Bool
+struct PDFWorkerColorMatch: Codable, Equatable, Sendable {
+    let color: String
+    let distance: Double
+    let isApproximate: Bool
 }
 
-public struct PDFWorkerSummaryColor: Codable, Equatable, Sendable {
-    public let name: String
-    public let approximate: Bool
+struct PDFWorkerSummaryColor: Codable, Equatable, Sendable {
+    let name: String
+    let approximate: Bool
 }
 
-public struct PDFWorkerSummaryHighlight: Codable, Equatable, Sendable {
-    public let page: Int
-    public let note: String?
-    public let text: String?
-    public let modifiedAt: Date?
-    public let textApproximate: Bool
-    public let presentationColor: PDFWorkerSummaryColor?
-    public let truncatedFields: [String]
+struct PDFWorkerSummaryHighlight: Codable, Equatable, Sendable {
+    let page: Int
+    let note: String?
+    let text: String?
+    let modifiedAt: Date?
+    let textApproximate: Bool
+    let presentationColor: PDFWorkerSummaryColor?
+    let truncatedFields: [String]
 
     init(_ highlight: PDFHighlight) {
         let boundedNote = PDFWorkerProtocol.agentPreview(highlight.note)
@@ -110,19 +110,19 @@ public struct PDFWorkerSummaryHighlight: Codable, Equatable, Sendable {
     }
 }
 
-public struct PDFWorkerArchiveHighlight: Codable, Equatable, Sendable {
-    public let page: Int
-    public let traversalIndex: Int
-    public let bounds: PDFWorkerRect
-    public let quadrilateralPoints: [PDFWorkerPoint]
-    public let note: String?
-    public let pdfKitRGBA: [Double]?
-    public let presentationColor: PDFWorkerColorMatch?
-    public let modifiedAt: Date?
-    public let text: String?
-    public let textSource: String?
-    public let textIsApproximate: Bool
-    public let textUnavailableReason: String?
+struct PDFWorkerArchiveHighlight: Codable, Equatable, Sendable {
+    let page: Int
+    let traversalIndex: Int
+    let bounds: PDFWorkerRect
+    let quadrilateralPoints: [PDFWorkerPoint]
+    let note: String?
+    let pdfKitRGBA: [Double]?
+    let presentationColor: PDFWorkerColorMatch?
+    let modifiedAt: Date?
+    let text: String?
+    let textSource: String?
+    let textIsApproximate: Bool
+    let textUnavailableReason: String?
 
     init(_ highlight: PDFHighlight) {
         page = highlight.page
@@ -153,42 +153,42 @@ public struct PDFWorkerArchiveHighlight: Codable, Equatable, Sendable {
     }
 }
 
-public struct PDFWorkerResponse: Codable, Equatable, Sendable {
-    public let version: Int
-    public let status: PDFWorkerStatus
-    public let mode: PDFWorkerMode?
-    public let summaryHighlights: [PDFWorkerSummaryHighlight]?
-    public let archiveHighlights: [PDFWorkerArchiveHighlight]?
-    public let nextTraversal: PDFWorkerTraversal?
-    public let hasMore: Bool?
-    public let generation: String?
-    public let errorCode: PDFWorkerErrorCode?
+struct PDFWorkerResponse: Codable, Equatable, Sendable {
+    let version: Int
+    let status: PDFWorkerStatus
+    let mode: PDFWorkerMode?
+    let summaryHighlights: [PDFWorkerSummaryHighlight]?
+    let archiveHighlights: [PDFWorkerArchiveHighlight]?
+    let nextTraversal: PDFWorkerTraversal?
+    let hasMore: Bool?
+    let generation: String?
+    let errorCode: PDFWorkerErrorCode?
 }
 
-public struct PDFWorkerInvocation: Equatable, Sendable {
-    public let stdout: Data
-    public let stderrCode: String?
+package struct PDFWorkerInvocation: Equatable, Sendable {
+    package let stdout: Data
+    package let stderrCode: String?
 }
 
-public enum PDFWorkerProtocol {
-    public static let version = 2
-    public static let requestByteLimit = 64 * 1_024
-    public static let maximumPageLimit = 100
-    public static let agentPreviewMaximumGraphemes = 240
-    public static let agentPreviewMaximumUTF8Bytes = 4 * 1_024
+package enum PDFWorkerProtocol {
+    static let version = 2
+    static let requestByteLimit = 64 * 1_024
+    static let maximumPageLimit = 100
+    static let agentPreviewMaximumGraphemes = 240
+    static let agentPreviewMaximumUTF8Bytes = 4 * 1_024
     private static let maximumPathUTF8Bytes = 4 * 1_024
     private static let generationPrefix = "pdfg2_"
     private static let generationDigestByteCount = 32
 
-    public static func encodeRequest(_ request: PDFWorkerRequest) throws -> Data {
+    static func encodeRequest(_ request: PDFWorkerRequest) throws -> Data {
         try encoder().encode(request)
     }
 
-    public static func decodeResponse(_ data: Data) throws -> PDFWorkerResponse {
+    static func decodeResponse(_ data: Data) throws -> PDFWorkerResponse {
         try decoder().decode(PDFWorkerResponse.self, from: data)
     }
 
-    public static func run(requestHandle: FileHandle) -> PDFWorkerInvocation {
+    package static func run(requestHandle: FileHandle) -> PDFWorkerInvocation {
         var requestData = Data()
         requestData.reserveCapacity(4 * 1_024)
         while true {
@@ -201,17 +201,13 @@ public enum PDFWorkerProtocol {
                 return failure(.malformedRequest)
             }
             if chunk.isEmpty {
-                return run(requestData: requestData)
+                return run(requestData: requestData, afterOpen: nil)
             }
             guard chunk.count <= remaining else {
                 return failure(.requestTooLarge)
             }
             requestData.append(chunk)
         }
-    }
-
-    public static func run(requestData: Data) -> PDFWorkerInvocation {
-        run(requestData: requestData, afterOpen: nil)
     }
 
     static func run(requestData: Data, afterOpen: (() -> Void)?) -> PDFWorkerInvocation {
@@ -288,7 +284,7 @@ public enum PDFWorkerProtocol {
         }
     }
 
-    package static func generationDigestBytes(_ token: String) -> [UInt8]? {
+    static func generationDigestBytes(_ token: String) -> [UInt8]? {
         guard token.utf8.count == generationPrefix.utf8.count + generationDigestByteCount * 2,
               token.hasPrefix(generationPrefix) else { return nil }
         let hex = token.dropFirst(generationPrefix.count)
@@ -307,7 +303,7 @@ public enum PDFWorkerProtocol {
         return bytes.count == generationDigestByteCount ? bytes : nil
     }
 
-    package static func generationToken(digestBytes: [UInt8]) -> String? {
+    static func generationToken(digestBytes: [UInt8]) -> String? {
         guard digestBytes.count == generationDigestByteCount else { return nil }
         return generationPrefix + digestBytes.map { String(format: "%02x", $0) }.joined()
     }

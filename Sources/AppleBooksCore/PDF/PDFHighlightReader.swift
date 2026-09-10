@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import PDFKit
 
-public enum PDFHighlightReaderError: Error, Equatable, Sendable {
+enum PDFHighlightReaderError: Error, Equatable, Sendable {
     case unreadableDocument
     case pageUnavailable(Int)
     case invalidTraversal

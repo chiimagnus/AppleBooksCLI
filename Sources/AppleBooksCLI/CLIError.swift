@@ -271,6 +271,8 @@ enum CLIOperation {
                 return .unavailable("Selected PDF is not locally readable. Refresh pdf list.")
             case .pdfReadFailed:
                 return .unavailable("Selected PDF could not be read. Check its local availability.")
+            case .documentIdentityCollision:
+                return .unavailable("Export document identity is ambiguous.")
             }
         }
         if let writerError = error as? ExportFileWriterError {

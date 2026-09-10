@@ -126,6 +126,28 @@ struct ExportOptionsTests {
     }
 
     @Test
+    func rawEPUBAssetIdentityIsIndependentOfPresentationSourceAndNilUsesOneUnknownSource() throws {
+        let raw = "same/#?%/é"
+        let annotation = annotation(pk: 1, assetID: raw, selectedText: "quote")
+        let currentBook = book(localPK: 1, assetID: raw, contentType: 1)
+        let records = [
+            ExportRecord(payload: .epub(.init(annotation: annotation, source: .currentLibrary(currentBook)))),
+            ExportRecord(payload: .epub(.init(annotation: annotation, source: .historicalInferred(.init(title: "History", author: "Author"))))),
+            ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped))),
+        ]
+        #expect(try records.map { try $0.documentSourceKey } == [.epubAsset(raw), .epubAsset(raw), .epubAsset(raw)])
+
+        let unknownA = ExportRecord(payload: .epub(.init(
+            annotation: self.annotation(pk: 2, assetID: nil, selectedText: "a"), source: .unmapped
+        )))
+        let unknownB = ExportRecord(payload: .epub(.init(
+            annotation: self.annotation(pk: 3, assetID: nil, selectedText: "b"), source: .unmapped
+        )))
+        #expect(try unknownA.documentSourceKey == .epubUnknown)
+        #expect(try unknownB.documentSourceKey == .epubUnknown)
+    }
+
+    @Test
     func knownCurrentPDFAEAnnotationIsExcludedButHistoricalAndUnmappedRowsAreNotGuessed() throws {
         let pdfBook = book(localPK: 10, assetID: "pdf-asset", contentType: 3)
         let currentPDFRow = ExportRecord(payload: .epub(.init(
@@ -310,7 +332,11 @@ struct ExportOptionsTests {
     }
 
     private func source(path: String, book: Book? = nil) -> PDFSource {
-        PDFSource(fileURL: URL(fileURLWithPath: path).standardizedFileURL, book: book)
+        PDFSource(
+            fileURL: URL(fileURLWithPath: path).standardizedFileURL,
+            book: book,
+            pdfSourceID: book == nil ? "pdf1_" + String(repeating: "a", count: 64) : nil
+        )
     }
 
     private func highlight(

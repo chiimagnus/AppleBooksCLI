@@ -185,6 +185,46 @@ struct ExportServiceTests {
     }
 
     @Test
+    func documentIdentityMergesUnknownSourceSortsCanonicallyAndRejectsDigestCollision() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "z-book", title: "Same", contentType: 1, path: nil),
+            .init(pk: 2, assetID: "a-book", title: "Same", contentType: 1, path: nil),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "z-book", selectedText: "z"),
+            .init(pk: 2, assetID: "a-book", selectedText: "a"),
+            .init(pk: 3, assetID: nil, selectedText: "unknown-one"),
+            .init(pk: 4, assetID: nil, selectedText: "unknown-two"),
+        ])
+
+        let service = try fixture.service()
+        let forward = try service.makeBundle(options: ExportOptions(
+            bookSelectors: [.assetID("z-book"), .assetID("a-book")]
+        ))
+        let reverse = try service.makeBundle(options: ExportOptions(
+            bookSelectors: [.assetID("a-book"), .assetID("z-book")]
+        ))
+        #expect(forward.groups.map(\.documentIdentity) == reverse.groups.map(\.documentIdentity))
+        #expect(forward.groups.allSatisfy { $0.documentIdentity?.fullKey.hasPrefix("doc1_") == true })
+
+        let bulk = try service.makeBundle(options: ExportOptions(source: .epub))
+        let unknown = try #require(bulk.groups.first { group in
+            if case .epubUnmapped(assetID: nil) = group.source { return true }
+            return false
+        })
+        #expect(unknown.records.count == 2)
+        #expect(bulk.groups.count == 3)
+
+        var colliding = service
+        colliding.documentIdentityDigest = { _ in Array(repeating: 0, count: 32) }
+        #expect(throws: ExportServiceError.documentIdentityCollision) {
+            _ = try colliding.makeBundle(options: ExportOptions(source: .epub))
+        }
+    }
+
+    @Test
     func statisticsUseFinalSelectionWhileSourceTotalsRemainPreFilter() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -474,7 +514,12 @@ struct ExportServiceTests {
         ] {
             let resolved = try resolver.resolve(selectors)
             #expect(resolved.count == 1)
-            #expect(resolved.first?.key == .pdfSlot(try #require(resolved.first?.pdfSource).fileURL.path))
+            let source = try #require(resolved.first?.pdfSource)
+            if let sourceID = source.pdfSourceID {
+                #expect(resolved.first?.key == .pdfSourceID(sourceID))
+            } else {
+                #expect(resolved.first?.key == .pdfBookAsset(try #require(source.book?.assetID ?? source.bookSummary?.assetID)))
+            }
             let before = try fixture.workerCallCount()
             let bundle = try service.makeBundle(options: ExportOptions(bookSelectors: selectors))
             #expect(bundle.statistics.recordCount == 1)

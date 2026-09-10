@@ -26,7 +26,7 @@ public enum ExportOrder: String, Equatable, Sendable {
 
 public enum ExportFileGrouping: String, Equatable, Sendable {
     case single
-    case perBook
+    case perDocument = "per-document"
 }
 
 public enum ExportBookSelector: Equatable, Hashable, Sendable {

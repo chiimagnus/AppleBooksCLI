@@ -38,7 +38,7 @@ struct ExportCommandTests {
             "--color", "blue",
             "--underline", "true",
             "--order", "reading",
-            "--grouping", "per-book",
+            "--grouping", "per-document",
             "--overwrite", "always",
             "--output", output.path,
         ])
@@ -56,7 +56,7 @@ struct ExportCommandTests {
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
         #expect(request.options.order == .reading)
-        #expect(request.options.grouping == .perBook)
+        #expect(request.options.grouping == .perDocument)
         #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
@@ -79,7 +79,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }
@@ -182,13 +182,13 @@ struct ExportCommandTests {
     }
 
     @Test
-    func genericPerBookExportReturnsDirectoryCountWithoutFileList() throws {
+    func genericPerDocumentExportReturnsDirectoryCountWithoutFileList() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let directory = fixture.root.appendingPathComponent("json-books", isDirectory: true)
         let command = try ExportCommand.parse([
             "--format", "json",
-            "--grouping", "per-book",
+            "--grouping", "per-document",
             "--source", "epub",
             "--output", directory.path,
         ])
@@ -309,7 +309,7 @@ struct ExportCommandTests {
         let directory = fixture.root.appendingPathComponent("documents.json")
         let defaultCommand = try ExportCommand.parse(["--source", "epub", "--output", defaultFile.path])
         let explicitCommand = try ExportCommand.parse(["--source", "epub", "--format", "markdown", "--output", explicitFile.path])
-        let directoryCommand = try ExportCommand.parse(["--source", "epub", "--grouping", "per-book", "--output", directory.path])
+        let directoryCommand = try ExportCommand.parse(["--source", "epub", "--grouping", "per-document", "--output", directory.path])
         #expect(try defaultCommand.makeRequest().format == .markdown)
         #expect(try defaultCommand.execute(using: fixture.core()).disposition == .file)
         #expect(try explicitCommand.execute(using: fixture.core()).disposition == .file)
@@ -332,7 +332,7 @@ struct ExportCommandTests {
         let directory = fixture.root.appendingPathComponent("directory")
         try Data("original".utf8).write(to: file)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-        for (target, grouping) in [(file, "per-book"), (directory, "single")] {
+        for (target, grouping) in [(file, "per-document"), (directory, "single")] {
             for policy in ["never", "always"] {
                 let command = try ExportCommand.parse([
                     "--source", "epub", "--output", target.path, "--grouping", grouping, "--overwrite", policy,

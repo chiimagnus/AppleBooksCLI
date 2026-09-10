@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 7
+    static let schemaVersion = 8
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()

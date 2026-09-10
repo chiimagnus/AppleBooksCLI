@@ -40,12 +40,12 @@ enum ExportOrderArgument: String, ExpressibleByArgument, Sendable {
 
 enum ExportGroupingArgument: String, ExpressibleByArgument, Sendable {
     case single
-    case perBook = "per-book"
+    case perDocument = "per-document"
 
     var coreValue: ExportFileGrouping {
         switch self {
         case .single: .single
-        case .perBook: .perBook
+        case .perDocument: .perDocument
         }
     }
 }
@@ -64,7 +64,7 @@ struct ExportCLIRequest: Equatable, Sendable {
     let outputURL: URL
 
     var producesMultipleFiles: Bool {
-        options.grouping == .perBook
+        options.grouping == .perDocument
     }
 }
 
@@ -123,7 +123,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Document ordering: reading (default).")
     var order: ExportOrderArgument?
 
-    @Option(name: .long, help: "File grouping: single or per-book.")
+    @Option(name: .long, help: "File grouping: single or per-document.")
     var grouping: ExportGroupingArgument?
 
     @Option(name: .long, help: "Existing-file policy: never (default) or always.")
@@ -310,7 +310,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         if request.format == .markdown {
             count = try writer.writeMarkdownCount(
                 bundle,
-                layout: .perBook,
+                layout: .perDocument,
                 overwrite: request.overwrite
             )
         } else {

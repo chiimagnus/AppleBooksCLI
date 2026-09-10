@@ -777,6 +777,7 @@
   "export single/multiple file": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift",
       "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
       "Sources/AppleBooksCore/Export/JSONExporter.swift"
     ],

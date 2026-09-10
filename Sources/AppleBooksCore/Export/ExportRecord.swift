@@ -58,15 +58,14 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    var documentKey: ExportDocumentKey {
-        switch payload {
-        case let .epub(enriched):
-            if let assetID = enriched.annotation.rawAssetID {
-                return .epubAsset(assetID)
+    var documentSourceKey: ResolvedExportSourceKey {
+        get throws {
+            switch payload {
+            case let .epub(enriched):
+                return enriched.annotation.rawAssetID.map(ResolvedExportSourceKey.epubAsset) ?? .epubUnknown
+            case let .pdf(source, _):
+                return try .documentKey(for: source)
             }
-            return .epubLocalPK(enriched.annotation.localPK)
-        case let .pdf(source, _):
-            return .pdfPath(source.fileURL.path)
         }
     }
 
@@ -105,7 +104,7 @@ enum ExportSelection {
         options: ExportOptions,
         to records: [ExportRecord],
         chapterOrder: (ExportRecord) throws -> [String: Int] = { _ in [:] }
-    ) rethrows -> [ExportRecord] {
+    ) throws -> [ExportRecord] {
         let filtered = records.enumerated().compactMap { index, record -> IndexedRecord? in
             guard sourceAllows(options.source, record),
                   record.isKnownCurrentPDFAnnotation == false,
@@ -119,10 +118,10 @@ enum ExportSelection {
             return IndexedRecord(index: index, record: record)
         }
 
-        var groupOrder: [ExportDocumentKey] = []
-        var groups: [ExportDocumentKey: [IndexedRecord]] = [:]
+        var groupOrder: [ResolvedExportSourceKey] = []
+        var groups: [ResolvedExportSourceKey: [IndexedRecord]] = [:]
         for item in filtered {
-            let key = item.record.documentKey
+            let key = try item.record.documentSourceKey
             if groups[key] == nil { groupOrder.append(key) }
             groups[key, default: []].append(item)
         }
@@ -169,12 +168,6 @@ private struct ReadingRecord {
     let index: Int
     let record: ExportRecord
     let key: ReadingKey
-}
-
-enum ExportDocumentKey: Hashable, Sendable {
-    case epubAsset(String)
-    case epubLocalPK(Int64)
-    case pdfPath(String)
 }
 
 private enum ReadingKey {

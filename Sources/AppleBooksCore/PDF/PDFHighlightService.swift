@@ -63,7 +63,7 @@ struct PDFHighlightService {
     let workerClient: PDFWorkerClient
 
     func inventory() throws -> [PDFSource] {
-        sourceResolver.resolve(pdfBooks: try bookQueries.pdfBooks())
+        try sourceResolver.exportInventory(bookQueries: bookQueries)
     }
 
     func readHighlights() throws -> PDFHighlightServiceResult {

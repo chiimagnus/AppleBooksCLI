@@ -32,6 +32,32 @@ struct PDFSourceResolver {
             }
     }
 
+    func exportInventory(bookQueries: BookQueries) throws -> [PDFSource] {
+        let library = try scanLibrary(bookQueries: bookQueries)
+        var candidates = try library.groups.values.map(libraryCandidate)
+        let libraryFileIDs = Set(library.groups.keys)
+        _ = try scanFallback { entry in
+            guard libraryFileIDs.contains(entry.fileIdentity) == false else { return }
+            candidates.append(try fallbackCandidate(entry))
+        }
+        candidates.sort { $0.key < $1.key }
+
+        var books: [Int64: Book] = [:]
+        for localPK in candidates.compactMap(\.summaryLocalPK) {
+            if let book = try bookQueries.getByLocalPK(localPK) {
+                books[localPK] = book
+            }
+        }
+        return candidates.map { candidate in
+            PDFSource(
+                fileURL: candidate.fileURL,
+                book: candidate.summaryLocalPK.flatMap { books[$0] },
+                provenance: candidate.provenance,
+                pdfSourceID: candidate.key.kind == .source ? candidate.key.value : nil
+            )
+        }
+    }
+
     func inventoryPage(
         bookQueries: BookQueries,
         limit: Int? = nil,

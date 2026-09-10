@@ -10,10 +10,16 @@ public enum ExportGroupSource: Equatable, Sendable {
 public struct ExportGroup: Equatable, Sendable {
     public let source: ExportGroupSource
     public let records: [ExportRecord]
+    let documentIdentity: ExportDocumentIdentity?
 
-    init(source: ExportGroupSource, records: [ExportRecord]) {
+    init(
+        source: ExportGroupSource,
+        records: [ExportRecord],
+        documentIdentity: ExportDocumentIdentity? = nil
+    ) {
         self.source = source
         self.records = records
+        self.documentIdentity = documentIdentity
     }
 }
 

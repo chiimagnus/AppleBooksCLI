@@ -23,7 +23,7 @@ public struct ExportFileWriteResult: Equatable, Sendable {
 
 public enum ExportFileLayout: Equatable, Sendable {
     case single(fileName: String)
-    case perBook
+    case perDocument
 }
 
 public struct ExportDirectoryWriteResult: Equatable, Sendable {
@@ -90,10 +90,9 @@ public struct ExportFileWriter {
         materialize: (ExportGroup, String) throws -> Void
     ) throws -> Int {
         try Self.validateFileExtension(fileExtension)
-        var allocator = ExportFilenameAllocator()
         var count = 0
         for group in bundle.groups {
-            let fileName = allocator.allocate(derivedFrom: Self.fileStem(for: group), extension: fileExtension)
+            let fileName = try Self.documentFileName(for: group, extension: fileExtension)
             try materialize(group, fileName)
             count += 1
         }
@@ -110,7 +109,7 @@ public struct ExportFileWriter {
             let data = Data(MarkdownAnnotationExporter.render(bundle).utf8)
             _ = try write(data, fileName: fileName, overwrite: overwrite)
             return 1
-        case .perBook:
+        case .perDocument:
             return try writeDocumentsCount(
                 bundle,
                 fileExtension: "md",
@@ -134,7 +133,7 @@ public struct ExportFileWriter {
                 documentFileCount: 1,
                 files: [result.destination]
             )
-        case .perBook:
+        case .perDocument:
             return try writeDocuments(
                 bundle,
                 fileExtension: "md",
@@ -303,16 +302,28 @@ public struct ExportFileWriter {
         return metadata.st_mode & S_IFMT
     }
 
-    private static func fileStem(for group: ExportGroup) -> String {
+    private static func documentFileName(for group: ExportGroup, extension fileExtension: String) throws -> String {
+        guard let identity = group.documentIdentity else { throw ExportFileWriterError.writeFailed }
+        let suffix = "-\(identity.fullKey).\(fileExtension)"
+        let stemBudget = 200 - suffix.utf8.count
+        guard stemBudget > 0 else { throw ExportFileWriterError.invalidFileName }
+        let stem = ExportPathComponent.safe(
+            displayStem(for: group),
+            maximumUTF8Bytes: min(ExportPathComponent.maximumUTF8Bytes, stemBudget)
+        )
+        return stem + suffix
+    }
+
+    private static func displayStem(for group: ExportGroup) -> String {
         switch group.source {
         case let .epubCurrent(book):
-            return nonEmpty(book.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB"
-        case let .epubHistorical(assetID, metadata):
-            return nonEmpty(metadata.title) ?? nonEmpty(assetID) ?? "Historical EPUB"
-        case let .epubUnmapped(assetID):
-            return nonEmpty(assetID) ?? "Unmapped EPUB"
+            return nonEmpty(book.title) ?? "EPUB"
+        case let .epubHistorical(_, metadata):
+            return nonEmpty(metadata.title) ?? "Historical EPUB"
+        case .epubUnmapped:
+            return "Unmapped EPUB"
         case let .pdf(source):
-            return source.displayTitle
+            return nonEmpty(source.displayTitle) ?? "PDF"
         }
     }
 

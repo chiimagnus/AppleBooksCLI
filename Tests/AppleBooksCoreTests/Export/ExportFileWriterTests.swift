@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import AppleBooksCore
@@ -60,16 +61,12 @@ struct ExportFileWriterTests {
         #expect(ExportPathComponent.safe(".") == "%2E")
         #expect(ExportPathComponent.safe("..") == "%2E%2E")
 
-        var allocator = ExportFilenameAllocator()
-        #expect(allocator.allocate(derivedFrom: "Same", extension: "md") == "Same.md")
-        #expect(allocator.allocate(derivedFrom: "Same", extension: "md") == "Same-2.md")
-
         let long = String(repeating: "界", count: 100)
         #expect(ExportPathComponent.safe(long).lengthOfBytes(using: .utf8) <= ExportPathComponent.maximumUTF8Bytes)
     }
 
     @Test
-    func genericPerDocumentWriterOwnsSafeNamesCollisionsAndExtensionValidation() throws {
+    func genericPerDocumentWriterUsesStableIdentityNamesAndExtensionValidation() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
@@ -78,13 +75,78 @@ struct ExportFileWriterTests {
         let result = try writer.writeDocuments(bundle, fileExtension: "json") { group in
             Data("records=\(group.records.count)".utf8)
         }
+        let expected = try bundle.groups.map { group in
+            "Same-\(try #require(group.documentIdentity).fullKey).json"
+        }
         #expect(result.documentFileCount == 2)
-        #expect(result.files.map(\.lastPathComponent) == ["Same.json", "Same-2.json"])
+        #expect(result.files.map(\.lastPathComponent) == expected)
+        #expect(Set(expected).count == 2)
+        #expect(expected.allSatisfy { $0.utf8.count <= 200 })
         #expect(try result.files.map { try String(contentsOf: $0, encoding: .utf8) } == ["records=1", "records=1"])
 
         #expect(throws: ExportFileWriterError.invalidFileName) {
             _ = try writer.writeDocuments(bundle, fileExtension: "../json") { _ in Data() }
         }
+    }
+
+    @Test
+    func documentFilenameIsStableAcrossOrderAndSubsetAndDoesNotLeakRawIdentity() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let rawA = "private/A #?% 文档/" + String(repeating: "x", count: 2_100)
+        let rawB = "private/B #?% 文档/" + String(repeating: "y", count: 2_100)
+        let a = FixtureFactory.group(pk: 1, assetID: rawA, title: String(repeating: "Same", count: 100))
+        let b = FixtureFactory.group(pk: 2, assetID: rawB, title: String(repeating: "Same", count: 100))
+
+        func names(_ groups: [ExportGroup]) throws -> [String: String] {
+            var result: [String: String] = [:]
+            _ = try writer.forEachDocument(FixtureFactory.makeBundle(groups: groups), fileExtension: "md") { group, fileName in
+                result[try #require(group.documentIdentity).fullKey] = fileName
+            }
+            return result
+        }
+
+        let together = try names([a, b])
+        let reversed = try names([b, a])
+        let alone = try names([a])
+        let aKey = try #require(a.documentIdentity).fullKey
+        #expect(together == reversed)
+        #expect(together[aKey] == alone[aKey])
+        #expect(Set(together.values).count == 2)
+        for fileName in together.values {
+            #expect(fileName.utf8.count <= 200)
+            #expect(fileName.contains("doc1_"))
+            #expect(fileName.contains("private/") == false)
+            #expect(fileName.contains("#") == false)
+            #expect(fileName.contains("文档") == false)
+        }
+    }
+
+    @Test
+    func documentIdentityHashesExactUTF8IncrementallyAndStemTraversalIsBounded() throws {
+        let raw = "A/#?%/e\u{301}/é/界"
+        let key = ResolvedExportSourceKey.epubAsset(raw)
+        var reference = Data("applebookscli.export.document.v1\0epub-asset\0".utf8)
+        reference.append(contentsOf: raw.utf8)
+        let expected = "doc1_" + SHA256.hash(data: reference).map { String(format: "%02x", $0) }.joined()
+        #expect(try ExportDocumentIdentity.make(sourceKey: key).fullKey == expected)
+
+        let hugeTitle = String(repeating: "Title ", count: (128 * 1_024 * 1_024 / 6) + 1)
+        var stemPeak = 0
+        let stem = ExportPathComponent.safe(hugeTitle, maximumUTF8Bytes: 120) {
+            stemPeak = max(stemPeak, $0)
+        }
+        #expect(stem.utf8.count <= 120)
+        #expect(stemPeak <= 120)
+
+        let hugeIdentity = String(repeating: "z", count: 128 * 1_024 * 1_024 + 1)
+        var digestPeak = 0
+        let digest = try ExportDocumentIdentity.defaultDigest(for: .epubAsset(hugeIdentity)) {
+            digestPeak = max(digestPeak, $0)
+        }
+        #expect(digest.count == 32)
+        #expect(digestPeak <= 4_096)
     }
 
     @Test
@@ -147,8 +209,8 @@ struct ExportFileWriterTests {
         let bundle = FixtureFactory.bundleWithDuplicateTitles()
         let legacy = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("legacy"))
         let canonical = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("canonical"))
-        let result = try legacy.writeMarkdown(bundle, layout: .perBook)
-        let count = try canonical.writeMarkdownCount(bundle, layout: .perBook)
+        let result = try legacy.writeMarkdown(bundle, layout: .perDocument)
+        let count = try canonical.writeMarkdownCount(bundle, layout: .perDocument)
         #expect(count == 2)
         #expect(result.documentFileCount == count)
         #expect(result.files.count == 2)
@@ -166,12 +228,19 @@ struct ExportFileWriterTests {
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
         let groups = (0..<100_001).map { index in
-            ExportGroup(source: .epubUnmapped(assetID: "synthetic-\(index)"), records: [])
+            let assetID = "synthetic-\(index)"
+            return ExportGroup(
+                source: .epubUnmapped(assetID: assetID),
+                records: [],
+                documentIdentity: try! ExportDocumentIdentity.make(sourceKey: .epubAsset(assetID))
+            )
         }
         let bundle = FixtureFactory.makeBundle(groups: groups)
         var materialized = 0
         let count = try writer.forEachDocument(bundle, fileExtension: "md") { _, fileName in
-            #expect(fileName == "synthetic-\(materialized).md")
+            #expect(fileName.hasPrefix("Unmapped%20EPUB-doc1_"))
+            #expect(fileName.hasSuffix(".md"))
+            #expect(fileName.utf8.count <= 200)
             materialized += 1
         }
         #expect(count == 100_001)
@@ -190,13 +259,13 @@ struct ExportFileWriterTests {
         let link = fixture.output.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
         for target in [file, directory, link] {
-            for grouping in [ExportFileGrouping.single, .perBook] {
+            for grouping in [ExportFileGrouping.single, .perDocument] {
                 #expect(throws: ExportFileWriterError.destinationExists) {
                     try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .never)
                 }
             }
         }
-        for (target, grouping) in [(file, ExportFileGrouping.perBook), (directory, .single), (link, .single)] {
+        for (target, grouping) in [(file, ExportFileGrouping.perDocument), (directory, .single), (link, .single)] {
             #expect(throws: ExportFileWriterError.unsafeDestination) {
                 try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .always)
             }
@@ -234,21 +303,29 @@ struct ExportFileWriterTests {
             author: String?,
             note: String = "note"
         ) -> ExportBundle {
-            let book = makeBook(pk: 1, title: title, author: author)
-            let group = ExportGroup(
-                source: .epubCurrent(book),
-                records: [makeRecord(pk: 1, book: book, note: note)]
-            )
-            return makeBundle(groups: [group])
+            makeBundle(groups: [group(pk: 1, assetID: "asset-1", title: title, author: author, note: note)])
         }
 
         static func bundleWithDuplicateTitles() -> ExportBundle {
-            let first = makeBook(pk: 1, title: "Same", author: nil)
-            let second = makeBook(pk: 2, title: "Same", author: nil)
-            return makeBundle(groups: [
-                ExportGroup(source: .epubCurrent(first), records: [makeRecord(pk: 1, book: first)]),
-                ExportGroup(source: .epubCurrent(second), records: [makeRecord(pk: 2, book: second)]),
+            makeBundle(groups: [
+                group(pk: 1, assetID: "asset-1", title: "Same"),
+                group(pk: 2, assetID: "asset-2", title: "Same"),
             ])
+        }
+
+        static func group(
+            pk: Int64,
+            assetID: String,
+            title: String,
+            author: String? = nil,
+            note: String = "note"
+        ) -> ExportGroup {
+            let book = makeBook(pk: pk, assetID: assetID, title: title, author: author)
+            return ExportGroup(
+                source: .epubCurrent(book),
+                records: [makeRecord(pk: pk, book: book, note: note)],
+                documentIdentity: try! ExportDocumentIdentity.make(sourceKey: .epubAsset(assetID))
+            )
         }
 
         static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
@@ -280,10 +357,10 @@ struct ExportFileWriterTests {
             )
         }
 
-        private static func makeBook(pk: Int64, title: String, author: String?) -> Book {
+        private static func makeBook(pk: Int64, assetID: String, title: String, author: String?) -> Book {
             Book(
                 localPK: pk,
-                assetID: "asset-\(pk)",
+                assetID: assetID,
                 title: title,
                 author: author,
                 description: nil,

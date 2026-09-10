@@ -5,6 +5,7 @@ public enum ExportServiceError: Error, Equatable, Sendable {
     case selectorNotFound
     case pdfSourceUnavailable
     case pdfReadFailed
+    case documentIdentityCollision
 }
 
 struct ExportService {
@@ -13,6 +14,9 @@ struct ExportService {
     let configuration: AppleBooksConfiguration?
     let pdfService: PDFHighlightService?
     var pdfSourceResolver: PDFSourceResolver = PDFSourceResolver()
+    var documentIdentityDigest: (ResolvedExportSourceKey) throws -> [UInt8] = {
+        try ExportDocumentIdentity.defaultDigest(for: $0)
+    }
 
     func makeBundle(options: ExportOptions) throws -> ExportBundle {
         let resolver = ExportSourceResolver(
@@ -54,13 +58,13 @@ struct ExportService {
         }
 
         let sourceClassified = records.filter { $0.isKnownCurrentPDFAnnotation == false }
-        let sourceTotals = makeSourceTotals(records: sourceClassified, pdfResult: pdfResult)
+        let sourceTotals = try makeSourceTotals(records: sourceClassified, pdfResult: pdfResult)
         let selected = try ExportSelection.apply(options: options, to: sourceClassified) { record in
             guard case let .epub(enriched) = record.payload,
                   case let .currentLibrary(book) = enriched.source else { return [:] }
             return try annotationQueries?.resolveReadingContext(bookLocalPK: book.localPK).chapterOrder ?? [:]
         }
-        let groups = makeGroups(records: selected)
+        let groups = try makeGroups(records: selected)
 
         return ExportBundle(
             options: options,
@@ -97,17 +101,39 @@ struct ExportService {
         return annotations
     }
 
-    private func makeGroups(records: [ExportRecord]) -> [ExportGroup] {
-        var order: [ExportDocumentKey] = []
-        var grouped: [ExportDocumentKey: [ExportRecord]] = [:]
+    private func makeGroups(records: [ExportRecord]) throws -> [ExportGroup] {
+        var grouped: [ResolvedExportSourceKey: [ExportRecord]] = [:]
         for record in records {
-            if grouped[record.documentKey] == nil { order.append(record.documentKey) }
-            grouped[record.documentKey, default: []].append(record)
+            grouped[try record.documentSourceKey, default: []].append(record)
         }
-        return order.compactMap { key in
-            guard let records = grouped[key], let first = records.first else { return nil }
-            return ExportGroup(source: groupSource(record: first), records: records)
+
+        var prepared: [(sourceKey: ResolvedExportSourceKey, group: ExportGroup)] = []
+        prepared.reserveCapacity(grouped.count)
+        for (sourceKey, records) in grouped {
+            guard let first = records.first else { continue }
+            let identity = try ExportDocumentIdentity.make(
+                sourceKey: sourceKey,
+                digest: documentIdentityDigest
+            )
+            prepared.append((
+                sourceKey,
+                ExportGroup(
+                    source: groupSource(record: first),
+                    records: records,
+                    documentIdentity: identity
+                )
+            ))
         }
+        prepared.sort { $0.group.documentIdentity! < $1.group.documentIdentity! }
+        for index in prepared.indices.dropFirst() {
+            let previous = prepared[prepared.index(before: index)]
+            let current = prepared[index]
+            if previous.group.documentIdentity == current.group.documentIdentity,
+               previous.sourceKey != current.sourceKey {
+                throw ExportServiceError.documentIdentityCollision
+            }
+        }
+        return prepared.map(\.group)
     }
 
     private func groupSource(record: ExportRecord) -> ExportGroupSource {
@@ -132,12 +158,16 @@ struct ExportService {
     private func makeSourceTotals(
         records: [ExportRecord],
         pdfResult: PDFHighlightServiceResult?
-    ) -> ExportSourceTotals {
+    ) throws -> ExportSourceTotals {
         let epubRecords = records.filter {
             if case .epub = $0.payload { return true }
             return false
         }
-        let epubDocuments = Set(epubRecords.map(\.documentKey)).count
+        var epubDocumentKeys = Set<ResolvedExportSourceKey>()
+        for record in epubRecords {
+            epubDocumentKeys.insert(try record.documentSourceKey)
+        }
+        let epubDocuments = epubDocumentKeys.count
         let pdfHighlights = records.count {
             if case .pdf = $0.payload { return true }
             return false

@@ -46,6 +46,7 @@ applebookscli books list
 applebookscli books search "history" --field all
 applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
+applebookscli reading recent --limit 20   # 返回 nextCursor 时用 --cursor 继续
 applebookscli stats
 applebookscli collections list   # 返回 nextCursor 时用 --cursor 继续
 applebookscli doctor   # ready / partial / unavailable + 固定 capability map
@@ -55,13 +56,19 @@ applebookscli annotations list --has-note true --order modified   # 默认 20；
 applebookscli annotations list --book <asset-id> --order reading
 applebookscli annotations get <annotation-uuid>
 applebookscli annotations context <annotation-uuid>
+applebookscli reading position <asset-id>   # 只返回能映射当前 ToC 的真实 bookmark；结果包含 chapterOrder
+applebookscli content metadata <asset-id>   # 单一 bounded resolved metadata
+applebookscli content cover <asset-id> --output ./cover.png   # 写出图片；JSON 返回 canonical destination
+applebookscli content chapters --book <asset-id>   # 默认 20；返回 nextCursor 时用 --cursor 继续
+applebookscli content chapter --book <asset-id> --chapter 1   # 返回 nextCursor 时用 --cursor 继续
 
 # PDF inventory / 提取
 applebookscli pdf list   # 返回 nextCursor 时用 --cursor 继续
-applebookscli pdf highlights --help
+applebookscli pdf highlights --book <asset-id>   # 默认 20；返回 nextCursor 时用 --cursor 继续
+applebookscli pdf highlights --pdf <pdfSourceID> # 非唯一/ fallback source 使用 opaque inventory identity
 ```
 
-精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 opaque `backupID`。`backups list` 是固定的恢复窗口，只展示最新 10 个有效 library backup，不提供分页历史浏览；已知且仍有效的 `backupID` 即使已不在该窗口中仍可用于 restore。local PK（`Z_PK`）只是在当前本机数据库中的行标识，必须显式选择。`books list/search`、可增长的 reading-state 查询、`collections list/search/books` 与 `pdf list` 使用 opaque cursor；返回 `nextCursor` 时把它原样传给同一查询的 `--cursor`。PDF inventory 会返回 `bookAssetID` 或 opaque `pdfSourceID`；后续用 `pdf highlights --book` 或 `--pdf` 消费该 identity，不把绝对文件路径当 ordinary selector。普通 read 会限制超长展示文本，并用 `truncatedFields` 标明被缩短字段；需要原始完整正文时使用显式 archival export，不要把普通查询结果当 raw dump。`stats` 会把 historical、unmapped、当前书库 identity 歧义、identity 不可用的批注分别计数；`topAnnotatedBooks` 只返回可继续使用的书籍 identity 与 `annotationCount`。
+精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 opaque `backupID`。`backups list` 是固定的恢复窗口，只展示最新 10 个有效 library backup，不提供分页历史浏览；已知且仍有效的 `backupID` 即使已不在该窗口中仍可用于 restore。local PK（`Z_PK`）只是在当前本机数据库中的行标识，必须显式选择。`books list/search`、可增长的 reading-state 查询、`collections list/search/books`、`pdf list`、`pdf highlights`、`annotations list` 与 `content chapters` 使用 opaque cursor；返回 `nextCursor` 时把它原样传给同一查询的 `--cursor`。PDF inventory 会返回 `bookAssetID` 或 opaque `pdfSourceID`；后续用 `pdf highlights --book` 或 `--pdf` 消费该 identity，不把绝对文件路径当 ordinary selector。普通 read 会限制超长展示文本，并用 `truncatedFields` 标明被缩短字段；需要原始完整正文时使用显式 archival export，不要把普通查询结果当 raw dump。`stats` 会把 historical、unmapped、当前书库 identity 歧义、identity 不可用的批注分别计数；`topAnnotatedBooks` 只返回可继续使用的书籍 identity 与 `annotationCount`。
 
 ## 导出
 
@@ -87,6 +94,7 @@ applebookscli collections create "My Shelf" --sync
 
 ```sh
 applebookscli collections create "Shelf A"
+applebookscli collections add-book --collection <collection-id> --book <asset-id>
 applebookscli annotations update-note <annotation-uuid> --note "New note"
 applebookscli sync
 ```

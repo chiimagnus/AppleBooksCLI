@@ -52,9 +52,6 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let pdfReadPrerequisitesReady: Bool
     public let libraryOptionalSchemaComplete: Bool
     public let annotationsOptionalSchemaComplete: Bool
-    public let readSchemaReady: Bool
-    public let optionalSchemaComplete: Bool
-    public let writeSchemaReady: Bool
     public let configurationReady: Bool
     public let supplementalRootConfigured: Bool
     public let supplementalRootReady: Bool
@@ -114,8 +111,6 @@ public enum AppleBooksDiagnostics {
         var annotationWriteReady = false
         var contentReadPrerequisitesReady = false
         var pdfReadPrerequisitesReady = false
-        var libraryLegacyReadReady = false
-        var annotationsLegacyReadReady = false
         var libraryOptionalSchemaComplete = false
         var annotationsOptionalSchemaComplete = false
 
@@ -124,7 +119,6 @@ public enum AppleBooksDiagnostics {
                 on: libraryConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table != .annotations }
             )
-            libraryLegacyReadReady = schema.requiredReady
             libraryOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
                 issues.append(.init(code: .libraryReadSchemaIncompatible, state: .fatal))
@@ -160,7 +154,6 @@ public enum AppleBooksDiagnostics {
                 on: annotationConnection,
                 capabilities: SchemaCapability.allCases.filter { $0.table == .annotations }
             )
-            annotationsLegacyReadReady = schema.requiredReady
             annotationsOptionalSchemaComplete = schema.optionalComplete
             if schema.requiredReady == false {
                 issues.append(.init(code: .annotationsReadSchemaIncompatible, state: .fatal))
@@ -178,10 +171,6 @@ public enum AppleBooksDiagnostics {
                 issues.append(.init(code: .annotationsWriteSchemaIncompatible, state: .degraded))
             }
         }
-
-        let readSchemaReady = libraryLegacyReadReady && annotationsLegacyReadReady
-        let optionalSchemaComplete = libraryOptionalSchemaComplete && annotationsOptionalSchemaComplete
-        let writeSchemaReady = collectionWriteReady && annotationWriteReady
 
         let configuration: AppleBooksConfiguration?
         do {
@@ -240,9 +229,6 @@ public enum AppleBooksDiagnostics {
             pdfReadPrerequisitesReady: pdfReadPrerequisitesReady,
             libraryOptionalSchemaComplete: libraryOptionalSchemaComplete,
             annotationsOptionalSchemaComplete: annotationsOptionalSchemaComplete,
-            readSchemaReady: readSchemaReady,
-            optionalSchemaComplete: optionalSchemaComplete,
-            writeSchemaReady: writeSchemaReady,
             configurationReady: configuration != nil,
             supplementalRootConfigured: supplementalRootConfigured,
             supplementalRootReady: supplementalRootReady,

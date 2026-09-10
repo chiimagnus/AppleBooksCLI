@@ -33,7 +33,6 @@ enum ExportColorArgument: String, ExpressibleByArgument, Sendable {
 }
 
 enum ExportOrderArgument: String, ExpressibleByArgument, Sendable {
-    case source
     case reading
 
     var coreValue: ExportOrder { ExportOrder(rawValue: rawValue)! }
@@ -121,7 +120,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Filter underline state: true or false.")
     var underline: AnnotationBooleanArgument?
 
-    @Option(name: .long, help: "Stable ordering: source or reading.")
+    @Option(name: .long, help: "Document ordering: reading (default).")
     var order: ExportOrderArgument?
 
     @Option(name: .customLong("skip-first"), parsing: .unconditional, help: "Skip the first N records per final sorted document.")

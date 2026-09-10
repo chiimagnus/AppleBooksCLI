@@ -14,7 +14,7 @@ struct ExportOptionsTests {
         #expect(options.hasNote == nil)
         #expect(options.colors == nil)
         #expect(options.underline == nil)
-        #expect(options.order == .source)
+        #expect(options.order == .reading)
         #expect(options.skipFirstPerBook == 0)
         #expect(options.grouping == .single)
         #expect(options.includeEPUBMetadata == false)
@@ -106,7 +106,7 @@ struct ExportOptionsTests {
         for hasHighlight in choices {
             for hasNote in choices {
                 for underline in choices {
-                    let selected = ExportSelection.apply(options: try ExportOptions(
+                    let selected = try ExportSelection.apply(options: try ExportOptions(
                         source: .all, hasHighlight: hasHighlight, hasNote: hasNote, underline: underline
                     ), to: records)
                     let expected = records.indices.filter { index in
@@ -120,8 +120,8 @@ struct ExportOptionsTests {
             }
         }
         #expect(pdf.hasHighlight)
-        #expect(ExportSelection.apply(options: try ExportOptions(source: .pdf, hasHighlight: false), to: [pdf]).isEmpty)
-        #expect(ExportSelection.apply(options: try ExportOptions(source: .pdf, underline: true), to: [pdf]).isEmpty)
+        #expect(try ExportSelection.apply(options: try ExportOptions(source: .pdf, hasHighlight: false), to: [pdf]).isEmpty)
+        #expect(try ExportSelection.apply(options: try ExportOptions(source: .pdf, underline: true), to: [pdf]).isEmpty)
         for note in [" \t\r\n", "note", "\u{00a0}"] {
             let record = ExportRecord(payload: .pdf(
                 source: source(path: "/synthetic/presence.pdf"),
@@ -134,7 +134,7 @@ struct ExportOptionsTests {
             source: .unmapped
         )))
         #expect(!representativeOnly.hasHighlight)
-        #expect(ExportSelection.apply(options: try ExportOptions(), to: [representativeOnly]).isEmpty)
+        #expect(try ExportSelection.apply(options: try ExportOptions(), to: [representativeOnly]).isEmpty)
     }
 
     @Test
@@ -158,13 +158,13 @@ struct ExportOptionsTests {
             highlight: highlight(page: 1, traversal: 0, text: "pdf truth")
         ))
 
-        let all = ExportSelection.apply(
+        let all = try ExportSelection.apply(
             options: try ExportOptions(source: .all, hasHighlight: true),
             to: [currentPDFRow, historical, unmapped, pdfHighlight]
         )
         #expect(all == [historical, unmapped, pdfHighlight])
 
-        let epub = ExportSelection.apply(
+        let epub = try ExportSelection.apply(
             options: try ExportOptions(source: .epub, hasHighlight: true),
             to: [currentPDFRow, historical, unmapped, pdfHighlight]
         )
@@ -187,19 +187,19 @@ struct ExportOptionsTests {
             highlight: highlight(page: 1, traversal: 0, color: .yellow)
         ))
 
-        let underlineOnly = ExportSelection.apply(
+        let underlineOnly = try ExportSelection.apply(
             options: try ExportOptions(source: .all, hasHighlight: true, underline: true),
             to: [underlined, styleOnly, pdf]
         )
         #expect(underlineOnly == [underlined])
 
-        let green = ExportSelection.apply(
+        let green = try ExportSelection.apply(
             options: try ExportOptions(source: .all, hasHighlight: true, colors: [.green]),
             to: [underlined, styleOnly, pdf]
         )
         #expect(green == [styleOnly])
 
-        let yellowPDF = ExportSelection.apply(
+        let yellowPDF = try ExportSelection.apply(
             options: try ExportOptions(
                 source: .pdf,
                 bookSelectors: [.pdfFile(pdfURL)],
@@ -210,7 +210,7 @@ struct ExportOptionsTests {
         )
         #expect(yellowPDF.isEmpty)
 
-        let assetSelected = ExportSelection.apply(
+        let assetSelected = try ExportSelection.apply(
             options: try ExportOptions(
                 source: .all,
                 bookSelectors: [.assetID("asset-a")],
@@ -225,7 +225,7 @@ struct ExportOptionsTests {
             annotation: annotation(pk: 3, assetID: "asset-local", selectedText: "local"),
             source: .currentLibrary(currentBook)
         )))
-        let localSelected = ExportSelection.apply(
+        let localSelected = try ExportSelection.apply(
             options: try ExportOptions(bookSelectors: [.localPK(77)], hasHighlight: true),
             to: [underlined, localRecord]
         )
@@ -245,7 +245,7 @@ struct ExportOptionsTests {
             epubRecord(pk: 7, cfi: oversizedCFI),
         ]
 
-        let ordered = ExportSelection.apply(
+        let ordered = try ExportSelection.apply(
             options: try ExportOptions(hasHighlight: true, order: .reading),
             to: records
         )
@@ -263,7 +263,7 @@ struct ExportOptionsTests {
             pdfRecord(source: pdfSource, page: 1, traversal: 1, x: 10, y: 50),
         ]
 
-        let ordered = ExportSelection.apply(
+        let ordered = try ExportSelection.apply(
             options: try ExportOptions(source: .pdf, hasHighlight: true, order: .reading),
             to: records
         )
@@ -282,7 +282,7 @@ struct ExportOptionsTests {
             epubRecord(pk: 5, assetID: "b", selected: "highlight-b2", note: nil, cfi: "epubcfi(/6/3)"),
         ]
 
-        let ordered = ExportSelection.apply(
+        let ordered = try ExportSelection.apply(
             options: try ExportOptions(
                 hasHighlight: true,
                 order: .reading,
@@ -292,11 +292,11 @@ struct ExportOptionsTests {
         )
         #expect(ordered.compactMap(\.epubPK) == [2, 1, 4])
 
-        let sourceOrdered = ExportSelection.apply(
+        let defaultOrdered = try ExportSelection.apply(
             options: try ExportOptions(hasHighlight: true, skipFirstPerBook: 1),
             to: a + b
         )
-        #expect(sourceOrdered.compactMap(\.epubPK) == [2, 3, 5])
+        #expect(defaultOrdered == ordered)
     }
 
     private func epubRecord(

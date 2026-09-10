@@ -527,7 +527,7 @@ struct AnnotationQueries {
         let currentBookLocalPK: Int64?
     }
 
-    private struct ReadingContext {
+    struct ReadingContext {
         let chapterOrder: [String: Int]
         let generation: CursorGenerationComponent
     }
@@ -558,7 +558,7 @@ struct AnnotationQueries {
         }
     }
 
-    private func resolveReadingContext(bookLocalPK: Int64?) throws -> ReadingContext {
+    func resolveReadingContext(bookLocalPK: Int64?) throws -> ReadingContext {
         guard let bookLocalPK else {
             return ReadingContext(
                 chapterOrder: [:],

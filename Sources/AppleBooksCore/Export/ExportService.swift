@@ -46,7 +46,11 @@ struct ExportService {
 
         let sourceClassified = records.filter { $0.isKnownCurrentPDFAnnotation == false }
         let sourceTotals = makeSourceTotals(records: sourceClassified, pdfResult: pdfResult)
-        let selected = ExportSelection.apply(options: options, to: sourceClassified)
+        let selected = try ExportSelection.apply(options: options, to: sourceClassified) { record in
+            guard case let .epub(enriched) = record.payload,
+                  case let .currentLibrary(book) = enriched.source else { return [:] }
+            return try annotationQueries?.resolveReadingContext(bookLocalPK: book.localPK).chapterOrder ?? [:]
+        }
         var groups = makeGroups(records: selected)
 
         if options.includeEPUBMetadata || options.cover != .none {

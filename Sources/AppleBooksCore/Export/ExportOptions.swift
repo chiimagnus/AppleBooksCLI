@@ -22,7 +22,6 @@ public enum ExportPresentationColor: String, Equatable, Hashable, Sendable {
 }
 
 public enum ExportOrder: String, Equatable, Sendable {
-    case source
     case reading
 }
 
@@ -63,7 +62,7 @@ public struct ExportOptions: Equatable, Sendable {
         hasNote: Bool? = nil,
         colors: Set<ExportPresentationColor>? = nil,
         underline: Bool? = nil,
-        order: ExportOrder = .source,
+        order: ExportOrder = .reading,
         skipFirstPerBook: Int = 0,
         grouping: ExportFileGrouping = .single,
         includeEPUBMetadata: Bool = false,

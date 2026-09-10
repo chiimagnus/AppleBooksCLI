@@ -96,12 +96,13 @@ public struct ExportRecord: Equatable, Sendable {
         }
     }
 
-    fileprivate var readingKey: ReadingKey {
+    fileprivate func readingKey(chapterOrder: [String: Int]) -> ReadingKey {
         switch payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
             return .epub(EPUBAnnotationReadingKey.make(
                 rawCFI: annotation.location?.rawCFI,
+                chapterOrder: chapterOrder,
                 createdAt: annotation.createdAt,
                 localPK: annotation.localPK
             ))
@@ -118,7 +119,11 @@ public struct ExportRecord: Equatable, Sendable {
 }
 
 enum ExportSelection {
-    static func apply(options: ExportOptions, to records: [ExportRecord]) -> [ExportRecord] {
+    static func apply(
+        options: ExportOptions,
+        to records: [ExportRecord],
+        chapterOrder: (ExportRecord) throws -> [String: Int] = { _ in [:] }
+    ) rethrows -> [ExportRecord] {
         let filtered = records.enumerated().compactMap { index, record -> IndexedRecord? in
             guard sourceAllows(options.source, record),
                   record.isKnownCurrentPDFAnnotation == false,
@@ -133,27 +138,20 @@ enum ExportSelection {
             return IndexedRecord(index: index, record: record)
         }
 
-        switch options.order {
-        case .source:
-            guard options.skipFirstPerBook > 0 else { return filtered.map(\.record) }
-            var seen: [ExportDocumentKey: Int] = [:]
-            return filtered.compactMap { item in
-                let count = seen[item.record.documentKey, default: 0]
-                seen[item.record.documentKey] = count + 1
-                return count < options.skipFirstPerBook ? nil : item.record
-            }
-        case .reading:
-            var groupOrder: [ExportDocumentKey] = []
-            var groups: [ExportDocumentKey: [IndexedRecord]] = [:]
-            for item in filtered {
-                let key = item.record.documentKey
-                if groups[key] == nil { groupOrder.append(key) }
-                groups[key, default: []].append(item)
-            }
-            return groupOrder.flatMap { key in
-                let sorted = (groups[key] ?? []).sorted(by: readingOrder)
-                return sorted.dropFirst(options.skipFirstPerBook).map(\.record)
-            }
+        var groupOrder: [ExportDocumentKey] = []
+        var groups: [ExportDocumentKey: [IndexedRecord]] = [:]
+        for item in filtered {
+            let key = item.record.documentKey
+            if groups[key] == nil { groupOrder.append(key) }
+            groups[key, default: []].append(item)
+        }
+        return try groupOrder.flatMap { key -> [ExportRecord] in
+            guard let group = groups[key], let first = group.first else { return [] }
+            let chapters = try chapterOrder(first.record)
+            let sorted = group.map {
+                ReadingRecord(index: $0.index, record: $0.record, key: $0.record.readingKey(chapterOrder: chapters))
+            }.sorted(by: readingOrder)
+            return sorted.dropFirst(options.skipFirstPerBook).map(\.record)
         }
     }
 
@@ -164,8 +162,8 @@ enum ExportSelection {
         }
     }
 
-    private static func readingOrder(_ lhs: IndexedRecord, _ rhs: IndexedRecord) -> Bool {
-        switch (lhs.record.readingKey, rhs.record.readingKey) {
+    private static func readingOrder(_ lhs: ReadingRecord, _ rhs: ReadingRecord) -> Bool {
+        switch (lhs.key, rhs.key) {
         case let (.epub(left), .epub(right)):
             return EPUBAnnotationReadingKey.lessThan(left, right)
         case let (.pdf(lp, ly, lx, li), .pdf(rp, ry, rx, ri)):
@@ -184,6 +182,12 @@ enum ExportSelection {
 private struct IndexedRecord {
     let index: Int
     let record: ExportRecord
+}
+
+private struct ReadingRecord {
+    let index: Int
+    let record: ExportRecord
+    let key: ReadingKey
 }
 
 enum ExportDocumentKey: Hashable, Sendable {

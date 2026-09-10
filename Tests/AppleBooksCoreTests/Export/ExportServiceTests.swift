@@ -273,7 +273,48 @@ struct ExportServiceTests {
             Issue.record("expected EPUB record")
             return
         }
-        #expect(enriched.annotation.localPK == 1)
+        #expect(enriched.annotation.localPK == 3)
+    }
+
+    @Test
+    func defaultReadingOrderSharesChapterMappingAndFallbackWithAnnotationQueries() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let epub = try fixture.epub(name: "ordered.epub")
+        try fixture.createLibrary([
+            .init(pk: 1, assetID: "ordered", title: "Ordered", contentType: 1, path: epub.path),
+        ])
+        try fixture.createAnnotations([
+            .init(pk: 1, assetID: "ordered", selectedText: "second chapter", cfi: "epubcfi(/6/2[other]!/4/2:1)"),
+            .init(pk: 2, assetID: "ordered", selectedText: "first chapter", cfi: "epubcfi(/6/10[chapter]!/4/2:1)"),
+            .init(pk: 3, assetID: "ordered", selectedText: "no location", cfi: "invalid"),
+        ])
+        let service = try fixture.service()
+        let options = try ExportOptions(bookSelectors: [.assetID("ordered")])
+        let mapped = try service.makeBundle(options: options)
+        let mappedPKs = mapped.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        #expect(mappedPKs == [2, 1, 3])
+        let page = try #require(service.annotationQueries).semanticPage(AnnotationQueryRequest(
+            book: .assetID("ordered"), order: .reading
+        ))
+        #expect(mappedPKs == page.items.map(\.localPK))
+        let markdown = MarkdownAnnotationExporter.render(mapped)
+        #expect(try #require(markdown.range(of: "first chapter")).lowerBound < #require(markdown.range(of: "second chapter")).lowerBound)
+
+        try FileManager.default.removeItem(at: epub)
+        let fallback = try service.makeBundle(options: options)
+        let fallbackPKs = fallback.groups.flatMap(\.records).compactMap { record -> Int64? in
+            guard case let .epub(enriched) = record.payload else { return nil }
+            return enriched.annotation.localPK
+        }
+        #expect(fallbackPKs == [1, 2, 3])
+        let unavailablePage = try #require(service.annotationQueries).semanticPage(AnnotationQueryRequest(
+            book: .assetID("ordered"), order: .reading
+        ))
+        #expect(fallbackPKs == unavailablePage.items.map(\.localPK))
     }
 
     @Test
@@ -480,7 +521,7 @@ struct ExportServiceTests {
         func createAnnotations(_ rows: [AnnotationRow]) throws {
             var values: [String] = []
             for row in rows {
-                values.append("(\(row.pk),0,\(row.type.map(String.init) ?? "NULL"),\(sql(row.assetID)),\(sql(row.selectedText)),NULL,\(sql(row.note)),\(row.style.map(String.init) ?? "NULL"),\(row.underline.map { $0 ? "1" : "0" } ?? "NULL"),\(sql(row.cfi)))")
+                values.append("(\(row.pk),0,\(row.type.map(String.init) ?? "NULL"),\(sql(row.assetID)),\(sql(row.selectedText)),NULL,\(sql(row.note)),\(row.style.map(String.init) ?? "NULL"),\(row.underline.map { $0 ? "1" : "0" } ?? "NULL"),\(sql(row.cfi)),NULL)")
             }
             var sql = """
             CREATE TABLE ZAEANNOTATION(
@@ -493,7 +534,8 @@ struct ExportServiceTests {
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONSTYLE INTEGER,
               ZANNOTATIONISUNDERLINE INTEGER,
-              ZANNOTATIONLOCATION TEXT
+              ZANNOTATIONLOCATION TEXT,
+              ZANNOTATIONCREATIONDATE REAL
             );
             """
             if values.isEmpty == false {
@@ -528,12 +570,14 @@ struct ExportServiceTests {
               </metadata>
               <manifest>
                 <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+                <item id="other" href="other.xhtml" media-type="application/xhtml+xml"/>
                 <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
               </manifest>
-              <spine><itemref idref="chapter"/></spine>
+              <spine><itemref idref="chapter"/><itemref idref="other"/></spine>
             </package>
             """.utf8).write(to: epub.appendingPathComponent("OPS/package.opf"))
             try Data("<html><body>chapter</body></html>".utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+            try Data("<html><body>other</body></html>".utf8).write(to: epub.appendingPathComponent("OPS/other.xhtml"))
             try Self.png.write(to: epub.appendingPathComponent("OPS/cover.png"))
             return epub.standardizedFileURL.resolvingSymlinksInPath()
         }

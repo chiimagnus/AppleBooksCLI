@@ -79,6 +79,7 @@ applebookscli export --help
 ```
 
 Export artifacts are written only to the explicit output file/directory. Stdout returns a compact JSON write result; all operational commands otherwise return JSON directly on stdout.
+Records within each document use reading order by default: available EPUB chapter order and CFI, or PDF page and geometry, with deterministic fallbacks when location is unavailable.
 
 ## Safe writes and iCloud sync
 

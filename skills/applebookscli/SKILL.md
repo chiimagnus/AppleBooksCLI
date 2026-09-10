@@ -50,6 +50,7 @@ For annotation reads, repeat every selector/filter/order when continuing `annota
 ## Export and failures
 
 - `export` requires an explicit output destination. Full Markdown/archival JSON goes to files; stdout contains the compact command result.
+- Export records use reading order within each document by default; no order flag is needed.
 - Filter export with `--has-highlight true|false`, `--has-note true|false`, and `--underline true|false`; omitted properties are unrestricted, combined properties use AND. Highlight and Note can overlap. `--color` matches canonical EPUB colors, never approximate PDF colors. PDF highlights count as highlights even without extracted text.
 - Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.
 - Use `history` to inspect recent CLI writes/syncs when outcome evidence is needed; it is not an undo mechanism. `history list` is cursor-paginated, so pass any returned `nextCursor` unchanged to `history list --cursor <nextCursor>`; use the returned lowercase UUID with `history get` for full detail.

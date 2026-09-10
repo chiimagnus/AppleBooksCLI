@@ -78,7 +78,7 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 3)
+        #expect(root["schemaVersion"] as? Int == 4)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -177,7 +177,7 @@ struct JSONExporterTests {
         #expect(color["color"] as? String == "yellow")
         #expect(color["distance"] as? Double == 0.125)
         #expect(color["isApproximate"] as? Bool == true)
-        #expect(ExportSelection.apply(
+        #expect(try ExportSelection.apply(
             options: try ExportOptions(source: .pdf, colors: [.yellow]),
             to: fixture.bundle.groups.flatMap(\.records)
         ).isEmpty)
@@ -279,7 +279,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 3)
+        #expect(document["schemaVersion"] as? Int == 4)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)

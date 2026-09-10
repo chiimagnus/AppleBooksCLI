@@ -85,7 +85,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }

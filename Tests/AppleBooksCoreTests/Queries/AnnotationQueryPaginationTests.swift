@@ -248,7 +248,7 @@ struct AnnotationQueryPaginationTests {
     }
 
     @Test
-    func legacyOffsetReadingWrapperMatchesCanonicalCursorOrder() throws {
+    func publicOffsetReadingWrapperMatchesCanonicalCursorOrder() throws {
         let fixture = try orderedFixture()
         defer { fixture.remove() }
         let core = try AppleBooks(
@@ -270,10 +270,10 @@ struct AnnotationQueryPaginationTests {
             cursor = page.nextCursor
         } while cursor != nil
 
-        let legacy = try core.semanticAnnotationsInReadingOrder(bookLocalPK: 10)
-        #expect(legacy.map(\.localPK) == canonical)
-        let legacyMiddle = try core.semanticAnnotationsInReadingOrder(bookLocalPK: 10, limit: 2, offset: 2)
-        #expect(legacyMiddle.map(\.localPK) == Array(canonical.dropFirst(2).prefix(2)))
+        let compatibility = try core.annotationsInReadingOrder(bookLocalPK: 10)
+        #expect(compatibility.map(\.annotation.localPK) == canonical)
+        let compatibilityMiddle = try core.annotationsInReadingOrder(bookLocalPK: 10, limit: 2, offset: 2)
+        #expect(compatibilityMiddle.map(\.annotation.localPK) == Array(canonical.dropFirst(2).prefix(2)))
     }
 
     @Test

@@ -1256,14 +1256,6 @@ public final class AppleBooks {
         try requiredAnnotationQueries().list(scope: scope, limit: limit, offset: offset)
     }
 
-    package func semanticAnnotations(
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticList(scope: scope, limit: limit, offset: offset)
-    }
-
     package func semanticAnnotationPage(
         _ request: AnnotationQueryRequest
     ) throws -> CursorPage<SemanticAnnotation> {
@@ -1334,15 +1326,6 @@ public final class AppleBooks {
         try requiredAnnotationQueries().byAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
     }
 
-    package func semanticAnnotations(
-        bookAssetID: String,
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try requiredAnnotationQueries().semanticByAssetID(bookAssetID, scope: scope, limit: limit, offset: offset)
-    }
-
     public func annotations(
         bookLocalPK: Int64,
         scope: AnnotationScope = .user,
@@ -1352,62 +1335,6 @@ public final class AppleBooks {
         try validatePagination(limit: limit, offset: offset)
         guard let book = try requiredBookQueries().getByLocalPK(bookLocalPK), let assetID = book.assetID else { return [] }
         return try requiredAnnotationQueries().byAssetID(assetID, scope: scope, limit: limit, offset: offset)
-    }
-
-    package func semanticAnnotations(
-        bookLocalPK: Int64,
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try validatePagination(limit: limit, offset: offset)
-        guard let assetID = try requiredBookQueries().semanticAssetID(localPK: bookLocalPK) else { return [] }
-        return try requiredAnnotationQueries().semanticByAssetID(assetID, scope: scope, limit: limit, offset: offset)
-    }
-
-    package func semanticAnnotationsInReadingOrder(
-        bookLocalPK: Int64,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try validatePagination(limit: limit, offset: offset)
-        let bookQueries = try requiredBookQueries()
-        guard let assetID = try bookQueries.semanticAssetID(localPK: bookLocalPK) else { return [] }
-        let annotations = try requiredAnnotationQueries().semanticByAssetID(assetID, scope: .user)
-        guard annotations.isEmpty == false else { return [] }
-
-        var chapterOrder: [String: Int] = [:]
-        if let target = try bookQueries.resourceTarget(localPK: bookLocalPK), target.path != nil {
-            do {
-                let content = try BookContent(
-                    reader: EPUBSourceResolver.reader(for: target, configuration: try requiredConfiguration())
-                )
-                for chapter in try content.listChapters() {
-                    chapterOrder[chapter.id] = min(chapterOrder[chapter.id] ?? .max, chapter.order)
-                }
-            } catch {
-                chapterOrder.removeAll(keepingCapacity: false)
-            }
-        }
-
-        let sorted = annotations.sorted { lhs, rhs in
-            let left = EPUBAnnotationReadingKey.make(
-                rawCFI: lhs.rawCFI,
-                chapterOrder: chapterOrder,
-                createdAt: lhs.createdAt,
-                localPK: lhs.localPK
-            )
-            let right = EPUBAnnotationReadingKey.make(
-                rawCFI: rhs.rawCFI,
-                chapterOrder: chapterOrder,
-                createdAt: rhs.createdAt,
-                localPK: rhs.localPK
-            )
-            return EPUBAnnotationReadingKey.lessThan(left, right)
-        }
-        let paged = sorted.dropFirst(offset)
-        guard let limit else { return Array(paged) }
-        return Array(paged.prefix(limit))
     }
 
     public func annotationsInReadingOrder(

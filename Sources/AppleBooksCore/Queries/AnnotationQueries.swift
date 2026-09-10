@@ -245,33 +245,23 @@ struct AnnotationQueries {
         )
     }
 
-    func semanticList(
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try semanticQuery(
-            .none,
-            capability: .annotationUserBase,
-            scope: scope,
-            limit: limit,
-            offset: offset,
-            textMode: .preview
-        )
-    }
-
     func semanticGetByLocalPK(
         _ localPK: Int64,
         scope: AnnotationScope = .user
     ) throws -> SemanticAnnotation? {
-        try semanticQuery(
-            .localPK(localPK),
-            capability: .annotationUserBase,
-            scope: scope,
-            limit: 1,
-            offset: 0,
-            textMode: .detail
-        ).first
+        let schema = try AppleBooksSchema.inspect(.annotationUserBase, on: annotationConnection)
+        let projection = semanticProjection(schema: schema, textMode: .detail)
+        let statement = try annotationConnection.prepare("""
+            SELECT \(projection.joined(separator: ", "))
+            FROM \(AppleBooksTable.annotations.rawValue)
+            WHERE \(Self.scopePredicate(scope))
+              AND \(AppleBooksSchema.Annotation.localPK) = ?
+            LIMIT 1
+            """)
+        try statement.bind(localPK, at: 1)
+        guard try statement.step() else { return nil }
+        let row = try decodeSemantic(SQLiteRow(statement: statement), schema: schema, textMode: .detail)
+        return try enrichSemantic([row]).first
     }
 
     func semanticGetUniqueByUUID(
@@ -450,22 +440,6 @@ struct AnnotationQueries {
             rawAssetID: rawAssetID,
             anchor: anchor,
             chapterID: chapterID
-        )
-    }
-
-    func semanticByAssetID(
-        _ assetID: String,
-        scope: AnnotationScope = .user,
-        limit: Int? = nil,
-        offset: Int = 0
-    ) throws -> [SemanticAnnotation] {
-        try semanticQuery(
-            .assetID(assetID),
-            capability: .annotationByAssetID,
-            scope: scope,
-            limit: limit,
-            offset: offset,
-            textMode: .preview
         )
     }
 
@@ -1080,67 +1054,6 @@ struct AnnotationQueries {
         }
     }
 
-    private func semanticQuery(
-        _ filter: Filter,
-        capability: SchemaCapability,
-        scope: AnnotationScope,
-        limit: Int?,
-        offset: Int,
-        styleConstraint: Int64? = nil,
-        order queryOrder: QueryOrder = .standard,
-        textMode: SemanticTextMode
-    ) throws -> [SemanticAnnotation] {
-        try validatePagination(limit: limit, offset: offset)
-        if styleConstraint != nil {
-            _ = try AppleBooksSchema.inspect(.annotationByStyle, on: annotationConnection)
-        }
-        let schema = try AppleBooksSchema.inspect(capability, on: annotationConnection)
-        let projection = semanticProjection(schema: schema, textMode: textMode)
-        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.annotations.rawValue)"
-        sql += " WHERE \(Self.scopePredicate(scope))"
-        appendSemanticFilter(filter, styleConstraint: styleConstraint, to: &sql)
-        appendSemanticOrder(queryOrder, schema: schema, to: &sql)
-        if limit != nil {
-            sql += " LIMIT ? OFFSET ?"
-        } else if offset > 0 {
-            sql += " LIMIT -1 OFFSET ?"
-        }
-
-        let statement = try annotationConnection.prepare(sql)
-        var index = try bindSemanticFilter(filter, to: statement, startingAt: 1)
-        if let styleConstraint {
-            try statement.bind(styleConstraint, at: index)
-            index += 1
-        }
-        if let limit {
-            try statement.bind(Int64(limit), at: index)
-            try statement.bind(Int64(offset), at: index + 1)
-        } else if offset > 0 {
-            try statement.bind(Int64(offset), at: index)
-        }
-
-        var results: [SemanticAnnotation] = []
-        var batch: [SemanticAnnotationRow] = []
-        batch.reserveCapacity(AnnotationSourceClassifier.maximumBatch)
-        func flush() throws {
-            guard batch.isEmpty == false else { return }
-            results.append(contentsOf: try enrichSemantic(batch))
-            batch.removeAll(keepingCapacity: true)
-        }
-        while try statement.step() {
-            batch.append(try decodeSemantic(
-                SQLiteRow(statement: statement),
-                schema: schema,
-                textMode: textMode
-            ))
-            if batch.count == AnnotationSourceClassifier.maximumBatch {
-                try flush()
-            }
-        }
-        try flush()
-        return results
-    }
-
     private func semanticProjection(
         schema: SchemaAvailability,
         textMode: SemanticTextMode
@@ -1436,115 +1349,6 @@ struct AnnotationQueries {
             }
             return row.annotation(source: source)
         }
-    }
-
-    private func appendSemanticFilter(
-        _ filter: Filter,
-        styleConstraint: Int64?,
-        to sql: inout String
-    ) {
-        switch filter {
-        case .none:
-            break
-        case .localPK:
-            sql += " AND \(AppleBooksSchema.Annotation.localPK) = ?"
-        case .uuid:
-            sql += " AND \(AppleBooksSchema.Annotation.uuid) = ? COLLATE BINARY"
-        case .assetID:
-            sql += " AND \(AppleBooksSchema.Annotation.assetID) = ? COLLATE BINARY"
-        case .style:
-            sql += " AND \(AppleBooksSchema.Annotation.style) = ?"
-        case .highlightedText:
-            sql += " AND \(AppleBooksSchema.Annotation.selectedText) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        case .note:
-            sql += " AND \(AppleBooksSchema.Annotation.note) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        case .fullText:
-            sql += " AND ("
-            sql += "\(AppleBooksSchema.Annotation.selectedText) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-            sql += " OR \(AppleBooksSchema.Annotation.representativeText) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-            sql += " OR \(AppleBooksSchema.Annotation.note) LIKE ? ESCAPE '\\' COLLATE NOCASE)"
-        case let .creationRange(lower, upper):
-            let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
-            if lower != nil { sql += " AND \(creationDate) >= ?" }
-            if upper != nil { sql += " AND \(creationDate) < ?" }
-        }
-        if styleConstraint != nil {
-            sql += " AND \(AppleBooksSchema.Annotation.style) = ?"
-        }
-    }
-
-    private func appendSemanticOrder(
-        _ queryOrder: QueryOrder,
-        schema: SchemaAvailability,
-        to sql: inout String
-    ) {
-        let order: [String]
-        switch queryOrder {
-        case .standard:
-            var standard: [String] = []
-            if schema.contains(AppleBooksSchema.Annotation.modificationDate) {
-                let modificationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
-                standard += ["\(modificationDate) IS NULL", "\(modificationDate) DESC"]
-            }
-            if schema.contains(AppleBooksSchema.Annotation.creationDate) {
-                let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
-                standard += ["\(creationDate) IS NULL", "\(creationDate) DESC"]
-            }
-            standard.append("\(AppleBooksSchema.Annotation.localPK) DESC")
-            order = standard
-        case .modificationRecent:
-            let modificationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.modificationDate)
-            order = [
-                "\(modificationDate) IS NULL",
-                "\(modificationDate) DESC",
-                "\(AppleBooksSchema.Annotation.localPK) DESC",
-            ]
-        case .creationRecent:
-            let creationDate = SemanticSQLiteReal.dateSQL(AppleBooksSchema.Annotation.creationDate)
-            order = [
-                "\(creationDate) IS NULL",
-                "\(creationDate) DESC",
-                "\(AppleBooksSchema.Annotation.localPK) DESC",
-            ]
-        }
-        sql += " ORDER BY \(order.joined(separator: ", "))"
-    }
-
-    private func bindSemanticFilter(
-        _ filter: Filter,
-        to statement: SQLiteStatement,
-        startingAt startIndex: Int32
-    ) throws -> Int32 {
-        var index = startIndex
-        switch filter {
-        case .none:
-            break
-        case let .localPK(value), let .style(value):
-            try statement.bind(value, at: index)
-            index += 1
-        case let .uuid(value), let .assetID(value):
-            try statement.bind(value, at: index)
-            index += 1
-        case let .highlightedText(value), let .note(value):
-            try statement.bind(literalContainsPattern(value), at: index)
-            index += 1
-        case let .fullText(value):
-            let pattern = literalContainsPattern(value)
-            try statement.bind(pattern, at: index)
-            try statement.bind(pattern, at: index + 1)
-            try statement.bind(pattern, at: index + 2)
-            index += 3
-        case let .creationRange(lower, upper):
-            if let lower {
-                try statement.bind(lower, at: index)
-                index += 1
-            }
-            if let upper {
-                try statement.bind(upper, at: index)
-                index += 1
-            }
-        }
-        return index
     }
 
     private static func scopePredicate(_ scope: AnnotationScope) -> String {

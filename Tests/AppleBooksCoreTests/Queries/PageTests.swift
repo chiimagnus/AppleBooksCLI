@@ -6,25 +6,6 @@ import Testing
 @Suite("PageTests")
 struct PageTests {
     @Test
-    func bookPageUsesWholeLibraryUniverseAndKeepsUnlimitedList() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let first = try fixture.core.bookPage()
-        #expect(first.total == 23)
-        #expect(first.limit == 20)
-        #expect(first.offset == 0)
-        #expect(first.items.count == 20)
-        #expect(first.items.first?.localPK == 1)
-        #expect(first.items.last?.localPK == 20)
-
-        let tail = try fixture.core.bookPage(limit: 5, offset: 20)
-        #expect(tail.total == 23)
-        #expect(tail.items.map(\.localPK) == [21, 22, 99])
-        #expect(try fixture.core.listBooks().count == 23)
-    }
-
-    @Test
     func annotationPagesShareExactScopeWithCountAndDefaultFifty() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -45,25 +26,6 @@ struct PageTests {
         let userGreen = try fixture.core.annotationPage(colorName: "GREEN", scope: .user)
         #expect(userGreen.total == 1)
         #expect(userGreen.items.map { $0.annotation.localPK } == [1])
-    }
-
-    @Test
-    func invalidPageInputRejectsBeforeDatabaseInspection() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let database = root.appendingPathComponent("empty.sqlite")
-        try createDatabase(database, sql: "CREATE TABLE placeholder(value INTEGER);")
-        let books = BookQueries(connection: try SQLiteConnection.readOnly(path: database.path))
-
-        #expect(throws: PageInputError.limitOutOfRange) {
-            _ = try books.page(limit: 0)
-        }
-        #expect(throws: PageInputError.limitOutOfRange) {
-            _ = try books.page(limit: 101)
-        }
-        #expect(throws: PageInputError.negativeOffset) {
-            _ = try books.page(offset: -1)
-        }
     }
 
     private final class Fixture {

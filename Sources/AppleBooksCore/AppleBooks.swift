@@ -500,10 +500,6 @@ public final class AppleBooks {
         )
     }
 
-    public func listBooks(limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredBookQueries().list(limit: limit, offset: offset)
-    }
-
     package func semanticLibraryStats() throws -> LibraryStats {
         let bookQueries = try requiredBookQueries()
         let aggregate = try requiredAnnotationAggregateQueries()
@@ -528,10 +524,6 @@ public final class AppleBooks {
             identityUnavailableAnnotationCount: classification.identityUnavailable,
             topAnnotatedBookSummaries: topSummaries
         )
-    }
-
-    public func bookPage(limit: Int? = nil, offset: Int = 0) throws -> Page<Book> {
-        try requiredBookQueries().page(limit: limit, offset: offset)
     }
 
     public func bookSummaryPage(limit: Int? = nil, cursor: String? = nil) throws -> CursorPage<BookSummary> {
@@ -633,14 +625,6 @@ public final class AppleBooks {
             .sqlite(label: "library", databaseURL: libraryDatabase),
             .sqlite(label: "annotations", databaseURL: annotationsDatabase),
         ])
-    }
-
-    public func book(localPK: Int64) throws -> Book? {
-        try requiredBookQueries().getByLocalPK(localPK)
-    }
-
-    public func book(assetID: String) throws -> Book? {
-        try requiredBookQueries().getUniqueByAssetID(assetID)
     }
 
     package func semanticBookDetail(localPK: Int64) throws -> SemanticBookDetail? {
@@ -828,18 +812,6 @@ public final class AppleBooks {
             pdfService: pdfService,
             pdfSourceResolver: pdfSourceResolver
         ).makeBundle(options: options)
-    }
-
-    public func books(matchingTitle text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredBookQueries().searchTitle(text, limit: limit, offset: offset)
-    }
-
-    public func books(matchingGenre text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredBookQueries().searchGenre(text, limit: limit, offset: offset)
-    }
-
-    public func books(matching text: String, limit: Int? = nil, offset: Int = 0) throws -> [Book] {
-        try requiredBookQueries().search(text, limit: limit, offset: offset)
     }
 
     public func contentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {

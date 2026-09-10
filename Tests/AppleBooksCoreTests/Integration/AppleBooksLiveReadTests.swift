@@ -37,7 +37,11 @@ final class AppleBooksLiveReadTests: XCTestCase {
 
         let bookQueries = BookQueries(connection: library)
         let readingQueries = ReadingQueries(connection: library)
-        let baseBooks = try bookQueries.list()
+        var baseBooks: [BookSummary] = []
+        try bookQueries.forEachSummary(afterLocalPK: nil) { book in
+            baseBooks.append(book)
+            return true
+        }
         let partitions = try readingQueries.partitionCounts()
         XCTAssertEqual(partitions.finished + partitions.inProgress + partitions.unstarted, baseBooks.count)
 

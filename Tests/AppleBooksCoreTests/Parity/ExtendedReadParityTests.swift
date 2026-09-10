@@ -11,7 +11,8 @@ struct ExtendedReadParityTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let packedBook = try #require(try fixture.books.book(localPK: 1))
+        let rawBooks = BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path))
+        let packedBook = try #require(try rawBooks.getByLocalPK(1))
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
         #expect(packedBook.genresRaw == Data([0x00, 0x01, 0x02, 0xFF]))
@@ -21,7 +22,7 @@ struct ExtendedReadParityTests {
         #expect(packedBook.pageCount == 321)
         #expect(packedBook.rating == 4.5)
 
-        let directoryBook = try #require(try fixture.books.book(localPK: 2))
+        let directoryBook = try #require(try rawBooks.getByLocalPK(2))
         #expect(directoryBook.author == " unknown ")
         #expect(directoryBook.normalizedAuthor == nil)
 
@@ -110,7 +111,8 @@ struct ExtendedReadParityTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let packedBook = try #require(try fixture.books.book(localPK: 1))
+        let rawBooks = BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path))
+        let packedBook = try #require(try rawBooks.getByLocalPK(1))
         #expect(packedBook.genresRaw == Data([0x00, 0x01, 0x02, 0xFF]))
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
@@ -151,6 +153,7 @@ struct ExtendedReadParityTests {
 
         let root: URL
         let supplementalRoot: URL
+        let library: URL
         let books: AppleBooks
 
         init() throws {
@@ -172,7 +175,7 @@ struct ExtendedReadParityTests {
                 resources: resources
             )
 
-            let library = root.appendingPathComponent("library.sqlite")
+            library = root.appendingPathComponent("library.sqlite")
             try Self.createDatabase(library, sql: """
             CREATE TABLE ZBKLIBRARYASSET(
               Z_PK INTEGER PRIMARY KEY,

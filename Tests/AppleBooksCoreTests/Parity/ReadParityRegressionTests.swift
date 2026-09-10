@@ -24,15 +24,15 @@ final class ReadParityRegressionTests: XCTestCase {
 
         let books = try AppleBooks(libraryDB: libraryDB, annotationsDB: annotationsDB, configurationFile: config)
 
-        let listedBooks = try books.listBooks()
+        let listedBooks = try books.bookSummaryPage(limit: 100).items
         XCTAssertEqual(listedBooks.map(\.localPK).sorted(), Array(1...12).map(Int64.init))
-        let alpha = try XCTUnwrap(books.book(localPK: 1))
+        let alpha = try XCTUnwrap(books.semanticBookDetail(localPK: 1))
         XCTAssertEqual(alpha.assetID, "asset-1")
         XCTAssertEqual(alpha.title, "Alpha")
         XCTAssertEqual(alpha.genre, "Fiction")
         XCTAssertEqual(alpha.lastOpenDate?.timeIntervalSince1970, CoreDataTime.unixEpochOffset + 110)
-        XCTAssertEqual(try books.books(matchingTitle: "Alpha").map(\.localPK), [1])
-        XCTAssertEqual(try books.books(matchingGenre: "Fiction").map(\.localPK).sorted(), [1, 2])
+        XCTAssertEqual(try books.searchBookSummaries("Alpha", field: .title).items.map(\.localPK), [1])
+        XCTAssertEqual(try books.searchBookSummaries("Fiction", field: .genre).items.map(\.localPK).sorted(), [1, 2])
 
         XCTAssertEqual(try books.listCollections().map(\.localPK).sorted(), [1, 2])
         XCTAssertEqual(try books.collection(localPK: 1)?.title, "Shelf A")

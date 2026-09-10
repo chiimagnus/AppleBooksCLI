@@ -120,7 +120,7 @@ struct EPUBMetadataTests {
         );
         INSERT INTO ZBKLIBRARYASSET VALUES (1,'db-asset','DB Title','DB Author','db-lang',123);
         """)
-        let book = try #require(try BookQueries(connection: SQLiteConnection.readOnly(path: databaseURL.path)).list().first)
+        let book = try #require(try BookQueries(connection: SQLiteConnection.readOnly(path: databaseURL.path)).getByLocalPK(1))
         let epub = try makeEPUB(in: root, name: "metadata", metadata: """
         <dc:title>EPUB Title</dc:title>
         <dc:creator>EPUB Author</dc:creator>

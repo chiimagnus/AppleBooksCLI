@@ -111,7 +111,7 @@ struct CLIContextTests {
 
         let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
 
-        #expect(try books.listBooks().map(\.localPK) == [1])
+        #expect(try books.bookSummaryPage(limit: 100).items.map(\.localPK) == [1])
         #expect(throws: AppleBooksDependencyError.unavailable(.annotationsRead)) {
             _ = try books.listAnnotations()
         }
@@ -135,7 +135,7 @@ struct CLIContextTests {
         let books = try CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
 
         #expect(throws: AppleBooksDependencyError.unavailable(.libraryRead)) {
-            _ = try books.listBooks()
+            _ = try books.bookSummaryPage()
         }
     }
 

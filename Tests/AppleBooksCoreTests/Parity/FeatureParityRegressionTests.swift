@@ -11,15 +11,14 @@ struct FeatureParityRegressionTests {
         defer { fixture.remove() }
         let expected = try loadExpected()
 
-        #expect(try fixture.books.book(assetID: expected.bookStableAssetID)?.localPK == expected.bookStableLocalPK)
-        #expect(try fixture.books.book(localPK: expected.bookExplicitLocalPK)?.assetID == expected.bookExplicitLocalAssetID)
-        #expect(try fixture.books.books(matching: "Ada").map(\.localPK) == expected.combinedSearchLocalPKs)
+        #expect(try fixture.books.semanticBookDetail(assetID: expected.bookStableAssetID)?.localPK == expected.bookStableLocalPK)
+        #expect(try fixture.books.semanticBookDetail(localPK: expected.bookExplicitLocalPK)?.assetID == expected.bookExplicitLocalAssetID)
+        #expect(try fixture.books.searchBookSummaries("Ada").items.map(\.localPK) == expected.combinedSearchLocalPKs)
         #expect(try fixture.books.collection(collectionID: expected.collectionID)?.localPK == 10)
 
-        let bookPage = try fixture.books.bookPage()
+        let bookPage = try fixture.books.bookSummaryPage()
         #expect(bookPage.total == expected.bookPageTotal)
-        #expect(bookPage.limit == 20)
-        #expect(bookPage.offset == 0)
+        #expect(bookPage.items.count == min(20, expected.bookPageTotal))
 
         #expect(try fixture.books.annotation(uuid: expected.annotationStableUUID)?.annotation.localPK == expected.annotationStableLocalPK)
         #expect(try fixture.books.annotation(localPK: expected.annotationExplicitLocalPK)?.annotation.uuid == "uuid-local-12")

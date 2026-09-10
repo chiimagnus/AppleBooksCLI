@@ -88,21 +88,15 @@ struct ExtendedReadParityTests {
         #expect(cover.mediaType == "image/png")
         #expect(cover.data == Fixture.coverData)
 
-        let bookmark = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 1))
-        #expect(bookmark == ReadingPosition(
-            chapterID: "c2",
-            title: "Section 2",
-            order: 2,
-            totalChapters: 2,
-            source: .bookmarkToc
-        ))
-        #expect(try fixture.books.currentReadingPosition(forBookLocalPK: 4) == ReadingPosition(
-            chapterID: "outside",
-            title: nil,
-            order: nil,
-            totalChapters: nil,
-            source: .bookmarkHint
-        ))
+        let bookmark = try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-packed")
+        guard case let .position(position) = bookmark else {
+            Issue.record("expected strict bookmarked reading position")
+            return
+        }
+        #expect(position.chapterOrder == 2)
+        #expect(position.title == "Section 2")
+        #expect(position.totalChapters == 2)
+        #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-hint") == .unavailable)
 
         let context = try #require(try fixture.books.semanticAnnotationContextResult(localPK: 10, charsBefore: 8, charsAfter: 8)).context
         #expect(context.matched == "Visible chapter")
@@ -118,15 +112,8 @@ struct ExtendedReadParityTests {
         #expect(packedBook.author == "Ada\u{E123} Lovelace")
         #expect(packedBook.normalizedAuthor == "Ada Lovelace")
 
-        let inferred = try #require(try fixture.books.currentReadingPosition(forBookLocalPK: 3))
         #expect(try fixture.books.currentReadingLocation(forBookLocalPK: 3)?.location == nil)
-        #expect(inferred == ReadingPosition(
-            chapterID: "c1",
-            title: "Section 1",
-            order: nil,
-            totalChapters: nil,
-            source: .recentAnnotationInference
-        ))
+        #expect(try fixture.books.semanticBookmarkedReadingPosition(bookAssetID: "asset-third") == .unavailable)
 
         let historical = try #require(try fixture.books.annotation(localPK: 14))
         #expect(historical.source == .historicalInferred(HistoricalBookMetadata(title: "Historical", author: "Mapped Author")))

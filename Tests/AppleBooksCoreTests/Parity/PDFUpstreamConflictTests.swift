@@ -47,12 +47,10 @@ struct PDFUpstreamConflictTests {
         try Data(script.utf8).write(to: worker)
         #expect(chmod(worker.path, 0o700) == 0)
 
-        let service = PDFHighlightService(
-            bookQueries: BookQueries(connection: try SQLiteConnection.readOnly(path: library.path)),
-            sourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
-            workerClient: PDFWorkerClient(workerURL: worker, timeout: 1)
-        )
-        let result = service.readHighlights(sources: try service.inventory())
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: library.path))
+        let resolver = PDFSourceResolver(fallbackRoot: pdfRoot)
+        let service = PDFHighlightService(workerClient: PDFWorkerClient(workerURL: worker, timeout: 1))
+        let result = service.readHighlights(sources: try resolver.exportInventory(bookQueries: queries))
         #expect(result.attemptedCount == 3)
         #expect(result.succeededCount == 2)
         #expect(result.noHighlightsCount == 1)

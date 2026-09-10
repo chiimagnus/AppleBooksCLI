@@ -58,13 +58,7 @@ package struct SemanticPDFHighlightPage: Equatable, Sendable {
 }
 
 struct PDFHighlightService {
-    let bookQueries: BookQueries
-    let sourceResolver: PDFSourceResolver
     let workerClient: PDFWorkerClient
-
-    func inventory() throws -> [PDFSource] {
-        try sourceResolver.exportInventory(bookQueries: bookQueries)
-    }
 
     func readAgentPage(
         source: PDFSource,

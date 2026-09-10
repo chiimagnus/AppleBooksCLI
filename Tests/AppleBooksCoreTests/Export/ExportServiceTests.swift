@@ -163,7 +163,7 @@ struct ExportServiceTests {
         let worker = try fixture.worker()
 
         let service = try fixture.service(worker: worker)
-        let sourceID = try #require(service.pdfService).sourceResolver.inventoryPage(bookQueries: service.bookQueries)
+        let sourceID = try service.pdfSourceResolver.inventoryPage(bookQueries: service.bookQueries)
             .items.first { $0.title == "selected" }?.pdfSourceID
         let bundle = try fixture.service(worker: worker).makeBundle(
             options: ExportOptions(
@@ -501,7 +501,7 @@ struct ExportServiceTests {
         ])
         try fixture.createAnnotations([])
         let service = try fixture.service(worker: fixture.worker())
-        let pdfResolver = try #require(service.pdfService).sourceResolver
+        let pdfResolver = service.pdfSourceResolver
         let resolver = ExportSourceResolver(bookQueries: service.bookQueries, pdfSourceResolver: pdfResolver)
         let items = try pdfResolver.inventoryPage(bookQueries: service.bookQueries).items
         let sharedID = try #require(items.first { $0.title == "shared" }?.pdfSourceID)
@@ -581,9 +581,9 @@ struct ExportServiceTests {
             annotationQueries: existing.annotationQueries, bookQueries: existing.bookQueries,
             configuration: existing.configuration,
             pdfService: PDFHighlightService(
-                bookQueries: existing.bookQueries, sourceResolver: pdfResolver,
                 workerClient: try #require(existing.pdfService).workerClient
-            )
+            ),
+            pdfSourceResolver: pdfResolver
         )
         #expect(throws: PDFInventoryError.ambiguousSourceID) {
             _ = try service.makeBundle(options: ExportOptions(
@@ -775,8 +775,6 @@ struct ExportServiceTests {
             )
             let pdfService = worker.map {
                 PDFHighlightService(
-                    bookQueries: bookQueries,
-                    sourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot),
                     workerClient: PDFWorkerClient(workerURL: $0, timeout: timeout, terminationGrace: 0.05)
                 )
             }
@@ -784,7 +782,8 @@ struct ExportServiceTests {
                 annotationQueries: annotationQueries,
                 bookQueries: bookQueries,
                 configuration: configuration,
-                pdfService: pdfService
+                pdfService: pdfService,
+                pdfSourceResolver: PDFSourceResolver(fallbackRoot: pdfRoot)
             )
         }
 

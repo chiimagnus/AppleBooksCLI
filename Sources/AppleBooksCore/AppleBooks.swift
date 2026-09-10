@@ -844,11 +844,7 @@ public final class AppleBooks {
 
     private func pdfHighlightService() throws -> PDFHighlightService {
         guard let pdfWorkerClient else { throw PDFHighlightFacadeError.workerUnavailable }
-        return PDFHighlightService(
-            bookQueries: try requiredBookQueries(),
-            sourceResolver: pdfSourceResolver,
-            workerClient: pdfWorkerClient
-        )
+        return PDFHighlightService(workerClient: pdfWorkerClient)
     }
 
     package func exportDependencies(options: ExportOptions) throws -> AppleBooksDependencies {
@@ -873,11 +869,7 @@ public final class AppleBooks {
     public func exportBundle(options: ExportOptions) throws -> ExportBundle {
         let pdfService: PDFHighlightService?
         if let pdfWorkerClient {
-            pdfService = PDFHighlightService(
-                bookQueries: try requiredBookQueries(),
-                sourceResolver: pdfSourceResolver,
-                workerClient: pdfWorkerClient
-            )
+            pdfService = PDFHighlightService(workerClient: pdfWorkerClient)
         } else {
             pdfService = nil
         }

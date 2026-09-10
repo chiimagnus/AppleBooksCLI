@@ -18,7 +18,7 @@ struct PDFHighlightServiceTests {
         let worker = try fixture.worker()
         let service = try fixture.service(worker: worker, timeout: 2)
 
-        let result = service.readHighlights(sources: try service.inventory())
+        let result = service.readHighlights(sources: try fixture.inventory())
 
         #expect(result.attemptedCount == 4)
         #expect(result.succeededCount == 2)
@@ -56,8 +56,8 @@ struct PDFHighlightServiceTests {
         let worker = try fixture.worker()
         let service = try fixture.service(worker: worker, timeout: 1)
 
-        #expect(service.readHighlights(sources: try service.inventory()).attemptedCount == 2)
-        #expect(service.readHighlights(sources: try service.inventory()).attemptedCount == 2)
+        #expect(service.readHighlights(sources: try fixture.inventory()).attemptedCount == 2)
+        #expect(service.readHighlights(sources: try fixture.inventory()).attemptedCount == 2)
 
         let calls = try String(contentsOf: fixture.counter, encoding: .utf8)
         #expect(calls.count == 4)
@@ -135,11 +135,15 @@ struct PDFHighlightServiceTests {
             return worker
         }
 
-        func service(worker: URL, timeout: TimeInterval) throws -> PDFHighlightService {
+        func inventory() throws -> [PDFSource] {
             let connection = try SQLiteConnection.readOnly(path: databaseURL.path)
-            return PDFHighlightService(
-                bookQueries: BookQueries(connection: connection),
-                sourceResolver: PDFSourceResolver(fallbackRoot: fallbackRoot),
+            return try PDFSourceResolver(fallbackRoot: fallbackRoot).exportInventory(
+                bookQueries: BookQueries(connection: connection)
+            )
+        }
+
+        func service(worker: URL, timeout: TimeInterval) throws -> PDFHighlightService {
+            PDFHighlightService(
                 workerClient: PDFWorkerClient(workerURL: worker, timeout: timeout, terminationGrace: 0.05)
             )
         }

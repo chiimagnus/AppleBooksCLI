@@ -21,7 +21,7 @@ struct ExportService {
     func makeBundle(options: ExportOptions) throws -> ExportBundle {
         let resolver = ExportSourceResolver(
             bookQueries: bookQueries,
-            pdfSourceResolver: pdfService?.sourceResolver ?? pdfSourceResolver
+            pdfSourceResolver: pdfSourceResolver
         )
         let resolvedSelectors = try resolver.resolve(options.bookSelectors)
 
@@ -39,7 +39,9 @@ struct ExportService {
         if readsPDF {
             do {
                 guard let pdfService else { throw ExportServiceError.pdfWorkerUnavailable }
-                let sources = try options.bookSelectors.isEmpty ? pdfService.inventory() : exactPDFSources
+                let sources = try options.bookSelectors.isEmpty
+                    ? pdfSourceResolver.exportInventory(bookQueries: bookQueries)
+                    : exactPDFSources
                 let result = pdfService.readHighlights(sources: sources)
                 if !options.bookSelectors.isEmpty, result.failedCount > 0 {
                     throw ExportServiceError.pdfReadFailed

@@ -18,7 +18,7 @@ struct PDFHighlightReaderTests {
             ]
         )
 
-        let highlights = try PDFHighlightReader().read(fileURL: url)
+        let highlights = try PDFHighlightReader().readPage(fileURL: url, start: nil, limit: 100).highlights
         let highlight = try #require(highlights.first)
         #expect(highlights.count == 1)
         #expect(highlight.page == 1)
@@ -41,7 +41,7 @@ struct PDFHighlightReaderTests {
         defer { fixture.remove() }
 
         let emptyURL = try fixture.writeMinimalPDF(name: "empty.pdf", annotationDictionaries: [])
-        #expect(try PDFHighlightReader().read(fileURL: emptyURL).isEmpty)
+        #expect(try PDFHighlightReader().readPage(fileURL: emptyURL, start: nil, limit: 100).highlights.isEmpty)
 
         let missingURL = try fixture.writeMinimalPDF(
             name: "missing-metadata.pdf",
@@ -49,7 +49,7 @@ struct PDFHighlightReaderTests {
                 "<< /Type /Annot /Subtype /Highlight /Rect [1 2 21 7] >>",
             ]
         )
-        let highlight = try #require(try PDFHighlightReader().read(fileURL: missingURL).first)
+        let highlight = try #require(try PDFHighlightReader().readPage(fileURL: missingURL, start: nil, limit: 100).highlights.first)
         #expect(highlight.note == nil)
         #expect(highlight.modifiedAt == nil)
     }
@@ -63,7 +63,7 @@ struct PDFHighlightReaderTests {
             .appendingPathComponent("Fixtures/PDF/corrupt.pdf")
 
         #expect(throws: PDFHighlightReaderError.unreadableDocument) {
-            _ = try PDFHighlightReader().read(fileURL: fixtureURL)
+            _ = try PDFHighlightReader().readPage(fileURL: fixtureURL, start: nil, limit: 100)
         }
     }
 

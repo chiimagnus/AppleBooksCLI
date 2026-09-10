@@ -112,7 +112,7 @@ struct PDFHighlightTextTests {
         page.addAnnotation(annotation)
         guard document.write(to: fixture.annotatedURL) else { throw FixtureError.writeFailed }
 
-        let highlight = try #require(try PDFHighlightReader().read(fileURL: fixture.annotatedURL).first)
+        let highlight = try #require(try PDFHighlightReader().readPage(fileURL: fixture.annotatedURL, start: nil, limit: 100).highlights.first)
         #expect(highlight.text == "Reader integration")
         #expect(highlight.textSource == .quadSelection)
         #expect(highlight.textIsApproximate)

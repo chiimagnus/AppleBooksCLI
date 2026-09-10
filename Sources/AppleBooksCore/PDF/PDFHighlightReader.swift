@@ -14,13 +14,6 @@ struct PDFHighlightReaderPage: Equatable, Sendable {
 }
 
 struct PDFHighlightReader {
-    func read(fileURL: URL) throws -> [PDFHighlight] {
-        guard let document = PDFDocument(url: fileURL) else {
-            throw PDFHighlightReaderError.unreadableDocument
-        }
-        return try scan(document: document, start: nil, limit: nil).highlights
-    }
-
     func readPage(
         fileURL: URL,
         start: PDFWorkerTraversal?,

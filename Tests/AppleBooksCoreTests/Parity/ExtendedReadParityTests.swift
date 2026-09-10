@@ -47,7 +47,12 @@ struct ExtendedReadParityTests {
         #expect(stats.topAnnotatedBookSummaries.map(\.annotationCount) == [2, 1, 1])
 
         #expect(try fixture.books.recentlyCreatedAnnotations().map { $0.annotation.localPK } == [14, 13, 12, 11, 10])
-        #expect(try fixture.books.annotationsInReadingOrder(bookLocalPK: 1).map { $0.annotation.localPK } == [10, 11])
+        let readingAnnotations = try fixture.books.semanticAnnotationPage(AnnotationQueryRequest(
+            book: .localPK(1),
+            order: .reading,
+            limit: 100
+        ))
+        #expect(readingAnnotations.items.map(\.localPK) == [10, 11])
 
         let packed = try fixture.books.bookContent(forBookLocalPK: 1)
         let directory = try fixture.books.bookContent(forBookLocalPK: 2)

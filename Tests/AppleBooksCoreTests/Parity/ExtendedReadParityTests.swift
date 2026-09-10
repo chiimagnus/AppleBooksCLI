@@ -25,12 +25,7 @@ struct ExtendedReadParityTests {
         #expect(directoryBook.author == " unknown ")
         #expect(directoryBook.normalizedAuthor == nil)
 
-        let overviews = try fixture.books.annotatedBooks()
-        #expect(overviews.map(\.book.localPK) == [1, 2, 3])
-        #expect(overviews.map(\.userAnnotationCount) == [2, 1, 1])
-        #expect(try fixture.books.bookOverview(assetID: "asset-packed")?.userAnnotationCount == 2)
-
-        let stats = try fixture.books.libraryStats()
+        let stats = try fixture.books.semanticLibraryStats()
         #expect(stats.totalBooks == 4)
         #expect(stats.finishedBooks == 1)
         #expect(stats.inProgressBooks == 1)
@@ -40,9 +35,6 @@ struct ExtendedReadParityTests {
         #expect(stats.unmappedAnnotationCount == 0)
         #expect(stats.ambiguousAnnotationCount == 0)
         #expect(stats.identityUnavailableAnnotationCount == 0)
-        #expect(stats.orphanUserAnnotations == 1)
-        #expect(stats.topAnnotatedBooks.map(\.book.localPK) == [1, 2, 3])
-        #expect(stats.topAnnotatedBooks.map(\.userAnnotationCount) == [2, 1, 1])
         #expect(stats.topAnnotatedBookSummaries.map(\.localPK) == [1, 2, 3])
         #expect(stats.topAnnotatedBookSummaries.map(\.annotationCount) == [2, 1, 1])
 

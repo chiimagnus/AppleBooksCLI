@@ -3,24 +3,8 @@ import SQLite3
 import Testing
 @testable import AppleBooksCore
 
-@Suite("BookOverviewTests")
-struct BookOverviewTests {
-    @Test
-    func annotatedBooksUseCanonicalUserScopeCountsAndBookOrder() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let overviews = try fixture.core.annotatedBooks()
-        #expect(overviews.map(\.book.localPK) == [2, 1])
-        #expect(overviews.map(\.userAnnotationCount) == [2, 1])
-
-        let orphan = try #require(
-            try fixture.core.listAnnotations().first { $0.annotation.localPK == 7 }
-        )
-        #expect(orphan.annotation.rawAssetID == "asset-orphan")
-        #expect(orphan.source == .unmapped)
-    }
-
+@Suite("AnnotatedBookSummaryTests")
+struct AnnotatedBookSummaryTests {
     @Test
     func annotatedBookSummaryCursorUsesTwoStoreGenerationAndStableContinuation() throws {
         let fixture = try Fixture()
@@ -38,36 +22,6 @@ struct BookOverviewTests {
         #expect(second.items.map(\.userAnnotationCount) == [1])
         #expect(second.hasMore == false)
         #expect(second.nextCursor == nil)
-    }
-
-    @Test
-    func overviewSelectorsShareStableIdentityAndNilAssetCountsZero() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let byPK = try #require(try fixture.core.bookOverview(localPK: 2))
-        let byAsset = try #require(try fixture.core.bookOverview(assetID: "asset-a"))
-        #expect(byPK == byAsset)
-        #expect(byPK.userAnnotationCount == 2)
-
-        let withoutAsset = try #require(try fixture.core.bookOverview(localPK: 3))
-        #expect(withoutAsset.book.assetID == nil)
-        #expect(withoutAsset.userAnnotationCount == 0)
-
-        let withoutAnnotations = try #require(try fixture.core.bookOverview(assetID: "asset-none"))
-        #expect(withoutAnnotations.userAnnotationCount == 0)
-        #expect(try fixture.core.bookOverview(localPK: 999) == nil)
-        #expect(try fixture.core.bookOverview(assetID: "missing") == nil)
-    }
-
-    @Test
-    func stableAssetIdentityAmbiguityStillFailsClosed() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        #expect(throws: StableIdentityError.ambiguousBookAssetID) {
-            _ = try fixture.core.bookOverview(assetID: "asset-dup")
-        }
     }
 
     private final class Fixture {

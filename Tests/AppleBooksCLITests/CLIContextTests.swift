@@ -169,7 +169,7 @@ struct CLIContextTests {
             dependencies: [.libraryRead, .annotationsRead]
         )
 
-        #expect(try books.annotatedBooks().map { $0.book.localPK } == [1])
+        #expect(try books.annotatedBookSummaryPage(limit: 100).items.map { $0.book.localPK } == [1])
     }
 
     @Test

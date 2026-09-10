@@ -29,18 +29,6 @@ struct AnnotationAggregateQueries {
         return try decodeCount(statement)
     }
 
-    func userAnnotationCount(assetID: String) throws -> Int {
-        _ = try AppleBooksSchema.inspect(.annotationByAssetID, on: connection)
-        let statement = try connection.prepare("""
-        SELECT COUNT(*) AS count
-        FROM \(AppleBooksTable.annotations.rawValue)
-        WHERE \(userScopePredicate)
-          AND \(AppleBooksSchema.Annotation.assetID) = ? COLLATE BINARY
-        """)
-        try statement.bind(assetID, at: 1)
-        return try decodeCount(statement)
-    }
-
     func userAnnotationCounts(assetIDs: [String]) throws -> [String: Int] {
         guard assetIDs.count <= Self.maximumIdentityBatch else {
             throw AnnotationAggregateQueryError.batchTooLarge

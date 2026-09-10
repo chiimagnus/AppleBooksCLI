@@ -216,7 +216,6 @@ struct AnnotationQueriesTests {
         )
 
         #expect(try aggregate.totalUserAnnotations() == 3)
-        #expect(try aggregate.userAnnotationCount(assetID: "asset-a") == 2)
         #expect(try aggregate.userAnnotationCounts(assetIDs: ["asset-a", "missing"]) == ["asset-a": 2])
         var groups: [UserAnnotationAssetCount] = []
         try aggregate.forEachUserAnnotationAssetCount { groups.append($0) }

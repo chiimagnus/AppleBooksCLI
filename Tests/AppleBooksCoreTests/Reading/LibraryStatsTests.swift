@@ -10,7 +10,7 @@ struct LibraryStatsTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let stats = try fixture.core.libraryStats()
+        let stats = try fixture.core.semanticLibraryStats()
         #expect(stats.totalBooks == 9)
         #expect(stats.finishedBooks == 1)
         #expect(stats.inProgressBooks == 1)
@@ -22,12 +22,6 @@ struct LibraryStatsTests {
         #expect(stats.unmappedAnnotationCount == 1)
         #expect(stats.ambiguousAnnotationCount == 2)
         #expect(stats.identityUnavailableAnnotationCount == 1)
-        #expect(stats.orphanUserAnnotations == 6)
-        #expect(stats.orphanUserAnnotations == stats.historicalAnnotationCount + stats.unmappedAnnotationCount + stats.ambiguousAnnotationCount + stats.identityUnavailableAnnotationCount)
-        #expect(stats.topAnnotatedBooks.map(\.book.localPK) == [1, 2, 4, 5, 3])
-        #expect(stats.topAnnotatedBooks.map(\.userAnnotationCount) == [3, 2, 1, 1, 1])
-        #expect(stats.topAnnotatedBooks.count == 5)
-        #expect(stats.topAnnotatedBooks.allSatisfy { $0.userAnnotationCount <= stats.totalUserAnnotations })
         #expect(stats.topAnnotatedBookSummaries.map(\.localPK) == [1, 2, 4, 5, 3])
         #expect(stats.topAnnotatedBookSummaries.map(\.annotationCount) == [3, 2, 1, 1, 1])
     }
@@ -51,13 +45,12 @@ struct LibraryStatsTests {
             annotationsDB: denseAnnotations,
             configurationFile: config
         )
-        let stats = try dense.libraryStats()
+        let stats = try dense.semanticLibraryStats()
         #expect(stats.totalBooks == 100_001)
         #expect(stats.finishedBooks == 0)
         #expect(stats.inProgressBooks == 0)
         #expect(stats.unstartedBooks == 100_001)
         #expect(stats.totalUserAnnotations == 100_001)
-        #expect(stats.orphanUserAnnotations == 0)
         #expect(stats.topAnnotatedBookSummaries.map(\.localPK) == [1, 2, 3, 4, 5])
         #expect(stats.topAnnotatedBookSummaries.allSatisfy { $0.annotationCount == 1 })
 
@@ -107,19 +100,17 @@ struct LibraryStatsTests {
         let core = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
         #expect(throws: AnnotationSourceClassificationError.schemaUnavailable) {
-            _ = try core.libraryStats()
+            _ = try core.semanticLibraryStats()
         }
     }
 
     @Test
-    func duplicateCurrentAssetIdentityCountsAsOrphanInsteadOfPickingOneBook() throws {
+    func duplicateCurrentAssetIdentityStaysAmbiguousAndOutOfTopBooks() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let stats = try fixture.core.libraryStats()
+        let stats = try fixture.core.semanticLibraryStats()
         #expect(stats.ambiguousAnnotationCount == 2)
-        #expect(stats.orphanUserAnnotations == 6)
-        #expect(stats.topAnnotatedBooks.contains { $0.book.assetID == "asset-dup" } == false)
         #expect(stats.topAnnotatedBookSummaries.contains { $0.assetID == "asset-dup" } == false)
     }
 

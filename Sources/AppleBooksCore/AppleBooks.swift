@@ -504,39 +504,7 @@ public final class AppleBooks {
         try requiredBookQueries().list(limit: limit, offset: offset)
     }
 
-    public func annotatedBooks() throws -> [BookOverview] {
-        let counts = try userAnnotationCountsByAssetID()
-        return try requiredBookQueries().list().compactMap { book in
-            guard let assetID = book.assetID,
-                  let count = counts[assetID],
-                  count > 0 else {
-                return nil
-            }
-            return BookOverview(book: book, userAnnotationCount: count)
-        }
-    }
-
-    public func bookOverview(localPK: Int64) throws -> BookOverview? {
-        guard let book = try requiredBookQueries().getByLocalPK(localPK) else { return nil }
-        let count = try book.assetID.map(requiredAnnotationAggregateQueries().userAnnotationCount(assetID:)) ?? 0
-        return BookOverview(book: book, userAnnotationCount: count)
-    }
-
-    public func bookOverview(assetID: String) throws -> BookOverview? {
-        guard let book = try requiredBookQueries().getUniqueByAssetID(assetID) else { return nil }
-        let count = try requiredAnnotationAggregateQueries().userAnnotationCount(assetID: assetID)
-        return BookOverview(book: book, userAnnotationCount: count)
-    }
-
-    public func libraryStats() throws -> LibraryStats {
-        try makeLibraryStats(includeRichTop: true)
-    }
-
     package func semanticLibraryStats() throws -> LibraryStats {
-        try makeLibraryStats(includeRichTop: false)
-    }
-
-    private func makeLibraryStats(includeRichTop: Bool) throws -> LibraryStats {
         let bookQueries = try requiredBookQueries()
         let aggregate = try requiredAnnotationAggregateQueries()
         let partitions = try requiredReadingQueries().partitionCounts()
@@ -548,16 +516,6 @@ public final class AppleBooks {
             aggregate: aggregate,
             bookQueries: bookQueries
         )
-        let richTop: [BookOverview]
-        if includeRichTop {
-            richTop = try topSummaries.compactMap { summary -> BookOverview? in
-                guard let book = try bookQueries.getByLocalPK(summary.localPK) else { return nil }
-                return BookOverview(book: book, userAnnotationCount: summary.annotationCount)
-            }
-        } else {
-            richTop = []
-        }
-
         return LibraryStats(
             totalBooks: try bookQueries.totalCount(),
             finishedBooks: partitions.finished,
@@ -568,7 +526,6 @@ public final class AppleBooks {
             unmappedAnnotationCount: classification.unmapped,
             ambiguousAnnotationCount: classification.ambiguous,
             identityUnavailableAnnotationCount: classification.identityUnavailable,
-            topAnnotatedBooks: richTop,
             topAnnotatedBookSummaries: topSummaries
         )
     }
@@ -1467,15 +1424,6 @@ public final class AppleBooks {
             return nil
         }
         return try requiredReadingQueries().currentPosition(rawAssetID: assetID)
-    }
-
-    private func userAnnotationCountsByAssetID() throws -> [String: Int] {
-        var counts: [String: Int] = [:]
-        try requiredAnnotationAggregateQueries().forEachUserAnnotationAssetCount { group in
-            guard let assetID = group.rawAssetID else { return }
-            counts[assetID] = group.count
-        }
-        return counts
     }
 
     private func requiredAnnotationAggregateQueries() throws -> AnnotationAggregateQueries {

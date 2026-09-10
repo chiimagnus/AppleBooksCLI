@@ -14,6 +14,16 @@ struct BookContentAvailabilityTests {
     }
 
     @Test
+    func materializedUbiquitousRegularFileNeedsNoDownloadingStatus() {
+        let probe = BookContentAvailabilityProbe(
+            fileMetadata: { _ in .node(.regular(size: 128, blocks: 8)) },
+            resourceMetadata: { _ in .init(isUbiquitous: true, downloadingStatus: nil) }
+        )
+
+        #expect(probe.availability(at: syntheticURL) == .available)
+    }
+
+    @Test
     func localMissingMetadataFailureAndPlaceholderAreDistinct() {
         #expect(probe(isUbiquitous: false).availability(at: syntheticURL) == .available)
 

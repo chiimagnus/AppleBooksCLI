@@ -1054,7 +1054,7 @@
       "Sources/AppleBooksCore/Queries/BookQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/BookOverviewTests.swift"
+      "Tests/AppleBooksCoreTests/Reading/AnnotatedBookSummaryTests.swift"
     ],
     "cliHelpArgs": [
       [
@@ -1127,7 +1127,7 @@
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/RecentlyCreatedAnnotationTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [
@@ -1143,7 +1143,7 @@
       "Sources/AppleBooksCore/Queries/AnnotationQueries.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/RecentlyModifiedAnnotationTests.swift"
+      "Tests/AppleBooksCoreTests/Queries/AnnotationQueryPaginationTests.swift"
     ],
     "cliHelpArgs": [
       [

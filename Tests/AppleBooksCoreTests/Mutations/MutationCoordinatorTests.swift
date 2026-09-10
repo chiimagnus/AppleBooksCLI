@@ -142,15 +142,17 @@ struct MutationCoordinatorTests {
     @Test
     func publicFailureDescriptionsNeverReflectUnderlyingDetails() {
         let secret = "SECRET-SQLITE-PATH-AND-NOTE"
+        let rawMutationHandle = "BKLibrary-private__20260101-000000-000000__00000000-0000-4000-8000-000000000001.sqlite"
+        let rawRestoreHandle = "BKLibrary-private__20260101-000000-000000__00000000-0000-4000-8000-000000000002.sqlite"
         let underlying = SQLiteError(operation: .step, code: SQLITE_ERROR, message: secret)
         let mutation = MutationFailure(
-            backupHandle: "library__opaque.sqlite",
+            backupHandle: rawMutationHandle,
             code: .mutationFailed,
             warnings: [.relaunchFailed],
             underlying: underlying
         )
         let restore = RestoreFailure(
-            safetyBackupHandle: "library__safety.sqlite",
+            safetyBackupHandle: rawRestoreHandle,
             code: .restoreFailed,
             warnings: [.verificationFailed],
             underlying: underlying
@@ -165,6 +167,8 @@ struct MutationCoordinatorTests {
             restore.localizedDescription,
         ] {
             #expect(rendered.contains(secret) == false)
+            #expect(rendered.contains(rawMutationHandle) == false)
+            #expect(rendered.contains(rawRestoreHandle) == false)
         }
         #expect(String(describing: mutation).contains("mutation_failed"))
         #expect(String(describing: restore).contains("restore_failed"))

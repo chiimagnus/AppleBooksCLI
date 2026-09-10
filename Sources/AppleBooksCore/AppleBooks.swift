@@ -305,6 +305,12 @@ public final class AppleBooks {
         try requiredRestoreCoordinator().restoreLibrary(handle: handle)
     }
 
+    public func restoreLibraryBackup(backupID: String) throws -> RestoreResult {
+        let database = try requiredLibraryDatabase()
+        let handle = try SQLiteBackup.restoreHandle(backupID: backupID, destination: database)
+        return try requiredRestoreCoordinator().restoreLibrary(handle: handle)
+    }
+
     // Stable deterministic order + validated pagination.
     public func listCollections(limit: Int? = nil, offset: Int = 0) throws -> [Collection] {
         try requiredCollectionQueries().list(limit: limit, offset: offset)

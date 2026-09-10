@@ -280,7 +280,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
+            return try MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
         }
     }
 }
@@ -317,7 +317,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            return try MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
         }
     }
 }

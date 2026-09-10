@@ -557,6 +557,7 @@
   "backup list/retention": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/BackupMetadata.swift",
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift"
     ],
     "testPaths": [
@@ -1263,6 +1264,7 @@
   "restore": {
     "owner": "core",
     "implementationPaths": [
+      "Sources/AppleBooksCore/Mutations/BackupMetadata.swift",
       "Sources/AppleBooksCore/Mutations/SQLiteBackup.swift",
       "Sources/AppleBooksCore/AppleBooks.swift"
     ],

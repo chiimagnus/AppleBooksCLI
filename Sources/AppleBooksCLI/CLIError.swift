@@ -164,10 +164,13 @@ enum CLIOperation {
         if let restoreFailure = error as? RestoreFailure {
             switch restoreFailure.code {
             case .sourceRejected:
-                return .notFound("Backup handle is unavailable or invalid.")
+                return .notFound("backupID is unavailable or invalid.")
             case .quitFailed, .safetyBackupFailed, .restoreFailed:
                 return .writeSafety("Library restore failed safely (\(restoreFailure.code.rawValue)).")
             }
+        }
+        if error is LibraryBackupIdentityError {
+            return .usageInvalid("Invalid backupID.")
         }
         if error is SQLiteBackupError {
             return .unavailable("Apple Books backup store is unavailable.")

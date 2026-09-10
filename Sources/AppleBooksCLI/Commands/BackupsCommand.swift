@@ -39,11 +39,11 @@ struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
 struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "restore",
-        abstract: "Restore a library backup by its safe backup handle."
+        abstract: "Restore a library backup by its opaque backupID."
     )
 
-    @Argument(help: "Exact handle returned by `backups list`.")
-    var handle: String
+    @Argument(help: "Exact backupID returned by `backups list`.")
+    var backupID: String
 
     @OptionGroup var global: GlobalOptions
 
@@ -57,9 +57,12 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> RestoreCommandResult {
-        try CLIOperation.run {
+        guard LibraryBackup.isValidBackupID(backupID) else {
+            throw CLIError.usageInvalid("Invalid backupID.")
+        }
+        return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryBackup)
-            return RestoreCommandResult(try books.restoreLibraryBackup(handle: handle))
+            return try RestoreCommandResult(try books.restoreLibraryBackup(backupID: backupID))
         }
     }
 }
@@ -70,12 +73,12 @@ struct BackupListResult: Codable, Equatable, Sendable {
 }
 
 struct BackupResult: Codable, Equatable, Sendable {
-    let handle: String
+    let backupID: String
     let createdAt: Date
     let sizeBytes: Int64
 
     init(_ backup: LibraryBackup) {
-        handle = backup.handle
+        backupID = backup.backupID
         createdAt = backup.createdAt
         sizeBytes = backup.sizeBytes
     }
@@ -91,16 +94,20 @@ struct RestoreCommandResult: Codable, Equatable, Sendable {
     let changed: Bool
     let status: RestoreCLIStatus
     let verified: Bool
-    let restoredFromHandle: String
-    let safetyBackupHandle: String
+    let restoredFromBackupID: String
+    let safetyBackupID: String
     let warningCodes: [String]
 
-    init(_ result: RestoreResult) {
+    init(_ result: RestoreResult) throws {
+        guard let restoredFromBackupID = result.restoredFromBackupID,
+              let safetyBackupID = result.safetyBackupID else {
+            throw CLIError.internalFailure
+        }
         changed = result.restoreApplied
         status = result.verified ? .restoredVerified : .restoredUnverified
         verified = result.verified
-        restoredFromHandle = result.restoredFromHandle
-        safetyBackupHandle = result.safetyBackupHandle
+        self.restoredFromBackupID = restoredFromBackupID
+        self.safetyBackupID = safetyBackupID
         warningCodes = result.warnings.map(\.rawValue)
     }
 

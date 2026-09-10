@@ -75,7 +75,8 @@ public enum SQLiteBackup {
             }
             guard name != ".", name != "..", name.hasPrefix(".") == false else { continue }
             instrumentation?.observeScannedEntry()
-            guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem) else { continue }
+            guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
+                  metadata.filename == name else { continue }
 
             var entryStat = stat()
             let status = name.withCString {
@@ -91,6 +92,7 @@ public enum SQLiteBackup {
                 CatalogCandidate(
                     backup: LibraryBackup(
                         handle: name,
+                        backupID: metadata.backupID,
                         createdAt: metadata.timestamp,
                         sizeBytes: Int64(entryStat.st_size)
                     ),
@@ -182,6 +184,14 @@ public enum SQLiteBackup {
             throw SQLiteBackupError.retentionFailed
         }
         return final
+    }
+
+    static func restoreHandle(backupID: String, destination: URL) throws -> String {
+        let destinationStem = destination.deletingPathExtension().lastPathComponent
+        guard let metadata = BackupMetadata.parse(backupID: backupID, sourceStem: destinationStem) else {
+            throw LibraryBackupIdentityError.invalidBackupID
+        }
+        return metadata.filename
     }
 
     static func openRestoreSource(

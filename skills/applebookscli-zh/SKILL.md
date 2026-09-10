@@ -15,7 +15,7 @@ metadata:
 ## 使用 CLI
 
 1. 选择能完成请求的最小命令族；语法不确定时，只读取对应命令的 `--help`。
-2. 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、backup handle。只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK；不能把数字形式的 stable ID 猜成 PK。
+2. 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、opaque `backupID`。只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK；不能把数字形式的 stable ID 猜成 PK。
 3. Operational command 默认返回 JSON，不要添加 `--json`。
 4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书、PDF inventory/highlight、`annotations list` 与 `content chapters` 统一使用该游标契约（默认 20、最大 100）；`content chapters` 只返回 `chapterOrder`、bounded title 与 depth。把 `chapterOrder` 交给 `content chapter --book|--book-pk --chapter <order>`；正文 continuation 同样只用 opaque cursor，不使用 `--offset`。
 5. 出现 `truncatedFields` 时，对应字段是合法但不完整的展示文本。用户明确需要原始完整正文/CFI 时改用 archival export。
@@ -45,7 +45,7 @@ metadata:
 - collection membership mutation 只使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个；collection/book identity 不再作为 positional argument。
 - 单条 mutation 只有在用户需要当前 Mac CloudKit acknowledgement 时才加 `--sync`，否则省略。多条 mutation 需要 acknowledgement 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。
 - 已 commit 后出现 warning 不能触发自动重放。sync acknowledgement 只确认当前 Mac，不代表另一台设备已经显示。
-- `backups list` 是固定恢复目录，只展示最新 10 个有效 library backup；不要分页，也不要把它当作完整备份历史。已知且仍有效的 backup handle 即使已退出列表仍可 restore；restore 前先解析精确 backup handle。
+- `backups list` 是固定恢复目录，只展示最新 10 个有效 library backup；不要分页，也不要把它当作完整备份历史。把列表返回或之前保存的有效 opaque `backupID` 原样交给 `backups restore`；不要使用 backup filename 或 path 作为 selector。
 
 ## 导出与失败处理
 

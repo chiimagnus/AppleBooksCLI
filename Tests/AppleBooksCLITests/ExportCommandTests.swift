@@ -296,8 +296,57 @@ struct ExportCommandTests {
         let result = try command.execute(workerURLProvider: { throw FixtureError.workerMustNotBeResolved })
         #expect(!result.complete)
         #expect(result.warningCount == 1)
-        #expect(result.warnings == [ExportRunWarning(code: "pdf_unavailable", source: "pdf")])
+        #expect(result.warnings.count == 1)
+        let warning = try #require(result.warnings.first)
+        #expect(warning.code == "pdf_unavailable")
+        #expect(warning.source == "pdf")
+        #expect(warning.sourceID == nil)
+        #expect(warning.reason == "worker_unavailable")
+        #expect(result.warningsTruncated == false)
         #expect(try String(contentsOfFile: result.destination, encoding: .utf8).contains("Quote A"))
+    }
+
+    @Test
+    func structuredWarningsAreBoundedSanitizedAndSuccessfulOutputUsesOnlyStdout() throws {
+        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
+        let source = PDFSource(
+            fileURL: URL(fileURLWithPath: "/private/secret/never-reflect.pdf"),
+            book: nil,
+            provenance: .fallback,
+            pdfSourceID: sourceID
+        )
+        let warnings = (0..<101).map { index in
+            ExportWarning.pdfFailure(PDFHighlightServiceFailure(
+                source: source,
+                reason: index == 0 ? .timeout : .worker(.nonzeroExit(123))
+            ))
+        }
+        let summary = try ExportRunWarning.summaries(warnings)
+        #expect(summary.items.count == 100)
+        #expect(summary.truncated)
+        #expect(summary.items[0].reason == "timeout")
+        #expect(summary.items[1].reason == "worker_nonzero_exit")
+        #expect(summary.items.allSatisfy { $0.code == "pdf_read_failed" && $0.source == "pdf" && $0.sourceID == sourceID })
+
+        var result = ExportRunResult(
+            destination: "/safe/export.json",
+            disposition: .file,
+            documentCount: 1,
+            warningCount: warnings.count,
+            complete: false
+        )
+        result.warnings = summary.items
+        result.warningsTruncated = summary.truncated
+        let capture = Capture()
+        try capture.output.writeJSON(result)
+        #expect(capture.stderr.isEmpty)
+        #expect(capture.stdout.contains("never-reflect") == false)
+        #expect(capture.stdout.contains("/private/secret") == false)
+        #expect(capture.stdout.contains("123") == false)
+        let encoded = try JSONDecoder().decode(ExportRunResult.self, from: Data(capture.stdout.utf8))
+        #expect(encoded.warningCount == 101)
+        #expect(encoded.warnings.count == 100)
+        #expect(encoded.warningsTruncated)
     }
 
     @Test

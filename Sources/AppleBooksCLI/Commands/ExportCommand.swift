@@ -74,17 +74,98 @@ enum ExportRunDisposition: String, Codable, Equatable, Sendable {
 }
 
 struct ExportRunResult: Codable, Equatable, Sendable {
+    static let maximumWarnings = 100
+
     let destination: String
     let disposition: ExportRunDisposition
     let documentCount: Int
     let warningCount: Int
     let complete: Bool
     var warnings: [ExportRunWarning] = []
+    var warningsTruncated = false
 }
 
 struct ExportRunWarning: Codable, Equatable, Sendable {
     let code: String
     let source: String
+    let sourceID: String?
+    let reason: String
+
+    static func summaries(_ warnings: [ExportWarning]) throws -> (items: [Self], truncated: Bool) {
+        var items: [Self] = []
+        items.reserveCapacity(min(warnings.count, ExportRunResult.maximumWarnings))
+        for warning in warnings.prefix(ExportRunResult.maximumWarnings) {
+            items.append(try Self(warning))
+        }
+        return (items, warnings.count > ExportRunResult.maximumWarnings)
+    }
+
+    private init(_ warning: ExportWarning) throws {
+        switch warning {
+        case .pdfUnavailable:
+            code = "pdf_unavailable"
+            source = "pdf"
+            sourceID = nil
+            reason = "worker_unavailable"
+        case let .pdfFailure(failure):
+            code = "pdf_read_failed"
+            source = "pdf"
+            guard let stableID = Self.stableSourceID(failure.source) else {
+                throw CLIError.internalFailure
+            }
+            sourceID = stableID
+            reason = Self.reason(failure.reason)
+        }
+    }
+
+    private static func stableSourceID(_ source: PDFSource) -> String? {
+        if let sourceID = source.pdfSourceID { return sourceID }
+        if let assetID = source.book?.assetID ?? source.bookSummary?.assetID,
+           PublicStableIdentityPolicy.isEligible(assetID) {
+            return assetID
+        }
+        return nil
+    }
+
+    private static func reason(_ failure: PDFHighlightServiceFailureReason) -> String {
+        switch failure {
+        case .timeout:
+            "timeout"
+        case .internalFailure:
+            "internal_failure"
+        case let .worker(error):
+            workerReason(error)
+        }
+    }
+
+    private static func workerReason(_ error: PDFWorkerClientError) -> String {
+        switch error {
+        case .launchFailed: "worker_launch_failed"
+        case .timedOut: "timeout"
+        case .stdoutLimitExceeded: "worker_stdout_limit"
+        case .stderrLimitExceeded: "worker_stderr_limit"
+        case .pipeReadFailed: "worker_pipe_read_failed"
+        case .nonzeroExit: "worker_nonzero_exit"
+        case .signalTerminated: "worker_signal_terminated"
+        case .malformedResponse: "worker_malformed_response"
+        case let .workerFailure(code): workerFailureReason(code)
+        }
+    }
+
+    private static func workerFailureReason(_ code: PDFWorkerErrorCode) -> String {
+        switch code {
+        case .malformedRequest: "worker_malformed_request"
+        case .requestTooLarge: "worker_request_too_large"
+        case .unsupportedVersion: "worker_unsupported_version"
+        case .invalidPath: "worker_invalid_path"
+        case .unsupportedFormat: "worker_unsupported_format"
+        case .unsafeFile: "worker_unsafe_file"
+        case .staleSource: "worker_stale_source"
+        case .unreadableDocument: "worker_unreadable_document"
+        case .pageUnavailable: "worker_page_unavailable"
+        case .internalFailure: "worker_internal_failure"
+        }
+    }
 }
 
 struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
@@ -199,17 +280,15 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 workerURLProvider: workerURLProvider
             )
             let bundle = try books.exportBundle(options: request.options)
+            let warningSummary = try ExportRunWarning.summaries(bundle.warnings)
             var result = try write(
                 bundle,
                 request: request,
                 outputURL: request.outputURL,
                 exportedAt: exportedAt
             )
-            if bundle.warnings.contains(.pdfUnavailable) {
-                result.warnings = [ExportRunWarning(code: "pdf_unavailable", source: "pdf")]
-            } else if bundle.sourceTotals.pdfFailedDocumentCount > 0 {
-                result.warnings = [ExportRunWarning(code: "pdf_read_failed", source: "pdf")]
-            }
+            result.warnings = warningSummary.items
+            result.warningsTruncated = warningSummary.truncated
             return result
         }
     }

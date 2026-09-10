@@ -514,7 +514,7 @@ struct ContentChaptersPageResult: Codable, Equatable, Sendable {
     let bookAssetID: String?
     let bookLocalPK: Int64?
     let items: [ContentChapterSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 
     init(_ page: SemanticChapterListPage) {
@@ -535,7 +535,7 @@ struct ContentChapterPageResult: Codable, Equatable, Sendable {
     let chapterOrder: Int
     let content: String
     let hasMore: Bool
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
 
     init(_ page: SemanticChapterContinuationPage) {
         bookAssetID = page.bookAssetID

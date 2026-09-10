@@ -372,13 +372,13 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
 
 struct CollectionPageResult: Codable, Equatable, Sendable {
     let items: [CollectionSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 }
 
 struct CollectionBooksResult: Codable, Equatable, Sendable {
     let items: [BookSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 }
 

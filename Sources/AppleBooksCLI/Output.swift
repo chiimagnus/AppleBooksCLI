@@ -36,6 +36,35 @@ struct CLIOutput {
     }
 }
 
+@propertyWrapper
+struct ExplicitNullString: Codable, Equatable, Sendable {
+    var wrappedValue: String?
+
+    init(wrappedValue: String?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        wrappedValue = container.decodeNil() ? nil : try container.decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let wrappedValue {
+            try container.encode(wrappedValue)
+        } else {
+            try container.encodeNil()
+        }
+    }
+}
+
+extension KeyedDecodingContainer {
+    func decode(_ type: ExplicitNullString.Type, forKey key: Key) throws -> ExplicitNullString {
+        try decodeIfPresent(type, forKey: key) ?? ExplicitNullString(wrappedValue: nil)
+    }
+}
+
 struct CLIErrorEnvelope: Codable, Equatable, Sendable {
     struct Payload: Codable, Equatable, Sendable {
         let code: CLIErrorCode

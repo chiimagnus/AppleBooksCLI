@@ -514,12 +514,46 @@ struct CLIContractTests {
         #expect(highlights["bookAssetID"] as? String == "asset-pdf")
         #expect(highlights["pdfSourceID"] == nil)
         #expect(highlights["hasMore"] as? Bool == false)
-        #expect(highlights["nextCursor"] == nil)
+        #expect(highlights.keys.contains("nextCursor"))
+        #expect(highlights["nextCursor"] is NSNull)
         let rows = try #require(highlights["items"] as? [[String: Any]])
         #expect(rows.first?["note"] as? String == "black box pdf")
         for internalKey in ["bounds", "quadrilateralPoints", "pdfKitRGBA", "traversalIndex", "textSource"] {
             #expect(rows.first?[internalKey] == nil)
         }
+    }
+
+    @Test
+    func processPagedResultsEncodeTerminalCursorAsExplicitNull() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+
+        func expectTerminalCursor(_ result: [String: Any], sourceLocation: SourceLocation = #_sourceLocation) {
+            #expect(result["hasMore"] as? Bool == false, sourceLocation: sourceLocation)
+            #expect(result.keys.contains("nextCursor"), sourceLocation: sourceLocation)
+            #expect(result["nextCursor"] is NSNull, sourceLocation: sourceLocation)
+        }
+
+        let firstBooksPage = try fixture.runJSON(["books", "list", "--limit", "1"])
+        #expect(firstBooksPage["hasMore"] as? Bool == true)
+        #expect(firstBooksPage["nextCursor"] is String)
+
+        for arguments in [
+            ["books", "list", "--limit", "100"],
+            ["reading", "unstarted", "--limit", "100"],
+            ["collections", "list", "--limit", "100"],
+            ["annotations", "list", "--limit", "100"],
+            ["pdf", "list", "--limit", "100"],
+            ["content", "chapters", "--book", "asset-a", "--limit", "100"],
+            ["content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "16000"],
+        ] {
+            expectTerminalCursor(try fixture.runJSON(arguments))
+        }
+
+        let history = try fixture.run(["history", "list"])
+        #expect(history.status == 0)
+        #expect(history.stderr.isEmpty)
+        expectTerminalCursor(try dictionary(history.stdout))
     }
 
     @Test

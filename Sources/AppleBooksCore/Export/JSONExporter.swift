@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 8
+    static let schemaVersion = 9
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -337,8 +337,8 @@ private struct JSONBookDTO: Encodable {
     let fileSize: Int64?
     let coverURL: String?
     let isFinished: Bool?
-    let readingProgressRaw: Double?
-    let durationRawMilliseconds: Double?
+    let readingProgressRaw: JSONNullableDouble
+    let durationRawMilliseconds: JSONNullableDouble
     let creationDate: String?
     let modificationDate: String?
     let finishedDate: String?
@@ -351,7 +351,8 @@ private struct JSONBookDTO: Encodable {
     let isHidden: Bool?
     let isSample: Bool?
     let isStoreAudiobook: Bool?
-    let rating: Double?
+    let rating: JSONNullableDouble
+    let numericAnomalies: [JSONNumericAnomalyDTO]
 
     init(_ value: Book) {
         let mapper = JSONExportMapper()
@@ -372,8 +373,9 @@ private struct JSONBookDTO: Encodable {
         fileSize = value.fileSize
         coverURL = value.coverURL
         isFinished = value.isFinished
-        readingProgressRaw = value.readingProgressRaw
-        durationRawMilliseconds = value.durationRawMilliseconds
+        var anomalies: [JSONNumericAnomalyDTO] = []
+        readingProgressRaw = JSONNullableDouble(Self.jsonNumber(value.readingProgressRaw, field: .readingProgressRaw, anomalies: &anomalies))
+        durationRawMilliseconds = JSONNullableDouble(Self.jsonNumber(value.durationRawMilliseconds, field: .durationRawMilliseconds, anomalies: &anomalies))
         creationDate = mapper.date(value.creationDate)
         modificationDate = mapper.date(value.modificationDate)
         finishedDate = mapper.date(value.finishedDate)
@@ -386,8 +388,57 @@ private struct JSONBookDTO: Encodable {
         isHidden = value.isHidden
         isSample = value.isSample
         isStoreAudiobook = value.isStoreAudiobook
-        rating = value.rating
+        rating = JSONNullableDouble(Self.jsonNumber(value.rating, field: .rating, anomalies: &anomalies))
+        numericAnomalies = anomalies
     }
+
+    private static func jsonNumber(
+        _ value: Double?,
+        field: JSONNumericAnomalyField,
+        anomalies: inout [JSONNumericAnomalyDTO]
+    ) -> Double? {
+        guard let value else { return nil }
+        if value.isFinite { return value }
+        if value == .infinity {
+            anomalies.append(JSONNumericAnomalyDTO(field: field, kind: .positiveInfinity))
+        } else if value == -.infinity {
+            anomalies.append(JSONNumericAnomalyDTO(field: field, kind: .negativeInfinity))
+        }
+        return nil
+    }
+}
+
+private struct JSONNullableDouble: Encodable {
+    let value: Double?
+
+    init(_ value: Double?) {
+        self.value = value
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let value {
+            try container.encode(value)
+        } else {
+            try container.encodeNil()
+        }
+    }
+}
+
+private enum JSONNumericAnomalyField: String, Encodable {
+    case readingProgressRaw
+    case durationRawMilliseconds
+    case rating
+}
+
+private enum JSONNumericAnomalyKind: String, Encodable {
+    case positiveInfinity
+    case negativeInfinity
+}
+
+private struct JSONNumericAnomalyDTO: Encodable {
+    let field: JSONNumericAnomalyField
+    let kind: JSONNumericAnomalyKind
 }
 
 private struct JSONHistoricalMetadataDTO: Encodable {

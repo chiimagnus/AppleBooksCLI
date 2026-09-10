@@ -78,7 +78,7 @@ struct JSONExporterTests {
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 8)
+        #expect(root["schemaVersion"] as? Int == 9)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -142,6 +142,10 @@ struct JSONExporterTests {
         #expect(currentBook["assetID"] as? String == "current-asset")
         #expect(currentBook["genresRawBase64"] as? String == "AAH/")
         #expect(currentBook["creationDate"] as? String == "2020-09-13T12:26:40.500Z")
+        #expect(currentBook["readingProgressRaw"] as? Double == 0.25)
+        #expect(currentBook["durationRawMilliseconds"] as? Double == 12_345)
+        #expect(currentBook["rating"] as? Double == 4.5)
+        #expect(try array(currentBook["numericAnomalies"]).isEmpty)
         #expect(currentBook["normalizedAuthor"] == nil)
         #expect(current["epubMetadata"] == nil)
         #expect(current["epubCover"] == nil)
@@ -184,6 +188,65 @@ struct JSONExporterTests {
         let workerError = try dictionary(failure["workerError"])
         #expect(workerError["code"] as? String == "workerFailure")
         #expect(workerError["workerCode"] as? String == "unreadableDocument")
+    }
+
+    @Test
+    func nonFiniteBookNumericsEncodeAsNullWithStableBoundedAnomalies() throws {
+        let books = [
+            book(localPK: 1, readingProgressRaw: nil, durationRawMilliseconds: nil, rating: nil),
+            book(
+                localPK: 2,
+                readingProgressRaw: 0.25,
+                durationRawMilliseconds: Double.greatestFiniteMagnitude,
+                rating: 4.5
+            ),
+            book(
+                localPK: 3,
+                readingProgressRaw: .infinity,
+                durationRawMilliseconds: -.infinity,
+                rating: .infinity
+            ),
+        ]
+        let bundle = try bundle(books: books)
+        let root = try object(JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        #expect(root["schemaVersion"] as? Int == 9)
+        let groups = try array(root["groups"])
+
+        let nilSource = try dictionary(try dictionary(groups[0])["source"])
+        let nilBook = try dictionary(nilSource["book"])
+        #expect(nilBook["readingProgressRaw"] is NSNull)
+        #expect(nilBook["durationRawMilliseconds"] is NSNull)
+        #expect(nilBook["rating"] is NSNull)
+        #expect(try array(nilBook["numericAnomalies"]).isEmpty)
+
+        let finiteSource = try dictionary(try dictionary(groups[1])["source"])
+        let finiteBook = try dictionary(finiteSource["book"])
+        #expect(finiteBook["readingProgressRaw"] as? Double == 0.25)
+        #expect(finiteBook["durationRawMilliseconds"] as? Double == Double.greatestFiniteMagnitude)
+        #expect(finiteBook["rating"] as? Double == 4.5)
+        #expect(try array(finiteBook["numericAnomalies"]).isEmpty)
+
+        let anomalousSource = try dictionary(try dictionary(groups[2])["source"])
+        let anomalousBook = try dictionary(anomalousSource["book"])
+        #expect(anomalousBook["readingProgressRaw"] is NSNull)
+        #expect(anomalousBook["durationRawMilliseconds"] is NSNull)
+        #expect(anomalousBook["rating"] is NSNull)
+        let anomalies = try array(anomalousBook["numericAnomalies"]).map { try dictionary($0) }
+        #expect(anomalies.count == 3)
+        #expect(anomalies.compactMap { $0["field"] as? String } == [
+            "readingProgressRaw", "durationRawMilliseconds", "rating",
+        ])
+        #expect(anomalies.compactMap { $0["kind"] as? String } == [
+            "positiveInfinity", "negativeInfinity", "positiveInfinity",
+        ])
+
+        let document = try object(JSONExporter.renderDocument(
+            bundle.groups[2], from: bundle, exportedAt: Date(timeIntervalSince1970: 0)
+        ))
+        #expect(document["schemaVersion"] as? Int == 9)
+        let documentSource = try dictionary(try dictionary(document["group"])["source"])
+        let documentBook = try dictionary(documentSource["book"])
+        #expect(try array(documentBook["numericAnomalies"]).count == 3)
     }
 
     @Test
@@ -271,7 +334,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 8)
+        #expect(document["schemaVersion"] as? Int == 9)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -294,6 +357,77 @@ struct JSONExporterTests {
 
     private func normalized(_ value: Any?) throws -> Data {
         try JSONSerialization.data(withJSONObject: try #require(value), options: [.sortedKeys])
+    }
+
+    private func book(
+        localPK: Int64,
+        readingProgressRaw: Double?,
+        durationRawMilliseconds: Double?,
+        rating: Double?
+    ) -> Book {
+        Book(
+            localPK: localPK,
+            assetID: "numeric-\(localPK)",
+            title: "Numeric \(localPK)",
+            author: nil,
+            description: nil,
+            epubID: nil,
+            genre: nil,
+            genresRaw: nil,
+            comments: nil,
+            language: nil,
+            year: nil,
+            contentType: 1,
+            pageCount: nil,
+            path: nil,
+            fileSize: nil,
+            coverURL: nil,
+            isFinished: nil,
+            readingProgressRaw: readingProgressRaw,
+            durationRawMilliseconds: durationRawMilliseconds,
+            creationDate: nil,
+            modificationDate: nil,
+            finishedDate: nil,
+            lastOpenDate: nil,
+            purchaseDate: nil,
+            releaseDate: nil,
+            isExplicit: nil,
+            isLocked: nil,
+            isEphemeral: nil,
+            isHidden: nil,
+            isSample: nil,
+            isStoreAudiobook: nil,
+            rating: rating
+        )
+    }
+
+    private func bundle(books: [Book]) throws -> ExportBundle {
+        let groups = books.map { ExportGroup(source: .epubCurrent($0), records: []) }
+        return ExportBundle(
+            options: try ExportOptions(source: .epub),
+            groups: groups,
+            warnings: [],
+            statistics: ExportStatistics(
+                documentCount: groups.count,
+                epubDocumentCount: groups.count,
+                pdfDocumentCount: 0,
+                recordCount: 0,
+                epubAnnotationCount: 0,
+                pdfHighlightCount: 0,
+                highlightCount: 0,
+                noteCount: 0,
+                historicalEPUBAnnotationCount: 0,
+                unmappedEPUBAnnotationCount: 0
+            ),
+            sourceTotals: ExportSourceTotals(
+                epubDocumentCount: groups.count,
+                epubAnnotationCount: 0,
+                pdfAttemptedDocumentCount: 0,
+                pdfSucceededDocumentCount: 0,
+                pdfFailedDocumentCount: 0,
+                pdfHighlightCount: 0
+            )
+        )
     }
 
     private struct Fixture {

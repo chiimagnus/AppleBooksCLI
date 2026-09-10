@@ -32,20 +32,8 @@ enum EPUBSourceResolver {
         return BookContentAvailability.inspect(canonicalRoot) == .available
     }
 
-    static func reader(for book: Book, configuration: AppleBooksConfiguration) throws -> any EPUBResourceReader {
-        try resolve(for: book, configuration: configuration).requireReader().reader
-    }
-
     static func reader(for target: BookResourceTarget, configuration: AppleBooksConfiguration) throws -> any EPUBResourceReader {
         try resolve(for: target, configuration: configuration).requireReader().reader
-    }
-
-    static func resolve(
-        for book: Book,
-        configuration: AppleBooksConfiguration,
-        observingAvailability: Bool = false
-    ) -> EPUBSourceResolution {
-        resolve(rawPath: book.path, configuration: configuration, observingAvailability: observingAvailability)
     }
 
     static func resolve(

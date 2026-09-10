@@ -19,10 +19,10 @@ struct BookContentFacadeTests {
         try Data("{\"historical_assets\":{}}".utf8).write(to: config)
         let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
-        #expect(try books.bookContent(forBookLocalPK: 1).listChapters().map(\.id) == ["chapter"])
-        #expect(throws: ContentError.bookPathUnavailable) { _ = try books.bookContent(forBookLocalPK: 2) }
-        #expect(throws: ContentError.unavailable(.missing)) { _ = try books.bookContent(forBookLocalPK: 3) }
-        #expect(throws: ContentError.unsupportedFormat) { _ = try books.bookContent(forBookLocalPK: 4) }
+        #expect(try books.semanticBookContent(forBookLocalPK: 1).listChapters().map(\.id) == ["chapter"])
+        #expect(throws: ContentError.bookPathUnavailable) { _ = try books.semanticBookContent(forBookLocalPK: 2) }
+        #expect(throws: ContentError.unavailable(.missing)) { _ = try books.semanticBookContent(forBookLocalPK: 3) }
+        #expect(throws: ContentError.unsupportedFormat) { _ = try books.semanticBookContent(forBookLocalPK: 4) }
     }
 
     @Test
@@ -36,7 +36,7 @@ struct BookContentFacadeTests {
         let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
 
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(table: .books, columns: ["ZPATH"])) {
-            _ = try books.bookContent(forBookLocalPK: 1)
+            _ = try books.semanticBookContent(forBookLocalPK: 1)
         }
     }
 

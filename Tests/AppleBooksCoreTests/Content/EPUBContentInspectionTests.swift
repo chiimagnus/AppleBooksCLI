@@ -14,7 +14,7 @@ struct EPUBContentInspectionTests {
         try fixture.makeDirectoryEPUB(at: epub, includeChapterBody: false)
         let books = try fixture.makeBooks(path: epub.path)
 
-        let status = try #require(try books.contentStatus(forBookLocalPK: 1))
+        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
         #expect(status.currentAvailability == .available)
         #expect(status.supplementalAvailability == nil)
         #expect(status.selectedSource == .current)
@@ -30,7 +30,7 @@ struct EPUBContentInspectionTests {
         defer { fixture.remove() }
         let books = try fixture.makeBooks(path: nil)
 
-        let status = try #require(try books.contentStatus(forBookLocalPK: 1))
+        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
         #expect(status.currentAvailability == nil)
         #expect(status.supplementalAvailability == nil)
         #expect(status.selectedSource == nil)
@@ -56,7 +56,7 @@ struct EPUBContentInspectionTests {
         """.utf8).write(to: epub.appendingPathComponent("META-INF/encryption.xml"))
         let books = try fixture.makeBooks(path: epub.path)
 
-        let status = try #require(try books.contentStatus(forBookLocalPK: 1))
+        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
         #expect(status.selectedSource == .current)
         #expect(status.materialization == .available)
         #expect(status.encryption == .contentEncryptionUnsupported)
@@ -75,22 +75,22 @@ struct EPUBContentInspectionTests {
         let missingCurrent = fixture.root.appendingPathComponent("missing/book.epub", isDirectory: true)
         let books = try fixture.makeBooks(path: missingCurrent.path, supplementalRoot: supplementalRoot)
 
-        let status = try #require(try books.contentStatus(forBookLocalPK: 1))
+        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
         #expect(status.currentAvailability == .missing)
         #expect(status.supplementalAvailability == .available)
         #expect(status.selectedSource == .supplemental)
         #expect(status.encryption == EPUBEncryption.none)
         #expect(status.isReady)
 
-        let metadata = try #require(try books.contentMetadata(forBookLocalPK: 1))
+        let metadata = try #require(try books.semanticContentMetadata(bookLocalPK: 1))
         #expect(metadata.source == .supplemental)
-        #expect(metadata.book.title == "DB Title")
-        #expect(metadata.book.author == "DB Author")
+        #expect(metadata.databaseFallback.title == "DB Title")
+        #expect(metadata.databaseFallback.author == "DB Author")
         #expect(metadata.metadata.title == "EPUB Title")
         #expect(metadata.metadata.creator == "EPUB Author")
-        #expect(metadata.enrichment.publisher == "EPUB Publisher")
+        #expect(metadata.metadata.publisher == "EPUB Publisher")
 
-        let located = try #require(try books.locate(
+        let located = try #require(try books.semanticLocate(
             rawCFI: "epubcfi(/6/2[chapter]!/4/2,:4,:8)",
             forBookLocalPK: 1
         ))

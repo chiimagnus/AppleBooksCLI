@@ -287,10 +287,6 @@ struct BookQueries {
         try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup).first
     }
 
-    func getForContent(_ localPK: Int64) throws -> Book? {
-        try query(.localPK(localPK), capability: .bookContentPathLookup).first
-    }
-
     func semanticDetail(localPK: Int64) throws -> SemanticBookDetail? {
         let schema = try AppleBooksSchema.inspect(.bookBase, on: connection)
         let projection = semanticDetailProjection(schema: schema, alias: "b")

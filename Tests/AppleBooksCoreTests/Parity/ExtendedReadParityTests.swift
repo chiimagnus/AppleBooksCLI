@@ -49,8 +49,8 @@ struct ExtendedReadParityTests {
         ))
         #expect(readingAnnotations.items.map(\.localPK) == [10, 11])
 
-        let packed = try fixture.books.bookContent(forBookLocalPK: 1)
-        let directory = try fixture.books.bookContent(forBookLocalPK: 2)
+        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
+        let directory = try fixture.books.semanticBookContent(forBookLocalPK: 2)
         #expect(try packed.listChapters() == directory.listChapters())
         #expect(try packed.getChapter("c1") == directory.getChapter("c1"))
         #expect(try packed.getChapter("c2") == directory.getChapter("c2"))
@@ -135,7 +135,7 @@ struct ExtendedReadParityTests {
             author: "Mapped Author"
         ))
 
-        let packed = try fixture.books.bookContent(forBookLocalPK: 1)
+        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
         let metadata = try packed.metadata()
         #expect(metadata.title == "OPF Title")
         #expect(metadata.creator == "OPF Creator")

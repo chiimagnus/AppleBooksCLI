@@ -785,19 +785,9 @@ public final class AppleBooks {
         ).makeBundle(options: options)
     }
 
-    public func contentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {
-        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
-        return EPUBContentInspector.status(book: book, configuration: try requiredConfiguration())
-    }
-
     package func semanticContentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {
         guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
         return EPUBContentInspector.status(target: target, configuration: try requiredConfiguration())
-    }
-
-    public func contentMetadata(forBookLocalPK localPK: Int64) throws -> EPUBMetadataInspection? {
-        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.metadata(book: book, configuration: try requiredConfiguration())
     }
 
     package func semanticContentMetadata(bookAssetID assetID: String) throws -> SemanticEPUBMetadataInspection? {
@@ -826,11 +816,6 @@ public final class AppleBooks {
         )
     }
 
-    public func contentCover(forBookLocalPK localPK: Int64) throws -> EPUBCoverInspection? {
-        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.cover(book: book, configuration: try requiredConfiguration())
-    }
-
     package func semanticContentCover(bookAssetID assetID: String) throws -> EPUBCoverInspection? {
         guard let target = try requiredBookQueries().uniqueResourceTarget(assetID: assetID) else { return nil }
         return try semanticContentCover(target: target)
@@ -846,11 +831,6 @@ public final class AppleBooks {
         return try EPUBContentInspector.cover(target: target, configuration: try requiredConfiguration())
     }
 
-    public func locate(rawCFI: String, forBookLocalPK localPK: Int64) throws -> EPUBLocationInspection? {
-        guard let book = try requiredBookQueries().getForContent(localPK) else { return nil }
-        return try EPUBContentInspector.locate(rawCFI: rawCFI, book: book, configuration: try requiredConfiguration())
-    }
-
     package func semanticLocate(rawCFI: String, forBookLocalPK localPK: Int64) throws -> EPUBLocationInspection? {
         guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
         return try EPUBContentInspector.locate(
@@ -858,17 +838,6 @@ public final class AppleBooks {
             target: target,
             configuration: try requiredConfiguration()
         )
-    }
-
-    public func bookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
-        guard let book = try requiredBookQueries().getForContent(localPK) else {
-            throw ContentError.bookPathUnavailable
-        }
-        return try bookContent(for: book)
-    }
-
-    private func bookContent(for book: Book) throws -> BookContent {
-        try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: try requiredConfiguration()))
     }
 
     package func semanticChapterListPage(

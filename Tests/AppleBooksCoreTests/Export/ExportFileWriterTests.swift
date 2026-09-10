@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Testing
 @testable import AppleBooksCore
@@ -124,6 +125,346 @@ struct ExportFileWriterTests {
             }
         }
         #expect(try String(contentsOf: competitor, encoding: .utf8) == "competitor")
+    }
+
+    @Test
+    func managedDirectoryNeverPublishesOnlyCompleteTreeAndExistingTargetStaysUntouched() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 3)
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        var checkedInvisibleStage = false
+
+        let created = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json",
+            beforePublish: {
+                checkedInvisibleStage = true
+                #expect(FileManager.default.fileExists(atPath: destination.path) == false)
+            }
+        ) { group, sink in
+            try sink(Data("new-\(try #require(group.documentIdentity).fullKey)".utf8))
+        }
+        #expect(checkedInvisibleStage)
+        #expect(created.documentCount == 3)
+        #expect(created.cleanupFailed == false)
+        let createdNames = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+        #expect(createdNames.count == 4)
+        #expect(createdNames.contains(ManagedExportManifestWriter.fileName))
+        #expect(createdNames.filter { $0 != ManagedExportManifestWriter.fileName }.count == 3)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+
+        let original = try directorySnapshot(destination)
+        #expect(throws: ExportFileWriterError.destinationExists) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "json",
+                overwrite: .never
+            ) { _, sink in
+                try sink(Data("replacement".utf8))
+            }
+        }
+        #expect(try directorySnapshot(destination) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+    }
+
+    @Test
+    func managedDirectoryPublishesZeroDocumentArtifactWithManifestOnly() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 0)
+        let destination = fixture.output.appendingPathComponent("empty", isDirectory: true)
+
+        let result = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, _ in
+            Issue.record("zero-document export must not render a document")
+        }
+
+        #expect(result.documentCount == 0)
+        #expect(result.cleanupFailed == false)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == [ManagedExportManifestWriter.fileName])
+    }
+
+    @Test
+    func managedDirectoryRenderFailureAtAnyPositionLeavesNoVisibleOrHiddenPartialTree() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 3)
+
+        for stopAt in 0..<bundle.groups.count {
+            let destinationName = "failed-\(stopAt)"
+            var index = 0
+            #expect(throws: FixtureError.stopped) {
+                _ = try writer.writeManagedDirectoryIncrementally(
+                    destinationName: destinationName,
+                    bundle: bundle,
+                    fileExtension: "md"
+                ) { _, sink in
+                    if index == stopAt { throw FixtureError.stopped }
+                    index += 1
+                    try sink(Data("partial".utf8))
+                }
+            }
+            #expect(FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent(destinationName).path) == false)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+        }
+    }
+
+    @Test
+    func managedDirectoryAlwaysRequiresOwnedTreeAndSwapsCompleteReplacement() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 2)
+        let unmanaged = fixture.output.appendingPathComponent("unmanaged", isDirectory: true)
+        try FileManager.default.createDirectory(at: unmanaged, withIntermediateDirectories: false)
+        try Data("user".utf8).write(to: unmanaged.appendingPathComponent("user.txt"))
+        var rendered = false
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: unmanaged.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "json",
+                overwrite: .always
+            ) { _, _ in rendered = true }
+        }
+        #expect(rendered == false)
+        #expect(try String(contentsOf: unmanaged.appendingPathComponent("user.txt"), encoding: .utf8) == "user")
+
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, sink in try sink(Data("old".utf8)) }
+        let oldSnapshot = try directorySnapshot(destination)
+        var observedOldBeforeSwap = false
+        let updated = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json",
+            overwrite: .always,
+            beforePublish: {
+                observedOldBeforeSwap = true
+                let visibleBeforeSwap = try directorySnapshot(destination)
+                #expect(visibleBeforeSwap == oldSnapshot)
+            }
+        ) { _, sink in try sink(Data("new".utf8)) }
+        #expect(observedOldBeforeSwap)
+        #expect(updated.documentCount == 2)
+        #expect(updated.cleanupFailed == false)
+        let newSnapshot = try directorySnapshot(destination)
+        #expect(newSnapshot != oldSnapshot)
+        for (name, data) in newSnapshot where name != ManagedExportManifestWriter.fileName {
+            #expect(name.hasSuffix(".json"))
+            #expect(String(decoding: data, as: UTF8.self) == "new")
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+    }
+
+    @Test
+    func managedDirectoryRejectsUnknownEntriesAndDestinationIdentityRaceBeforeSwap() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 2)
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "md"
+        ) { _, sink in try sink(Data("old".utf8)) }
+        let unknown = destination.appendingPathComponent("user.txt")
+        try Data("user".utf8).write(to: unknown)
+        let withUnknown = try directorySnapshot(destination)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "md",
+                overwrite: .always
+            ) { _, sink in try sink(Data("new".utf8)) }
+        }
+        #expect(try directorySnapshot(destination) == withUnknown)
+        try FileManager.default.removeItem(at: unknown)
+
+        let unknownDirectory = destination.appendingPathComponent("user-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: unknownDirectory, withIntermediateDirectories: false)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "md",
+                overwrite: .always
+            ) { _, sink in try sink(Data("new".utf8)) }
+        }
+        try FileManager.default.removeItem(at: unknownDirectory)
+
+        let outside = fixture.root.appendingPathComponent("outside.txt")
+        try Data("outside".utf8).write(to: outside)
+        let unknownSymlink = destination.appendingPathComponent("user-link")
+        try FileManager.default.createSymbolicLink(at: unknownSymlink, withDestinationURL: outside)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "md",
+                overwrite: .always
+            ) { _, sink in try sink(Data("new".utf8)) }
+        }
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
+        try FileManager.default.removeItem(at: unknownSymlink)
+
+        let moved = fixture.output.appendingPathComponent("held-old", isDirectory: true)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destination.lastPathComponent,
+                bundle: bundle,
+                fileExtension: "md",
+                overwrite: .always,
+                beforePublish: {
+                    try FileManager.default.moveItem(at: destination, to: moved)
+                    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+                    try Data("intruder".utf8).write(to: destination.appendingPathComponent("intruder.txt"))
+                }
+            ) { _, sink in try sink(Data("new".utf8)) }
+        }
+        #expect(try String(contentsOf: destination.appendingPathComponent("intruder.txt"), encoding: .utf8) == "intruder")
+        #expect(FileManager.default.fileExists(atPath: moved.appendingPathComponent(ManagedExportManifestWriter.fileName).path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+    }
+
+    @Test
+    func managedDirectoryCleanupFailureKeepsNewArtifactAndDoesNotDeleteReplacementManifest() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let bundle = FixtureFactory.canonicalBundle(count: 2)
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, sink in try sink(Data("old".utf8)) }
+
+        let forced = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json",
+            overwrite: .always,
+            afterSwapBeforeCleanup: { throw FixtureError.stopped }
+        ) { _, sink in try sink(Data("new-1".utf8)) }
+        #expect(forced.cleanupFailed)
+        #expect(try directorySnapshot(destination).values.contains(Data("new-1".utf8)))
+        let forcedStage = try #require(FileManager.default.contentsOfDirectory(atPath: fixture.output.path).first { $0.hasPrefix(".applebookscli-export-stage-") })
+        try FileManager.default.removeItem(at: fixture.output.appendingPathComponent(forcedStage))
+
+        let second = fixture.output.appendingPathComponent("managed-2", isDirectory: true)
+        _ = try writer.writeManagedDirectoryIncrementally(
+            destinationName: second.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { _, sink in try sink(Data("old".utf8)) }
+        let replaced = try writer.writeManagedDirectoryIncrementally(
+            destinationName: second.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json",
+            overwrite: .always,
+            afterSwapBeforeCleanup: {
+                let stage = try #require(FileManager.default.contentsOfDirectory(atPath: fixture.output.path).first { $0.hasPrefix(".applebookscli-export-stage-") })
+                let stageURL = fixture.output.appendingPathComponent(stage, isDirectory: true)
+                let manifest = stageURL.appendingPathComponent(ManagedExportManifestWriter.fileName)
+                try FileManager.default.removeItem(at: manifest)
+                try Data("replacement-manifest".utf8).write(to: manifest)
+            }
+        ) { _, sink in try sink(Data("new-2".utf8)) }
+        #expect(replaced.cleanupFailed)
+        #expect(try directorySnapshot(second).values.contains(Data("new-2".utf8)))
+        let leftover = try #require(FileManager.default.contentsOfDirectory(atPath: fixture.output.path).first { $0.hasPrefix(".applebookscli-export-stage-") })
+        let replacementManifest = fixture.output
+            .appendingPathComponent(leftover, isDirectory: true)
+            .appendingPathComponent(ManagedExportManifestWriter.fileName)
+        #expect(try String(contentsOf: replacementManifest, encoding: .utf8) == "replacement-manifest")
+    }
+
+    @Test
+    func managedManifestStreamsHundredThousandEntriesWithBoundedRetainedLineState() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let path = fixture.output.appendingPathComponent("manifest")
+        let descriptor = open(path.path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        #expect(descriptor >= 0)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+
+        let count = 100_001
+        var writePeak = 0
+        var writer = try ManagedExportManifestWriter(
+            descriptor: descriptor,
+            fileExtension: "json",
+            declaredDocumentCount: count,
+            observeRetainedBytes: { writePeak = max(writePeak, $0) }
+        )
+        for index in 0..<count {
+            let key = "doc1_" + String(format: "%064llx", UInt64(index))
+            let identity = ExportDocumentIdentity(sourceKind: .epub, fullKey: key)
+            try writer.append(identity: identity, fileName: "D-\(key).json")
+        }
+        try writer.finish()
+        var readPeak = 0
+        let summary = try ManagedExportManifest.validate(
+            descriptor: descriptor,
+            observeRetainedBytes: { readPeak = max(readPeak, $0) }
+        )
+        #expect(summary.declaredDocumentCount == count)
+        #expect(writePeak <= ManagedExportManifestWriter.maximumLineBytes)
+        #expect(readPeak <= ManagedExportManifestWriter.maximumLineBytes)
+    }
+
+    @Test
+    func managedManifestRejectsMalformedOrderingSuffixCountTraversalAndOversize() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let firstKey = "doc1_" + String(repeating: "0", count: 64)
+        let secondKey = "doc1_" + String(repeating: "1", count: 64)
+        let validHeader = "producer\tapplebookscli\nversion\t1\nformat\tjson\ngrouping\tper-document\ncount\t2\n"
+        let invalidBodies = [
+            "entry\t0\t\(secondKey)\tD-\(secondKey).json\nentry\t0\t\(firstKey)\tD-\(firstKey).json\n",
+            "entry\t0\t\(firstKey)\tD-\(firstKey).json\nentry\t0\t\(firstKey)\tD-\(firstKey).json\n",
+            "entry\t0\t\(firstKey)\tD-wrong.json\nentry\t0\t\(secondKey)\tD-\(secondKey).json\n",
+            "entry\t0\t\(firstKey)\t../D-\(firstKey).json\nentry\t0\t\(secondKey)\tD-\(secondKey).json\n",
+            "entry\t0\t\(firstKey)\tD-\(firstKey).json\n",
+        ]
+        for (index, body) in invalidBodies.enumerated() {
+            let path = fixture.output.appendingPathComponent("invalid-\(index)")
+            try Data((validHeader + body).utf8).write(to: path)
+            let descriptor = open(path.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            #expect(descriptor >= 0)
+            guard descriptor >= 0 else { continue }
+            defer { close(descriptor) }
+            #expect(throws: ExportFileWriterError.unsafeDestination) {
+                _ = try ManagedExportManifest.validate(descriptor: descriptor)
+            }
+        }
+
+        let oversized = fixture.output.appendingPathComponent("oversized")
+        FileManager.default.createFile(atPath: oversized.path, contents: nil)
+        let oversizedFD = open(oversized.path, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        #expect(oversizedFD >= 0)
+        guard oversizedFD >= 0 else { return }
+        defer { close(oversizedFD) }
+        #expect(ftruncate(oversizedFD, off_t(ManagedExportManifestWriter.maximumBytes + 1)) == 0)
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try ManagedExportManifest.validate(descriptor: oversizedFD)
+        }
     }
 
     @Test
@@ -282,30 +623,6 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func countOnlyWritersMatchLegacyArtifactsWithoutReturningPaths() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let bundle = FixtureFactory.bundleWithDuplicateTitles()
-        let legacy = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("legacy"))
-        let canonical = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("canonical"))
-        let result = try legacy.writeMarkdown(bundle, layout: .perDocument)
-        let count = try canonical.writeDocumentsIncrementallyCount(bundle, fileExtension: "md") { group, sink in
-            try MarkdownAnnotationExporter.stream(group, to: sink)
-        }
-        #expect(count == 2)
-        #expect(result.documentFileCount == count)
-        #expect(result.files.count == 2)
-        for path in result.files {
-            let relative = String(path.path.dropFirst(legacy.outputRoot.path.count + 1))
-            #expect(try Data(contentsOf: path) == Data(contentsOf: canonical.outputRoot.appendingPathComponent(relative)))
-        }
-        let json = try canonical.writeDocumentsIncrementallyCount(bundle, fileExtension: "json") { _, sink in
-            try sink(Data("{}".utf8))
-        }
-        #expect(json == count)
-    }
-
-    @Test
     func countOnlyDocumentTraversalKeepsScalarResultsForLargeExports() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
@@ -363,6 +680,19 @@ struct ExportFileWriterTests {
         #expect(relative == fixture.output.appendingPathComponent("new").standardizedFileURL)
     }
 
+    private func directorySnapshot(_ directory: URL) throws -> [String: Data] {
+        var result: [String: Data] = [:]
+        for name in try FileManager.default.contentsOfDirectory(atPath: directory.path) {
+            let path = directory.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                continue
+            }
+            result[name] = try Data(contentsOf: path)
+        }
+        return result
+    }
+
     private enum FixtureError: Error, Equatable {
         case stopped
     }
@@ -398,6 +728,20 @@ struct ExportFileWriterTests {
                 group(pk: 1, assetID: "asset-1", title: "Same"),
                 group(pk: 2, assetID: "asset-2", title: "Same"),
             ])
+        }
+
+        static func canonicalBundle(count: Int) -> ExportBundle {
+            let groups = (0..<count).map { index in
+                group(
+                    pk: Int64(index + 1),
+                    assetID: "managed-asset-\(index)",
+                    title: "Managed"
+                )
+            }.sorted {
+                guard let left = $0.documentIdentity, let right = $1.documentIdentity else { return false }
+                return left < right
+            }
+            return makeBundle(groups: groups)
         }
 
         static func group(

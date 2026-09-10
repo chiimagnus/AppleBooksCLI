@@ -49,7 +49,7 @@ metadata:
 
 ## 导出与失败处理
 
-- `export --output <path>` 默认写 human-readable Markdown notes，archival raw fidelity 显式指定 `--format json`；archival JSON 中不可编码的 Book non-finite raw numeric 主字段为 `null`，用 `numericAnomalies` 区分 ±Infinity 与原始 null。Markdown 只保留 title/author、quote/Note、可理解位置或 PDF page、日期与 presentation 属性，不输出 raw asset ID/CFI 或 PDF absolute path。路径可相对当前目录或为绝对路径。grouping 独立决定文件（`single`）或目录（`per-document`），不根据扩展名猜测；同一 source identity 的 per-document 文件名稳定，不依赖遇到顺序。stdout 只返回 canonical destination 和文档数量，不枚举所有路径；`output_exists` 表示默认 never-overwrite 拒绝已有目标，`unsafe_output` 表示路径或目标类型不可用。
+- `export --output <path>` 默认写 human-readable Markdown notes，archival raw fidelity 显式指定 `--format json`；archival JSON 中不可编码的 Book non-finite raw numeric 主字段为 `null`，用 `numericAnomalies` 区分 ±Infinity 与原始 null。Markdown 只保留 title/author、quote/Note、可理解位置或 PDF page、日期与 presentation 属性，不输出 raw asset ID/CFI 或 PDF absolute path。路径可相对当前目录或为绝对路径。grouping 决定单文件（`single`）或一次性原子发布的 managed directory（`per-document`）；同一 source identity 的文件名稳定。`--overwrite always` 只允许替换已验证的旧 AppleBooksCLI per-document 导出，出现额外 entry 就 `unsafe_output`；原子 swap 后旧目录清理失败时保留新 artifact，并报告 `old_export_cleanup_failed`。stdout 只返回 canonical destination 和文档数量，不枚举所有路径。
 - 精确导出用 `--book <assetID>`（或显式 `--book-pk`）；没有唯一 Book identity 的 PDF 用 `pdf list` 返回的 `--pdf <pdfSourceID>`，不要传路径。selector 可重复，媒体自动路由；missing/ambiguous 失败，有效但无批注的书允许空结果。无 selector 时 bulk 默认覆盖 EPUB+PDF，只有 bulk 可用 `--source epub|pdf|all`；检查 `complete` 与 `warnings` 后再判断 artifact 是否完整，exact PDF 读取失败不写 artifact。
 - 导出默认按各文档内的阅读顺序排列，无需指定 order。
 - 导出属性过滤使用 `--has-highlight true|false`、`--has-note true|false`、`--underline true|false`；省略不筛，多条件按 AND 组合，Highlight 与 Note 可以同时存在。`--color` 只匹配 EPUB canonical color，不匹配 PDF 近似色；PDF highlight 即使未提取到文字仍算 highlight。

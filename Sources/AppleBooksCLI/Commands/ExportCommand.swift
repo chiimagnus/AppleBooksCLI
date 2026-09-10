@@ -91,13 +91,35 @@ struct ExportRunWarning: Codable, Equatable, Sendable {
     let sourceID: String?
     let reason: String
 
-    static func summaries(_ warnings: [ExportWarning]) throws -> (items: [Self], truncated: Bool) {
-        var items: [Self] = []
-        items.reserveCapacity(min(warnings.count, ExportRunResult.maximumWarnings))
-        for warning in warnings.prefix(ExportRunResult.maximumWarnings) {
+    static func summaries(
+        _ warnings: [ExportWarning],
+        additional: [Self] = []
+    ) throws -> (items: [Self], truncated: Bool) {
+        let additionalCount = min(additional.count, ExportRunResult.maximumWarnings)
+        var items = Array(additional.prefix(additionalCount))
+        items.reserveCapacity(min(warnings.count + additionalCount, ExportRunResult.maximumWarnings))
+        let remaining = ExportRunResult.maximumWarnings - items.count
+        for warning in warnings.prefix(remaining) {
             items.append(try Self(warning))
         }
-        return (items, warnings.count > ExportRunResult.maximumWarnings)
+        return (
+            items,
+            additional.count + warnings.count > ExportRunResult.maximumWarnings
+        )
+    }
+
+    static let oldExportCleanupFailed = Self(
+        code: "old_export_cleanup_failed",
+        source: "export",
+        sourceID: nil,
+        reason: "managed_directory_cleanup_failed"
+    )
+
+    private init(code: String, source: String, sourceID: String?, reason: String) {
+        self.code = code
+        self.source = source
+        self.sourceID = sourceID
+        self.reason = reason
     }
 
     private init(_ warning: ExportWarning) throws {
@@ -207,7 +229,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "File grouping: single or per-document.")
     var grouping: ExportGroupingArgument?
 
-    @Option(name: .long, help: "Existing-file policy: never (default) or always.")
+    @Option(name: .long, help: "Existing-target policy: never (default) or always. Per-document always replaces only AppleBooksCLI-managed directories.")
     var overwrite: ExportOverwriteArgument?
 
     @Option(name: .long, help: "Write the export artifact to this file or directory.")
@@ -280,12 +302,15 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 workerURLProvider: workerURLProvider
             )
             let bundle = try books.exportBundle(options: request.options)
-            let warningSummary = try ExportRunWarning.summaries(bundle.warnings)
             var result = try write(
                 bundle,
                 request: request,
                 outputURL: request.outputURL,
                 exportedAt: exportedAt
+            )
+            let warningSummary = try ExportRunWarning.summaries(
+                bundle.warnings,
+                additional: result.warnings
             )
             result.warnings = warningSummary.items
             result.warningsTruncated = warningSummary.truncated
@@ -361,9 +386,11 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         outputDirectory: URL,
         exportedAt: Date
     ) throws -> ExportRunResult {
-        let writer = try ExportFileWriter(outputRoot: outputDirectory)
-        let count = try writer.writeDocumentsIncrementallyCount(
-            bundle,
+        let parent = outputDirectory.deletingLastPathComponent().standardizedFileURL
+        let writer = try ExportFileWriter(outputRoot: parent)
+        let managed = try writer.writeManagedDirectoryIncrementally(
+            destinationName: outputDirectory.lastPathComponent,
+            bundle: bundle,
             fileExtension: request.format.fileExtension,
             overwrite: request.overwrite
         ) { group, sink in
@@ -374,13 +401,17 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 try MarkdownAnnotationExporter.stream(group, to: sink)
             }
         }
-        return ExportRunResult(
-            destination: writer.outputRoot.path,
+        var result = ExportRunResult(
+            destination: outputDirectory.standardizedFileURL.path,
             disposition: .directory,
-            documentCount: count,
-            warningCount: bundle.warnings.count,
+            documentCount: managed.documentCount,
+            warningCount: bundle.warnings.count + (managed.cleanupFailed ? 1 : 0),
             complete: bundle.complete
         )
+        if managed.cleanupFailed {
+            result.warnings = [ExportRunWarning.oldExportCleanupFailed]
+        }
+        return result
     }
 
 

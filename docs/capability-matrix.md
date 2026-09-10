@@ -104,7 +104,7 @@
 | JSON export | 已实现 | schemaVersion=9；保留 source-specific raw fields/warnings/statistics；Book non-finite raw numerics 主字段为 null，并用固定 `numericAnomalies` 标记 ±Infinity；presence 属性独立编码，PDF selector 使用 opaque source ID |
 | export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 user annotations 与 PDF highlights |
 | export 颜色过滤 | 已实现 | canonical EPUB colors；PDF approximate presentation color 不参与 hard filter |
-| export single/multiple file | 已实现 | single/per-document；per-document 使用 bounded display stem + full opaque document key，顺序按 source kind + full key；统一经过 confinement/overwrite file writer |
+| export single/multiple file | 已实现（强化） | single 原子文件；per-document 以 managed staging + ownership manifest + atomic directory swap 整体发布；`always` 只替换验证通过且无额外 entry 的旧 managed tree；文件名仍为 bounded display stem + full opaque document key |
 | export statistics | 已实现 | final selection stats 与 sourceTotals 分开；highlightCount/noteCount 独立且可重叠，无 bookmarkCount |
 | annotation export ordering | 已实现（强化） | 默认 reading；EPUB 与批注查询复用章节映射/CFI/creation/localPK 顺序，PDF 按 page geometry；不支持 source order |
 | EPUB/PDF source scope | 已实现（CLI 等价） | bulk 默认 all，可用 `--source epub / pdf / all` 收窄；exact `--book / --book-pk / --pdf` 自动路由、去重、missing/ambiguous fail closed；bulk PDF 不可用明确 incomplete |

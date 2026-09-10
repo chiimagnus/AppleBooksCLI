@@ -78,7 +78,7 @@ applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --help
 ```
 
-完整导出 artifact 只写入显式 output file/directory；stdout 返回 compact JSON write result。其它 operational command 也统一直接在 stdout 返回 JSON。
+完整导出 artifact 只写入显式 output file/directory；stdout 返回 compact JSON write result。`--grouping per-document` 把整个目录作为一个 managed artifact 原子发布：`--overwrite always` 只替换能验证为 AppleBooksCLI 既有导出的目录；unmanaged directory、额外文件/子目录/symlink 都以 `unsafe_output` 拒绝。发布后旧目录清理失败不会回滚新 artifact，只返回 bounded `old_export_cleanup_failed` warning。其它 operational command 也统一直接在 stdout 返回 JSON。
 
 ## 安全写入与 iCloud 同步
 

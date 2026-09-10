@@ -201,8 +201,10 @@ struct ExportCommandTests {
         #expect(result.warningCount == 0)
         #expect(result.complete)
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        #expect(names.count == 2)
-        #expect(names.allSatisfy { $0.hasSuffix(".json") })
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.count == 2)
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.allSatisfy { $0.hasSuffix(".json") })
     }
 
     @Test
@@ -347,6 +349,18 @@ struct ExportCommandTests {
         #expect(encoded.warningCount == 101)
         #expect(encoded.warnings.count == 100)
         #expect(encoded.warningsTruncated)
+
+        let cleanupSummary = try ExportRunWarning.summaries(
+            [warnings[0]],
+            additional: [.oldExportCleanupFailed]
+        )
+        #expect(cleanupSummary.truncated == false)
+        #expect(cleanupSummary.items.count == 2)
+        #expect(cleanupSummary.items[0].code == "old_export_cleanup_failed")
+        #expect(cleanupSummary.items[0].source == "export")
+        #expect(cleanupSummary.items[0].sourceID == nil)
+        #expect(cleanupSummary.items[0].reason == "managed_directory_cleanup_failed")
+        #expect(cleanupSummary.items[1].code == "pdf_read_failed")
     }
 
     @Test
@@ -366,8 +380,10 @@ struct ExportCommandTests {
         #expect(try Data(contentsOf: defaultFile) == Data(contentsOf: explicitFile))
         #expect(try String(contentsOf: defaultFile, encoding: .utf8).hasPrefix("# Apple Books export"))
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        #expect(names.count == 2)
-        #expect(names.allSatisfy { $0.hasSuffix(".md") })
+        #expect(names.count == 3)
+        #expect(names.contains(ManagedExportManifestWriter.fileName))
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.count == 2)
+        #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.allSatisfy { $0.hasSuffix(".md") })
         let relative = try ExportCommand.parse(["--output", "relative"]).makeRequest(currentDirectory: fixture.root)
         #expect(relative.outputURL == fixture.root.appendingPathComponent("relative").standardizedFileURL)
         #expect(throws: ValidationError.self) { _ = try ExportCommand.parse([]).makeRequest() }

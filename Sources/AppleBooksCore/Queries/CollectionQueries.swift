@@ -583,58 +583,6 @@ struct CollectionQueries {
         return projection
     }
 
-    private func semanticQuery(
-        _ filter: Filter,
-        capability: SchemaCapability,
-        limit: Int?,
-        offset: Int
-    ) throws -> [SemanticCollection] {
-        try validatePagination(limit: limit, offset: offset)
-        let schema = try AppleBooksSchema.inspect(capability, on: connection)
-        let projection = semanticProjection(schema: schema, alias: "item")
-        var sql = "SELECT \(projection.joined(separator: ", ")) FROM \(AppleBooksTable.collections.rawValue) AS item"
-        sql += " WHERE \(AppleBooksSchema.Collection.isDeleted) = 0"
-        switch filter {
-        case .none: break
-        case .localPK: sql += " AND \(AppleBooksSchema.Collection.localPK) = ?"
-        case .collectionID: sql += " AND \(AppleBooksSchema.Collection.collectionID) = ? COLLATE BINARY"
-        case .title: sql += " AND \(AppleBooksSchema.Collection.title) LIKE ? ESCAPE '\\' COLLATE NOCASE"
-        }
-        var order: [String] = []
-        if schema.contains(AppleBooksSchema.Collection.title) {
-            order += [
-                "\(AppleBooksSchema.Collection.title) IS NULL",
-                "\(AppleBooksSchema.Collection.title) COLLATE NOCASE",
-            ]
-        }
-        order.append(AppleBooksSchema.Collection.localPK)
-        sql += " ORDER BY \(order.joined(separator: ", "))"
-        if limit != nil { sql += " LIMIT ? OFFSET ?" }
-        else if offset > 0 { sql += " LIMIT -1 OFFSET ?" }
-        let statement = try connection.prepare(sql)
-        var index: Int32 = 1
-        switch filter {
-        case .none: break
-        case let .localPK(value):
-            try statement.bind(value, at: index); index += 1
-        case let .collectionID(value):
-            try statement.bind(value, at: index); index += 1
-        case let .title(value):
-            try statement.bind(literalContainsPattern(value), at: index); index += 1
-        }
-        if let limit {
-            try statement.bind(Int64(limit), at: index)
-            try statement.bind(Int64(offset), at: index + 1)
-        } else if offset > 0 {
-            try statement.bind(Int64(offset), at: index)
-        }
-        var result: [SemanticCollection] = []
-        while try statement.step() {
-            result.append(try decodeSemantic(SQLiteRow(statement: statement), schema: schema))
-        }
-        return result
-    }
-
     private func decodeSemantic(_ row: SQLiteRow, schema: SchemaAvailability) throws -> SemanticCollection {
         guard let localPK = try row.int64(AppleBooksSchema.Collection.localPK) else {
             throw QueryDecodingError.nullRequiredColumn(AppleBooksSchema.Collection.localPK)

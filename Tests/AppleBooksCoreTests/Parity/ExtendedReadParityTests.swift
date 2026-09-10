@@ -104,10 +104,8 @@ struct ExtendedReadParityTests {
             source: .bookmarkHint
         ))
 
-        let context = try fixture.books.annotationContext(localPK: 10, charsBefore: 8, charsAfter: 8)
+        let context = try #require(try fixture.books.semanticAnnotationContextResult(localPK: 10, charsBefore: 8, charsAfter: 8)).context
         #expect(context.matched == "Visible chapter")
-        #expect(context.markedPresentation.matched)
-        #expect(context.markedPresentation.text.contains("«Visible chapter»"))
     }
 
     @Test
@@ -133,7 +131,7 @@ struct ExtendedReadParityTests {
         let historical = try #require(try fixture.books.annotation(localPK: 14))
         #expect(historical.source == .historicalInferred(HistoricalBookMetadata(title: "Historical", author: "Mapped Author")))
         #expect(throws: AnnotationContextError.currentBookUnavailable) {
-            _ = try fixture.books.annotationContext(localPK: 14)
+            _ = try fixture.books.semanticAnnotationContextResult(localPK: 14)
         }
 
         #expect(fixture.books.configuration.epubRoot == fixture.supplementalRoot.standardizedFileURL.resolvingSymlinksInPath())

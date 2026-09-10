@@ -217,8 +217,6 @@ enum CLIOperation {
             switch contextError {
             case .invalidWindow:
                 return .usageInvalid("Invalid annotation context window.")
-            case .annotationUnavailable:
-                return .notFound("Annotation not found.")
             case .assetIdentityUnavailable,
                  .currentBookUnavailable,
                  .currentBookAmbiguous,

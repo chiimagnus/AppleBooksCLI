@@ -1,10 +1,10 @@
 import Testing
 @testable import AppleBooksCore
 
-@Suite("ContextMarkerTests")
-struct ContextMarkerTests {
+@Suite("ContextMatcherTests")
+struct ContextMatcherTests {
     @Test
-    func marksExactlyTheCanonicalFirstMatchWithoutSearchingAgain() throws {
+    func keepsFirstCanonicalMatchWithoutSearchingAgain() throws {
         let context = try AnnotationContextMatcher.match(
             chapterText: "before alpha beta middle alpha beta after",
             anchor: "alpha beta",
@@ -12,17 +12,13 @@ struct ContextMarkerTests {
             charsAfter: 30
         )
 
-        let canonical = context.text
-        let presentation = context.markedPresentation
-        #expect(presentation.matched)
-        #expect(presentation.text.contains("«alpha beta»"))
-        #expect(presentation.text.filter { $0 == "«" }.count == 1)
-        #expect(presentation.text.hasSuffix("alpha beta after"))
-        #expect(context.text == canonical)
+        #expect(context.before.hasSuffix("before "))
+        #expect(context.matched == "alpha beta")
+        #expect(context.after.contains("middle alpha beta after"))
     }
 
     @Test
-    func preservesMatchedSourceWhitespaceInsideMarker() throws {
+    func preservesMatchedSourceWhitespace() throws {
         let context = try AnnotationContextMatcher.match(
             chapterText: "left alpha\n\tbeta right",
             anchor: "alpha beta",
@@ -31,23 +27,5 @@ struct ContextMarkerTests {
         )
 
         #expect(context.matched == "alpha\n\tbeta")
-        #expect(context.markedPresentation.text.contains("«alpha\n\tbeta»"))
-        #expect(context.markedPresentation.matched)
-    }
-
-    @Test
-    func missingCanonicalMatchLeavesWindowUntouchedAndReportsFalse() {
-        let context = AnnotationContext(
-            before: "before ",
-            matched: "",
-            after: "after",
-            leadingTruncated: true,
-            trailingTruncated: true
-        )
-
-        #expect(context.markedPresentation == AnnotationContextPresentation(
-            text: context.text,
-            matched: false
-        ))
     }
 }

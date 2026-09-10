@@ -1,8 +1,7 @@
 import Foundation
 
-public enum AnnotationContextError: Error, Equatable, Sendable {
+package enum AnnotationContextError: Error, Equatable, Sendable {
     case invalidWindow
-    case annotationUnavailable
     case assetIdentityUnavailable
     case currentBookUnavailable
     case currentBookAmbiguous
@@ -25,36 +24,12 @@ package struct SemanticAnnotationContextResult: Equatable, Sendable {
     }
 }
 
-public struct AnnotationContext: Equatable, Sendable {
-    public let before: String
-    public let matched: String
-    public let after: String
-    public let leadingTruncated: Bool
-    public let trailingTruncated: Bool
-
-    public var text: String {
-        (leadingTruncated ? "…" : "") + before + matched + after + (trailingTruncated ? "…" : "")
-    }
-
-    public var markedPresentation: AnnotationContextPresentation {
-        guard matched.isEmpty == false else {
-            return AnnotationContextPresentation(text: text, matched: false)
-        }
-        let presented = (leadingTruncated ? "…" : "")
-            + before + "«" + matched + "»" + after
-            + (trailingTruncated ? "…" : "")
-        return AnnotationContextPresentation(text: presented, matched: true)
-    }
-}
-
-public struct AnnotationContextPresentation: Equatable, Sendable {
-    public let text: String
-    public let matched: Bool
-
-    public init(text: String, matched: Bool) {
-        self.text = text
-        self.matched = matched
-    }
+package struct AnnotationContext: Equatable, Sendable {
+    package let before: String
+    package let matched: String
+    package let after: String
+    package let leadingTruncated: Bool
+    package let trailingTruncated: Bool
 }
 
 enum AnnotationContextMatcher {

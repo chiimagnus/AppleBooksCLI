@@ -301,10 +301,6 @@ public final class AppleBooks {
         try SQLiteBackup.list(source: try requiredLibraryDatabase(), backupRoot: libraryBackupRoot)
     }
 
-    public func restoreLibraryBackup(handle: String) throws -> RestoreResult {
-        try requiredRestoreCoordinator().restoreLibrary(handle: handle)
-    }
-
     public func restoreLibraryBackup(backupID: String) throws -> RestoreResult {
         let database = try requiredLibraryDatabase()
         let handle = try SQLiteBackup.restoreHandle(backupID: backupID, destination: database)

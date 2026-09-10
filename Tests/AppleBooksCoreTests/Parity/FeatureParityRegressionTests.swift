@@ -113,11 +113,11 @@ struct FeatureParityRegressionTests {
         )
 
         let catalog = try fixture.books.listLibraryBackups()
-        #expect(catalog.contains { $0.handle == restorePoint.lastPathComponent })
+        let restoreBackup = try #require(catalog.first { $0.handle == restorePoint.lastPathComponent })
         #expect(catalog.allSatisfy { $0.handle.contains("/") == false })
 
         fixture.state.events.removeAll()
-        let restored = try fixture.books.restoreLibraryBackup(handle: restorePoint.lastPathComponent)
+        let restored = try fixture.books.restoreLibraryBackup(backupID: restoreBackup.backupID)
         #expect(restored.restoreApplied)
         #expect(restored.verified)
         #expect(restored.warnings.isEmpty)
@@ -140,7 +140,7 @@ struct FeatureParityRegressionTests {
 
         fixture.state.running = false
         fixture.state.events.removeAll()
-        let restoredWhileClosed = try fixture.books.restoreLibraryBackup(handle: restorePoint.lastPathComponent)
+        let restoredWhileClosed = try fixture.books.restoreLibraryBackup(backupID: restoreBackup.backupID)
         #expect(restoredWhileClosed.restoreApplied)
         #expect(restoredWhileClosed.verified)
         #expect(fixture.state.running == false)

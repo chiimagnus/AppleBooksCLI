@@ -507,17 +507,8 @@ struct CollectionQueries {
                 maximumUTF8Bytes: SQLiteSemanticTextBudget.detail
             )
         }
-        for column in [
-            AppleBooksSchema.Collection.isDeleted,
-            AppleBooksSchema.Collection.isHidden,
-            AppleBooksSchema.Collection.isPlaceholder,
-            AppleBooksSchema.Collection.sortKey,
-            AppleBooksSchema.Collection.sortMode,
-            AppleBooksSchema.Collection.viewMode,
-            AppleBooksSchema.Collection.lastModificationDate,
-            AppleBooksSchema.Collection.localModificationDate,
-        ] where schema.contains(column) {
-            projection.append("\(prefix)\(column) AS \(column)")
+        if schema.contains(AppleBooksSchema.Collection.isHidden) {
+            projection.append("\(prefix)\(AppleBooksSchema.Collection.isHidden) AS \(AppleBooksSchema.Collection.isHidden)")
         }
         return projection
     }
@@ -538,24 +529,15 @@ struct CollectionQueries {
         var truncated: [String] = []
         if title.wasByteTruncated { truncated.append("title") }
         if details.wasByteTruncated { truncated.append("details") }
-        func int64(_ column: String) throws -> Int64? { schema.contains(column) ? try row.int64(column) : nil }
-        func date(_ column: String) throws -> Date? {
-            guard schema.contains(column) else { return nil }
-            return CoreDataTime.date(from: try row.double(column))
-        }
+        let isHidden = schema.contains(AppleBooksSchema.Collection.isHidden)
+            ? try row.int64(AppleBooksSchema.Collection.isHidden).map { $0 != 0 }
+            : nil
         return SemanticCollection(
             localPK: localPK,
             collectionID: identity.publicID,
             title: title.value,
             details: details.value,
-            isDeleted: try int64(AppleBooksSchema.Collection.isDeleted).map { $0 != 0 },
-            isHidden: try int64(AppleBooksSchema.Collection.isHidden).map { $0 != 0 },
-            isPlaceholder: try int64(AppleBooksSchema.Collection.isPlaceholder).map { $0 != 0 },
-            sortKey: try int64(AppleBooksSchema.Collection.sortKey),
-            sortMode: try int64(AppleBooksSchema.Collection.sortMode),
-            viewMode: try int64(AppleBooksSchema.Collection.viewMode),
-            lastModificationDate: try date(AppleBooksSchema.Collection.lastModificationDate),
-            localModificationDate: try date(AppleBooksSchema.Collection.localModificationDate),
+            isHidden: isHidden,
             canEditCollection: identity.capabilities.canEditCollection,
             canEditMembership: identity.capabilities.canEditMembership,
             byteTruncatedFields: truncated

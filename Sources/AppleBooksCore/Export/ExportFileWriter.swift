@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public enum ExportFileWriterError: Error, Equatable, Sendable {
+package enum ExportFileWriterError: Error, Equatable, Sendable {
     case invalidOutputRoot
     case unsafeOutputRoot
     case invalidFileName
@@ -11,24 +11,14 @@ public enum ExportFileWriterError: Error, Equatable, Sendable {
     case writeFailed
 }
 
-public enum ExportFileWriteDisposition: String, Codable, Equatable, Sendable {
+package enum ExportFileWriteDisposition: String, Codable, Equatable, Sendable {
     case created
     case updated
 }
 
-public struct ExportFileWriteResult: Equatable, Sendable {
-    public let destination: URL
-    public let disposition: ExportFileWriteDisposition
-}
-
-public enum ExportFileLayout: Equatable, Sendable {
-    case single(fileName: String)
-    case perDocument
-}
-
-public struct ExportDirectoryWriteResult: Equatable, Sendable {
-    public let documentFileCount: Int
-    public let files: [URL]
+package struct ExportFileWriteResult: Equatable, Sendable {
+    package let destination: URL
+    package let disposition: ExportFileWriteDisposition
 }
 
 package struct ManagedExportDirectoryWriteResult: Equatable, Sendable {
@@ -266,27 +256,16 @@ package enum ManagedExportManifest {
     }
 }
 
-public struct ExportFileWriter {
+package struct ExportFileWriter {
     package static let maximumChunkBytes = 64 * 1_024
 
-    public let outputRoot: URL
+    private let outputRoot: URL
 
-    public init(outputRoot: URL) throws {
+    package init(outputRoot: URL) throws {
         guard outputRoot.isFileURL, outputRoot.path.hasPrefix("/") else {
             throw ExportFileWriterError.invalidOutputRoot
         }
         self.outputRoot = try Self.prepareOutputRoot(outputRoot)
-    }
-
-    @discardableResult
-    public func write(
-        _ data: Data,
-        fileName: String,
-        overwrite: OverwritePolicy = .never
-    ) throws -> ExportFileWriteResult {
-        try writeIncrementally(fileName: fileName, overwrite: overwrite) { sink in
-            try sink(data)
-        }
     }
 
     @discardableResult
@@ -359,24 +338,6 @@ public struct ExportFileWriter {
         }
         temporaryExists = false
         return ExportFileWriteResult(destination: destination, disposition: disposition)
-    }
-
-    public func writeDocuments(
-        _ bundle: ExportBundle,
-        fileExtension: String,
-        overwrite: OverwritePolicy = .never,
-        render: (ExportGroup) throws -> Data
-    ) throws -> ExportDirectoryWriteResult {
-        var files: [URL] = []
-        let count = try forEachDocument(bundle, fileExtension: fileExtension) { group, fileName in
-            let data = try render(group)
-            let result = try write(data, fileName: fileName, overwrite: overwrite)
-            files.append(result.destination)
-        }
-        return ExportDirectoryWriteResult(
-            documentFileCount: count,
-            files: files
-        )
     }
 
     package func writeManagedDirectoryIncrementally(
@@ -547,45 +508,6 @@ public struct ExportFileWriter {
             documentCount: bundle.groups.count,
             cleanupFailed: false
         )
-    }
-
-    func forEachDocument(
-        _ bundle: ExportBundle,
-        fileExtension: String,
-        materialize: (ExportGroup, String) throws -> Void
-    ) throws -> Int {
-        try Self.validateFileExtension(fileExtension)
-        var count = 0
-        for group in bundle.groups {
-            let fileName = try Self.documentFileName(for: group, extension: fileExtension)
-            try materialize(group, fileName)
-            count += 1
-        }
-        return count
-    }
-
-    public func writeMarkdown(
-        _ bundle: ExportBundle,
-        layout: ExportFileLayout,
-        overwrite: OverwritePolicy = .never
-    ) throws -> ExportDirectoryWriteResult {
-        switch layout {
-        case let .single(fileName):
-            let data = Data(MarkdownAnnotationExporter.render(bundle).utf8)
-            let result = try write(data, fileName: fileName, overwrite: overwrite)
-            return ExportDirectoryWriteResult(
-                documentFileCount: 1,
-                files: [result.destination]
-            )
-        case .perDocument:
-            return try writeDocuments(
-                bundle,
-                fileExtension: "md",
-                overwrite: overwrite
-            ) { group in
-                Data(MarkdownAnnotationExporter.render(group).utf8)
-            }
-        }
     }
 
     private static func openManagedExistingDirectory(

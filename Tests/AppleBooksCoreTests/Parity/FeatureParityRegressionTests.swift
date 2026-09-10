@@ -50,7 +50,7 @@ struct FeatureParityRegressionTests {
                 bookSelectors: [.assetID("orphan-asset")]
             )
         )
-        let markdown = MarkdownAnnotationExporter.render(orphanExport)
+        let markdown = renderMarkdown(orphanExport)
         #expect(markdown.contains(expected.orphanMarkdownText))
         for excluded in expected.excludedMarkdownText {
             #expect(markdown.contains(excluded) == false)

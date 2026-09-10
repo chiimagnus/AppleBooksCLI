@@ -12,16 +12,17 @@ struct ExportFileWriterTests {
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
 
-        let created = try writer.write(Data("first".utf8), fileName: "report.json")
+        let created = try writeData(Data("first".utf8), using: writer, fileName: "report.json")
         #expect(created.disposition == .created)
         #expect(try String(contentsOf: created.destination, encoding: .utf8) == "first")
         #expect(throws: ExportFileWriterError.destinationExists) {
-            _ = try writer.write(Data("second".utf8), fileName: "report.json")
+            _ = try writeData(Data("second".utf8), using: writer, fileName: "report.json")
         }
         #expect(try String(contentsOf: created.destination, encoding: .utf8) == "first")
 
-        let updated = try writer.write(
+        let updated = try writeData(
             Data("second".utf8),
+            using: writer,
             fileName: "report.json",
             overwrite: .always
         )
@@ -37,13 +38,13 @@ struct ExportFileWriterTests {
         let writer = try ExportFileWriter(outputRoot: fixture.output)
         let original = Data(#"{"exportedAt":"2026-01-01T00:00:00Z","body":"same"}"#.utf8)
         let newer = Data(#"{"exportedAt":"2026-09-01T00:00:00Z","body":"same"}"#.utf8)
-        let first = try writer.write(original, fileName: "export.json")
+        let first = try writeData(original, using: writer, fileName: "export.json")
         let originalInode = try FileManager.default.attributesOfItem(atPath: first.destination.path)[.systemFileNumber] as? NSNumber
-        let repeated = try writer.write(original, fileName: "export.json", overwrite: .always)
+        let repeated = try writeData(original, using: writer, fileName: "export.json", overwrite: .always)
         let replacedInode = try FileManager.default.attributesOfItem(atPath: first.destination.path)[.systemFileNumber] as? NSNumber
         #expect(originalInode != nil && replacedInode != nil && originalInode != replacedInode)
         #expect(repeated.disposition == .updated)
-        let updated = try writer.write(newer, fileName: "export.json", overwrite: .always)
+        let updated = try writeData(newer, using: writer, fileName: "export.json", overwrite: .always)
         #expect(updated.disposition == .updated)
         #expect(try Data(contentsOf: updated.destination) == newer)
     }
@@ -486,26 +487,42 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func genericPerDocumentWriterUsesStableIdentityNamesAndExtensionValidation() throws {
+    func managedPerDocumentWriterUsesStableIdentityNamesAndExtensionValidation() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let bundle = FixtureFactory.bundleWithDuplicateTitles()
-
-        let result = try writer.writeDocuments(bundle, fileExtension: "json") { group in
-            Data("records=\(group.records.count)".utf8)
+        let unordered = FixtureFactory.bundleWithDuplicateTitles()
+        let groups = unordered.groups.sorted {
+            $0.documentIdentity! < $1.documentIdentity!
         }
-        let expected = try bundle.groups.map { group in
+        let bundle = FixtureFactory.makeBundle(groups: groups)
+        let destination = fixture.output.appendingPathComponent("managed", isDirectory: true)
+
+        let result = try writer.writeManagedDirectoryIncrementally(
+            destinationName: destination.lastPathComponent,
+            bundle: bundle,
+            fileExtension: "json"
+        ) { group, sink in
+            try sink(Data("records=\(group.records.count)".utf8))
+        }
+        let expected = try groups.map { group in
             "Same-\(try #require(group.documentIdentity).fullKey).json"
         }
-        #expect(result.documentFileCount == 2)
-        #expect(result.files.map(\.lastPathComponent) == expected)
+        let names = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+            .filter { $0 != ManagedExportManifestWriter.fileName }
+            .sorted()
+        #expect(result.documentCount == 2)
+        #expect(names == expected.sorted())
         #expect(Set(expected).count == 2)
         #expect(expected.allSatisfy { $0.utf8.count <= 200 })
-        #expect(try result.files.map { try String(contentsOf: $0, encoding: .utf8) } == ["records=1", "records=1"])
+        #expect(try names.map { try String(contentsOf: destination.appendingPathComponent($0), encoding: .utf8) } == ["records=1", "records=1"])
 
         #expect(throws: ExportFileWriterError.invalidFileName) {
-            _ = try writer.writeDocuments(bundle, fileExtension: "../json") { _ in Data() }
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: "invalid-extension",
+                bundle: bundle,
+                fileExtension: "../json"
+            ) { _, _ in }
         }
     }
 
@@ -519,10 +536,30 @@ struct ExportFileWriterTests {
         let a = FixtureFactory.group(pk: 1, assetID: rawA, title: String(repeating: "Same", count: 100))
         let b = FixtureFactory.group(pk: 2, assetID: rawB, title: String(repeating: "Same", count: 100))
 
+        var run = 0
         func names(_ groups: [ExportGroup]) throws -> [String: String] {
+            run += 1
+            let ordered = groups.sorted { $0.documentIdentity! < $1.documentIdentity! }
+            let bundle = FixtureFactory.makeBundle(groups: ordered)
+            let destinationName = "names-\(run)"
+            let destination = fixture.output.appendingPathComponent(destinationName, isDirectory: true)
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: destinationName,
+                bundle: bundle,
+                fileExtension: "md"
+            ) { _, sink in
+                try sink(Data("x".utf8))
+            }
+            let fileNames = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+                .filter { $0 != ManagedExportManifestWriter.fileName }
             var result: [String: String] = [:]
-            _ = try writer.forEachDocument(FixtureFactory.makeBundle(groups: groups), fileExtension: "md") { group, fileName in
-                result[try #require(group.documentIdentity).fullKey] = fileName
+            for group in groups {
+                let key = try #require(group.documentIdentity).fullKey
+                guard let fileName = fileNames.first(where: { $0.hasSuffix("-\(key).md") }) else {
+                    Issue.record("missing managed export filename for \(key)")
+                    continue
+                }
+                result[key] = fileName
             }
             return result
         }
@@ -577,7 +614,7 @@ struct ExportFileWriterTests {
 
         for name in ["../escape.md", ".hidden", "bad:name.md", "bad/name.md", "bad\\name.md", " trailing.md "] {
             #expect(throws: ExportFileWriterError.invalidFileName) {
-                _ = try writer.write(Data("x".utf8), fileName: name)
+                _ = try writeData(Data("x".utf8), using: writer, fileName: name)
             }
         }
 
@@ -586,7 +623,7 @@ struct ExportFileWriterTests {
         let symlink = fixture.output.appendingPathComponent("report.md")
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outside)
         #expect(throws: ExportFileWriterError.unsafeDestination) {
-            _ = try writer.write(Data("new".utf8), fileName: "report.md", overwrite: .always)
+            _ = try writeData(Data("new".utf8), using: writer, fileName: "report.md", overwrite: .always)
         }
         #expect(try String(contentsOf: outside, encoding: .utf8) == "outside")
     }
@@ -623,32 +660,6 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func countOnlyDocumentTraversalKeepsScalarResultsForLargeExports() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let groups = (0..<100_001).map { index in
-            let assetID = "synthetic-\(index)"
-            return ExportGroup(
-                source: .epubUnmapped(assetID: assetID),
-                records: [],
-                documentIdentity: try! ExportDocumentIdentity.make(sourceKey: .epubAsset(assetID))
-            )
-        }
-        let bundle = FixtureFactory.makeBundle(groups: groups)
-        var materialized = 0
-        let count = try writer.forEachDocument(bundle, fileExtension: "md") { _, fileName in
-            #expect(fileName.hasPrefix("Unmapped%20EPUB-doc1_"))
-            #expect(fileName.hasSuffix(".md"))
-            #expect(fileName.utf8.count <= 200)
-            materialized += 1
-        }
-        #expect(count == 100_001)
-        #expect(materialized == count)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).isEmpty)
-    }
-
-    @Test
     func destinationParsingRejectsReservedFinalComponents() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
@@ -659,6 +670,17 @@ struct ExportFileWriterTests {
         }
         let relative = try ExportFileWriter.destination(path: "new", currentDirectory: fixture.output)
         #expect(relative == fixture.output.appendingPathComponent("new").standardizedFileURL)
+    }
+
+    private func writeData(
+        _ data: Data,
+        using writer: ExportFileWriter,
+        fileName: String,
+        overwrite: OverwritePolicy = .never
+    ) throws -> ExportFileWriteResult {
+        try writer.writeIncrementally(fileName: fileName, overwrite: overwrite) { sink in
+            try sink(data)
+        }
     }
 
     private func directorySnapshot(_ directory: URL) throws -> [String: Data] {

@@ -60,7 +60,7 @@ struct JSONExporterTests {
             )
         )
 
-        let root = try object(JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
         let groups = try array(root["groups"])
         let exportedGroup = try dictionary(groups[0])
         let records = try array(exportedGroup["records"])
@@ -75,7 +75,7 @@ struct JSONExporterTests {
     @Test
     func singleFilePreservesSourceSpecificRawFieldsAndWarnings() throws {
         let fixture = try Fixture()
-        let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
+        let data = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
         #expect(root["schemaVersion"] as? Int == 9)
@@ -208,7 +208,7 @@ struct JSONExporterTests {
             ),
         ]
         let bundle = try bundle(books: books)
-        let root = try object(JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
+        let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
         #expect(root["schemaVersion"] as? Int == 9)
         let groups = try array(root["groups"])
 
@@ -240,7 +240,7 @@ struct JSONExporterTests {
             "positiveInfinity", "negativeInfinity", "positiveInfinity",
         ])
 
-        let document = try object(JSONExporter.renderDocument(
+        let document = try object(renderDocumentJSON(
             bundle.groups[2], from: bundle, exportedAt: Date(timeIntervalSince1970: 0)
         ))
         #expect(document["schemaVersion"] as? Int == 9)
@@ -291,7 +291,7 @@ struct JSONExporterTests {
         let base = try Fixture()
 
         let document = try object(
-            JSONExporter.renderDocument(group, from: base.bundle, exportedAt: base.exportedAt)
+            renderDocumentJSON(group, from: base.bundle, exportedAt: base.exportedAt)
         )
         let source = try dictionary(try dictionary(document["group"])["source"])
 
@@ -305,7 +305,7 @@ struct JSONExporterTests {
     }
 
     @Test
-    func streamingRendererMatchesCompatibilityJSONForFullAndPerDocumentArtifacts() throws {
+    func streamingRendererProducesValidBoundedFullAndPerDocumentArtifacts() throws {
         let fixture = try Fixture()
         var streamed = Data()
         var maximumBuffer = 0
@@ -314,20 +314,19 @@ struct JSONExporterTests {
             exportedAt: fixture.exportedAt,
             observeBufferedBytes: { maximumBuffer = max(maximumBuffer, $0) }
         ) { streamed.append($0) }
-        let compatibility = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
-        #expect(try normalized(JSONSerialization.jsonObject(with: streamed)) == normalized(JSONSerialization.jsonObject(with: compatibility)))
+        _ = try JSONSerialization.jsonObject(with: streamed)
         #expect(maximumBuffer <= ExportFileWriter.maximumChunkBytes)
 
         var documentStream = Data()
+        var documentMaximumBuffer = 0
         try JSONExporter.streamDocument(
             fixture.bundle.groups[1],
             from: fixture.bundle,
-            exportedAt: fixture.exportedAt
+            exportedAt: fixture.exportedAt,
+            observeBufferedBytes: { documentMaximumBuffer = max(documentMaximumBuffer, $0) }
         ) { documentStream.append($0) }
-        let documentCompatibility = try JSONExporter.renderDocument(
-            fixture.bundle.groups[1], from: fixture.bundle, exportedAt: fixture.exportedAt
-        )
-        #expect(try normalized(JSONSerialization.jsonObject(with: documentStream)) == normalized(JSONSerialization.jsonObject(with: documentCompatibility)))
+        _ = try JSONSerialization.jsonObject(with: documentStream)
+        #expect(documentMaximumBuffer <= ExportFileWriter.maximumChunkBytes)
     }
 
     @Test
@@ -396,7 +395,7 @@ struct JSONExporterTests {
         )
         var streamed = Data()
         try JSONExporter.stream(bundle, exportedAt: Date(timeIntervalSince1970: 0)) { streamed.append($0) }
-        let compatibility = try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        let compatibility = try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0))
         #expect(try normalized(JSONSerialization.jsonObject(with: streamed)) == normalized(JSONSerialization.jsonObject(with: compatibility)))
         let root = try object(streamed)
         let source = try dictionary(try dictionary(try array(root["groups"])[0])["source"])
@@ -475,8 +474,8 @@ struct JSONExporterTests {
     func fixedTimestampAndSortedCollectionsProduceDeterministicBytes() throws {
         let fixture = try Fixture()
 
-        let first = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
-        let second = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
+        let first = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
+        let second = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
 
         #expect(first == second)
         let text = try #require(String(data: first, encoding: .utf8))
@@ -489,11 +488,11 @@ struct JSONExporterTests {
     @Test
     func perDocumentOutputReusesTheExactGroupDTOWithoutGlobalRunState() throws {
         let fixture = try Fixture()
-        let full = try object(JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt))
+        let full = try object(renderJSON(fixture.bundle, exportedAt: fixture.exportedAt))
         let fullPDFGroup = try array(full["groups"])[2]
 
         let document = try object(
-            JSONExporter.renderDocument(
+            renderDocumentJSON(
                 fixture.bundle.groups[2],
                 from: fixture.bundle,
                 exportedAt: fixture.exportedAt

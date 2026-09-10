@@ -1,18 +1,6 @@
 import Foundation
 
-public enum MarkdownAnnotationExporter {
-    public static func render(_ bundle: ExportBundle) -> String {
-        var data = Data()
-        try! stream(bundle) { data.append($0) }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    static func render(_ group: ExportGroup) -> String {
-        var data = Data()
-        try! stream(group) { data.append($0) }
-        return String(decoding: data, as: UTF8.self)
-    }
-
+package enum MarkdownAnnotationExporter {
     package static func stream(
         _ bundle: ExportBundle,
         observeBufferedBytes: ((Int) -> Void)? = nil,

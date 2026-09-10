@@ -51,7 +51,7 @@ struct ExportServiceTests {
             #expect(bundle.statistics.recordCount == 3)
             #expect(bundle.statistics.highlightCount == 2)
             #expect(bundle.statistics.noteCount == 2)
-            let artifact = String(decoding: try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0)), as: UTF8.self)
+            let artifact = String(decoding: try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)), as: UTF8.self)
             #expect(!artifact.contains("system text"))
             #expect(!artifact.contains("system note"))
             #expect(!artifact.contains("bookmarkCount"))
@@ -79,7 +79,7 @@ struct ExportServiceTests {
         #expect(enriched.annotation.selectedText == body)
         #expect(enriched.annotation.note == body)
 
-        let data = try JSONExporter.render(bundle, exportedAt: Date(timeIntervalSince1970: 0))
+        let data = try renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0))
         #expect(data.count > body.utf8.count * 2)
     }
 
@@ -279,7 +279,7 @@ struct ExportServiceTests {
             book: .assetID("ordered"), order: .reading
         ))
         #expect(mappedPKs == page.items.map(\.localPK))
-        let markdown = MarkdownAnnotationExporter.render(mapped)
+        let markdown = renderMarkdown(mapped)
         #expect(try #require(markdown.range(of: "first chapter")).lowerBound < #require(markdown.range(of: "second chapter")).lowerBound)
 
         try FileManager.default.removeItem(at: epub)

@@ -8,7 +8,7 @@ struct MarkdownParityTests {
     @Test
     func bundleRendererPreservesFinalOrderAndContainsHostileTextInSafeContexts() throws {
         let fixture = try Fixture()
-        let markdown = MarkdownAnnotationExporter.render(fixture.bundle)
+        let markdown = renderMarkdown(fixture.bundle)
 
         #expect(markdown.hasPrefix("# Apple Books export\n\n"))
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
@@ -60,7 +60,7 @@ struct MarkdownParityTests {
     @Test
     func perDocumentRendererUsesSameGroupAndDoesNotResortRecords() throws {
         let fixture = try Fixture()
-        let markdown = MarkdownAnnotationExporter.render(fixture.bundle.groups[0])
+        let markdown = renderMarkdown(fixture.bundle.groups[0])
 
         #expect(markdown.hasPrefix("# "))
         #expect(markdown.contains("# Apple Books export") == false)
@@ -91,7 +91,7 @@ struct MarkdownParityTests {
             rangeEnd: nil
         )
         let epubRecord = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
-        let epub = MarkdownAnnotationExporter.render(
+        let epub = renderMarkdown(
             ExportGroup(source: .epubUnmapped(assetID: "asset"), records: [epubRecord])
         )
         #expect(AnnotationContentSemantics.hasContent(annotation.selectedText) == false)
@@ -119,7 +119,7 @@ struct MarkdownParityTests {
                 textUnavailableReason: nil
             )
         ))
-        let pdf = MarkdownAnnotationExporter.render(
+        let pdf = renderMarkdown(
             ExportGroup(source: .pdf(pdfSource), records: [pdfRecord])
         )
         #expect(pdfRecord.hasNote == false)
@@ -222,10 +222,10 @@ struct MarkdownParityTests {
                 pdfHighlightCount: 0
             )
         )
-        #expect(MarkdownAnnotationExporter.render(emptyBundle) == "# Apple Books export\n\n_No records._\n")
+        #expect(renderMarkdown(emptyBundle) == "# Apple Books export\n\n_No records._\n")
 
         let group = ExportGroup(source: .epubUnmapped(assetID: "missing"), records: [])
-        let renderedGroup = MarkdownAnnotationExporter.render(group)
+        let renderedGroup = renderMarkdown(group)
         #expect(renderedGroup.contains("# Unmapped EPUB"))
         #expect(renderedGroup.contains("**Identity:**") == false)
         #expect(renderedGroup.contains("_No records._"))

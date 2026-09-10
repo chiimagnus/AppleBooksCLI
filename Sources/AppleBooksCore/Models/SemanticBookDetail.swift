@@ -35,8 +35,3 @@ package struct BookContentMetadataFallback: Equatable, Sendable {
     package let releaseDate: Date?
     package let byteTruncatedFields: [String]
 }
-
-struct BookPDFResource: Equatable, Sendable {
-    let summary: BookSummary
-    let target: BookResourceTarget
-}

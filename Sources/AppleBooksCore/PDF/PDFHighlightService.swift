@@ -12,19 +12,19 @@ public struct PDFHighlightServiceFailure: Equatable, Sendable {
     public let reason: PDFHighlightServiceFailureReason
 }
 
-public struct PDFDocumentHighlights: Equatable, Sendable {
-    public let source: PDFSource
-    public let highlights: [PDFHighlight]
+package struct PDFDocumentHighlights: Equatable, Sendable {
+    package let source: PDFSource
+    package let highlights: [PDFHighlight]
 }
 
-public struct PDFHighlightServiceResult: Equatable, Sendable {
-    public let documents: [PDFDocumentHighlights]
-    public let failures: [PDFHighlightServiceFailure]
-    public let attemptedCount: Int
-    public let succeededCount: Int
-    public let noHighlightsCount: Int
-    public let failedCount: Int
-    public let timeoutCount: Int
+package struct PDFHighlightServiceResult: Equatable, Sendable {
+    package let documents: [PDFDocumentHighlights]
+    package let failures: [PDFHighlightServiceFailure]
+    package let attemptedCount: Int
+    package let succeededCount: Int
+    package let noHighlightsCount: Int
+    package let failedCount: Int
+    package let timeoutCount: Int
 }
 
 package struct PDFAgentPresentationColor: Equatable, Sendable {

@@ -6,7 +6,7 @@ public enum StableIdentityError: Error, Equatable, Sendable {
     case ambiguousAnnotationUUID
 }
 
-public enum PDFHighlightFacadeError: Error, Equatable, Sendable {
+package enum PDFHighlightFacadeError: Error, Equatable, Sendable {
     case workerUnavailable
 }
 

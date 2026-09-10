@@ -24,11 +24,8 @@ public enum MarkdownAnnotationExporter {
             blocks.append("**Author:** \(escapeInline(author))")
         }
         blocks.append("**Source:** \(source.kind)")
-        if let identity = source.identity {
-            blocks.append("**Identity:** \(escapeInline(identity))")
-        }
-        if let path = source.path {
-            blocks.append("**Path:** \(escapeInline(path))")
+        if let appleBooksURL = source.appleBooksURL {
+            blocks.append("**Apple Books:** [Open book](<\(appleBooksURL)>)")
         }
         if group.records.isEmpty {
             blocks.append("_No records._")
@@ -43,26 +40,34 @@ public enum MarkdownAnnotationExporter {
         switch record.payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
-            if let quote = nonEmpty(annotation.selectedText) ?? nonEmpty(annotation.representativeText) {
+            if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
                 blocks.append(blockquote(label: "Quote", text: quote))
             }
-            if let note = nonEmpty(annotation.note) {
+            if let note = content(annotation.note) {
                 blocks.append(blockquote(label: "Note", text: note))
             }
-            blocks.append(contentsOf: appleBooksLocation(annotation))
-            if let date = annotation.modifiedAt ?? annotation.createdAt {
-                blocks.append("**Date:** \(formatDate(date))")
+            if let chapter = content(annotation.chapterHint) {
+                blocks.append("**Chapter:** \(escapeInline(chapter))")
+            }
+            if let physicalLocation = annotation.physicalLocation {
+                blocks.append("**Location:** \(physicalLocation)")
+            }
+            if let createdAt = annotation.createdAt {
+                blocks.append("**Created:** \(formatDate(createdAt))")
+            }
+            if let modifiedAt = annotation.modifiedAt {
+                blocks.append("**Modified:** \(formatDate(modifiedAt))")
             }
         case let .pdf(_, highlight):
-            if let quote = nonEmpty(highlight.text) {
+            if let quote = content(highlight.text) {
                 blocks.append(blockquote(label: "Quote", text: quote))
             }
-            if let note = nonEmpty(highlight.note) {
+            if let note = content(highlight.note) {
                 blocks.append(blockquote(label: "Note", text: note))
             }
             blocks.append("**Page:** \(highlight.page)")
-            if let date = highlight.modifiedAt {
-                blocks.append("**Date:** \(formatDate(date))")
+            if let modifiedAt = highlight.modifiedAt {
+                blocks.append("**Modified:** \(formatDate(modifiedAt))")
             }
         }
         if let color = record.presentationColor {
@@ -74,49 +79,35 @@ public enum MarkdownAnnotationExporter {
         return blocks.joined(separator: "\n\n")
     }
 
-    private static func appleBooksLocation(_ annotation: Annotation) -> [String] {
-        if let cfi = annotation.location?.rawCFI {
-            if let url = annotation.appleBooksURL {
-                return ["**Location:** [\(escapeInline(cfi))](<\(url)>)"]
-            }
-            return ["**Location:** \(escapeInline(cfi))"]
-        }
-        return annotation.appleBooksURL.map { ["**Apple Books:** [Open book](<\($0)>)"] } ?? []
-    }
-
     private static func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {
         switch group.source {
         case let .epubCurrent(book):
             return MarkdownSourceContext(
-                title: nonEmpty(book.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB",
+                title: nonEmpty(book.title) ?? "Untitled EPUB",
                 author: nonEmpty(book.author),
                 kind: "EPUB",
-                identity: book.assetID,
-                path: nil
+                appleBooksURL: book.assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .epubHistorical(assetID, metadata):
             return MarkdownSourceContext(
-                title: metadata.title,
+                title: nonEmpty(metadata.title) ?? "Historical EPUB",
                 author: nonEmpty(metadata.author),
                 kind: "Historical EPUB",
-                identity: assetID,
-                path: nil
+                appleBooksURL: assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .epubUnmapped(assetID):
             return MarkdownSourceContext(
                 title: "Unmapped EPUB",
                 author: nil,
                 kind: "Unmapped EPUB",
-                identity: assetID,
-                path: nil
+                appleBooksURL: assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .pdf(source):
             return MarkdownSourceContext(
                 title: source.displayTitle,
                 author: source.book.flatMap { nonEmpty($0.author) },
                 kind: "PDF",
-                identity: source.book?.assetID,
-                path: source.fileURL.path
+                appleBooksURL: nil
             )
         }
     }
@@ -138,6 +129,11 @@ public enum MarkdownAnnotationExporter {
 
     private static func escapeInline(_ text: String) -> String {
         escapeMarkdown(normalizedLines(text).joined(separator: " "))
+    }
+
+    private static func content(_ text: String?) -> String? {
+        guard AnnotationContentSemantics.hasContent(text) else { return nil }
+        return text
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
@@ -170,6 +166,5 @@ private struct MarkdownSourceContext {
     let title: String
     let author: String?
     let kind: String
-    let identity: String?
-    let path: String?
+    let appleBooksURL: String?
 }

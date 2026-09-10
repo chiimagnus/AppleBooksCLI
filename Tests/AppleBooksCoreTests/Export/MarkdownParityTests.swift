@@ -16,7 +16,8 @@ struct MarkdownParityTests {
         #expect(markdown.contains("**Source:** EPUB"))
         #expect(markdown.contains("**Source:** PDF"))
         #expect(markdown.contains("**Page:** 7"))
-        #expect(markdown.contains("**Date:** 2020-09-13T12:26:40.500Z"))
+        #expect(markdown.contains("**Created:** 2020-09-13T12:26:40.500Z"))
+        #expect(markdown.contains("**Modified:** 2020-09-13T12:26:40.500Z"))
         #expect(markdown.contains("**Color:** purple"))
         #expect(markdown.contains("**Underline:** true"))
 
@@ -27,10 +28,12 @@ struct MarkdownParityTests {
         #expect(lines.contains("---") == false)
         #expect(lines.contains { $0.hasPrefix("```") } == false)
         #expect(markdown.contains("<script>") == false)
-        #expect(markdown.contains("**Location:** [epubcfi"))
-        #expect(markdown.contains("](<\(fixture.secondAnnotation.appleBooksURL!)>)"))
-        #expect(markdown.contains("Open in Apple Books") == false)
+        #expect(markdown.contains("**Chapter:** Chapter 2"))
+        #expect(markdown.contains("**Location:** 42"))
+        #expect(markdown.contains("epubcfi") == false)
         #expect(markdown.contains("**Apple Books:** [Open book](<ibooks://assetid/"))
+        #expect(markdown.contains(try #require(fixture.book.assetID)) == false)
+        #expect(markdown.contains("/tmp/") == false)
         #expect(markdown.contains("]( <script>") == false)
         #expect(markdown.contains("](<script>") == false)
         #expect(markdown.contains("\\<script\\>"))
@@ -67,6 +70,64 @@ struct MarkdownParityTests {
     }
 
     @Test
+    func whitespacePresenceUsesSharedSemanticsAndDoesNotEmitBlankQuotesOrNotes() throws {
+        let annotation = Annotation(
+            localPK: 1,
+            uuid: nil,
+            rawAssetID: "asset",
+            isDeleted: false,
+            isUnderline: false,
+            style: 1,
+            type: 1,
+            createdAt: nil,
+            modifiedAt: nil,
+            representativeText: "representative fallback",
+            selectedText: " \t\r\n",
+            note: "\r\n\t ",
+            location: nil,
+            chapterHint: nil,
+            physicalLocation: nil,
+            rangeStart: nil,
+            rangeEnd: nil
+        )
+        let epubRecord = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let epub = MarkdownAnnotationExporter.render(
+            ExportGroup(source: .epubUnmapped(assetID: "asset"), records: [epubRecord])
+        )
+        #expect(AnnotationContentSemantics.hasContent(annotation.selectedText) == false)
+        #expect(epubRecord.hasHighlight == false)
+        #expect(epubRecord.hasNote == false)
+        #expect(epub.contains("> representative fallback"))
+        #expect(epub.contains("**Note:**") == false)
+        #expect(epub.contains(">  ") == false)
+
+        let pdfSource = PDFSource(fileURL: URL(fileURLWithPath: "/synthetic/whitespace.pdf"), book: nil)
+        let pdfRecord = ExportRecord(payload: .pdf(
+            source: pdfSource,
+            highlight: PDFHighlight(
+                page: 1,
+                traversalIndex: 0,
+                bounds: .zero,
+                quadrilateralPoints: [],
+                note: " \t\r\n",
+                pdfKitRGBA: nil,
+                presentationColor: nil,
+                modifiedAt: nil,
+                text: "PDF quote",
+                textSource: .boundsFallback,
+                textIsApproximate: true,
+                textUnavailableReason: nil
+            )
+        ))
+        let pdf = MarkdownAnnotationExporter.render(
+            ExportGroup(source: .pdf(pdfSource), records: [pdfRecord])
+        )
+        #expect(pdfRecord.hasNote == false)
+        #expect(pdf.contains("> PDF quote"))
+        #expect(pdf.contains("**Note:**") == false)
+    }
+
+    @Test
     func emptyBundleAndEmptyDocumentHaveExplicitStates() throws {
         let options = try ExportOptions()
         let emptyBundle = ExportBundle(
@@ -99,7 +160,7 @@ struct MarkdownParityTests {
         let group = ExportGroup(source: .epubUnmapped(assetID: "missing"), records: [])
         let renderedGroup = MarkdownAnnotationExporter.render(group)
         #expect(renderedGroup.contains("# Unmapped EPUB"))
-        #expect(renderedGroup.contains("**Identity:** missing"))
+        #expect(renderedGroup.contains("**Identity:**") == false)
         #expect(renderedGroup.contains("_No records._"))
     }
 
@@ -164,8 +225,8 @@ struct MarkdownParityTests {
                 selectedText: hostileQuote,
                 note: hostileNote,
                 location: Location(rawCFI: "epubcfi(/6/4[chapter]!/4/2,:3,:9) ]( <script>"),
-                chapterHint: nil,
-                physicalLocation: nil,
+                chapterHint: "Chapter 2",
+                physicalLocation: 42,
                 rangeStart: nil,
                 rangeEnd: nil
             )

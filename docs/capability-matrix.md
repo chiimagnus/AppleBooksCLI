@@ -100,7 +100,7 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | export output destination | 已实现（强化） | 完整artifact只写显式confined file/dir；stdout仅compact JSON write result；默认不覆盖 unsafe/existing target |
-| Markdown export | 已实现 | plain Markdown；使用 canonical records |
+| Markdown export | 已实现 | human-readable notes；title/author、quote/Note、semantic location/PDF page、dates/presentation；不含 raw asset ID/CFI/absolute PDF path |
 | JSON export | 已实现 | schemaVersion=8；保留 source-specific raw fields/warnings/statistics；presence 属性独立编码，PDF selector 使用 opaque source ID；export 不再携带 EPUB metadata/cover enrichment |
 | export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 user annotations 与 PDF highlights |
 | export 颜色过滤 | 已实现 | canonical EPUB colors；PDF approximate presentation color 不参与 hard filter |

@@ -264,6 +264,12 @@ enum XHTMLText {
         private var pendingSeparator = PendingSeparator.none
         private var emittedVisibleContent = false
 
+        init(offset: Int, maximumGraphemes: Int, maximumUTF8Bytes: Int) {
+            self.offset = offset
+            self.maximumGraphemes = maximumGraphemes
+            self.maximumUTF8Bytes = maximumUTF8Bytes
+        }
+
         mutating func append(_ raw: String) throws {
             for character in raw {
                 if hasMore { return }

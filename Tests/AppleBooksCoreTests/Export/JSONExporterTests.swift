@@ -73,12 +73,12 @@ struct JSONExporterTests {
     }
 
     @Test
-    func singleFilePreservesSourceSpecificRawFieldsMetadataAndWarnings() throws {
+    func singleFilePreservesSourceSpecificRawFieldsAndWarnings() throws {
         let fixture = try Fixture()
         let data = try JSONExporter.render(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 6)
+        #expect(root["schemaVersion"] as? Int == 7)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -90,8 +90,8 @@ struct JSONExporterTests {
         #expect(options["order"] as? String == "reading")
         #expect(options["skipFirstPerBook"] == nil)
         #expect(options["grouping"] as? String == "perBook")
-        #expect(options["includeEPUBMetadata"] as? Bool == true)
-        #expect(options["cover"] as? String == "inline")
+        #expect(options["includeEPUBMetadata"] == nil)
+        #expect(options["cover"] == nil)
         let selectors = try array(options["bookSelectors"])
         #expect(try dictionary(selectors[0])["kind"] as? String == "assetID")
         #expect(try dictionary(selectors[0])["value"] as? String == "current-asset")
@@ -143,15 +143,8 @@ struct JSONExporterTests {
         #expect(currentBook["genresRawBase64"] as? String == "AAH/")
         #expect(currentBook["creationDate"] as? String == "2020-09-13T12:26:40.500Z")
         #expect(currentBook["normalizedAuthor"] == nil)
-        let metadata = try dictionary(current["epubMetadata"])
-        #expect(metadata["publisher"] as? String == "Publisher")
-        #expect(metadata["coverItemID"] as? String == "cover-item")
-        let cover = try dictionary(current["epubCover"])
-        #expect(cover["dataBase64"] as? String == "iVBORw==")
-        #expect(cover["declaredMediaType"] as? String == "image/jpeg")
-        #expect(cover["detectedMediaType"] as? String == "image/png")
-        #expect(cover["mediaType"] as? String == "image/png")
-        #expect(cover["source"] as? String == "manifestProperty")
+        #expect(current["epubMetadata"] == nil)
+        #expect(current["epubCover"] == nil)
 
         let pdf = try dictionary(groups[2])
         let pdfSource = try dictionary(try dictionary(pdf["source"])["pdfSource"])
@@ -183,9 +176,8 @@ struct JSONExporterTests {
         ).isEmpty)
 
         let warnings = try array(root["warnings"])
-        #expect(warnings.count == 2)
-        #expect(try dictionary(warnings[0])["code"] as? String == "epubCoverUnavailable")
-        let pdfWarning = try dictionary(warnings[1])
+        #expect(warnings.count == 1)
+        let pdfWarning = try dictionary(warnings[0])
         #expect(pdfWarning["code"] as? String == "pdfFailure")
         let failure = try dictionary(pdfWarning["pdfFailure"])
         #expect(failure["kind"] as? String == "worker")
@@ -279,7 +271,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 6)
+        #expect(document["schemaVersion"] as? Int == 7)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -404,25 +396,6 @@ struct JSONExporterTests {
                 textIsApproximate: true,
                 textUnavailableReason: nil
             )
-            let metadata = EPUBMetadata(
-                title: "EPUB Title",
-                creator: "EPUB Creator",
-                identifiers: ["id-1", "id-2"],
-                isbn: "9780306406157",
-                language: "en",
-                publisher: "Publisher",
-                publicationDate: "2020-01-02",
-                rights: "Rights",
-                subjects: ["One", "Two"],
-                coverItemID: "cover-item"
-            )
-            let cover = EPUBCover(
-                data: Data([0x89, 0x50, 0x4E, 0x47]),
-                declaredMediaType: "image/jpeg",
-                detectedMediaType: "image/png",
-                source: .manifestProperty
-            )
-
             let groups = [
                 ExportGroup(
                     source: .epubUnmapped(assetID: "orphan-asset"),
@@ -436,9 +409,7 @@ struct JSONExporterTests {
                                 EnrichedAnnotation(annotation: currentAnnotation, source: .currentLibrary(currentBook))
                             )
                         ),
-                    ],
-                    epubMetadata: metadata,
-                    epubCover: cover
+                    ]
                 ),
                 ExportGroup(
                     source: .pdf(pdfSource),
@@ -452,15 +423,12 @@ struct JSONExporterTests {
                 hasNote: false,
                 colors: [.yellow, .blue],
                 order: .reading,
-                grouping: .perBook,
-                includeEPUBMetadata: true,
-                cover: .inline
+                grouping: .perBook
             )
             bundle = ExportBundle(
                 options: options,
                 groups: groups,
                 warnings: [
-                    .epubCoverUnavailable(bookLocalPK: 11),
                     .pdfFailure(
                         PDFHighlightServiceFailure(
                             source: pdfSource,

@@ -279,7 +279,7 @@ enum CLIOperation {
                 return .writeSafetyWithReason(message: "Output already exists. Choose another destination or explicitly allow overwrite.", reason: "output_exists")
             case .invalidOutputRoot, .unsafeOutputRoot, .invalidFileName, .unsafeParent, .unsafeDestination:
                 return .writeSafetyWithReason(message: "Output path is unsafe or has the wrong node type.", reason: "unsafe_output")
-            case .unsupportedCoverMediaType, .writeFailed:
+            case .writeFailed:
                 return .writeSafety("Output could not be written.")
             }
         }

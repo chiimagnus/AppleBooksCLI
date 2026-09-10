@@ -25,8 +25,6 @@ struct ExportServiceTests {
         #expect(bundle.statistics.epubAnnotationCount == 1)
         #expect(bundle.statistics.pdfHighlightCount == 0)
         #expect(bundle.warnings.isEmpty)
-        #expect(bundle.groups[0].epubMetadata == nil)
-        #expect(bundle.groups[0].epubCover == nil)
         guard case let .epubCurrent(book) = bundle.groups[0].source else {
             Issue.record("expected current EPUB group")
             return
@@ -184,66 +182,6 @@ struct ExportServiceTests {
             return
         }
         #expect(source.fileURL == selected)
-    }
-
-    @Test
-    func explicitEPUBEnrichmentIsBestEffortAndNeverGuessesHistoricalOrUnmappedContent() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let validEPUB = try fixture.epub(name: "valid.epub")
-        let brokenEPUB = fixture.root.appendingPathComponent("missing.epub", isDirectory: true)
-        try fixture.createLibrary([
-            .init(pk: 1, assetID: "valid", title: "Valid", contentType: 1, path: validEPUB.path),
-            .init(pk: 2, assetID: "broken", title: "Broken", contentType: 1, path: brokenEPUB.path),
-        ])
-        try fixture.createAnnotations([
-            .init(pk: 1, assetID: "valid", selectedText: "valid quote"),
-            .init(pk: 2, assetID: "broken", selectedText: "broken quote"),
-            .init(pk: 3, assetID: "historical", selectedText: "history quote"),
-            .init(pk: 4, assetID: "unmapped", selectedText: "orphan quote"),
-        ])
-        try fixture.createConfiguration(historical: [
-            "historical": (title: "History", author: "Archive Author"),
-        ])
-
-        let bundle = try fixture.service().makeBundle(
-            options: ExportOptions(
-                includeEPUBMetadata: true,
-                cover: .inline
-            )
-        )
-
-        let valid = try #require(bundle.groups.first { group in
-            if case let .epubCurrent(book) = group.source { return book.assetID == "valid" }
-            return false
-        })
-        #expect(valid.epubMetadata?.title == "EPUB Enriched")
-        #expect(valid.epubMetadata?.publisher == "Publisher")
-        #expect(valid.epubCover?.mediaType == "image/png")
-        #expect(valid.epubCover?.data == Fixture.png)
-
-        let broken = try #require(bundle.groups.first { group in
-            if case let .epubCurrent(book) = group.source { return book.assetID == "broken" }
-            return false
-        })
-        #expect(broken.records.count == 1)
-        #expect(broken.epubMetadata == nil)
-        #expect(broken.epubCover == nil)
-        #expect(bundle.warnings.contains(.epubContentUnavailable(bookLocalPK: 2)))
-
-        let historical = try #require(bundle.groups.first { group in
-            if case let .epubHistorical(assetID, _) = group.source { return assetID == "historical" }
-            return false
-        })
-        #expect(historical.epubMetadata == nil)
-        #expect(historical.epubCover == nil)
-        let unmapped = try #require(bundle.groups.first { group in
-            if case let .epubUnmapped(assetID) = group.source { return assetID == "unmapped" }
-            return false
-        })
-        #expect(unmapped.epubMetadata == nil)
-        #expect(unmapped.epubCover == nil)
-        #expect(bundle.statistics.recordCount == 4)
     }
 
     @Test

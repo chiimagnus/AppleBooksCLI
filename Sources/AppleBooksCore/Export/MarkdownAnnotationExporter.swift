@@ -1,69 +1,22 @@
 import Foundation
 
-enum MarkdownCoverPresentation: Equatable, Sendable {
-    case none
-    case inlineDataURL(String)
-    case file(relativePath: String)
-}
-
-struct MarkdownRenderContext: Equatable, Sendable {
-    var cover: MarkdownCoverPresentation = .none
-}
-
 public enum MarkdownAnnotationExporter {
     public static func render(_ bundle: ExportBundle) -> String {
-        render(bundle, contexts: [:])
-    }
-
-    public static func render(
-        _ bundle: ExportBundle,
-        coverMode: ExportCoverMode
-    ) throws -> String {
-        switch coverMode {
-        case .none:
-            return render(bundle)
-        case .inline:
-            var contexts: [Int: MarkdownRenderContext] = [:]
-            for (index, group) in bundle.groups.enumerated() {
-                guard let cover = group.epubCover else { continue }
-                let media = try ExportCoverMedia.resolve(cover)
-                contexts[index] = MarkdownRenderContext(
-                    cover: .inlineDataURL(
-                        "data:\(media.type);base64,\(cover.data.base64EncodedString())"
-                    )
-                )
-            }
-            return render(bundle, contexts: contexts)
-        case .file:
-            throw ExportFileWriterError.writeFailed
-        }
-    }
-
-    static func render(
-        _ bundle: ExportBundle,
-        contexts: [Int: MarkdownRenderContext]
-    ) -> String {
         guard bundle.groups.isEmpty == false else {
             return "# Apple Books export\n\n_No records._\n"
         }
-        return "# Apple Books export\n\n" + bundle.groups.enumerated()
-            .map { index, group in
-                renderPlain(group: group, headingLevel: 2, context: contexts[index] ?? MarkdownRenderContext())
-            }
+        return "# Apple Books export\n\n" + bundle.groups
+            .map { renderPlain(group: $0, headingLevel: 2) }
             .joined(separator: "\n\n") + "\n"
     }
 
-    static func render(
-        _ group: ExportGroup,
-        context: MarkdownRenderContext = MarkdownRenderContext()
-    ) -> String {
-        renderPlain(group: group, headingLevel: 1, context: context) + "\n"
+    static func render(_ group: ExportGroup) -> String {
+        renderPlain(group: group, headingLevel: 1) + "\n"
     }
 
     private static func renderPlain(
         group: ExportGroup,
-        headingLevel: Int,
-        context: MarkdownRenderContext
+        headingLevel: Int
     ) -> String {
         let source = sourceContext(group)
         var blocks = ["\(String(repeating: "#", count: headingLevel)) \(escapeHeading(source.title))"]
@@ -76,9 +29,6 @@ public enum MarkdownAnnotationExporter {
         }
         if let path = source.path {
             blocks.append("**Path:** \(escapeInline(path))")
-        }
-        if let cover = coverBlock(context.cover) {
-            blocks.append(cover)
         }
         if group.records.isEmpty {
             blocks.append("_No records._")
@@ -134,24 +84,12 @@ public enum MarkdownAnnotationExporter {
         return annotation.appleBooksURL.map { ["**Apple Books:** [Open book](<\($0)>)"] } ?? []
     }
 
-    private static func coverBlock(_ presentation: MarkdownCoverPresentation) -> String? {
-        switch presentation {
-        case .none:
-            nil
-        case let .inlineDataURL(url):
-            "![Cover](\(url))"
-        case let .file(relativePath):
-            "![Cover](<\(relativePath)>)"
-        }
-    }
-
     private static func sourceContext(_ group: ExportGroup) -> MarkdownSourceContext {
         switch group.source {
         case let .epubCurrent(book):
-            let metadata = group.epubMetadata
             return MarkdownSourceContext(
-                title: nonEmpty(book.title) ?? nonEmpty(metadata?.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB",
-                author: nonEmpty(book.author) ?? nonEmpty(metadata?.creator),
+                title: nonEmpty(book.title) ?? nonEmpty(book.assetID) ?? "Untitled EPUB",
+                author: nonEmpty(book.author),
                 kind: "EPUB",
                 identity: book.assetID,
                 path: nil

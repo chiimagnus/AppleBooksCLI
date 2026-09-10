@@ -615,22 +615,6 @@
       ]
     ]
   },
-  "cover inline / cover file": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportFileWriter.swift",
-      "Sources/AppleBooksCore/Export/MarkdownAnnotationExporter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportFileWriterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--cover"
-      ]
-    ]
-  },
   "cover 提取": {
     "owner": "core",
     "implementationPaths": [

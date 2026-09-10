@@ -73,7 +73,7 @@ struct ExportFileWriterTests {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let bundle = FixtureFactory.bundleWithDuplicateTitles(cover: FixtureFactory.pngCover)
+        let bundle = FixtureFactory.bundleWithDuplicateTitles()
 
         let result = try writer.writeDocuments(bundle, fileExtension: "json") { group in
             Data("records=\(group.records.count)".utf8)
@@ -110,7 +110,7 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func symlinkOutputRootAndAttachmentParentAreRejectedWithoutFollowingThem() throws {
+    func symlinkOutputRootAndAncestorsAreRejectedWithoutFollowingThem() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
         let outsideDirectory = fixture.root.appendingPathComponent("outside", isDirectory: true)
@@ -137,105 +137,21 @@ struct ExportFileWriterTests {
             )
         }
 
-        let attachments = fixture.output.appendingPathComponent("Attachments", isDirectory: true)
-        try FileManager.default.createSymbolicLink(at: attachments, withDestinationURL: outsideDirectory)
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let bundle = FixtureFactory.bundle(
-            title: "Cover",
-            author: "Author",
-            cover: FixtureFactory.pngCover
-        )
-        #expect(throws: ExportFileWriterError.unsafeParent) {
-            _ = try writer.writeMarkdown(
-                bundle,
-                layout: .perBook,
-                coverMode: .file
-            )
-        }
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: outsideDirectory.path)) == ["nested"])
-    }
-
-    @Test
-    func fileCoversUseRealMediaTypesAndSameNameDocumentsAndCoversNeverOverwriteEachOther() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let bundle = FixtureFactory.bundleWithDuplicateTitles(cover: FixtureFactory.pngCover)
-
-        let result = try writer.writeMarkdown(
-            bundle,
-            layout: .perBook,
-            coverMode: .file
-        )
-        #expect(result.documentFileCount == 2)
-        let names = result.files.map(\.lastPathComponent)
-        #expect(names.contains("Same.md"))
-        #expect(names.contains("Same-2.md"))
-        #expect(names.contains("Same-cover.png"))
-        #expect(names.contains("Same-cover-2.png"))
-        #expect(names.contains(where: { $0.hasSuffix(".jpg") }) == false)
-
-        let firstBook = try String(contentsOf: fixture.output.appendingPathComponent("Same.md"), encoding: .utf8)
-        let secondBook = try String(contentsOf: fixture.output.appendingPathComponent("Same-2.md"), encoding: .utf8)
-        #expect(firstBook.contains("![Cover](<Attachments/Same-cover.png>)"))
-        #expect(secondBook.contains("![Cover](<Attachments/Same-cover-2.png>)"))
-    }
-
-    @Test
-    func inlineCoverUsesDeclaredMediaTypeWithoutWritingAttachment() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let bundle = FixtureFactory.bundle(
-            title: "Inline",
-            author: nil,
-            cover: FixtureFactory.pngCover
-        )
-
-        _ = try writer.writeMarkdown(
-            bundle,
-            layout: .perBook,
-            coverMode: .inline
-        )
-        let markdown = try String(contentsOf: fixture.output.appendingPathComponent("Inline.md"), encoding: .utf8)
-        #expect(markdown.contains("![Cover](data:image/png;base64,"))
-        #expect(FileManager.default.fileExists(atPath: fixture.output.appendingPathComponent("Attachments").path) == false)
-    }
-
-    @Test
-    func unsupportedCoverMediaTypeFailsInsteadOfInventingExtension() throws {
-        let fixture = try FileFixture()
-        defer { fixture.remove() }
-        let writer = try ExportFileWriter(outputRoot: fixture.output)
-        let cover = EPUBCover(
-            data: Data("unknown".utf8),
-            declaredMediaType: "application/octet-stream",
-            detectedMediaType: nil,
-            source: .metadataID
-        )
-        let bundle = FixtureFactory.bundle(title: "Unknown Cover", author: nil, cover: cover)
-
-        #expect(throws: ExportFileWriterError.unsupportedCoverMediaType) {
-            _ = try writer.writeMarkdown(
-                bundle,
-                layout: .perBook,
-                coverMode: .file
-            )
-        }
     }
 
     @Test
     func countOnlyWritersMatchLegacyArtifactsWithoutReturningPaths() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
-        let bundle = FixtureFactory.bundleWithDuplicateTitles(cover: FixtureFactory.pngCover)
+        let bundle = FixtureFactory.bundleWithDuplicateTitles()
         let legacy = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("legacy"))
         let canonical = try ExportFileWriter(outputRoot: fixture.output.appendingPathComponent("canonical"))
-        let result = try legacy.writeMarkdown(bundle, layout: .perBook, coverMode: .file)
-        let count = try canonical.writeMarkdownCount(bundle, layout: .perBook, coverMode: .file)
+        let result = try legacy.writeMarkdown(bundle, layout: .perBook)
+        let count = try canonical.writeMarkdownCount(bundle, layout: .perBook)
         #expect(count == 2)
         #expect(result.documentFileCount == count)
-        #expect(result.files.count == 4)
+        #expect(result.files.count == 2)
         for path in result.files {
             let relative = String(path.path.dropFirst(legacy.outputRoot.path.count + 1))
             #expect(try Data(contentsOf: path) == Data(contentsOf: canonical.outputRoot.appendingPathComponent(relative)))
@@ -313,34 +229,25 @@ struct ExportFileWriterTests {
     }
 
     private enum FixtureFactory {
-        static let pngCover = EPUBCover(
-            data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00]),
-            declaredMediaType: "image/png",
-            detectedMediaType: "image/png",
-            source: .manifestProperty
-        )
-
         static func bundle(
             title: String,
             author: String?,
-            note: String = "note",
-            cover: EPUBCover? = nil
+            note: String = "note"
         ) -> ExportBundle {
             let book = makeBook(pk: 1, title: title, author: author)
             let group = ExportGroup(
                 source: .epubCurrent(book),
-                records: [makeRecord(pk: 1, book: book, note: note)],
-                epubCover: cover
+                records: [makeRecord(pk: 1, book: book, note: note)]
             )
             return makeBundle(groups: [group])
         }
 
-        static func bundleWithDuplicateTitles(cover: EPUBCover) -> ExportBundle {
+        static func bundleWithDuplicateTitles() -> ExportBundle {
             let first = makeBook(pk: 1, title: "Same", author: nil)
             let second = makeBook(pk: 2, title: "Same", author: nil)
             return makeBundle(groups: [
-                ExportGroup(source: .epubCurrent(first), records: [makeRecord(pk: 1, book: first)], epubCover: cover),
-                ExportGroup(source: .epubCurrent(second), records: [makeRecord(pk: 2, book: second)], epubCover: cover),
+                ExportGroup(source: .epubCurrent(first), records: [makeRecord(pk: 1, book: first)]),
+                ExportGroup(source: .epubCurrent(second), records: [makeRecord(pk: 2, book: second)]),
             ])
         }
 

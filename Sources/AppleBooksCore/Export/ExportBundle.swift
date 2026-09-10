@@ -10,27 +10,15 @@ public enum ExportGroupSource: Equatable, Sendable {
 public struct ExportGroup: Equatable, Sendable {
     public let source: ExportGroupSource
     public let records: [ExportRecord]
-    public let epubMetadata: EPUBMetadata?
-    public let epubCover: EPUBCover?
 
-    init(
-        source: ExportGroupSource,
-        records: [ExportRecord],
-        epubMetadata: EPUBMetadata? = nil,
-        epubCover: EPUBCover? = nil
-    ) {
+    init(source: ExportGroupSource, records: [ExportRecord]) {
         self.source = source
         self.records = records
-        self.epubMetadata = epubMetadata
-        self.epubCover = epubCover
     }
 }
 
 public enum ExportWarning: Equatable, Sendable {
     case pdfUnavailable
-    case epubContentUnavailable(bookLocalPK: Int64)
-    case epubMetadataUnavailable(bookLocalPK: Int64)
-    case epubCoverUnavailable(bookLocalPK: Int64)
     case pdfFailure(PDFHighlightServiceFailure)
 }
 

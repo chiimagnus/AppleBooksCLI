@@ -29,12 +29,6 @@ public enum ExportFileGrouping: String, Equatable, Sendable {
     case perBook
 }
 
-public enum ExportCoverMode: String, Equatable, Sendable {
-    case none
-    case inline
-    case file
-}
-
 public enum ExportBookSelector: Equatable, Hashable, Sendable {
     case assetID(String)
     case localPK(Int64)
@@ -50,8 +44,6 @@ public struct ExportOptions: Equatable, Sendable {
     public let underline: Bool?
     public let order: ExportOrder
     public let grouping: ExportFileGrouping
-    public let includeEPUBMetadata: Bool
-    public let cover: ExportCoverMode
 
     public init(
         source: ExportSourceScope = .all,
@@ -61,9 +53,7 @@ public struct ExportOptions: Equatable, Sendable {
         colors: Set<ExportPresentationColor>? = nil,
         underline: Bool? = nil,
         order: ExportOrder = .reading,
-        grouping: ExportFileGrouping = .single,
-        includeEPUBMetadata: Bool = false,
-        cover: ExportCoverMode = .none
+        grouping: ExportFileGrouping = .single
     ) throws {
         if let colors {
             guard colors.isEmpty == false else { throw ExportOptionsError.emptyColors }
@@ -83,9 +73,6 @@ public struct ExportOptions: Equatable, Sendable {
         if !bookSelectors.isEmpty, source != .all {
             throw ExportOptionsError.conflictingOptions
         }
-        if source == .pdf, includeEPUBMetadata || cover != .none {
-            throw ExportOptionsError.conflictingOptions
-        }
         self.source = source
         self.bookSelectors = bookSelectors
         self.hasHighlight = hasHighlight
@@ -94,7 +81,5 @@ public struct ExportOptions: Equatable, Sendable {
         self.underline = underline
         self.order = order
         self.grouping = grouping
-        self.includeEPUBMetadata = includeEPUBMetadata
-        self.cover = cover
     }
 }

@@ -16,8 +16,6 @@ struct ExportOptionsTests {
         #expect(options.underline == nil)
         #expect(options.order == .reading)
         #expect(options.grouping == .single)
-        #expect(options.includeEPUBMetadata == false)
-        #expect(options.cover == .none)
 
         #expect(throws: ExportOptionsError.emptyColors) {
             _ = try ExportOptions(colors: [])
@@ -36,12 +34,6 @@ struct ExportOptionsTests {
                 source: .epub,
                 bookSelectors: [.pdfSourceID("pdf1_" + String(repeating: "a", count: 64))]
             )
-        }
-        #expect(throws: ExportOptionsError.conflictingOptions) {
-            _ = try ExportOptions(source: .pdf, includeEPUBMetadata: true)
-        }
-        #expect(throws: ExportOptionsError.conflictingOptions) {
-            _ = try ExportOptions(source: .pdf, cover: .inline)
         }
     }
 

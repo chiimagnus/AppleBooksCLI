@@ -60,15 +60,7 @@ struct ExportService {
                   case let .currentLibrary(book) = enriched.source else { return [:] }
             return try annotationQueries?.resolveReadingContext(bookLocalPK: book.localPK).chapterOrder ?? [:]
         }
-        var groups = makeGroups(records: selected)
-
-        if options.includeEPUBMetadata || options.cover != .none {
-            for index in groups.indices {
-                let result = try enrich(group: groups[index], options: options)
-                groups[index] = result.group
-                warnings.append(contentsOf: result.warnings)
-            }
-        }
+        let groups = makeGroups(records: selected)
 
         return ExportBundle(
             options: options,
@@ -135,53 +127,6 @@ struct ExportService {
         case let .pdf(source, _):
             return .pdf(source)
         }
-    }
-
-    private func enrich(
-        group: ExportGroup,
-        options: ExportOptions
-    ) throws -> (group: ExportGroup, warnings: [ExportWarning]) {
-        guard case let .epubCurrent(book) = group.source else { return (group, []) }
-        guard let configuration else { throw AppleBooksDependencyError.unavailable(.configuration) }
-
-        let content: BookContent
-        do {
-            content = try BookContent(reader: EPUBSourceResolver.reader(for: book, configuration: configuration))
-        } catch {
-            return (
-                group,
-                [.epubContentUnavailable(bookLocalPK: book.localPK)]
-            )
-        }
-
-        var metadata: EPUBMetadata?
-        var cover: EPUBCover?
-        var warnings: [ExportWarning] = []
-
-        if options.includeEPUBMetadata {
-            do {
-                metadata = try content.metadata()
-            } catch {
-                warnings.append(.epubMetadataUnavailable(bookLocalPK: book.localPK))
-            }
-        }
-        if options.cover != .none {
-            do {
-                cover = try content.cover()
-            } catch {
-                warnings.append(.epubCoverUnavailable(bookLocalPK: book.localPK))
-            }
-        }
-
-        return (
-            ExportGroup(
-                source: group.source,
-                records: group.records,
-                epubMetadata: metadata,
-                epubCover: cover
-            ),
-            warnings
-        )
     }
 
     private func makeSourceTotals(

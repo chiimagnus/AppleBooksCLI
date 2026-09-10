@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum JSONExporter {
-    static let schemaVersion = 6
+    static let schemaVersion = 7
 
     public static func render(_ bundle: ExportBundle, exportedAt: Date) throws -> Data {
         let mapper = JSONExportMapper()
@@ -76,17 +76,13 @@ private struct JSONExportMapper {
             colors: value.colors?.map(\.rawValue).sorted(),
             underline: value.underline,
             order: value.order.rawValue,
-            grouping: value.grouping.rawValue,
-            includeEPUBMetadata: value.includeEPUBMetadata,
-            cover: value.cover.rawValue
+            grouping: value.grouping.rawValue
         )
     }
 
     func group(_ value: ExportGroup) -> JSONGroupDTO {
         JSONGroupDTO(
             source: groupSource(value.source),
-            epubMetadata: value.epubMetadata.map(metadata),
-            epubCover: value.epubCover.map(cover),
             records: value.records.map(record)
         )
     }
@@ -156,31 +152,6 @@ private struct JSONExportMapper {
         )
     }
 
-    private func metadata(_ value: EPUBMetadata) -> JSONEPUBMetadataDTO {
-        JSONEPUBMetadataDTO(
-            title: value.title,
-            creator: value.creator,
-            identifiers: value.identifiers,
-            isbn: value.isbn,
-            language: value.language,
-            publisher: value.publisher,
-            publicationDate: value.publicationDate,
-            rights: value.rights,
-            subjects: value.subjects,
-            coverItemID: value.coverItemID
-        )
-    }
-
-    private func cover(_ value: EPUBCover) -> JSONEPUBCoverDTO {
-        JSONEPUBCoverDTO(
-            dataBase64: value.data.base64EncodedString(),
-            declaredMediaType: value.declaredMediaType,
-            detectedMediaType: value.detectedMediaType,
-            mediaType: value.mediaType,
-            source: value.source.rawValue
-        )
-    }
-
     private func pdfSource(_ value: PDFSource) -> JSONPDFSourceDTO {
         JSONPDFSourceDTO(
             filePath: value.fileURL.path,
@@ -210,12 +181,6 @@ private struct JSONExportMapper {
         switch value {
         case .pdfUnavailable:
             return JSONWarningDTO(code: "pdfUnavailable")
-        case let .epubContentUnavailable(bookLocalPK):
-            return JSONWarningDTO(code: "epubContentUnavailable", bookLocalPK: bookLocalPK)
-        case let .epubMetadataUnavailable(bookLocalPK):
-            return JSONWarningDTO(code: "epubMetadataUnavailable", bookLocalPK: bookLocalPK)
-        case let .epubCoverUnavailable(bookLocalPK):
-            return JSONWarningDTO(code: "epubCoverUnavailable", bookLocalPK: bookLocalPK)
         case let .pdfFailure(failure):
             return JSONWarningDTO(
                 code: "pdfFailure",
@@ -263,8 +228,6 @@ private struct JSONOptionsDTO: Encodable {
     let underline: Bool?
     let order: String
     let grouping: String
-    let includeEPUBMetadata: Bool
-    let cover: String
 }
 
 private struct JSONBookSelectorDTO: Encodable {
@@ -274,8 +237,6 @@ private struct JSONBookSelectorDTO: Encodable {
 
 private struct JSONGroupDTO: Encodable {
     let source: JSONGroupSourceDTO
-    let epubMetadata: JSONEPUBMetadataDTO?
-    let epubCover: JSONEPUBCoverDTO?
     let records: [JSONRecordDTO]
 }
 
@@ -437,27 +398,6 @@ private struct JSONHistoricalMetadataDTO: Encodable {
         title = value.title
         author = value.author
     }
-}
-
-private struct JSONEPUBMetadataDTO: Encodable {
-    let title: String?
-    let creator: String?
-    let identifiers: [String]
-    let isbn: String?
-    let language: String?
-    let publisher: String?
-    let publicationDate: String?
-    let rights: String?
-    let subjects: [String]
-    let coverItemID: String?
-}
-
-private struct JSONEPUBCoverDTO: Encodable {
-    let dataBase64: String
-    let declaredMediaType: String?
-    let detectedMediaType: String?
-    let mediaType: String?
-    let source: String
 }
 
 private struct JSONPDFSourceDTO: Encodable {

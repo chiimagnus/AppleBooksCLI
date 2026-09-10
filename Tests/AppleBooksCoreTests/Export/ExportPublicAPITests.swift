@@ -40,6 +40,9 @@ struct ExportPublicAPITests {
             let text = try #require(String(data: data, encoding: .utf8))
             #expect(text.contains("public quote"))
             #expect(text.contains("deleted quote") == false)
+            #expect(text.contains("includeEPUBMetadata") == false)
+            #expect(text.contains("epubMetadata") == false)
+            #expect(text.contains("epubCover") == false)
         }
         #expect(markdown.contains("public quote"))
         #expect(markdown.contains("deleted quote") == false)

@@ -50,14 +50,6 @@ enum ExportGroupingArgument: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum ExportCoverArgument: String, ExpressibleByArgument, Sendable {
-    case none
-    case inline
-    case file
-
-    var coreValue: ExportCoverMode { ExportCoverMode(rawValue: rawValue)! }
-}
-
 enum ExportOverwriteArgument: String, ExpressibleByArgument, Sendable {
     case never
     case always
@@ -134,12 +126,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "File grouping: single or per-book.")
     var grouping: ExportGroupingArgument?
 
-    @Flag(name: .customLong("include-epub-metadata"), help: "Include EPUB package metadata when available.")
-    var includeEPUBMetadata = false
-
-    @Option(name: .long, help: "Cover mode: none, inline, or file.")
-    var cover: ExportCoverArgument?
-
     @Option(name: .long, help: "Existing-file policy: never (default) or always.")
     var overwrite: ExportOverwriteArgument?
 
@@ -170,7 +156,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         let resolvedSource = source?.coreValue ?? defaults.source
         let resolvedOrder = order?.coreValue ?? defaults.order
         let resolvedGrouping = grouping?.coreValue ?? defaults.grouping
-        let resolvedCover = cover?.coreValue ?? defaults.cover
 
         let options = try CLIOperation.run {
             try ExportOptions(
@@ -181,13 +166,9 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 colors: colors,
                 underline: underline?.value,
                 order: resolvedOrder,
-                grouping: resolvedGrouping,
-                includeEPUBMetadata: includeEPUBMetadata,
-                cover: resolvedCover
+                grouping: resolvedGrouping
             )
         }
-
-        try validateFormatSpecificOptions(options: options)
 
         let overwritePolicy = overwrite?.coreValue ?? .never
         guard let output else {
@@ -233,12 +214,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
     }
 
-    private func validateFormatSpecificOptions(options: ExportOptions) throws {
-        if options.cover == .file, format != .markdown {
-            throw ValidationError("--cover file requires --format markdown.")
-        }
-    }
-
     private func makeAppleBooks(
         for options: ExportOptions,
         workerURLProvider: () throws -> URL
@@ -270,7 +245,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         case .json:
             return String(decoding: try JSONExporter.render(bundle, exportedAt: exportedAt), as: UTF8.self)
         case .markdown:
-            return try MarkdownAnnotationExporter.render(bundle, coverMode: request.options.cover)
+            return MarkdownAnnotationExporter.render(bundle)
         }
     }
 
@@ -298,7 +273,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             let count = try writer.writeMarkdownCount(
                 bundle,
                 layout: .single(fileName: outputURL.lastPathComponent),
-                coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
             return ExportRunResult(
@@ -337,7 +311,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
             count = try writer.writeMarkdownCount(
                 bundle,
                 layout: .perBook,
-                coverMode: request.options.cover,
                 overwrite: request.overwrite
             )
         } else {

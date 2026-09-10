@@ -39,8 +39,6 @@ struct ExportCommandTests {
             "--underline", "true",
             "--order", "reading",
             "--grouping", "per-book",
-            "--include-epub-metadata",
-            "--cover", "file",
             "--overwrite", "always",
             "--output", output.path,
         ])
@@ -59,8 +57,6 @@ struct ExportCommandTests {
         #expect(request.options.underline == true)
         #expect(request.options.order == .reading)
         #expect(request.options.grouping == .perBook)
-        #expect(request.options.includeEPUBMetadata)
-        #expect(request.options.cover == .file)
         #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles)
@@ -83,7 +79,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }
@@ -108,13 +104,6 @@ struct ExportCommandTests {
 
         let noOutput = try ExportCommand.parse(["--format", "json"] + global)
         #expect(throws: ValidationError.self) { _ = try noOutput.makeRequest() }
-
-        let nonMarkdownFileCover = try ExportCommand.parse([
-            "--format", "json",
-            "--cover", "file",
-            "--output", "/tmp/export.json",
-        ] + global)
-        #expect(throws: ValidationError.self) { _ = try nonMarkdownFileCover.makeRequest() }
     }
 
     @Test
@@ -332,8 +321,6 @@ struct ExportCommandTests {
         #expect(names.allSatisfy { $0.hasSuffix(".md") })
         let relative = try ExportCommand.parse(["--output", "relative"]).makeRequest(currentDirectory: fixture.root)
         #expect(relative.outputURL == fixture.root.appendingPathComponent("relative").standardizedFileURL)
-        let coverFile = try ExportCommand.parse(["--output", "cover.md", "--cover", "file"]).makeRequest(currentDirectory: fixture.root)
-        #expect(!coverFile.producesMultipleFiles)
         #expect(throws: ValidationError.self) { _ = try ExportCommand.parse([]).makeRequest() }
     }
 

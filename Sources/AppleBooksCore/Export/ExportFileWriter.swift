@@ -932,18 +932,6 @@ public struct ExportFileWriter {
         return destination
     }
 
-    package static func validateDestination(
-        _ destination: URL,
-        grouping: ExportFileGrouping,
-        overwrite: OverwritePolicy
-    ) throws {
-        try validateFileName(destination.lastPathComponent)
-        guard let type = nodeType(destination) else { return }
-        if overwrite == .never { throw ExportFileWriterError.destinationExists }
-        let expected = grouping == .single ? S_IFREG : S_IFDIR
-        guard type == expected else { throw ExportFileWriterError.unsafeDestination }
-    }
-
     fileprivate static func validateFileExtension(_ fileExtension: String) throws {
         guard fileExtension.isEmpty == false,
               fileExtension.count <= 16,
@@ -968,12 +956,6 @@ public struct ExportFileWriter {
               fileName.contains(":") == false else {
             throw ExportFileWriterError.invalidFileName
         }
-    }
-
-    private static func nodeType(_ url: URL) -> mode_t? {
-        var metadata = stat()
-        guard lstat(url.path, &metadata) == 0 else { return nil }
-        return metadata.st_mode & S_IFMT
     }
 
     private static func documentFileName(for group: ExportGroup, extension fileExtension: String) throws -> String {

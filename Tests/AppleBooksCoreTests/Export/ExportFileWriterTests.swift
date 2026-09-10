@@ -649,28 +649,9 @@ struct ExportFileWriterTests {
     }
 
     @Test
-    func destinationNodeTypeDependsOnlyOnGroupingAndNeverRefusesEveryExistingNode() throws {
+    func destinationParsingRejectsReservedFinalComponents() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
-        let file = fixture.output.appendingPathComponent("file")
-        try Data("original".utf8).write(to: file)
-        let directory = fixture.output.appendingPathComponent("directory")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-        let link = fixture.output.appendingPathComponent("link")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
-        for target in [file, directory, link] {
-            for grouping in [ExportFileGrouping.single, .perDocument] {
-                #expect(throws: ExportFileWriterError.destinationExists) {
-                    try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .never)
-                }
-            }
-        }
-        for (target, grouping) in [(file, ExportFileGrouping.perDocument), (directory, .single), (link, .single)] {
-            #expect(throws: ExportFileWriterError.unsafeDestination) {
-                try ExportFileWriter.validateDestination(target, grouping: grouping, overwrite: .always)
-            }
-        }
-        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
         for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v1"] {
             #expect(throws: ExportFileWriterError.invalidFileName) {
                 _ = try ExportFileWriter.destination(path: invalid, currentDirectory: fixture.output)

@@ -346,9 +346,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         outputURL: URL,
         exportedAt: Date
     ) throws -> ExportRunResult {
-        try ExportFileWriter.validateDestination(
-            outputURL, grouping: request.options.grouping, overwrite: request.overwrite
-        )
         if request.producesMultipleFiles {
             return try writeMultiple(
                 bundle,

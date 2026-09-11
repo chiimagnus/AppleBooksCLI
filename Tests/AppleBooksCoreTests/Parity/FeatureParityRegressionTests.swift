@@ -157,11 +157,11 @@ struct FeatureParityRegressionTests {
             preflight: { _ in },
             revalidate: { _ in },
             mutation: { _ in () },
-            domainData: { _ in MutationDomainData(changed: false) },
+            domainData: { _ in MutationDomainData(changed: true) },
             readBack: { _, _ in throw TestFailure.verification }
         )
         #expect(mutation.committed)
-        #expect(mutation.changed == false)
+        #expect(mutation.changed)
         #expect(mutation.warnings == [.readBackFailed])
 
         let restoreCoordinator = MutationCoordinator(

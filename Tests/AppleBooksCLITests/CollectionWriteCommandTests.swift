@@ -114,12 +114,18 @@ struct CollectionWriteCommandTests {
         let created = try create.execute(using: books)
         #expect(created.committed)
         #expect(created.changed)
-        #expect(created.localPK == 41)
-        #expect(created.stableID != nil)
-        #expect(created.appleBooksURL == nil)
-        let createdJSON = String(decoding: try JSONEncoder().encode(created), as: UTF8.self)
+        #expect(created.collectionLocalPK == nil)
+        #expect(created.collectionID != nil)
+        #expect(created.backupID != nil)
+        let createdData = try JSONEncoder().encode(created)
+        let createdJSON = String(decoding: createdData, as: UTF8.self)
         #expect(createdJSON.contains("private details") == false)
-        #expect(createdJSON.contains("appleBooksURL") == false)
+        let createdObject = try #require(JSONSerialization.jsonObject(with: createdData) as? [String: Any])
+        #expect(createdObject["collectionID"] != nil)
+        #expect(createdObject["backupID"] != nil)
+        #expect(createdObject["stableID"] == nil)
+        #expect(createdObject["localPK"] == nil)
+        #expect(createdObject["appleBooksURL"] == nil)
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=41") == "New Shelf")
         #expect(try fixture.integer("SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
 
@@ -127,8 +133,8 @@ struct CollectionWriteCommandTests {
             "550E8400-E29B-41D4-A716-446655440000", "--title", "Renamed",
         ])
         let renamed = try rename.execute(using: books)
-        #expect(renamed.localPK == 10)
-        #expect(renamed.stableID == "550E8400-E29B-41D4-A716-446655440000")
+        #expect(renamed.collectionLocalPK == nil)
+        #expect(renamed.collectionID == "550E8400-E29B-41D4-A716-446655440000")
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Renamed")
     }
 
@@ -148,7 +154,15 @@ struct CollectionWriteCommandTests {
             let result = try command.execute(using: fixture.books())
             #expect(result.committed)
             #expect(result.changed)
-            #expect(result.localPK == collectionPK)
+            #expect(result.collectionID == "550E8400-E29B-41D4-A716-446655440000")
+            #expect(result.collectionLocalPK == nil)
+            #expect(result.bookAssetID == assetID)
+            #expect(result.bookLocalPK == nil)
+            let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? [String: Any])
+            #expect(object["collectionID"] != nil)
+            #expect(object["bookAssetID"] != nil)
+            #expect(object["stableID"] == nil)
+            #expect(object["localPK"] == nil)
             #expect(try fixture.integer(
                 "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=\(collectionPK) AND ZASSETID='\(assetID)'"
             ) == 1)
@@ -190,8 +204,8 @@ struct CollectionWriteCommandTests {
         defer { stableFixture.remove() }
         let stable = try CollectionsDeleteCommand.parse(["550E8400-E29B-41D4-A716-446655440001"])
         let stableResult = try stable.execute(using: stableFixture.books())
-        #expect(stableResult.localPK == 20)
-        #expect(stableResult.stableID == "550E8400-E29B-41D4-A716-446655440001")
+        #expect(stableResult.collectionLocalPK == nil)
+        #expect(stableResult.collectionID == "550E8400-E29B-41D4-A716-446655440001")
         #expect(try stableFixture.integer("SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=20") == 1)
         #expect(try stableFixture.integer("SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=20") == 0)
 
@@ -199,8 +213,8 @@ struct CollectionWriteCommandTests {
         defer { pkFixture.remove() }
         let pk = try CollectionsDeleteCommand.parse(["--pk", "20"])
         let pkResult = try pk.execute(using: pkFixture.books())
-        #expect(pkResult.localPK == 20)
-        #expect(pkResult.stableID == nil)
+        #expect(pkResult.collectionID == "550E8400-E29B-41D4-A716-446655440001")
+        #expect(pkResult.collectionLocalPK == nil)
     }
 
     @Test

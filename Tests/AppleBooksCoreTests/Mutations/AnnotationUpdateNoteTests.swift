@@ -104,7 +104,7 @@ struct AnnotationUpdateNoteTests {
         let result = try fixture.writer.updateNote(localPK: 1, note: " ")
 
         #expect(result.localPK == 1)
-        #expect(result.stableID == nil)
+        #expect(result.stableID == "uuid-1")
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == " ")
     }
 
@@ -272,7 +272,7 @@ struct AnnotationUpdateNoteTests {
         #expect(byUUID.stableID == "uuid-1")
         let byPK = try books.updateAnnotationNote(localPK: 1, note: "pk-note")
         #expect(byPK.localPK == 1)
-        #expect(byPK.stableID == nil)
+        #expect(byPK.stableID == "uuid-1")
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "pk-note")
     }
 

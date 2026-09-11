@@ -334,7 +334,7 @@ struct CollectionWriter {
                     on: handle
                 )
                 if try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) > 0 {
-                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
                 }
 
                 let allocation = try CoreDataPrimaryKey.allocate(
@@ -356,7 +356,7 @@ struct CollectionWriter {
                     on: handle
                 )
                 try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
+                return MembershipMutationResult(changed: true, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 guard let assetID = result.assetID,
@@ -372,6 +372,8 @@ struct CollectionWriter {
                 MutationDomainData(
                     localPK: $0.collection.localPK,
                     stableID: $0.collection.stableID,
+                    relatedLocalPK: $0.bookLocalPK,
+                    relatedStableID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -434,7 +436,7 @@ struct CollectionWriter {
                 let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 let book = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
                 guard let assetID = book.assetID else {
-                    return MembershipMutationResult(changed: false, assetID: nil, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: nil, collection: collection)
                 }
                 let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
                 try Self.validateMatchingMemberEntities(
@@ -449,11 +451,11 @@ struct CollectionWriter {
                     on: handle
                 )
                 guard removed > 0 else {
-                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
                 }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
+                return MembershipMutationResult(changed: true, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 if let assetID = result.assetID {
@@ -470,6 +472,8 @@ struct CollectionWriter {
                 MutationDomainData(
                     localPK: $0.collection.localPK,
                     stableID: $0.collection.stableID,
+                    relatedLocalPK: $0.bookLocalPK,
+                    relatedStableID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -537,8 +541,7 @@ struct CollectionWriter {
     ) throws -> CollectionWriteTarget {
         switch selector {
         case let .localPK(localPK):
-            let target = try editableTarget(localPK: localPK, scope: scope, on: handle)
-            return CollectionWriteTarget(localPK: target.localPK, stableID: nil)
+            return try editableTarget(localPK: localPK, scope: scope, on: handle)
         case let .collectionID(collectionID):
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
@@ -667,7 +670,7 @@ struct CollectionWriter {
         case .membership: capabilities.canEditMembership
         }
         guard isEditable else { throw CollectionWriteError.collectionNotEditable }
-        return CollectionWriteTarget(localPK: localPK, stableID: nil)
+        return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
     }
 
     static func validateWriteReadiness(on connection: SQLiteConnection) throws {
@@ -1117,6 +1120,7 @@ struct CollectionWriter {
 
     private struct MembershipMutationResult {
         let changed: Bool
+        let bookLocalPK: Int64
         let assetID: String?
         let collection: CollectionWriteTarget
     }

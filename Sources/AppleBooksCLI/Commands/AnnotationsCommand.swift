@@ -276,11 +276,14 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
+            return AnnotationMutationCommandResult(
+                try selector.updateNote(note, in: books, syncCloud: sync),
+                selector: selector
+            )
         }
     }
 }
@@ -313,11 +316,14 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            return AnnotationMutationCommandResult(
+                try selector.delete(in: books, syncCloud: sync),
+                selector: selector
+            )
         }
     }
 }

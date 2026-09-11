@@ -44,6 +44,7 @@ metadata:
 - `annotations update-note --note` 会整段替换 note；用户要追加时先读取当前 note。`annotations delete` 是 soft-delete 整条批注。
 - collection membership mutation 只使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个；collection/book identity 不再作为 positional argument。
 - 单条 mutation 只有在用户需要当前 Mac CloudKit acknowledgement 时才加 `--sync`，否则省略。多条 mutation 需要 acknowledgement 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。
+- mutation result 返回领域 identity，不再使用通用 `stableID` / `localPK`：批注使用 `annotationUUID` 或 fallback `annotationLocalPK`；collection 使用 `collectionID` 或 fallback `collectionLocalPK`；membership 还返回 `bookAssetID` 或 fallback `bookLocalPK`。annotation safety backup 只在内部使用；collection/membership result 才可能公开 library `backupID`。
 - deterministic no-op 返回 `committed=false`、`changed=false` 且没有 `backupID`；即使请求了 `--sync`，也只会有 `acknowledgementRequested=true`、`acknowledged=null`，不会真的等待 acknowledgement。已 commit 后出现 warning 不能触发自动重放。sync acknowledgement 只确认当前 Mac，不代表另一台设备已经显示。
 - `backups list` 是固定恢复目录，只展示最新 10 个有效 library backup；不要分页，也不要把它当作完整备份历史。把列表返回或之前保存的有效 opaque `backupID` 原样交给 `backups restore`；不要使用 backup filename 或 path 作为 selector。
 

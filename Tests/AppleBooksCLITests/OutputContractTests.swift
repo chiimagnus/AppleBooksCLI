@@ -138,34 +138,80 @@ struct OutputContractTests {
 
     @Test
     func mutationOutcomeAlwaysEncodesAcknowledgementStateExplicitly() throws {
-        let noSync = MutationCommandResult(MutationResult(
-            committed: false,
-            backupHandle: nil,
-            localPK: 1,
-            stableID: "stable",
-            changed: false,
-            acknowledgementRequested: false,
-            acknowledged: nil,
-            warnings: []
-        ))
-        let requestedNoOp = MutationCommandResult(MutationResult(
-            committed: false,
-            backupHandle: nil,
-            localPK: 1,
-            stableID: "stable",
-            changed: false,
-            acknowledgementRequested: true,
-            acknowledged: nil,
-            warnings: []
-        ))
+        let noSync = AnnotationMutationCommandResult(
+            MutationResult(
+                committed: false,
+                backupHandle: nil,
+                localPK: 1,
+                stableID: "stable",
+                changed: false,
+                acknowledgementRequested: false,
+                acknowledged: nil,
+                warnings: []
+            ),
+            selector: .uuid("stable")
+        )
+        let requestedNoOp = AnnotationMutationCommandResult(
+            MutationResult(
+                committed: false,
+                backupHandle: nil,
+                localPK: 1,
+                stableID: "stable",
+                changed: false,
+                acknowledgementRequested: true,
+                acknowledged: nil,
+                warnings: []
+            ),
+            selector: .uuid("stable")
+        )
 
         for (result, requested) in [(noSync, false), (requestedNoOp, true)] {
             let data = try JSONEncoder().encode(result)
             let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(object["acknowledgementRequested"] as? Bool == requested)
             #expect(object["acknowledged"] is NSNull)
-            #expect(try JSONDecoder().decode(MutationCommandResult.self, from: data) == result)
+            #expect(try JSONDecoder().decode(AnnotationMutationCommandResult.self, from: data) == result)
         }
+    }
+
+    @Test
+    func mutationDomainIdentityFallsBackToExplicitLocalPKOnlyWhenStableIdentityIsUnavailable() throws {
+        let annotation = AnnotationMutationCommandResult(
+            MutationResult(
+                committed: true,
+                backupHandle: "annotations__20240101-000000-000000__00000000-0000-4000-8000-000000000001.sqlite",
+                localPK: 7,
+                stableID: nil,
+                changed: true,
+                acknowledgementRequested: false,
+                acknowledged: nil,
+                warnings: []
+            ),
+            selector: .localPK(7)
+        )
+        #expect(annotation.annotationUUID == nil)
+        #expect(annotation.annotationLocalPK == 7)
+
+        let membership = MembershipMutationCommandResult(
+            MutationResult(
+                committed: true,
+                backupHandle: "library__20240101-000000-000000__00000000-0000-4000-8000-000000000002.sqlite",
+                localPK: 3,
+                stableID: nil,
+                relatedLocalPK: 9,
+                relatedStableID: nil,
+                changed: false,
+                acknowledgementRequested: false,
+                acknowledged: nil,
+                warnings: []
+            ),
+            collection: .localPK(3),
+            book: .localPK(9)
+        )
+        #expect(membership.collectionID == nil)
+        #expect(membership.collectionLocalPK == 3)
+        #expect(membership.bookAssetID == nil)
+        #expect(membership.bookLocalPK == 9)
     }
 
     @Test

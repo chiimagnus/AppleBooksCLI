@@ -64,8 +64,8 @@ struct AnnotationWriteCommandTests {
         let uuidResult = try uuidCommand.execute(using: books)
         #expect(uuidResult.committed)
         #expect(uuidResult.changed)
-        #expect(uuidResult.localPK == 1)
-        #expect(uuidResult.stableID == "123")
+        #expect(uuidResult.annotationUUID == "123")
+        #expect(uuidResult.annotationLocalPK == nil)
         #expect(uuidResult.warningCodes.isEmpty)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == privateNote)
         let encoded = String(decoding: try JSONEncoder().encode(uuidResult), as: UTF8.self)
@@ -74,20 +74,20 @@ struct AnnotationWriteCommandTests {
 
         let pkCommand = try AnnotationsUpdateNoteCommand.parse(["--pk", "123", "--note", "pk replacement"])
         let pkResult = try pkCommand.execute(using: books)
-        #expect(pkResult.localPK == 123)
-        #expect(pkResult.stableID == nil)
+        #expect(pkResult.annotationUUID == "other")
+        #expect(pkResult.annotationLocalPK == nil)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=123") == "pk replacement")
     }
 
     @Test
-    func sharedMutationJSONKeepsMetadataAndDeeplink() throws {
+    func annotationMutationJSONHidesInternalBackupAndDeeplink() throws {
         let deeplink = "ibooks://assetid/asset-a#epubcfi(/6/2)"
         let backup = BackupMetadata.fresh(
             sourceStem: "annotations",
             now: Date(timeIntervalSince1970: 1_700_000_000),
             uuid: UUID(uuidString: "00000000-0000-4000-8000-000000000007")!
         )
-        let result = MutationCommandResult(
+        let result = AnnotationMutationCommandResult(
             MutationResult(
                 committed: true,
                 backupHandle: backup.filename,
@@ -98,24 +98,27 @@ struct AnnotationWriteCommandTests {
                 acknowledged: false,
                 warnings: [.cloudSyncFailed],
                 appleBooksURL: deeplink
-            )
+            ),
+            selector: .uuid("uuid-7")
         )
 
         let data = try JSONEncoder().encode(result)
-        let decoded = try JSONDecoder().decode(MutationCommandResult.self, from: data)
+        let decoded = try JSONDecoder().decode(AnnotationMutationCommandResult.self, from: data)
         #expect(decoded == result)
         #expect(decoded.committed)
         #expect(decoded.changed)
         #expect(decoded.acknowledgementRequested)
         #expect(decoded.acknowledged == false)
-        #expect(decoded.backupID == backup.backupID)
-        let backupID = try #require(decoded.backupID)
-        #expect(backupID.contains("annotations") == false)
-        #expect(backupID.contains(".sqlite") == false)
-        #expect(decoded.localPK == 7)
-        #expect(decoded.stableID == "uuid-7")
+        #expect(decoded.annotationUUID == "uuid-7")
+        #expect(decoded.annotationLocalPK == nil)
         #expect(decoded.warningCodes == ["cloud_sync_failed"])
-        #expect(decoded.appleBooksURL == deeplink)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["backupID"] == nil)
+        #expect(object["localPK"] == nil)
+        #expect(object["stableID"] == nil)
+        #expect(object["appleBooksURL"] == nil)
+        #expect(String(decoding: data, as: UTF8.self).contains(deeplink) == false)
+        #expect(String(decoding: data, as: UTF8.self).contains(backup.backupID) == false)
     }
 
     @Test
@@ -129,8 +132,8 @@ struct AnnotationWriteCommandTests {
 
         #expect(result.committed)
         #expect(result.changed)
-        #expect(result.localPK == 1)
-        #expect(result.stableID == "123")
+        #expect(result.annotationUUID == "123")
+        #expect(result.annotationLocalPK == nil)
         #expect(try fixture.integer("SELECT COUNT(*) FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
         #expect(try fixture.integer("SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old note")

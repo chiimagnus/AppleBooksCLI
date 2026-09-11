@@ -274,20 +274,19 @@ struct CLIContractTests {
             "annotations", "update-note", "uuid-update", "--note", note,
         ])
         #expect(update["committed"] as? Bool == true)
-        let annotationURL = try #require(update["appleBooksURL"] as? String)
-        #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
-        #expect(annotationURL.contains("%5Bshared%5D"))
+        #expect(update["annotationUUID"] as? String == "uuid-update")
+        #expect(update["annotationLocalPK"] == nil)
+        #expect(update["appleBooksURL"] == nil)
+        #expect(update["backupID"] == nil)
+        #expect(update["stableID"] == nil)
+        #expect(update["localPK"] == nil)
         #expect(try fixture.scalarText("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == note)
-        let annotationBackupID = try #require(update["backupID"] as? String)
-        #expect(annotationBackupID.hasPrefix("abk1_"))
-        #expect(annotationBackupID.utf8.count == 64)
-        #expect(annotationBackupID.contains("annotations") == false)
-        #expect(annotationBackupID.contains(".sqlite") == false)
+        let backupNames = try FileManager.default.contentsOfDirectory(atPath: fixture.backupRoot.path)
+        #expect(backupNames.contains { $0.hasPrefix("annotations__") && $0.hasSuffix(".sqlite") })
 
         let backups = try fixture.runJSON(["backups", "list"])
         let backupItems = try #require(backups["items"] as? [[String: Any]])
         #expect(backupItems.contains { $0["backupID"] as? String == restoreBackupID })
-        #expect(backupItems.contains { $0["backupID"] as? String == annotationBackupID } == false)
         #expect(backupItems.allSatisfy { $0["handle"] == nil })
 
         let restore = try fixture.runJSON(["backups", "restore", restoreBackupID])
@@ -321,24 +320,36 @@ struct CLIContractTests {
         #expect(annotation.status == 0)
         #expect(annotation.stderr.isEmpty)
         #expect(annotation.stdout.contains(privateNote) == false)
+        let annotationData = Data(annotation.stdout.utf8)
         let annotationResult = try JSONDecoder().decode(
-            MutationCommandResult.self,
-            from: Data(annotation.stdout.utf8)
+            AnnotationMutationCommandResult.self,
+            from: annotationData
         )
         #expect(annotationResult.committed)
         #expect(annotationResult.changed)
+        #expect(annotationResult.annotationUUID == "uuid-update")
+        #expect(annotationResult.annotationLocalPK == nil)
         #expect(annotationResult.warningCodes == ["cloud_sync_failed"])
-        let annotationURL = try #require(annotationResult.appleBooksURL)
-        #expect(annotationURL.hasPrefix("ibooks://assetid/asset-a#epubcfi"))
-        #expect(annotationURL.contains("%5Bshared%5D"))
+        let annotationObject = try #require(JSONSerialization.jsonObject(with: annotationData) as? [String: Any])
+        #expect(annotationObject["backupID"] == nil)
+        #expect(annotationObject["appleBooksURL"] == nil)
+        #expect(annotationObject["stableID"] == nil)
+        #expect(annotationObject["localPK"] == nil)
 
         let noOp = try fixture.run([
             "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a", "--sync",
         ] + fixture.globals)
         #expect(noOp.status == 0)
         #expect(noOp.stderr.isEmpty)
-        let noOpResult = try JSONDecoder().decode(MutationCommandResult.self, from: Data(noOp.stdout.utf8))
+        let noOpResult = try JSONDecoder().decode(
+            MembershipMutationCommandResult.self,
+            from: Data(noOp.stdout.utf8)
+        )
         #expect(noOpResult.changed == false)
+        #expect(noOpResult.collectionID == ProcessFixture.shelfID)
+        #expect(noOpResult.collectionLocalPK == nil)
+        #expect(noOpResult.bookAssetID == "asset-a")
+        #expect(noOpResult.bookLocalPK == nil)
         #expect(noOpResult.warningCodes.isEmpty)
     }
 

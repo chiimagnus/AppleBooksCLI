@@ -278,7 +278,7 @@ struct AnnotationWriter {
         if case let .uuid(uuid) = selector {
             stableID = uuid
         } else {
-            stableID = nil
+            stableID = annotationUUID(localPK: row.localPK, on: handle)
         }
         return Target(
             localPK: row.localPK,
@@ -286,6 +286,30 @@ struct AnnotationWriter {
             stableID: stableID,
             appleBooksURL: appleBooksURL(localPK: row.localPK, on: handle)
         )
+    }
+
+    private static func annotationUUID(localPK: Int64, on handle: OpaquePointer) -> String? {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT ZANNOTATIONUUID FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid LIMIT 2",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK, let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) == SQLITE_TEXT,
+              let uuid = try? decodeSQLiteText(statement, at: 0),
+              PublicStableIdentityPolicy.isEligible(uuid),
+              sqlite3_step(statement) == SQLITE_DONE else {
+            return nil
+        }
+        return uuid
     }
 
     private static func appleBooksURL(localPK: Int64, on handle: OpaquePointer) -> String? {

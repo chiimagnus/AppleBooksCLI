@@ -51,7 +51,7 @@
 | list annotations | 已实现 | user annotations 的组合查询；默认20、max100、opaque cursor；支持 book/text/created/modified/color/underline/presence 过滤与 created/modified/reading order |
 | annotations by book | 已实现 | `--book` / `--book-pk` 精确 selector；reading order 只允许 exact book，并按共享 best-effort CFI key 排序 |
 | get/describe annotation | 已实现 | UUID 优先、UUID 不可公开时 local PK fallback；selected text/Note 为 bounded detail，raw type/style/CFI/range 不进入 canonical detail |
-| Apple Books annotation deep link | 已实现（展示） | mutation/export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL` |
+| Apple Books annotation deep link | 已实现（展示） | archival export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL`；mutation result 不返回 deeplink |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 独立保留 |
 | export/filter underline | 已实现 | underline 可独立过滤 |
 | search highlighted text | 已实现 | `annotations list --text <query> --text-field highlight`；case-insensitive partial search |

@@ -197,10 +197,12 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> CollectionMutationCommandResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
+            return CollectionMutationCommandResult(
+                try books.createCollection(title: title, details: details, syncCloud: sync)
+            )
         }
     }
 }
@@ -234,11 +236,14 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> CollectionMutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
+            return CollectionMutationCommandResult(
+                try selector.rename(to: title, in: books, syncCloud: sync),
+                selector: selector
+            )
         }
     }
 }
@@ -269,11 +274,14 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> CollectionMutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            return CollectionMutationCommandResult(
+                try selector.delete(in: books, syncCloud: sync),
+                selector: selector
+            )
         }
     }
 }
@@ -310,7 +318,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MembershipMutationCommandResult {
         let selectors = try parseCollectionMembershipSelectors(
             collectionID: collectionID,
             assetID: assetID,
@@ -319,7 +327,11 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
+            return MembershipMutationCommandResult(
+                try selectors.collection.add(selectors.book, in: books, syncCloud: sync),
+                collection: selectors.collection,
+                book: selectors.book
+            )
         }
     }
 }
@@ -356,7 +368,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> MembershipMutationCommandResult {
         let selectors = try parseCollectionMembershipSelectors(
             collectionID: collectionID,
             assetID: assetID,
@@ -365,7 +377,11 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
+            return MembershipMutationCommandResult(
+                try selectors.collection.remove(selectors.book, in: books, syncCloud: sync),
+                collection: selectors.collection,
+                book: selectors.book
+            )
         }
     }
 }

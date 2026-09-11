@@ -102,6 +102,8 @@ public struct MutationResult: Equatable, Sendable {
     let backupHandle: String?
     public let localPK: Int64?
     public let stableID: String?
+    package let relatedLocalPK: Int64?
+    package let relatedStableID: String?
     public let changed: Bool
     public let acknowledgementRequested: Bool
     public let acknowledged: Bool?
@@ -117,6 +119,8 @@ public struct MutationResult: Equatable, Sendable {
         backupHandle: String?,
         localPK: Int64?,
         stableID: String?,
+        relatedLocalPK: Int64? = nil,
+        relatedStableID: String? = nil,
         changed: Bool,
         acknowledgementRequested: Bool,
         acknowledged: Bool?,
@@ -127,6 +131,8 @@ public struct MutationResult: Equatable, Sendable {
         self.backupHandle = backupHandle
         self.localPK = localPK
         self.stableID = stableID
+        self.relatedLocalPK = relatedLocalPK
+        self.relatedStableID = relatedStableID
         self.changed = changed
         self.acknowledgementRequested = acknowledgementRequested
         self.acknowledged = acknowledged
@@ -175,17 +181,23 @@ public struct MutationFailure: Error, CustomStringConvertible, CustomDebugString
 struct MutationDomainData: Equatable, Sendable {
     let localPK: Int64?
     let stableID: String?
+    let relatedLocalPK: Int64?
+    let relatedStableID: String?
     let changed: Bool
     let appleBooksURL: String?
 
     init(
         localPK: Int64? = nil,
         stableID: String? = nil,
+        relatedLocalPK: Int64? = nil,
+        relatedStableID: String? = nil,
         changed: Bool = true,
         appleBooksURL: String? = nil
     ) {
         self.localPK = localPK
         self.stableID = stableID
+        self.relatedLocalPK = relatedLocalPK
+        self.relatedStableID = relatedStableID
         self.changed = changed
         self.appleBooksURL = appleBooksURL
     }

@@ -15,7 +15,7 @@ struct AnnotationDeleteTests {
         #expect(result.committed)
         #expect(result.changed)
         #expect(result.localPK == 1)
-        #expect(result.stableID == nil)
+        #expect(result.stableID == "uuid-1")
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
         #expect(try integer(fixture.database, "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
         #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
@@ -137,7 +137,7 @@ struct AnnotationDeleteTests {
         try execute(fixture.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=0 WHERE Z_PK=1")
         let byPK = try books.deleteAnnotation(localPK: 1)
         #expect(byPK.localPK == 1)
-        #expect(byPK.stableID == nil)
+        #expect(byPK.stableID == "uuid-1")
     }
 
     private func fixture(

@@ -112,17 +112,25 @@ enum WriteSchemaGuard {
         }
     }
 
-    static func entity(named name: String, on connection: SQLiteConnection) throws -> CoreDataEntityMetadata {
+    static func entity(
+        named name: String,
+        on connection: SQLiteConnection,
+        observeRow: (() -> Void)? = nil
+    ) throws -> CoreDataEntityMetadata {
         guard let handle = connection.handle else { throw WriteSchemaGuardError.missingEntity(name) }
-        return try entity(named: name, on: handle)
+        return try entity(named: name, on: handle, observeRow: observeRow)
     }
 
-    static func entity(named name: String, on handle: OpaquePointer) throws -> CoreDataEntityMetadata {
+    static func entity(
+        named name: String,
+        on handle: OpaquePointer,
+        observeRow: (() -> Void)? = nil
+    ) throws -> CoreDataEntityMetadata {
         try validateTable(.primaryKey, required: ["Z_NAME", "Z_ENT", "Z_MAX"], inserting: false, on: handle)
         var statement: OpaquePointer?
         let prepare = sqlite3_prepare_v2(
             handle,
-            "SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = ? ORDER BY rowid",
+            "SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = ? ORDER BY rowid LIMIT 2",
             -1,
             &statement,
             nil
@@ -136,24 +144,20 @@ enum WriteSchemaGuard {
             throw WriteSchemaGuardError.missingEntity(name)
         }
 
-        var rows: [(Int64?, Int64?)] = []
-        while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
-                let entityID = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
-                let maxPK = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
-                rows.append((entityID, maxPK))
-            case SQLITE_DONE:
-                break
-            default:
-                throw WriteSchemaGuardError.invalidEntity(name)
-            }
-            if sqlite3_data_count(statement) == 0 { break }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw WriteSchemaGuardError.missingEntity(name)
         }
-        guard rows.isEmpty == false else { throw WriteSchemaGuardError.missingEntity(name) }
-        guard rows.count == 1 else { throw WriteSchemaGuardError.duplicateEntity(name) }
-        guard let entityID = rows[0].0, entityID > 0,
-              let maxPK = rows[0].1, maxPK >= 0 else {
+        observeRow?()
+        let entityID = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
+        let maxPK = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
+        let second = sqlite3_step(statement)
+        if second == SQLITE_ROW {
+            observeRow?()
+            throw WriteSchemaGuardError.duplicateEntity(name)
+        }
+        guard second == SQLITE_DONE else { throw WriteSchemaGuardError.invalidEntity(name) }
+        guard let entityID, entityID > 0,
+              let maxPK, maxPK >= 0 else {
             throw WriteSchemaGuardError.invalidEntity(name)
         }
         return CoreDataEntityMetadata(entityID: entityID, maxPK: maxPK)

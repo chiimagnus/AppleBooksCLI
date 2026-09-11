@@ -139,6 +139,33 @@ struct CollectionMembershipTests {
         #expect(try parentState(fixture.database).opt == 3)
     }
 
+    @Test
+    func matchingMemberEntityValidationStillScansThroughLateCorruption() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZBKCOLLECTIONMEMBER(
+              Z_PK,Z_ENT,Z_OPT,ZSORTKEY,ZASSET,ZCOLLECTION,ZLOCALMODDATE,ZASSETID,ZTEMPORARYASSETID
+            )
+            SELECT x,8,1,x * 10000,1,10,1,'asset-1',NULL FROM seq;
+            UPDATE ZBKCOLLECTIONMEMBER SET Z_ENT=999 WHERE Z_PK=10999;
+            """)
+
+        do {
+            _ = try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+            Issue.record("expected late entity mismatch")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
+        }
+        #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 10_000)
+    }
+
     private func fixture(
         existingTargetMemberships: Int = 0,
         targetMemberEntityID: Int64 = 8,

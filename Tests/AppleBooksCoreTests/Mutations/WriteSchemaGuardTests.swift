@@ -105,6 +105,38 @@ struct WriteSchemaGuardTests {
     }
 
     @Test
+    func entityMetadataDuplicateProofReadsOnlyTwoRowsForAllWriterEntities() throws {
+        for entity in ["BKCollection", "BKCollectionMember", "AEAnnotation"] {
+            let db = try database(collectionExtra: "")
+            defer { try? FileManager.default.removeItem(at: db.deletingLastPathComponent()) }
+            var handle: OpaquePointer?
+            #expect(sqlite3_open(db.path, &handle) == SQLITE_OK)
+            let writable = try #require(handle)
+            defer { sqlite3_close_v2(writable) }
+            try execute(writable, """
+                WITH RECURSIVE seq(x) AS (
+                  VALUES(1)
+                  UNION ALL
+                  SELECT x + 1 FROM seq WHERE x < 10001
+                )
+                INSERT INTO Z_PRIMARYKEY(Z_NAME,Z_ENT,Z_MAX)
+                SELECT '\(entity)',7,41 FROM seq;
+                """)
+
+            let connection = try SQLiteConnection.readOnly(path: db.path)
+            var rowsRead = 0
+            #expect(throws: WriteSchemaGuardError.duplicateEntity(entity)) {
+                _ = try WriteSchemaGuard.entity(
+                    named: entity,
+                    on: connection,
+                    observeRow: { rowsRead += 1 }
+                )
+            }
+            #expect(rowsRead == 2)
+        }
+    }
+
+    @Test
     func entityMetadataRejectsNullOrInvalidValues() throws {
         let db = try database(collectionExtra: "")
         defer { try? FileManager.default.removeItem(at: db.deletingLastPathComponent()) }

@@ -453,7 +453,7 @@ struct MutationCoordinatorLifecycleTests {
     }
 
     @Test
-    func committedRelaunchFailureIsSuccessWarning() throws {
+    func committedBooksStateRestoreFailureIsSuccessWarning() throws {
         let fixture = try fixture(running: true, launchFails: true)
         defer { fixture.remove() }
 
@@ -470,7 +470,7 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.localPK == 9)
-        #expect(result.warnings == [.relaunchFailed])
+        #expect(result.warnings == [.booksStateRestoreFailed])
         try assertOrdered(["backup", "readBack", "launchWithoutActivation"], in: fixture.state.events)
         #expect(try readValue(at: fixture.database) == "committed")
     }
@@ -684,7 +684,7 @@ struct MutationCoordinatorLifecycleTests {
             Issue.record("expected backup failure")
         } catch let failure as MutationFailure {
             #expect(failure.code == .backupFailed)
-            #expect(failure.warnings == [.relaunchFailed])
+            #expect(failure.warnings == [.booksStateRestoreFailed])
         }
     }
 

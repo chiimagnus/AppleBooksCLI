@@ -6,7 +6,6 @@ public enum MutationWarning: String, Equatable, Sendable {
     case cloudProjectionFailed = "cloud_projection_failed"
     case cloudSyncFailed = "cloud_sync_failed"
     case deeplinkOpenFailed = "deeplink_open_failed"
-    case relaunchFailed = "relaunch_failed"
     case booksStateRestoreFailed = "books_state_restore_failed"
 }
 

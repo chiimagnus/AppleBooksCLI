@@ -230,7 +230,7 @@ struct MutationCoordinatorTests {
         let mutation = MutationFailure(
             backupHandle: rawMutationHandle,
             code: .mutationFailed,
-            warnings: [.relaunchFailed],
+            warnings: [.booksStateRestoreFailed],
             underlying: underlying
         )
         let restore = RestoreFailure(

@@ -246,7 +246,7 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
-    func postCommitRelaunchFailureIsSuccessWithWarning() throws {
+    func postCommitBooksStateRestoreFailureIsSuccessWithWarning() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         var running = true
@@ -272,7 +272,7 @@ struct AnnotationWriteCommandTests {
 
         #expect(result.committed)
         #expect(result.changed)
-        #expect(result.warningCodes == ["relaunch_failed"])
+        #expect(result.warningCodes == ["books_state_restore_failed"])
         #expect(terminateCount == 1)
         #expect(launchCount == 1)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "committed note")

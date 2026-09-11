@@ -310,7 +310,7 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(.background)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         case .frontmost:
             if let appleBooksURL = domain.appleBooksURL {
@@ -322,7 +322,7 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(.frontmost)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         }
 
@@ -456,7 +456,7 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(restoreBooks)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         }
         return MutationFailure(

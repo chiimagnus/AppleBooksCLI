@@ -69,6 +69,31 @@ struct CollectionLifecycleRegressionTests {
     }
 
     @Test
+    func repeatedDeleteWithSyncRestoresLifecycleButSkipsBackupProjectionAndAck() throws {
+        let fixture = try makeFixture(running: false)
+        defer { fixture.remove() }
+        try execute(fixture.database, "DELETE FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=20; UPDATE ZBKCOLLECTION SET ZDELETEDFLAG=1 WHERE Z_PK=20")
+        let state = CloudLifecycleState(frontmost: false)
+        let writer = syncingWriter(fixture: fixture, state: state)
+
+        let result = try writer.deleteCollection(
+            collectionID: "550E8400-E29B-41D4-A716-446655440001",
+            syncCloud: true
+        )
+
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warnings.isEmpty)
+        #expect(state.running)
+        #expect(state.frontmost == false)
+        #expect(state.events == ["terminate", "launchWithoutActivation"])
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+    }
+
+    @Test
     func stablePreflightAmbiguityDoesNotTouchLifecycleOrBackup() throws {
         let fixture = try makeFixture(running: true)
         defer { fixture.remove() }
@@ -164,7 +189,7 @@ struct CollectionLifecycleRegressionTests {
                     )
                 },
                 memberState: { _, _ in nil },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: {
                     state.events.append("recycle")
                     state.acknowledged = true

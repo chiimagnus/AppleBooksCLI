@@ -108,12 +108,32 @@ struct CollectionCloudProjector {
     static func collectionID(libraryDatabase: URL, localPK: Int64) throws -> String {
         let connection = try SQLiteConnection.readOnly(path: libraryDatabase.path)
         defer { try? connection.close() }
-        let statement = try connection.prepare("SELECT ZCOLLECTIONID FROM ZBKCOLLECTION WHERE Z_PK=? ORDER BY rowid")
+        let projection = SQLiteTextProjection.exact(
+            "ZCOLLECTIONID",
+            alias: "cloudCollectionID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        )
+        let statement = try connection.prepare("""
+            SELECT \(projection.joined(separator: ", "))
+            FROM ZBKCOLLECTION
+            WHERE Z_PK=?
+            ORDER BY rowid
+            LIMIT 2
+            """)
         try statement.bind(localPK, at: 1)
         guard try statement.step() else { throw CollectionCloudProjectionError.collectionIdentityUnavailable }
         let row = try SQLiteRow(statement: statement)
-        guard let collectionID = try row.text("ZCOLLECTIONID"), collectionID.isEmpty == false,
-              try statement.step() == false else {
+        let collectionID: String
+        switch try SQLiteTextProjection.decodeExact(
+            row,
+            alias: "cloudCollectionID",
+            column: "ZCOLLECTIONID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        ) {
+        case let .value(value) where value.isEmpty == false: collectionID = value
+        case .value, .null, .oversized: throw CollectionCloudProjectionError.collectionIdentityUnavailable
+        }
+        guard try statement.step() == false else {
             throw CollectionCloudProjectionError.collectionIdentityUnavailable
         }
         return collectionID

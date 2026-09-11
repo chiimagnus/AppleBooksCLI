@@ -60,7 +60,7 @@ struct AppleBooksFacadeTests {
                     booksApp: controller,
                     detailState: { _ in nil },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     pendingCount: { 0 },
                     recycleAction: { events.append("recycle") }
                 )
@@ -77,7 +77,8 @@ struct AppleBooksFacadeTests {
                     stateAction: { _ in nil },
                     pendingCount: { annotationPending }
                 )
-            )
+            ),
+            syncBooksApp: controller
         )
 
         let first = try books.updateAnnotationNote(uuid: "uuid-user", note: "batch one")
@@ -89,8 +90,14 @@ struct AppleBooksFacadeTests {
 
         let summary = try books.syncPendingCloudChanges()
 
-        #expect(summary == CloudSyncSummary(collectionPendingBefore: 0, annotationPendingBefore: 1))
-        #expect(events == ["projectAnnotation", "projectAnnotation", "launch"])
+        #expect(summary == CloudSyncSummary(
+            status: .acknowledged,
+            collectionPendingBefore: 0,
+            annotationPendingBefore: 1,
+            acknowledged: true,
+            warnings: []
+        ))
+        #expect(events == ["projectAnnotation", "projectAnnotation", "launch", "terminate"])
     }
 
     @Test
@@ -118,7 +125,7 @@ struct AppleBooksFacadeTests {
                     booksApp: controller,
                     detailState: { _ in nil },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     pendingCount: { 0 },
                     recycleAction: { events.append("recycle") }
                 )
@@ -131,12 +138,19 @@ struct AppleBooksFacadeTests {
                     stateAction: { _ in nil },
                     pendingCount: { annotationPending }
                 )
-            )
+            ),
+            syncBooksApp: controller
         )
 
         let summary = try books.syncPendingCloudChanges()
 
-        #expect(summary == CloudSyncSummary(collectionPendingBefore: 0, annotationPendingBefore: 1))
+        #expect(summary == CloudSyncSummary(
+            status: .acknowledged,
+            collectionPendingBefore: 0,
+            annotationPendingBefore: 1,
+            acknowledged: true,
+            warnings: []
+        ))
         #expect(events == ["terminate", "launch"])
     }
 

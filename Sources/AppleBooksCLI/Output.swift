@@ -65,6 +65,35 @@ extension KeyedDecodingContainer {
     }
 }
 
+@propertyWrapper
+struct ExplicitNullBool: Codable, Equatable, Sendable {
+    var wrappedValue: Bool?
+
+    init(wrappedValue: Bool?) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        wrappedValue = container.decodeNil() ? nil : try container.decode(Bool.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let wrappedValue {
+            try container.encode(wrappedValue)
+        } else {
+            try container.encodeNil()
+        }
+    }
+}
+
+extension KeyedDecodingContainer {
+    func decode(_ type: ExplicitNullBool.Type, forKey key: Key) throws -> ExplicitNullBool {
+        try decodeIfPresent(type, forKey: key) ?? ExplicitNullBool(wrappedValue: nil)
+    }
+}
+
 struct CLIErrorEnvelope: Codable, Equatable, Sendable {
     struct Payload: Codable, Equatable, Sendable {
         let code: CLIErrorCode
@@ -120,7 +149,7 @@ struct CLIErrorEnvelope: Codable, Equatable, Sendable {
             code: error.code,
             reason: error.reason,
             message: error.message,
-            recoveryHint: nil
+            recoveryHint: error.recoveryHint
         )
     }
 }

@@ -206,7 +206,7 @@ struct BackupsCommandTests {
     }
 
     @Test
-    func safetyBackupFailureIsStableAndRelaunchesPreviouslyRunningBooks() throws {
+    func safetyBackupFailureIsStableAndRestoresPreviouslyRunningBooksState() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let source = try fixture.createBackup()

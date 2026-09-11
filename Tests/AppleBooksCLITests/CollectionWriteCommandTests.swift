@@ -36,8 +36,8 @@ struct CollectionWriteCommandTests {
             #expect(stdout.contains("--sync"))
             #expect(stdout.contains("After local commit"))
             #expect(stdout.contains("current-Mac CloudKit"))
-            #expect(stdout.contains("Omit for local-only writes"))
-            #expect(stdout.contains("pending changes later."))
+            #expect(stdout.contains("projection"))
+            #expect(stdout.contains("local-only") == false)
             if subcommand == "add-book" || subcommand == "remove-book" {
                 for selector in ["--collection", "--collection-pk", "--book", "--book-pk"] {
                     #expect(stdout.contains(selector))
@@ -110,25 +110,33 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
 
-        let create = try CollectionsCreateCommand.parse(["  New Shelf  ", "--details", "private details"])
+        let create = try CollectionsCreateCommand.parse(["  New Shelf  "])
         let created = try create.execute(using: books)
         #expect(created.committed)
         #expect(created.changed)
-        #expect(created.localPK == 41)
-        #expect(created.stableID != nil)
-        #expect(created.appleBooksURL == nil)
-        let createdJSON = String(decoding: try JSONEncoder().encode(created), as: UTF8.self)
-        #expect(createdJSON.contains("private details") == false)
-        #expect(createdJSON.contains("appleBooksURL") == false)
+        #expect(created.collectionLocalPK == nil)
+        #expect(created.collectionID != nil)
+        #expect(created.backupID != nil)
+        let createdData = try JSONEncoder().encode(created)
+        let createdObject = try #require(JSONSerialization.jsonObject(with: createdData) as? [String: Any])
+        #expect(createdObject["collectionID"] != nil)
+        #expect(createdObject["backupID"] != nil)
+        #expect(createdObject["stableID"] == nil)
+        #expect(createdObject["localPK"] == nil)
+        #expect(createdObject["appleBooksURL"] == nil)
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=41") == "New Shelf")
         #expect(try fixture.integer("SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
+        #expect(try fixture.text("SELECT ZDETAILS FROM ZBKCOLLECTION WHERE Z_PK=41") == nil)
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsCreateCommand.parse(["Shelf", "--details", "removed"])
+        }
 
         let rename = try CollectionsRenameCommand.parse([
             "550E8400-E29B-41D4-A716-446655440000", "--title", "Renamed",
         ])
         let renamed = try rename.execute(using: books)
-        #expect(renamed.localPK == 10)
-        #expect(renamed.stableID == "550E8400-E29B-41D4-A716-446655440000")
+        #expect(renamed.collectionLocalPK == nil)
+        #expect(renamed.collectionID == "550E8400-E29B-41D4-A716-446655440000")
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Renamed")
     }
 
@@ -148,7 +156,15 @@ struct CollectionWriteCommandTests {
             let result = try command.execute(using: fixture.books())
             #expect(result.committed)
             #expect(result.changed)
-            #expect(result.localPK == collectionPK)
+            #expect(result.collectionID == "550E8400-E29B-41D4-A716-446655440000")
+            #expect(result.collectionLocalPK == nil)
+            #expect(result.bookAssetID == assetID)
+            #expect(result.bookLocalPK == nil)
+            let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? [String: Any])
+            #expect(object["collectionID"] != nil)
+            #expect(object["bookAssetID"] != nil)
+            #expect(object["stableID"] == nil)
+            #expect(object["localPK"] == nil)
             #expect(try fixture.integer(
                 "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=\(collectionPK) AND ZASSETID='\(assetID)'"
             ) == 1)
@@ -190,8 +206,8 @@ struct CollectionWriteCommandTests {
         defer { stableFixture.remove() }
         let stable = try CollectionsDeleteCommand.parse(["550E8400-E29B-41D4-A716-446655440001"])
         let stableResult = try stable.execute(using: stableFixture.books())
-        #expect(stableResult.localPK == 20)
-        #expect(stableResult.stableID == "550E8400-E29B-41D4-A716-446655440001")
+        #expect(stableResult.collectionLocalPK == nil)
+        #expect(stableResult.collectionID == "550E8400-E29B-41D4-A716-446655440001")
         #expect(try stableFixture.integer("SELECT ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=20") == 1)
         #expect(try stableFixture.integer("SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=20") == 0)
 
@@ -199,8 +215,33 @@ struct CollectionWriteCommandTests {
         defer { pkFixture.remove() }
         let pk = try CollectionsDeleteCommand.parse(["--pk", "20"])
         let pkResult = try pk.execute(using: pkFixture.books())
-        #expect(pkResult.localPK == 20)
-        #expect(pkResult.stableID == nil)
+        #expect(pkResult.collectionID == "550E8400-E29B-41D4-A716-446655440001")
+        #expect(pkResult.collectionLocalPK == nil)
+    }
+
+    @Test
+    func repeatedDeleteReturnsDomainIdentityAndExplicitNoOpSyncState() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let books = try fixture.books()
+        let collectionID = "550E8400-E29B-41D4-A716-446655440001"
+        let first = try CollectionsDeleteCommand.parse([collectionID])
+        let firstResult = try first.execute(using: books)
+        #expect(firstResult.committed)
+        #expect(firstResult.changed)
+        #expect(firstResult.backupID != nil)
+
+        let retry = try CollectionsDeleteCommand.parse([collectionID, "--sync"])
+        let result = try retry.execute(using: books)
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupID == nil)
+        #expect(result.collectionID == collectionID)
+        #expect(result.collectionLocalPK == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warningCodes.isEmpty)
+        #expect(try SQLiteBackup.list(source: fixture.library, backupRoot: fixture.backupRoot).count == 1)
     }
 
     @Test
@@ -236,6 +277,49 @@ struct CollectionWriteCommandTests {
         #expect(throws: ValidationError.self) {
             _ = try conflictingBook.execute(using: nil)
         }
+    }
+
+    @Test
+    func collectionTitlesTrimAndEnforceMetadataInputBoundsBeforeBackup() throws {
+        let valid = try Fixture()
+        defer { valid.remove() }
+        let books = try valid.books()
+
+        let trimmed = try CollectionsCreateCommand.parse(["  Trimmed Shelf  \n"])
+        _ = try trimmed.execute(using: books)
+        #expect(try valid.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE ZTITLE='Trimmed Shelf'") == "Trimmed Shelf")
+
+        let exactGraphemes = String(repeating: "a", count: 512)
+        _ = try CollectionsCreateCommand.parse([exactGraphemes]).execute(using: books)
+        #expect(try valid.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE ZTITLE='\(exactGraphemes)'") == exactGraphemes)
+
+        let combiningCluster = "a" + String(repeating: "\u{0301}", count: 7)
+        let exactUnicode = String(repeating: combiningCluster, count: 512)
+        #expect(exactUnicode.count == 512)
+        #expect(exactUnicode.utf8.count < 8 * 1_024)
+        _ = try CollectionsCreateCommand.parse([exactUnicode]).execute(using: books)
+
+        for invalidTitle in [
+            " \t\r\n ",
+            String(repeating: "a", count: 513),
+            String(repeating: "a" + String(repeating: "\u{0301}", count: 8), count: 512),
+        ] {
+            let fixture = try Fixture()
+            defer { fixture.remove() }
+            let command = try CollectionsCreateCommand.parse([invalidTitle])
+            #expect(throws: CLIError.usageInvalid("Collection title must be non-empty and at most 512 characters / 8 KiB UTF-8 after trimming.")) {
+                _ = try command.execute(using: fixture.books())
+            }
+            #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        }
+
+        let renameFixture = try Fixture()
+        defer { renameFixture.remove() }
+        let rename = try CollectionsRenameCommand.parse([
+            "550E8400-E29B-41D4-A716-446655440000", "--title", "  Canonical Rename\n",
+        ])
+        _ = try rename.execute(using: renameFixture.books())
+        #expect(try renameFixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Canonical Rename")
     }
 
     @Test

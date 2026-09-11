@@ -39,13 +39,48 @@ struct CoreDataPrimaryKeyTests {
             _ = try CoreDataPrimaryKey.allocate(entityName: "Missing", table: .collections, on: fixture.handle)
         }
         try execute(fixture.handle, "INSERT INTO Z_PRIMARYKEY VALUES('BKCollection',7,5)")
+        var duplicateRowsRead = 0
         #expect(throws: CoreDataPrimaryKeyError.duplicateEntity) {
-            _ = try CoreDataPrimaryKey.allocate(entityName: "BKCollection", table: .collections, on: fixture.handle)
+            _ = try CoreDataPrimaryKey.allocate(
+                entityName: "BKCollection",
+                table: .collections,
+                on: fixture.handle,
+                observeEntityRow: { duplicateRowsRead += 1 }
+            )
         }
+        #expect(duplicateRowsRead == 2)
         try execute(fixture.handle, "DELETE FROM Z_PRIMARYKEY; INSERT INTO Z_PRIMARYKEY VALUES('BKCollection',NULL,-1)")
         #expect(throws: CoreDataPrimaryKeyError.invalidEntity) {
             _ = try CoreDataPrimaryKey.allocate(entityName: "BKCollection", table: .collections, on: fixture.handle)
         }
+        try execute(fixture.handle, "ROLLBACK")
+    }
+
+    @Test
+    func duplicateEntityProofReadsAtMostTwoRowsEvenWithTenThousandDuplicates() throws {
+        let fixture = try fixture(zMax: 5, tablePKs: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.handle, "BEGIN IMMEDIATE")
+        try execute(fixture.handle, """
+            DELETE FROM Z_PRIMARYKEY;
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10001
+            )
+            INSERT INTO Z_PRIMARYKEY(Z_NAME,Z_ENT,Z_MAX)
+            SELECT 'BKCollectionMember',8,5 FROM seq;
+            """)
+        var rowsRead = 0
+        #expect(throws: CoreDataPrimaryKeyError.duplicateEntity) {
+            _ = try CoreDataPrimaryKey.allocate(
+                entityName: "BKCollectionMember",
+                table: .members,
+                on: fixture.handle,
+                observeEntityRow: { rowsRead += 1 }
+            )
+        }
+        #expect(rowsRead == 2)
         try execute(fixture.handle, "ROLLBACK")
     }
 

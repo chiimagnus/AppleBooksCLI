@@ -40,6 +40,71 @@ struct CollectionStableWriteTests {
     }
 
     @Test
+    func repeatedDeleteByStableAndLocalPKIsQuietNoOpWithoutNewBackup() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let collectionID = "550E8400-E29B-41D4-A716-446655440001"
+
+        let first = try fixture.writer.deleteCollection(collectionID: collectionID)
+        #expect(first.committed)
+        #expect(first.changed)
+        #expect(try SQLiteBackup.list(source: fixture.database, backupRoot: fixture.backupRoot).count == 1)
+
+        let stableRetry = try fixture.writer.deleteCollection(collectionID: collectionID, syncCloud: true)
+        #expect(stableRetry.committed == false)
+        #expect(stableRetry.changed == false)
+        #expect(stableRetry.backupHandle == nil)
+        #expect(stableRetry.stableID == collectionID)
+        #expect(stableRetry.acknowledgementRequested)
+        #expect(stableRetry.acknowledged == nil)
+        #expect(stableRetry.warnings.isEmpty)
+
+        let localRetry = try fixture.writer.deleteCollection(localPK: 20)
+        #expect(localRetry.committed == false)
+        #expect(localRetry.changed == false)
+        #expect(localRetry.backupHandle == nil)
+        #expect(localRetry.stableID == collectionID)
+        #expect(localRetry.acknowledgementRequested == false)
+        #expect(localRetry.acknowledged == nil)
+        #expect(try SQLiteBackup.list(source: fixture.database, backupRoot: fixture.backupRoot).count == 1)
+    }
+
+    @Test
+    func damagedDeletedCollectionsNeverBecomeNoOpRepairTargets() throws {
+        let residualMembers = try makeFixture()
+        defer { residualMembers.remove() }
+        try execute(residualMembers.database, "UPDATE ZBKCOLLECTION SET ZDELETEDFLAG=1 WHERE Z_PK=20")
+        #expect(throws: CollectionWriteError.collectionDeletedOrUnknown) {
+            _ = try residualMembers.writer.deleteCollection(localPK: 20)
+        }
+        #expect(FileManager.default.fileExists(atPath: residualMembers.backupRoot.path) == false)
+
+        let system = try makeFixture()
+        defer { system.remove() }
+        try execute(system.database, "UPDATE ZBKCOLLECTION SET ZDELETEDFLAG=1 WHERE Z_PK=30")
+        #expect(throws: CollectionWriteError.collectionNotEditable) {
+            _ = try system.writer.deleteCollection(collectionID: "Want_To_Read_Collection_ID")
+        }
+        #expect(FileManager.default.fileExists(atPath: system.backupRoot.path) == false)
+
+        let invalidIdentity = try makeFixture()
+        defer { invalidIdentity.remove() }
+        try execute(invalidIdentity.database, "DELETE FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=20; UPDATE ZBKCOLLECTION SET ZDELETEDFLAG=1,ZCOLLECTIONID='not-a-uuid' WHERE Z_PK=20")
+        #expect(throws: CollectionWriteError.collectionNotEditable) {
+            _ = try invalidIdentity.writer.deleteCollection(localPK: 20)
+        }
+        #expect(FileManager.default.fileExists(atPath: invalidIdentity.backupRoot.path) == false)
+
+        let unknownDeleted = try makeFixture()
+        defer { unknownDeleted.remove() }
+        try execute(unknownDeleted.database, "DELETE FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=20; UPDATE ZBKCOLLECTION SET ZDELETEDFLAG=2 WHERE Z_PK=20")
+        #expect(throws: CollectionWriteError.collectionDeletedOrUnknown) {
+            _ = try unknownDeleted.writer.deleteCollection(localPK: 20)
+        }
+        #expect(FileManager.default.fileExists(atPath: unknownDeleted.backupRoot.path) == false)
+    }
+
+    @Test
     func stableSelectorsAreExactAndNeverGuessNumericLocalPK() throws {
         let collectionMiss = try makeFixture()
         defer { collectionMiss.remove() }

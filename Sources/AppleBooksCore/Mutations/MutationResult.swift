@@ -6,7 +6,6 @@ public enum MutationWarning: String, Equatable, Sendable {
     case cloudProjectionFailed = "cloud_projection_failed"
     case cloudSyncFailed = "cloud_sync_failed"
     case deeplinkOpenFailed = "deeplink_open_failed"
-    case relaunchFailed = "relaunch_failed"
     case booksStateRestoreFailed = "books_state_restore_failed"
 }
 
@@ -26,7 +25,7 @@ public enum MutationFailureCode: String, Equatable, Sendable {
 public enum RestoreWarning: String, Equatable, Sendable {
     case verificationFailed = "verification_failed"
     case retentionFailed = "retention_failed"
-    case relaunchFailed = "relaunch_failed"
+    case booksStateRestoreFailed = "books_state_restore_failed"
 }
 
 public enum RestoreFailureCode: String, Equatable, Sendable {
@@ -97,35 +96,61 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
     public var errorDescription: String? { description }
 }
 
+package enum MutationHistoryEffect: Equatable, Sendable {
+    case annotationNote(previous: String?)
+    case collectionTitle(previous: String)
+}
+
 public struct MutationResult: Equatable, Sendable {
     public let committed: Bool
-    let backupHandle: String
+    let backupHandle: String?
     public let localPK: Int64?
     public let stableID: String?
+    package let relatedLocalPK: Int64?
+    package let relatedStableID: String?
+    package let historyEffect: MutationHistoryEffect?
     public let changed: Bool
+    public let acknowledgementRequested: Bool
+    public let acknowledged: Bool?
     public let warnings: [MutationWarning]
     public let appleBooksURL: String?
 
     public var backupID: String? {
-        BackupMetadata.backupID(fromFilename: backupHandle)
+        backupHandle.flatMap(BackupMetadata.backupID(fromFilename:))
     }
 
     init(
-        backupHandle: String,
+        committed: Bool,
+        backupHandle: String?,
         localPK: Int64?,
         stableID: String?,
+        relatedLocalPK: Int64? = nil,
+        relatedStableID: String? = nil,
+        historyEffect: MutationHistoryEffect? = nil,
         changed: Bool,
+        acknowledgementRequested: Bool,
+        acknowledged: Bool?,
         warnings: [MutationWarning],
         appleBooksURL: String? = nil
     ) {
-        committed = true
+        self.committed = committed
         self.backupHandle = backupHandle
         self.localPK = localPK
         self.stableID = stableID
+        self.relatedLocalPK = relatedLocalPK
+        self.relatedStableID = relatedStableID
+        self.historyEffect = historyEffect
         self.changed = changed
+        self.acknowledgementRequested = acknowledgementRequested
+        self.acknowledged = acknowledged
         self.warnings = warnings
         self.appleBooksURL = appleBooksURL
     }
+}
+
+enum MutationQuietDecision: Equatable, Sendable {
+    case needsMutation
+    case noChange(MutationDomainData)
 }
 
 public struct MutationFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {
@@ -163,17 +188,23 @@ public struct MutationFailure: Error, CustomStringConvertible, CustomDebugString
 struct MutationDomainData: Equatable, Sendable {
     let localPK: Int64?
     let stableID: String?
+    let relatedLocalPK: Int64?
+    let relatedStableID: String?
     let changed: Bool
     let appleBooksURL: String?
 
     init(
         localPK: Int64? = nil,
         stableID: String? = nil,
+        relatedLocalPK: Int64? = nil,
+        relatedStableID: String? = nil,
         changed: Bool = true,
         appleBooksURL: String? = nil
     ) {
         self.localPK = localPK
         self.stableID = stableID
+        self.relatedLocalPK = relatedLocalPK
+        self.relatedStableID = relatedStableID
         self.changed = changed
         self.appleBooksURL = appleBooksURL
     }

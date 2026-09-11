@@ -17,7 +17,9 @@
 read-only preflight
 → snapshot Books state (closed / background / frontmost)
 → clean quit when needed
-→ fresh quiet-state backup
+→ quiet-state read-only no-op decision when the mutation has a deterministic target state
+→ no-op: restore original Books state and return without backup / RW / COMMIT
+→ needs mutation: fresh quiet-state backup
 → short-lived RW connection
 → BEGIN IMMEDIATE
 → transaction revalidation + mutation + invariant
@@ -33,7 +35,9 @@ read-only preflight
 关键边界：
 
 - invalid selector/schema 必须尽量在退出 Books 前失败；Books quit reject/timeout 时 fail closed，不猜测性 relaunch。
-- `changed=false` 是成功 no-op：不做 projection、acknowledgement、service recycle 或 sync-only temporary launch。
+- deterministic no-op 的最终判断必须发生在 Books quiet state；最初 preflight 只能验证输入/schema，不能作为 race-free equality owner。
+- quiet-state no-op 返回 `committed=false, changed=false`，不创建 safety backup、不打开 RW、不做 projection/acknowledgement；如果调用者请求了 `--sync`，只保留 acknowledgement intent，不实际等待确认。
+- quiet decision 之后到 `BEGIN IMMEDIATE` 之间仍可能有非 Books 外部 writer，因此真实 mutation 继续保留 transaction revalidation；若 transaction 内最终变成 `changed=false`，已创建 backup 是竞态安全代价。
 - projection/acknowledgement 发生在 commit 后；失败不回滚本地事务。
 - annotation update/delete 的 deeplink 只是 best-effort presentation metadata，不得成为 writer precondition。
 
@@ -54,16 +58,16 @@ CLI 的单侧 DB override 对应 domain 使用 detached Books lifecycle；公开
 
 长期 writable boundary：
 
-- annotation 只允许已有 user annotation 的 note update / soft-delete；type=3 current-reading bookmark、deleted/system row 不进入该 writable scope；
+- annotation 只允许已有 user annotation 的 note update、soft-delete 与 tombstone restore；ordinary note update 只接受 active row，delete/restore 只在同一 existing user row 的 active/tombstone 状态间切换；type=3/system row 不进入该 writable scope；
 - collection mutation 必须拒绝 system collection；
-- delete 保持当前 soft-delete 语义；
+- annotation delete 不 hard-delete；restore 不 INSERT 或从历史正文重建，被外部物理移除的 tombstone 必须 fail closed；
 - local primary key（PK，即当前 Core Data SQLite 行的 `Z_PK`）只作显式本机 selector；stable identity 优先 UUID / collection ID / asset ID。
 
 具体列与 SQL 由 writer/tests 拥有，不在本文复制。
 
 ## Backup 与 restore
 
-Safety backup 使用 SQLite online backup，不裸复制 WAL store；completed backup 必须通过 integrity verification。
+Safety backup 使用 SQLite online backup，不裸复制 WAL store；completed backup 必须通过 integrity verification。Backup root 及其已存在祖先组件统一按 no-follow 目录边界验证；create/list/retention/restore 只操作同一已验证 root descriptor 下的 owned regular artifact。Symlink root、entry symlink 或路径 identity 被替换都 fail closed，不能通过 path canonicalization 变成可恢复身份。
 
 BKLibrary restore：
 
@@ -74,27 +78,31 @@ validate/open selected backup
 → apply SQLite restore
 → checkpoint + verify
 → retention
-→ restore Books when needed
+→ restore original Books state (`closed` / `background` / `frontmost`)
 ```
 
-restore apply 后同样跨过不可逆边界；后续 verification/retention/relaunch 失败必须表达为 applied-but-warning/unverified，不能自动重复 restore。public backup catalog 当前只覆盖 BKLibrary；annotation mutation 的 safety backup 不构成第二套 public restore surface。
+restore source 在触碰 Books 前完成校验；随后 snapshot 原始 `closed/background/frontmost` 状态，进入 quiet state，并在 safety-backup failure、apply failure 或成功收尾后 best-effort 恢复原状态。`background` 使用 non-activating launch，只有原本 `frontmost` 才允许激活。restore apply 后同样跨过不可逆边界；后续 verification/retention/Books-state restore 失败必须表达为 applied-but-warning/unverified，不能自动重复 restore。public backup catalog 当前只覆盖 BKLibrary；annotation mutation 的 safety backup 不构成第二套 public restore surface。
 
 ## Cloud projection 与 sync
 
 普通 mutation 在 read-back 后只生成 pending Apple-native cloud representation，不等待 acknowledgement。
 
+Cloud projection 有独立的 process/resource ceilings，不等同于 Agent 输入合同：DB-derived stable identity 最多 2 KiB UTF-8；annotation Note 最多 64 KiB；collection title 最多 64 KiB、details 最多 1 MiB；固定 projection metadata 最多 4 KiB；单个 annotation `bookAnnotations` private proto 的 raw/updated data 最多 64 MiB。identity 必须先由 SQLite byte length 证明在界内再 materialize，所有正文/proto 都保持完整值或 fail closed，禁止截断后同步。Collection tombstone projection 不读取 title/details，annotation tombstone projection 不读取 Note。依赖 identity 的 writer 若能在 COMMIT 前发现超限则拒绝写入；COMMIT 后 bridge 才发现的 resource rejection 只能返回现有 `cloud_projection_failed` committed warning，不能 rollback 或重放 mutation。Root sync 只等待已投影 pending generation，不重新读取这些 payload。
+
 两种显式 sync：
 
 - mutation `--sync`：仅等待该 mutation 的 current-Mac acknowledgement；
-- root `applebookscli sync`：统计并 flush 已存在的 pending collection/member/annotation records；pending=0 时 no-op，多 domain pending 尽量复用一次 lifecycle。
+- root `applebookscli sync`：统计并 flush 已存在的 pending collection/member/annotation records；pending=0 返回 `status=no_pending_changes`、`acknowledged=null`，且不触碰 Books lifecycle。pending>0 时由 root sync 唯一持有 Books lifecycle：先记录原始 `closed/background/frontmost`，完成所需 recycle/launch 与两域 acknowledgement 后 best-effort 恢复原状态；后台态不得被激活，原本关闭时不得残留 Books 进程。
 
-批量写入可以不逐条 `--sync`，最后 root sync 一次。注意 root sync 会处理**所有当前 pending records**，因此不能为了形式上的收尾在一个全 `changed=false` 的任务后无条件执行。
+批量写入可以不逐条 `--sync`，最后 root sync 一次。注意 root sync 会处理**所有当前 pending records**，因此不能为了形式上的收尾在一个全 `changed=false` 的任务后无条件执行。mutation 省略 `--sync` 只是不立即等待 acknowledgement；local commit、read-back 与 cloud projection 仍照常发生。
 
-ack criterion 由 synchronizer/tests 拥有。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
+ack criterion 由 synchronizer/tests 拥有。一个 domain 已 ack、另一个失败时不回滚或重放已完成 domain；root sync 可安全重跑。ack 失败仍是 non-zero failure，并在失败路径 best-effort 恢复 Books；若同时恢复失败，不能覆盖原始 sync failure。ack 已成功但仅 Books 状态恢复失败时，结果仍保持 `acknowledged=true`，并返回结构化 `books_state_restore_failed` warning。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
 
 ## Operation history 交叉边界
 
-CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `started` 才能 dispatch；completion 写入发生在 command outcome 之后，失败只能追加 warning。完整 stdout/stderr/JSON、history persistence/read 与隐私 contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
+CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `started` 才能 dispatch。需要反操作旧值的 mutation（当前为 annotation Note 与 collection title）只能从 guarded transaction 内、COMMIT 前读取真实 prior state，并随 committed mutation result 带回 CLI；CLI 不得在 mutation 前预读再猜。命令在 presentation 前把 committed result/inverse 写入 in-memory completion sink，因此后续 JSON/output 失败也不能抹掉已经发生的 mutation 证据。completion 持久化失败只能追加 warning，绝不能改变或重放已 commit mutation。
+
+History inverse 仍受 identity/data-integrity 边界约束：annotation 自动 delete↔restore inverse 只使用 eligible stable UUID；只有 local PK 时不宣称自动可逆。prior Note/title 必须完整保存才可标记 inverse available，超过 history payload 边界时降级为 unavailable，不能截断后伪称可恢复。完整的 history JSON/read/migration contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
 
 ## Edit trigger / evidence
 

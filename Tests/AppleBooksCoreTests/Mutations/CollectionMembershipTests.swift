@@ -79,9 +79,14 @@ struct CollectionMembershipTests {
             syncCloud: true
         )
 
+        #expect(duplicateResult.committed == false)
         #expect(duplicateResult.changed == false)
+        #expect(duplicateResult.backupHandle == nil)
+        #expect(duplicateResult.acknowledgementRequested)
+        #expect(duplicateResult.acknowledged == nil)
         #expect(duplicateResult.warnings.isEmpty)
         #expect(duplicateEvents.values.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: duplicate.backupRoot.path) == false)
 
         let missing = try fixture()
         defer { try? FileManager.default.removeItem(at: missing.root) }
@@ -94,9 +99,35 @@ struct CollectionMembershipTests {
             syncCloud: true
         )
 
+        #expect(missingResult.committed == false)
         #expect(missingResult.changed == false)
+        #expect(missingResult.backupHandle == nil)
+        #expect(missingResult.acknowledgementRequested)
+        #expect(missingResult.acknowledged == nil)
         #expect(missingResult.warnings.isEmpty)
         #expect(missingEvents.values.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: missing.backupRoot.path) == false)
+    }
+
+    @Test
+    func localPKIdentityBudgetFailuresHappenBeforeBackup() throws {
+        let oversized = String(repeating: "x", count: CloudProjectionResourcePolicy.stableIdentityBytes + 1)
+
+        let collection = try fixture()
+        defer { try? FileManager.default.removeItem(at: collection.root) }
+        try execute(collection.database, "UPDATE ZBKCOLLECTION SET ZCOLLECTIONID='\(oversized)' WHERE Z_PK=10")
+        #expect(throws: CollectionWriteError.collectionIdentityUnavailable) {
+            _ = try collection.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+        }
+        #expect(FileManager.default.fileExists(atPath: collection.backupRoot.path) == false)
+
+        let book = try fixture()
+        defer { try? FileManager.default.removeItem(at: book.root) }
+        try execute(book.database, "UPDATE ZBKLIBRARYASSET SET ZASSETID='\(oversized)' WHERE Z_PK=1")
+        #expect(throws: CollectionWriteError.bookAssetIDUnavailable) {
+            _ = try book.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+        }
+        #expect(FileManager.default.fileExists(atPath: book.backupRoot.path) == false)
     }
 
     @Test
@@ -127,6 +158,33 @@ struct CollectionMembershipTests {
         }
         #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 1)
         #expect(try parentState(fixture.database).opt == 3)
+    }
+
+    @Test
+    func matchingMemberEntityValidationStillScansThroughLateCorruption() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.database, """
+            WITH RECURSIVE seq(x) AS (
+              VALUES(1000)
+              UNION ALL
+              SELECT x + 1 FROM seq WHERE x < 10999
+            )
+            INSERT INTO ZBKCOLLECTIONMEMBER(
+              Z_PK,Z_ENT,Z_OPT,ZSORTKEY,ZASSET,ZCOLLECTION,ZLOCALMODDATE,ZASSETID,ZTEMPORARYASSETID
+            )
+            SELECT x,8,1,x * 10000,1,10,1,'asset-1',NULL FROM seq;
+            UPDATE ZBKCOLLECTIONMEMBER SET Z_ENT=999 WHERE Z_PK=10999;
+            """)
+
+        do {
+            _ = try fixture.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+            Issue.record("expected late entity mismatch")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .mutationFailed)
+            #expect(failure.backupHandle != nil)
+        }
+        #expect(try integer(fixture.database, "SELECT COUNT(*) FROM ZBKCOLLECTIONMEMBER WHERE ZCOLLECTION=10 AND ZASSETID='asset-1'") == 10_000)
     }
 
     private func fixture(
@@ -194,7 +252,7 @@ struct CollectionMembershipTests {
                     events.values.append("memberState")
                     return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
                 },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: { events.values.append("recycle") }
             )
         )

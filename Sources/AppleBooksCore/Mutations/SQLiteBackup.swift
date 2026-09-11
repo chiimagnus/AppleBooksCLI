@@ -15,7 +15,7 @@ public enum SQLiteBackupError: Error, Equatable, Sendable {
     case restoreFailed(Int32)
 }
 
-final class BackupCatalogInstrumentation {
+final class BackupScanInstrumentation {
     private(set) var scannedEntryCount = 0
     private(set) var retainedCandidatePeak = 0
 
@@ -28,11 +28,270 @@ final class BackupCatalogInstrumentation {
     }
 }
 
+final class BackupRootGuard {
+    private struct Identity: Equatable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    let url: URL
+    let descriptor: Int32
+    private let identity: Identity
+
+    private init(url: URL, descriptor: Int32) throws {
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR else {
+            close(descriptor)
+            throw SQLiteBackupError.filesystemFailure
+        }
+        self.url = url
+        self.descriptor = descriptor
+        identity = Self.identity(metadata)
+    }
+
+    deinit {
+        close(descriptor)
+    }
+
+    static func openExisting(_ rawRoot: URL) throws -> BackupRootGuard? {
+        let root = try normalizedRoot(rawRoot)
+        guard let descriptor = try openDirectory(root, createMissing: false) else { return nil }
+        return try BackupRootGuard(url: root, descriptor: descriptor)
+    }
+
+    static func create(_ rawRoot: URL) throws -> BackupRootGuard {
+        let root = try normalizedRoot(rawRoot)
+        guard let descriptor = try openDirectory(root, createMissing: true) else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+        return try BackupRootGuard(url: root, descriptor: descriptor)
+    }
+
+    static func isReady(_ rawRoot: URL) -> Bool {
+        do {
+            let root = try normalizedRoot(rawRoot)
+            let components = pathComponents(root)
+            var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            guard descriptor >= 0 else { return false }
+            defer { close(descriptor) }
+
+            for component in components {
+                let next = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+                if next < 0 {
+                    guard errno == ENOENT,
+                          faccessat(descriptor, ".", W_OK | X_OK, 0) == 0 else {
+                        return false
+                    }
+                    return true
+                }
+                close(descriptor)
+                descriptor = next
+            }
+            return faccessat(descriptor, ".", W_OK | X_OK, 0) == 0
+        } catch {
+            return false
+        }
+    }
+
+    func validateCurrentPathIdentity() throws {
+        var metadata = stat()
+        guard lstat(url.path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR,
+              Self.identity(metadata) == identity else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+    }
+
+    func withExclusiveMutationLock<T>(_ body: () throws -> T) throws -> T {
+        try validateCurrentPathIdentity()
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else { throw SQLiteBackupError.filesystemFailure }
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        try validateCurrentPathIdentity()
+        let result = try body()
+        try validateCurrentPathIdentity()
+        return result
+    }
+
+    func forEachEntryName(_ body: (String) throws -> Void) throws {
+        try validateCurrentPathIdentity()
+        let enumerationFD = openat(descriptor, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        guard enumerationFD >= 0 else { throw SQLiteBackupError.filesystemFailure }
+        guard let directory = fdopendir(enumerationFD) else {
+            close(enumerationFD)
+            throw SQLiteBackupError.filesystemFailure
+        }
+        defer { closedir(directory) }
+
+        while true {
+            errno = 0
+            guard let entry = readdir(directory) else {
+                guard errno == 0 else { throw SQLiteBackupError.filesystemFailure }
+                break
+            }
+            let length = Int(entry.pointee.d_namlen)
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: length + 1) {
+                    FileManager.default.string(withFileSystemRepresentation: $0, length: length)
+                }
+            }
+            if name == "." || name == ".." || name.hasPrefix(".") { continue }
+            try body(name)
+        }
+        try validateCurrentPathIdentity()
+    }
+
+    func entryStat(_ name: String) throws -> stat? {
+        var metadata = stat()
+        if fstatat(descriptor, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0 {
+            return metadata
+        }
+        if errno == ENOENT { return nil }
+        throw SQLiteBackupError.filesystemFailure
+    }
+
+    func openRegularFile(_ name: String) throws -> Int32 {
+        try validateCurrentPathIdentity()
+        let fileDescriptor = openat(descriptor, name, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard fileDescriptor >= 0 else { throw SQLiteBackupError.invalidRestoreSource }
+        var metadata = stat()
+        guard fstat(fileDescriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            close(fileDescriptor)
+            throw SQLiteBackupError.invalidRestoreSource
+        }
+        return fileDescriptor
+    }
+
+    func removeRegularFile(named name: String) throws {
+        try validateCurrentPathIdentity()
+        guard let metadata = try entryStat(name), metadata.st_mode & S_IFMT == S_IFREG else { return }
+        guard unlinkat(descriptor, name, 0) == 0 else { throw SQLiteBackupError.filesystemFailure }
+        try validateCurrentPathIdentity()
+    }
+
+    func publish(staging: URL, finalName: String) throws {
+        try validateCurrentPathIdentity()
+        let partName = finalName + ".part"
+        let sourceFD = open(staging.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard sourceFD >= 0 else { throw SQLiteBackupError.filesystemFailure }
+        defer { close(sourceFD) }
+
+        let partFD = openat(
+            descriptor,
+            partName,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard partFD >= 0 else { throw SQLiteBackupError.filesystemFailure }
+        var published = false
+        defer {
+            close(partFD)
+            if published == false { _ = unlinkat(descriptor, partName, 0) }
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
+        while true {
+            let count = Darwin.read(sourceFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw SQLiteBackupError.filesystemFailure
+            }
+            if count == 0 { break }
+            var offset = 0
+            while offset < count {
+                let written = buffer.withUnsafeBytes { rawBuffer in
+                    Darwin.write(partFD, rawBuffer.baseAddress!.advanced(by: offset), count - offset)
+                }
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw SQLiteBackupError.filesystemFailure
+                }
+                guard written > 0 else { throw SQLiteBackupError.filesystemFailure }
+                offset += written
+            }
+        }
+        guard fsync(partFD) == 0 else { throw SQLiteBackupError.filesystemFailure }
+        try validateCurrentPathIdentity()
+        guard renameatx_np(
+            descriptor,
+            partName,
+            descriptor,
+            finalName,
+            UInt32(RENAME_EXCL)
+        ) == 0,
+        fsync(descriptor) == 0 else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+        published = true
+        try validateCurrentPathIdentity()
+    }
+
+    private static func normalizedRoot(_ rawRoot: URL) throws -> URL {
+        guard rawRoot.isFileURL else { throw SQLiteBackupError.filesystemFailure }
+        let standardized = rawRoot.standardizedFileURL
+        let path = standardized.path
+        let authorized: URL
+        if path == "/var" || path.hasPrefix("/var/") {
+            authorized = URL(fileURLWithPath: "/private" + path, isDirectory: true)
+        } else {
+            authorized = standardized
+        }
+        guard authorized.path.hasPrefix("/"), authorized.path != "/" else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+        return authorized
+    }
+
+    private static func pathComponents(_ root: URL) -> [String] {
+        root.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    private static func openDirectory(_ root: URL, createMissing: Bool) throws -> Int32? {
+        let components = pathComponents(root)
+        var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard descriptor >= 0 else { throw SQLiteBackupError.filesystemFailure }
+        var ownsDescriptor = true
+        defer { if ownsDescriptor { close(descriptor) } }
+
+        for component in components {
+            var next = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            if next < 0, errno == ENOENT {
+                guard createMissing else { return nil }
+                guard faccessat(descriptor, ".", W_OK | X_OK, 0) == 0,
+                      mkdirat(descriptor, component, mode_t(S_IRWXU)) == 0 || errno == EEXIST else {
+                    throw SQLiteBackupError.filesystemFailure
+                }
+                next = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard next >= 0 else { throw SQLiteBackupError.filesystemFailure }
+            close(descriptor)
+            descriptor = next
+        }
+        ownsDescriptor = false
+        return descriptor
+    }
+
+    private static func identity(_ metadata: stat) -> Identity {
+        Identity(
+            device: UInt64(bitPattern: Int64(metadata.st_dev)),
+            inode: UInt64(metadata.st_ino)
+        )
+    }
+}
+
 public enum SQLiteBackup {
     public static let retentionCount = 10
 
     private struct CatalogCandidate {
         let backup: LibraryBackup
+        let metadata: BackupMetadata
+    }
+
+    private struct RetentionCandidate {
+        let name: String
         let metadata: BackupMetadata
     }
 
@@ -44,48 +303,21 @@ public enum SQLiteBackup {
     static func list(
         source: URL,
         backupRoot: URL = defaultRoot(),
-        instrumentation: BackupCatalogInstrumentation? = nil
+        instrumentation: BackupScanInstrumentation? = nil
     ) throws -> [LibraryBackup] {
-        let descriptor = open(backupRoot.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-        guard descriptor >= 0 else {
-            if errno == ENOENT { return [] }
-            throw SQLiteBackupError.filesystemFailure
-        }
-        guard let directory = fdopendir(descriptor) else {
-            close(descriptor)
-            throw SQLiteBackupError.filesystemFailure
-        }
-        defer { closedir(directory) }
-
+        guard let root = try BackupRootGuard.openExisting(backupRoot) else { return [] }
         let sourceStem = source.deletingPathExtension().lastPathComponent
         var candidates: [CatalogCandidate] = []
         candidates.reserveCapacity(retentionCount)
 
-        while true {
-            errno = 0
-            guard let entry = readdir(directory) else {
-                if errno != 0 { throw SQLiteBackupError.filesystemFailure }
-                break
-            }
-            let nameLength = Int(entry.pointee.d_namlen)
-            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
-                pointer.withMemoryRebound(to: CChar.self, capacity: nameLength + 1) {
-                    FileManager.default.string(withFileSystemRepresentation: $0, length: nameLength)
-                }
-            }
-            guard name != ".", name != "..", name.hasPrefix(".") == false else { continue }
+        try root.forEachEntryName { name in
             instrumentation?.observeScannedEntry()
             guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
-                  metadata.filename == name else { continue }
-
-            var entryStat = stat()
-            let status = name.withCString {
-                fstatat(dirfd(directory), $0, &entryStat, AT_SYMLINK_NOFOLLOW)
-            }
-            guard status == 0,
+                  metadata.filename == name,
+                  let entryStat = try root.entryStat(name),
                   entryStat.st_mode & S_IFMT == S_IFREG,
                   entryStat.st_size >= 0 else {
-                continue
+                return
             }
 
             retainCatalogCandidate(
@@ -151,39 +383,30 @@ public enum SQLiteBackup {
             throw SQLiteBackupError.sourceNotReadOnly
         }
 
-        do {
-            try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-        } catch {
-            throw SQLiteBackupError.filesystemFailure
-        }
-
+        let root = try BackupRootGuard.create(backupRoot)
         let sourceStem = source.deletingPathExtension().lastPathComponent
         let metadata = BackupMetadata.fresh(sourceStem: sourceStem)
-        let final = backupRoot.appendingPathComponent(metadata.filename)
-        let part = URL(fileURLWithPath: final.path + ".part")
-        var published = false
-        defer {
-            if published == false {
-                try? FileManager.default.removeItem(at: part)
+
+        try withTemporaryBackupDatabase { staging in
+            try copyOnline(sourceHandle: sourceHandle, to: staging)
+            try sourceConnection.close()
+            try verifyIntegrity(of: staging)
+            try root.withExclusiveMutationLock {
+                try root.publish(staging: staging, finalName: metadata.filename)
+                do {
+                    try applyRetention(
+                        in: root,
+                        sourceStem: sourceStem,
+                        keep: keep,
+                        preserving: preserving
+                    )
+                } catch {
+                    throw SQLiteBackupError.retentionFailed
+                }
             }
         }
-
-        try copyOnline(sourceHandle: sourceHandle, to: part)
-        try sourceConnection.close()
-        try verifyIntegrity(of: part)
-        try publish(part: part, final: final)
-        published = true
-        do {
-            try applyRetention(
-                in: backupRoot,
-                sourceStem: sourceStem,
-                keep: keep,
-                preserving: preserving
-            )
-        } catch {
-            throw SQLiteBackupError.retentionFailed
-        }
-        return final
+        try root.validateCurrentPathIdentity()
+        return root.url.appendingPathComponent(metadata.filename, isDirectory: false)
     }
 
     static func restoreHandle(backupID: String, destination: URL) throws -> String {
@@ -199,29 +422,31 @@ public enum SQLiteBackup {
         destination: URL,
         backupRoot: URL = defaultRoot()
     ) throws -> SQLiteConnection {
-        let canonicalRoot = backupRoot.standardizedFileURL.resolvingSymlinksInPath()
-        let candidate = backupRoot.appendingPathComponent(handle, isDirectory: false)
-        let canonicalBackup = candidate.standardizedFileURL.resolvingSymlinksInPath()
-        let canonicalDestination = destination.standardizedFileURL.resolvingSymlinksInPath()
         let destinationStem = destination.deletingPathExtension().lastPathComponent
-
-        var backupStat = stat()
         guard BackupMetadata.parse(filename: handle, sourceStem: destinationStem) != nil,
-              lstat(candidate.path, &backupStat) == 0,
-              backupStat.st_mode & S_IFMT == S_IFREG,
-              canonicalBackup.deletingLastPathComponent() == canonicalRoot,
-              canonicalBackup != canonicalDestination else {
+              let root = try BackupRootGuard.openExisting(backupRoot) else {
             throw SQLiteBackupError.invalidRestoreSource
         }
-        try validateRestoreDestination(canonicalDestination)
+        try validateRestoreDestination(destination)
 
-        let connection = try SQLiteConnection.readOnly(path: canonicalBackup.path)
+        let sourceFD = try root.openRegularFile(handle)
+        defer { close(sourceFD) }
+        var sourceStat = stat()
+        var destinationStat = stat()
+        guard fstat(sourceFD, &sourceStat) == 0,
+              lstat(destination.path, &destinationStat) == 0,
+              sourceStat.st_dev != destinationStat.st_dev || sourceStat.st_ino != destinationStat.st_ino else {
+            throw SQLiteBackupError.invalidRestoreSource
+        }
+
+        let connection = try SQLiteConnection.readOnly(path: "/dev/fd/\(sourceFD)")
         do {
-            guard let handle = connection.handle,
-                  sqlite3_db_readonly(handle, "main") == 1 else {
+            guard let sqliteHandle = connection.handle,
+                  sqlite3_db_readonly(sqliteHandle, "main") == 1 else {
                 throw SQLiteBackupError.sourceNotReadOnly
             }
             try verifyIntegrity(on: connection)
+            try root.validateCurrentPathIdentity()
             return connection
         } catch {
             try? connection.close()
@@ -252,15 +477,25 @@ public enum SQLiteBackup {
     static func enforceRetention(
         source: URL,
         backupRoot: URL = defaultRoot(),
-        keep: Int = retentionCount
+        keep: Int = retentionCount,
+        preserving: Set<String> = [],
+        instrumentation: BackupScanInstrumentation? = nil,
+        betweenPasses: (() throws -> Void)? = nil
     ) throws {
         guard keep >= 1 else { throw SQLiteBackupError.invalidRetention }
-        try applyRetention(
-            in: backupRoot,
-            sourceStem: source.deletingPathExtension().lastPathComponent,
-            keep: keep,
-            preserving: []
-        )
+        guard let root = try BackupRootGuard.openExisting(backupRoot) else {
+            throw SQLiteBackupError.filesystemFailure
+        }
+        try root.withExclusiveMutationLock {
+            try applyRetention(
+                in: root,
+                sourceStem: source.deletingPathExtension().lastPathComponent,
+                keep: keep,
+                preserving: preserving,
+                instrumentation: instrumentation,
+                betweenPasses: betweenPasses
+            )
+        }
     }
 
     static func checkpointRestoredDestination(_ destination: URL) throws {
@@ -276,20 +511,6 @@ public enum SQLiteBackup {
         let checkpoint = sqlite3_wal_checkpoint_v2(handle, "main", SQLITE_CHECKPOINT_FULL, nil, nil)
         guard checkpoint == SQLITE_OK else {
             throw SQLiteBackupError.restoreFailed(checkpoint)
-        }
-    }
-
-    static func publish(part: URL, final: URL) throws {
-        let result = renameatx_np(
-            AT_FDCWD,
-            part.path,
-            AT_FDCWD,
-            final.path,
-            UInt32(RENAME_EXCL)
-        )
-        guard result == 0 else {
-            try? FileManager.default.removeItem(at: part)
-            throw SQLiteBackupError.filesystemFailure
         }
     }
 
@@ -430,42 +651,98 @@ public enum SQLiteBackup {
     }
 
     private static func applyRetention(
-        in root: URL,
+        in root: BackupRootGuard,
         sourceStem: String,
         keep: Int,
-        preserving: Set<String>
+        preserving: Set<String>,
+        instrumentation: BackupScanInstrumentation? = nil,
+        betweenPasses: (() throws -> Void)? = nil
     ) throws {
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
+        var newest: [RetentionCandidate] = []
+        newest.reserveCapacity(keep)
 
-        var completed: [(URL, BackupMetadata)] = []
-        for entry in entries {
-            let name = entry.lastPathComponent
+        try root.forEachEntryName { name in
+            instrumentation?.observeScannedEntry()
             if name.hasSuffix(".sqlite.part") {
                 let finalName = String(name.dropLast(".part".count))
                 if BackupMetadata.parse(filename: finalName, sourceStem: sourceStem) != nil {
-                    try FileManager.default.removeItem(at: entry)
+                    try root.removeRegularFile(named: name)
                 }
-                continue
+                return
             }
-            if let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem) {
-                let values = try entry.resourceValues(forKeys: [.isRegularFileKey])
-                if values.isRegularFile == true {
-                    completed.append((entry, metadata))
-                }
+            guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
+                  let entryStat = try root.entryStat(name),
+                  entryStat.st_mode & S_IFMT == S_IFREG else {
+                return
             }
+            retainRetentionCandidate(
+                RetentionCandidate(name: name, metadata: metadata),
+                keep: keep,
+                in: &newest
+            )
+            instrumentation?.observeRetainedCandidates(newest.count)
         }
 
-        completed.sort {
-            if $0.1.timestamp != $1.1.timestamp { return $0.1.timestamp > $1.1.timestamp }
-            return $0.1.uuid.uuidString > $1.1.uuid.uuidString
+        try betweenPasses?()
+        let retainedNames = Set(newest.map(\.name)).union(preserving)
+        let retentionCutoff = newest.count == keep ? newest.last : nil
+        try root.forEachEntryName { name in
+            instrumentation?.observeScannedEntry()
+            guard retainedNames.contains(name) == false,
+                  let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
+                  let entryStat = try root.entryStat(name),
+                  entryStat.st_mode & S_IFMT == S_IFREG,
+                  let retentionCutoff,
+                  retentionPrecedes(retentionCutoff, RetentionCandidate(name: name, metadata: metadata)) else {
+                return
+            }
+            try root.removeRegularFile(named: name)
         }
-        for (entry, _) in completed.dropFirst(keep) {
-            guard preserving.contains(entry.lastPathComponent) == false else { continue }
-            try FileManager.default.removeItem(at: entry)
+        try root.validateCurrentPathIdentity()
+    }
+
+    private static func retainRetentionCandidate(
+        _ candidate: RetentionCandidate,
+        keep: Int,
+        in candidates: inout [RetentionCandidate]
+    ) {
+        let insertion = candidates.firstIndex { retentionPrecedes(candidate, $0) } ?? candidates.endIndex
+        if candidates.count < keep {
+            candidates.insert(candidate, at: insertion)
+            return
         }
+        guard insertion < candidates.endIndex else { return }
+        candidates.insert(candidate, at: insertion)
+        candidates.removeLast()
+    }
+
+    private static func retentionPrecedes(_ lhs: RetentionCandidate, _ rhs: RetentionCandidate) -> Bool {
+        if lhs.metadata.timestamp != rhs.metadata.timestamp {
+            return lhs.metadata.timestamp > rhs.metadata.timestamp
+        }
+        return lhs.metadata.uuid.uuidString > rhs.metadata.uuid.uuidString
+    }
+
+    private static func withTemporaryBackupDatabase<T>(_ body: (URL) throws -> T) throws -> T {
+        let templatePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("applebookscli-backup-XXXXXX", isDirectory: true)
+            .path
+        var template = Array(templatePath.utf8CString)
+        let directoryPath: String = try template.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress, let created = mkdtemp(base) else {
+                throw SQLiteBackupError.filesystemFailure
+            }
+            return String(cString: created)
+        }
+        let database = URL(fileURLWithPath: directoryPath, isDirectory: true)
+            .appendingPathComponent("backup.sqlite", isDirectory: false)
+        defer {
+            _ = unlink(database.path)
+            _ = unlink(database.path + "-wal")
+            _ = unlink(database.path + "-shm")
+            _ = unlink(database.path + "-journal")
+            _ = rmdir(directoryPath)
+        }
+        return try body(database)
     }
 }

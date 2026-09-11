@@ -51,18 +51,47 @@ struct AnnotationCloudProjector {
     static func identity(annotationsDatabase: URL, localPK: Int64) throws -> AnnotationCloudIdentity {
         let connection = try SQLiteConnection.readOnly(path: annotationsDatabase.path)
         defer { try? connection.close() }
+        let assetProjection = SQLiteTextProjection.exact(
+            "ZANNOTATIONASSETID",
+            alias: "cloudAssetID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        )
+        let uuidProjection = SQLiteTextProjection.exact(
+            "ZANNOTATIONUUID",
+            alias: "cloudUUID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        )
         let statement = try connection.prepare("""
-            SELECT ZANNOTATIONASSETID, ZANNOTATIONUUID
+            SELECT \((assetProjection + uuidProjection).joined(separator: ", "))
             FROM ZAEANNOTATION
             WHERE Z_PK=?
             ORDER BY rowid
+            LIMIT 2
             """)
         try statement.bind(localPK, at: 1)
         guard try statement.step() else { throw AnnotationCloudProjectionError.identityUnavailable }
         let row = try SQLiteRow(statement: statement)
-        guard let assetID = try row.text("ZANNOTATIONASSETID"), assetID.isEmpty == false,
-              let uuid = try row.text("ZANNOTATIONUUID"), uuid.isEmpty == false,
-              try statement.step() == false else {
+        let assetID: String
+        let uuid: String
+        switch try SQLiteTextProjection.decodeExact(
+            row,
+            alias: "cloudAssetID",
+            column: "ZANNOTATIONASSETID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        ) {
+        case let .value(value) where value.isEmpty == false: assetID = value
+        case .value, .null, .oversized: throw AnnotationCloudProjectionError.identityUnavailable
+        }
+        switch try SQLiteTextProjection.decodeExact(
+            row,
+            alias: "cloudUUID",
+            column: "ZANNOTATIONUUID",
+            maximumUTF8Bytes: CloudProjectionResourcePolicy.stableIdentityBytes
+        ) {
+        case let .value(value) where value.isEmpty == false: uuid = value
+        case .value, .null, .oversized: throw AnnotationCloudProjectionError.identityUnavailable
+        }
+        guard try statement.step() == false else {
             throw AnnotationCloudProjectionError.identityUnavailable
         }
         return AnnotationCloudIdentity(assetID: assetID, uuid: uuid)

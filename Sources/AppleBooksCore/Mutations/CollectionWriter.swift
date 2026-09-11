@@ -37,6 +37,17 @@ private struct BookWriteTarget: Equatable {
     let assetID: String?
 }
 
+private enum CollectionDeleteTargetState: Equatable {
+    case active(CollectionWriteTarget)
+    case tombstone(CollectionWriteTarget)
+
+    var target: CollectionWriteTarget {
+        switch self {
+        case let .active(target), let .tombstone(target): target
+        }
+    }
+}
+
 struct CollectionWriter {
     private static let collectionEntityName = "BKCollection"
     private static let memberEntityName = "BKCollectionMember"
@@ -201,6 +212,15 @@ struct CollectionWriter {
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
                 _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
             },
+            quietDecision: { connection in
+                try Self.validateRenameSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                guard try Self.currentTitle(localPK: target.localPK, on: handle) == normalizedTitle else {
+                    return .needsMutation
+                }
+                return .noChange(MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: false))
+            },
             revalidate: { handle in
                 try Self.validateRenameSchema(on: handle)
                 let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
@@ -214,30 +234,43 @@ struct CollectionWriter {
             },
             mutation: { handle in
                 let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                let previousTitle = try Self.currentTitle(localPK: target.localPK, on: handle)
+                if previousTitle == normalizedTitle {
+                    return RenameMutationResult(changed: false, target: target, historyEffect: nil)
+                }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.updateTitle(localPK: target.localPK, title: normalizedTitle, timestamp: timestamp, on: handle)
-                return target
+                return RenameMutationResult(
+                    changed: true,
+                    target: target,
+                    historyEffect: Self.titleHistoryEffect(previousTitle)
+                )
             },
-            invariant: { handle, target in
-                _ = try Self.editableTarget(localPK: target.localPK, scope: .collection, on: handle)
+            invariant: { handle, payload in
+                _ = try Self.editableTarget(localPK: payload.target.localPK, scope: .collection, on: handle)
             },
-            domainData: {
-                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            domainData: { payload in
+                MutationDomainData(
+                    localPK: payload.target.localPK,
+                    stableID: payload.target.stableID,
+                    changed: payload.changed
+                )
             },
+            historyEffect: { $0.historyEffect },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.collection(localPK: target.localPK)) }
+                { payload in try projector.project(.collection(localPK: payload.target.localPK)) }
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target, onTemporaryBooksLaunch in
+                { payload, onTemporaryBooksLaunch in
                     try synchronizer.syncCollection(
-                        localPK: target.localPK,
+                        localPK: payload.target.localPK,
                         onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },
-            readBack: { connection, target in
-                guard let collection = try Self.readBackCollection(localPK: target.localPK, on: connection),
+            readBack: { connection, payload in
+                guard let collection = try Self.readBackCollection(localPK: payload.target.localPK, on: connection),
                       collection.title == normalizedTitle else {
                     throw CollectionWriteError.writeFailed
                 }
@@ -250,52 +283,62 @@ struct CollectionWriter {
             preflight: { connection in
                 try Self.validateDeleteSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                _ = try Self.resolveDeleteTarget(selector, on: handle)
+            },
+            quietDecision: { connection in
+                try Self.validateDeleteSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let state = try Self.resolveDeleteTarget(selector, on: handle)
+                guard case let .tombstone(target) = state else { return .needsMutation }
+                try Self.validateCollectionEntity(localPK: target.localPK, on: handle)
+                return .noChange(MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: false))
             },
             revalidate: { handle in
                 try Self.validateDeleteSchema(on: handle)
-                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
-                let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
-                try WriteSchemaGuard.validateExistingEntity(
-                    table: .collections,
-                    localPK: target.localPK,
-                    expectedEntityID: entity.entityID,
-                    on: handle
-                )
+                let target = try Self.resolveDeleteTarget(selector, on: handle).target
+                try Self.validateCollectionEntity(localPK: target.localPK, on: handle)
             },
             mutation: { handle in
-                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                let state = try Self.resolveDeleteTarget(selector, on: handle)
+                let target = state.target
+                if case .tombstone = state {
+                    return DeleteMutationResult(changed: false, target: target)
+                }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.tombstoneCollection(localPK: target.localPK, timestamp: timestamp, on: handle)
                 try Self.deleteMembershipRows(collectionLocalPK: target.localPK, on: handle)
-                return target
+                return DeleteMutationResult(changed: true, target: target)
             },
-            invariant: { handle, target in
-                guard try Self.isDeleted(localPK: target.localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
+            invariant: { handle, payload in
+                guard try Self.isDeleted(localPK: payload.target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: payload.target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             },
-            domainData: {
-                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            domainData: { payload in
+                MutationDomainData(
+                    localPK: payload.target.localPK,
+                    stableID: payload.target.stableID,
+                    changed: payload.changed
+                )
             },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.collection(localPK: target.localPK)) }
+                { payload in try projector.project(.collection(localPK: payload.target.localPK)) }
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target, onTemporaryBooksLaunch in
+                { payload, onTemporaryBooksLaunch in
                     try synchronizer.syncCollection(
-                        localPK: target.localPK,
+                        localPK: payload.target.localPK,
                         deleting: true,
                         onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },
-            readBack: { connection, target in
+            readBack: { connection, payload in
                 guard let handle = connection.handle,
-                      try Self.isDeleted(localPK: target.localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
+                      try Self.isDeleted(localPK: payload.target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: payload.target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             }
@@ -309,6 +352,33 @@ struct CollectionWriter {
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
                 _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 _ = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
+            },
+            quietDecision: { connection in
+                try Self.validateMembershipSchema(inserting: true, on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
+                guard let assetID = book.assetID else { throw CollectionWriteError.bookAssetIDUnavailable }
+                guard try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) > 0 else {
+                    return .needsMutation
+                }
+                let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
+                do {
+                    try Self.validateMatchingMemberEntities(
+                        collectionLocalPK: collection.localPK,
+                        assetID: assetID,
+                        expectedEntityID: memberEntity.entityID,
+                        on: handle
+                    )
+                } catch {
+                    return .needsMutation
+                }
+                return .noChange(Self.membershipDomainData(
+                    collection: collection,
+                    bookLocalPK: book.localPK,
+                    assetID: assetID,
+                    changed: false
+                ))
             },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: true, on: handle)
@@ -334,7 +404,7 @@ struct CollectionWriter {
                     on: handle
                 )
                 if try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) > 0 {
-                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
                 }
 
                 let allocation = try CoreDataPrimaryKey.allocate(
@@ -356,7 +426,7 @@ struct CollectionWriter {
                     on: handle
                 )
                 try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
+                return MembershipMutationResult(changed: true, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 guard let assetID = result.assetID,
@@ -369,9 +439,10 @@ struct CollectionWriter {
                 }
             },
             domainData: {
-                MutationDomainData(
-                    localPK: $0.collection.localPK,
-                    stableID: $0.collection.stableID,
+                Self.membershipDomainData(
+                    collection: $0.collection,
+                    bookLocalPK: $0.bookLocalPK,
+                    assetID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -418,6 +489,29 @@ struct CollectionWriter {
                 _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 _ = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
             },
+            quietDecision: { connection in
+                try Self.validateMembershipSchema(inserting: false, on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
+                guard let assetID = book.assetID else {
+                    return .noChange(Self.membershipDomainData(
+                        collection: collection,
+                        bookLocalPK: book.localPK,
+                        assetID: nil,
+                        changed: false
+                    ))
+                }
+                guard try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) == 0 else {
+                    return .needsMutation
+                }
+                return .noChange(Self.membershipDomainData(
+                    collection: collection,
+                    bookLocalPK: book.localPK,
+                    assetID: assetID,
+                    changed: false
+                ))
+            },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: false, on: handle)
                 let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
@@ -434,7 +528,7 @@ struct CollectionWriter {
                 let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 let book = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
                 guard let assetID = book.assetID else {
-                    return MembershipMutationResult(changed: false, assetID: nil, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: nil, collection: collection)
                 }
                 let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
                 try Self.validateMatchingMemberEntities(
@@ -449,11 +543,11 @@ struct CollectionWriter {
                     on: handle
                 )
                 guard removed > 0 else {
-                    return MembershipMutationResult(changed: false, assetID: assetID, collection: collection)
+                    return MembershipMutationResult(changed: false, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
                 }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.touchCollection(localPK: collection.localPK, timestamp: timestamp, on: handle)
-                return MembershipMutationResult(changed: true, assetID: assetID, collection: collection)
+                return MembershipMutationResult(changed: true, bookLocalPK: book.localPK, assetID: assetID, collection: collection)
             },
             invariant: { handle, result in
                 if let assetID = result.assetID {
@@ -467,9 +561,10 @@ struct CollectionWriter {
                 }
             },
             domainData: {
-                MutationDomainData(
-                    localPK: $0.collection.localPK,
-                    stableID: $0.collection.stableID,
+                Self.membershipDomainData(
+                    collection: $0.collection,
+                    bookLocalPK: $0.bookLocalPK,
+                    assetID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -537,44 +632,126 @@ struct CollectionWriter {
     ) throws -> CollectionWriteTarget {
         switch selector {
         case let .localPK(localPK):
-            let target = try editableTarget(localPK: localPK, scope: scope, on: handle)
-            return CollectionWriteTarget(localPK: target.localPK, stableID: nil)
+            return try editableTarget(localPK: localPK, scope: scope, on: handle)
         case let .collectionID(collectionID):
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(
-                handle,
-                "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
-                -1,
-                &statement,
-                nil
-            ) == SQLITE_OK,
-            let statement else {
-                throw CollectionWriteError.collectionMissing
-            }
-            defer { sqlite3_finalize(statement) }
-            guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
-                throw CollectionWriteError.writeFailed
-            }
-            guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
-            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            let storedID: String
-            do {
-                storedID = try decodeSQLiteText(statement, at: 1)
-            } catch {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            guard storedID == collectionID else {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            let localPK = sqlite3_column_int64(statement, 0)
-            let second = sqlite3_step(statement)
-            if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
-            guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+            let localPK = try localPK(forCollectionID: collectionID, on: handle)
             _ = try editableTarget(localPK: localPK, scope: scope, on: handle)
             return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
         }
+    }
+
+    private static func resolveDeleteTarget(
+        _ selector: CollectionWriteSelector,
+        on handle: OpaquePointer
+    ) throws -> CollectionDeleteTargetState {
+        switch selector {
+        case let .localPK(localPK):
+            return try deleteTarget(localPK: localPK, on: handle)
+        case let .collectionID(collectionID):
+            let localPK = try localPK(forCollectionID: collectionID, on: handle)
+            return try deleteTarget(localPK: localPK, expectedCollectionID: collectionID, on: handle)
+        }
+    }
+
+    private static func localPK(forCollectionID collectionID: String, on handle: OpaquePointer) throws -> Int64 {
+        guard CloudProjectionResourcePolicy.acceptsStableIdentityResource(collectionID) else {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT Z_PK FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK,
+        let statement else {
+            throw CollectionWriteError.collectionMissing
+        }
+        defer { sqlite3_finalize(statement) }
+        guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
+            throw CollectionWriteError.writeFailed
+        }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
+        let localPK = sqlite3_column_int64(statement, 0)
+        let second = sqlite3_step(statement)
+        if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
+        guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+        return localPK
+    }
+
+    private static func deleteTarget(
+        localPK: Int64,
+        expectedCollectionID: String? = nil,
+        on handle: OpaquePointer
+    ) throws -> CollectionDeleteTargetState {
+        let identityProjection = CloudProjectionResourcePolicy.exactTextProjection("ZCOLLECTIONID")
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT \(identityProjection),ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 2",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK,
+        let statement else {
+            throw CollectionWriteError.collectionMissing
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw CollectionWriteError.collectionMissing
+        }
+        let collectionID: String
+        do {
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case let .value(value) where value.isEmpty == false:
+                collectionID = value
+            case .value, .null, .oversized:
+                throw CollectionWriteError.collectionIdentityUnavailable
+            }
+        } catch is CollectionWriteError {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        } catch {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        if let expectedCollectionID, collectionID != expectedCollectionID {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        guard CollectionIdentityEditPolicy.capabilities(for: collectionID).canEditCollection else {
+            throw CollectionWriteError.collectionNotEditable
+        }
+        guard sqlite3_column_type(statement, 3) == SQLITE_INTEGER else {
+            throw CollectionWriteError.collectionDeletedOrUnknown
+        }
+        let deleted = sqlite3_column_int64(statement, 3)
+        let target = CollectionWriteTarget(localPK: localPK, stableID: collectionID)
+        switch deleted {
+        case 0:
+            return .active(target)
+        case 1:
+            guard try membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+                throw CollectionWriteError.collectionDeletedOrUnknown
+            }
+            return .tombstone(target)
+        default:
+            throw CollectionWriteError.collectionDeletedOrUnknown
+        }
+    }
+
+    private static func validateCollectionEntity(localPK: Int64, on handle: OpaquePointer) throws {
+        let entity = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
+        try WriteSchemaGuard.validateExistingEntity(
+            table: .collections,
+            localPK: localPK,
+            expectedEntityID: entity.entityID,
+            on: handle
+        )
     }
 
     private static func resolveBook(
@@ -588,10 +765,13 @@ struct CollectionWriter {
             if requireAssetID, assetID == nil { throw CollectionWriteError.bookAssetIDUnavailable }
             return BookWriteTarget(localPK: localPK, assetID: assetID)
         case let .assetID(assetID):
+            guard CloudProjectionResourcePolicy.acceptsStableIdentityResource(assetID) else {
+                throw CollectionWriteError.bookAssetIDUnavailable
+            }
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 handle,
-                "SELECT Z_PK,ZASSETID FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
+                "SELECT Z_PK FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
                 -1,
                 &statement,
                 nil
@@ -604,18 +784,6 @@ struct CollectionWriter {
                 throw CollectionWriteError.writeFailed
             }
             guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
-            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
-            let storedID: String
-            do {
-                storedID = try decodeSQLiteText(statement, at: 1)
-            } catch {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
-            guard storedID == assetID else {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
             let localPK = sqlite3_column_int64(statement, 0)
             let second = sqlite3_step(statement)
             if second == SQLITE_ROW { throw StableIdentityError.ambiguousBookAssetID }
@@ -629,10 +797,11 @@ struct CollectionWriter {
         scope: CollectionWriteScope,
         on handle: OpaquePointer
     ) throws -> CollectionWriteTarget {
+        let identityProjection = CloudProjectionResourcePolicy.exactTextProjection("ZCOLLECTIONID")
         var statement: OpaquePointer?
         let prepare = sqlite3_prepare_v2(
             handle,
-            "SELECT Z_PK, ZCOLLECTIONID, ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK = ?",
+            "SELECT Z_PK, \(identityProjection), ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK = ?",
             -1,
             &statement,
             nil
@@ -647,16 +816,23 @@ struct CollectionWriter {
             throw CollectionWriteError.collectionMissing
         }
 
-        guard sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
-              sqlite3_column_int64(statement, 2) == 0 else {
+        guard sqlite3_column_type(statement, 4) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 4) == 0 else {
             throw CollectionWriteError.collectionDeletedOrUnknown
-        }
-        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-            throw CollectionWriteError.collectionIdentityUnavailable
         }
         let collectionID: String
         do {
-            collectionID = try decodeSQLiteText(statement, at: 1)
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 1,
+                lengthIndex: 2,
+                payloadIndex: 3
+            ) {
+            case let .value(value) where value.isEmpty == false:
+                collectionID = value
+            case .value, .null, .oversized:
+                throw CollectionWriteError.collectionIdentityUnavailable
+            }
         } catch {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
@@ -667,7 +843,7 @@ struct CollectionWriter {
         case .membership: capabilities.canEditMembership
         }
         guard isEditable else { throw CollectionWriteError.collectionNotEditable }
-        return CollectionWriteTarget(localPK: localPK, stableID: nil)
+        return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
     }
 
     static func validateWriteReadiness(on connection: SQLiteConnection) throws {
@@ -828,8 +1004,9 @@ struct CollectionWriter {
     }
 
     private static func bookAssetID(localPK: Int64, on handle: OpaquePointer) throws -> String? {
+        let projection = CloudProjectionResourcePolicy.exactTextProjection("ZASSETID")
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, "SELECT ZASSETID FROM ZBKLIBRARYASSET WHERE Z_PK=?", -1, &statement, nil) == SQLITE_OK,
+        guard sqlite3_prepare_v2(handle, "SELECT \(projection) FROM ZBKLIBRARYASSET WHERE Z_PK=?", -1, &statement, nil) == SQLITE_OK,
               let statement else {
             throw CollectionWriteError.writeFailed
         }
@@ -838,14 +1015,22 @@ struct CollectionWriter {
             throw CollectionWriteError.writeFailed
         }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
-        guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
-        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
-            throw CollectionWriteError.writeFailed
-        }
         do {
-            return try decodeSQLiteText(statement, at: 0)
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case .null:
+                return nil
+            case let .value(value) where value.isEmpty == false:
+                return value
+            case .value, .oversized:
+                throw CollectionWriteError.bookAssetIDUnavailable
+            }
         } catch {
-            throw CollectionWriteError.writeFailed
+            throw CollectionWriteError.bookAssetIDUnavailable
         }
     }
 
@@ -1066,6 +1251,45 @@ struct CollectionWriter {
         return sqlite3_column_int64(statement, 0) == 1
     }
 
+    private static func currentTitle(localPK: Int64, on handle: OpaquePointer) throws -> String? {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 1", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw CollectionWriteError.writeFailed
+        }
+        let title: String?
+        switch sqlite3_column_type(statement, 0) {
+        case SQLITE_NULL:
+            title = nil
+        case SQLITE_TEXT:
+            do {
+                title = try decodeSQLiteText(statement, at: 0)
+            } catch {
+                throw CollectionWriteError.writeFailed
+            }
+        default:
+            throw CollectionWriteError.writeFailed
+        }
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+        return title
+    }
+
+    private static func titleHistoryEffect(_ previousTitle: String?) -> MutationHistoryEffect? {
+        guard let previousTitle,
+              previousTitle.isEmpty == false,
+              previousTitle.trimmingCharacters(in: .whitespacesAndNewlines) == previousTitle,
+              previousTitle.count <= 512,
+              previousTitle.utf8.count <= 8 * 1_024 else {
+            return nil
+        }
+        return .collectionTitle(previous: previousTitle)
+    }
+
     private static func updateTitle(localPK: Int64, title: String, timestamp: Double, on handle: OpaquePointer) throws {
         var statement: OpaquePointer?
         let sql = """
@@ -1101,9 +1325,14 @@ struct CollectionWriter {
         return try cloudSynchronizer.pendingCount()
     }
 
-    func syncPendingCloudChanges() throws {
+    func preparePendingCloudSync() throws {
         guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
-        try cloudSynchronizer.syncPending()
+        try cloudSynchronizer.preparePendingBatch()
+    }
+
+    func waitForPendingCloudAcknowledgement() throws {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        try cloudSynchronizer.waitForPendingAcknowledgement()
     }
 
     private struct CreatedCollection {
@@ -1115,8 +1344,35 @@ struct CollectionWriter {
         let timestamp: Double
     }
 
+    private static func membershipDomainData(
+        collection: CollectionWriteTarget,
+        bookLocalPK: Int64,
+        assetID: String?,
+        changed: Bool
+    ) -> MutationDomainData {
+        MutationDomainData(
+            localPK: collection.localPK,
+            stableID: collection.stableID,
+            relatedLocalPK: bookLocalPK,
+            relatedStableID: assetID,
+            changed: changed
+        )
+    }
+
+    private struct RenameMutationResult {
+        let changed: Bool
+        let target: CollectionWriteTarget
+        let historyEffect: MutationHistoryEffect?
+    }
+
+    private struct DeleteMutationResult {
+        let changed: Bool
+        let target: CollectionWriteTarget
+    }
+
     private struct MembershipMutationResult {
         let changed: Bool
+        let bookLocalPK: Int64
         let assetID: String?
         let collection: CollectionWriteTarget
     }

@@ -34,10 +34,12 @@ struct MutationCoordinator {
 
     func perform<T>(
         preflight: (SQLiteConnection) throws -> Void,
+        quietDecision: ((SQLiteConnection) throws -> MutationQuietDecision)? = nil,
         revalidate: (OpaquePointer) throws -> Void,
         mutation: (OpaquePointer) throws -> T,
         invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
         domainData: (T) -> MutationDomainData,
+        historyEffect: ((T) -> MutationHistoryEffect?)? = nil,
         cloudProjection: ((T) throws -> Void)? = nil,
         acknowledgementRequested: Bool = false,
         acknowledgement: ((T, () -> Void) throws -> Void)? = nil,
@@ -80,6 +82,59 @@ struct MutationCoordinator {
                     code: .quitFailed,
                     warnings: [],
                     underlying: error
+                )
+            }
+        }
+
+        if let quietDecision {
+            let connection: SQLiteConnection
+            do {
+                connection = try SQLiteConnection.readOnly(path: database.path)
+            } catch {
+                throw failure(
+                    error,
+                    code: .revalidateFailed,
+                    backupHandle: nil,
+                    restoreBooks: initialBooksState
+                )
+            }
+
+            let decision: MutationQuietDecision
+            do {
+                decision = try quietDecision(connection)
+                try connection.close()
+            } catch {
+                try? connection.close()
+                throw failure(
+                    error,
+                    code: .revalidateFailed,
+                    backupHandle: nil,
+                    restoreBooks: initialBooksState
+                )
+            }
+
+            if case let .noChange(domain) = decision {
+                var warnings: [MutationWarning] = []
+                if initialBooksState != .closed {
+                    do {
+                        try booksApp.restore(initialBooksState)
+                    } catch {
+                        warnings.append(.booksStateRestoreFailed)
+                    }
+                }
+                return MutationResult(
+                    committed: false,
+                    backupHandle: nil,
+                    localPK: domain.localPK,
+                    stableID: domain.stableID,
+                    relatedLocalPK: domain.relatedLocalPK,
+                    relatedStableID: domain.relatedStableID,
+                    historyEffect: nil,
+                    changed: false,
+                    acknowledgementRequested: acknowledgementRequested,
+                    acknowledged: nil,
+                    warnings: warnings,
+                    appleBooksURL: domain.appleBooksURL
                 )
             }
         }
@@ -224,16 +279,20 @@ struct MutationCoordinator {
         }
 
         var ownsTemporaryBooksLaunch = false
+        var acknowledged: Bool?
         if domain.changed, acknowledgementRequested {
             if projectionSucceeded, let acknowledgement {
                 do {
                     try acknowledgement(payload) {
                         ownsTemporaryBooksLaunch = true
                     }
+                    acknowledged = true
                 } catch {
+                    acknowledged = false
                     warnings.append(.cloudSyncFailed)
                 }
             } else {
+                acknowledged = false
                 warnings.append(.cloudSyncFailed)
             }
         }
@@ -251,7 +310,7 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(.background)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         case .frontmost:
             if let appleBooksURL = domain.appleBooksURL {
@@ -263,15 +322,21 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(.frontmost)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         }
 
         return MutationResult(
+            committed: true,
             backupHandle: backupHandle,
             localPK: domain.localPK,
             stableID: domain.stableID,
+            relatedLocalPK: domain.relatedLocalPK,
+            relatedStableID: domain.relatedStableID,
+            historyEffect: domain.changed ? historyEffect?(payload) : nil,
             changed: domain.changed,
+            acknowledgementRequested: acknowledgementRequested,
+            acknowledged: acknowledged,
             warnings: warnings,
             appleBooksURL: domain.appleBooksURL
         )
@@ -299,8 +364,8 @@ struct MutationCoordinator {
         }
         defer { try? restoreSource.close() }
 
-        let wasRunning = booksApp.isRunning()
-        if wasRunning {
+        let initialBooksState = booksApp.state()
+        if initialBooksState != .closed {
             do {
                 try booksApp.terminateAndWait()
             } catch {
@@ -321,7 +386,7 @@ struct MutationCoordinator {
                 error,
                 code: .safetyBackupFailed,
                 safetyBackupHandle: nil,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
         let safetyBackupHandle = safetyBackup.lastPathComponent
@@ -338,7 +403,7 @@ struct MutationCoordinator {
                 error,
                 code: .restoreFailed,
                 safetyBackupHandle: safetyBackupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
 
@@ -366,12 +431,10 @@ struct MutationCoordinator {
             }
         }
 
-        if wasRunning {
-            do {
-                try booksApp.launch()
-            } catch {
-                warnings.append(.relaunchFailed)
-            }
+        do {
+            try booksApp.restore(initialBooksState)
+        } catch {
+            warnings.append(.booksStateRestoreFailed)
         }
 
         return RestoreResult(
@@ -393,7 +456,7 @@ struct MutationCoordinator {
             do {
                 try booksApp.restore(restoreBooks)
             } catch {
-                warnings.append(.relaunchFailed)
+                warnings.append(.booksStateRestoreFailed)
             }
         }
         return MutationFailure(
@@ -408,15 +471,13 @@ struct MutationCoordinator {
         _ underlying: any Error,
         code: RestoreFailureCode,
         safetyBackupHandle: String?,
-        restoreBooks: Bool
+        restoreBooks: BooksAppState
     ) -> RestoreFailure {
         var warnings: [RestoreWarning] = []
-        if restoreBooks {
-            do {
-                try booksApp.launch()
-            } catch {
-                warnings.append(.relaunchFailed)
-            }
+        do {
+            try booksApp.restore(restoreBooks)
+        } catch {
+            warnings.append(.booksStateRestoreFailed)
         }
         return RestoreFailure(
             safetyBackupHandle: safetyBackupHandle,

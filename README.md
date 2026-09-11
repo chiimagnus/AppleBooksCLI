@@ -89,7 +89,7 @@ Records within each document use reading order by default: available EPUB chapte
 
 AppleBooksCLI writes only through its guarded mutation/restore rails. Ordinary queries are read-only.
 
-A single mutation can explicitly wait for current-Mac CloudKit acknowledgement:
+Every changed mutation still commits locally and projects into Apple-native cloud state. `--sync` only adds an immediate wait for current-Mac CloudKit acknowledgement:
 
 ```sh
 applebookscli collections create "My Shelf" --sync
@@ -100,11 +100,13 @@ For several mutations, commit them normally and flush pending changes once at th
 ```sh
 applebookscli collections create "Shelf A"
 applebookscli collections add-book --collection <collection-id> --book <asset-id>
-applebookscli annotations update-note <annotation-uuid> --note "New note"
+printf '%s' 'New note' | applebookscli annotations update-note <annotation-uuid>
+applebookscli annotations delete <annotation-uuid>
+applebookscli annotations restore <annotation-uuid>
 applebookscli sync
 ```
 
-Current-Mac acknowledgement does not prove another device already displays the change. Post-commit sync/restore warnings must not be treated as permission to replay a mutation. The full safety and lifecycle contract is in [`docs/write-safety.md`](docs/write-safety.md).
+Root `sync` is a no-op when nothing is pending. When it does run, it restores Books to its original closed/background/frontmost state after acknowledgement; a state-restore failure is reported separately from the acknowledgement fact. Current-Mac acknowledgement does not prove another device already displays the change. Post-commit sync/restore warnings must not be treated as permission to replay a mutation. The full safety and lifecycle contract is in [`docs/write-safety.md`](docs/write-safety.md).
 
 ## Operation history
 
@@ -113,7 +115,7 @@ applebookscli history list   # continue with --cursor <nextCursor> when present
 applebookscli history get <history-id>
 ```
 
-History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history list` is bounded (default 20, maximum 100); `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
+History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls plus structured inverse guidance when a committed change can be reversed safely. `history list` is bounded (default 20, maximum 100); `history get` returns structured `request`, `result`, and `inverse` detail. Execute an inverse only when `inverse.available=true`; `incomplete` means the outcome is unknown. History does not persist raw argv or captured stdout/stderr, but an available inverse may include the prior Note or collection title required to reverse that exact change. See [`docs/cli-contract.md`](docs/cli-contract.md).
 
 ## Optional configuration
 

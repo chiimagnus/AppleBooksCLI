@@ -15,7 +15,7 @@
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |
 | operational JSON output | 已实现（强化） | operational success固定stdout单个JSON；fatal error固定stderr JSON；help/version保持plain text；无public `--json`/`--verbose`双轨 |
-| operation history | 已实现（强化） | 最近 24h 记录目标写入/sync；list 默认20/最大100并用opaque cursor续页，summary不含argv/stdout/stderr；get按exact lowercase UUID读取完整本地记录；不是 undo |
+| operation history | 已实现（强化） | 最近 24h 记录目标 mutation/restore/sync 的结构化 request/result；list 默认20/最大100并用opaque cursor续页；get按exact lowercase UUID返回detail与可用时的安全 inverse，prior Note/title仅在反操作需要时保存；不持久化raw argv或stdout/stderr |
 
 ## Books
 
@@ -51,7 +51,7 @@
 | list annotations | 已实现 | user annotations 的组合查询；默认20、max100、opaque cursor；支持 book/text/created/modified/color/underline/presence 过滤与 created/modified/reading order |
 | annotations by book | 已实现 | `--book` / `--book-pk` 精确 selector；reading order 只允许 exact book，并按共享 best-effort CFI key 排序 |
 | get/describe annotation | 已实现 | UUID 优先、UUID 不可公开时 local PK fallback；selected text/Note 为 bounded detail，raw type/style/CFI/range 不进入 canonical detail |
-| Apple Books annotation deep link | 已实现（展示） | mutation/export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL` |
+| Apple Books annotation deep link | 已实现（展示） | archival export 可保留 annotation-level CFI deeplink；ordinary `annotations get` 只返回由完整合法 book asset ID 构造的无 fragment `bookURL`；mutation result 不返回 deeplink |
 | highlights by color | 已实现 | green/blue/yellow/pink/purple；underline 独立保留 |
 | export/filter underline | 已实现 | underline 可独立过滤 |
 | search highlighted text | 已实现 | `annotations list --text <query> --text-field highlight`；case-insensitive partial search |
@@ -89,9 +89,9 @@
 | get/describe collection | 已实现（强化） | stable collection ID 优先、显式 local PK fallback；返回 bounded semantic detail 与 collection/membership 可编辑能力，超限 title/details 带 `truncatedFields`；不暴露 persistence 排序/视图字段 |
 | search collections by title | 已实现（强化） | case-insensitive literal substring；opaque cursor 分页，默认 20、最大 100 |
 | list collection books | 已实现（强化） | relation owner 在分页前跳过 stale membership 并按 canonical membership order 去重；opaque cursor 分页，默认 20、最大 100 |
-| create collection | 已实现 | title + optional details，走 guarded write rail |
+| create collection | 已实现 | public CLI 只接收 title，走 guarded write rail |
 | rename collection | 已实现 | system collection fail closed |
-| delete collection | 已实现 | soft-delete |
+| delete collection | 已实现（强化） | soft-delete；对已完成且无残留 membership 的普通 UUID collection 重试返回 deterministic no-op；异常 tombstone/system collection 仍 fail closed |
 | add book | 已实现（强化） | idempotent membership add；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk` |
 | remove book | 已实现（强化） | idempotent membership remove；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk`；system collection guard |
 
@@ -127,17 +127,17 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| 修改已有 annotation note | 已实现 | UUID/PK 定位；只写 user annotation note |
-| soft-delete annotation | 已实现 | soft-delete，禁止 hard delete/system bookmark write |
+| 修改已有 annotation note | 已实现 | UUID/PK 定位；stdin 提供完整替换正文，`--clear` 显式清空为 NULL；只写 user annotation note |
+| soft-delete / restore annotation | 已实现（强化） | `delete` 只做 soft-delete；`restore` 只恢复仍存在的 user-annotation tombstone；两者幂等，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
 | backup list/retention | 已实现（强化） | public library catalog 以流式目录扫描固定只返回 newest 10 valid recovery artifacts，不提供分页历史浏览；ordinary CLI 只暴露 opaque `backupID`，exact restore 由该 ID 进入既有 guarded restore rail；annotation backup 仅内部 safety use |
-| restore | 已实现 | restore 前 safety backup；apply 后 verification/relaunch failure 不能冒充未发生 |
+| restore | 已实现 | restore 前 safety backup；apply 后 verification/Books state restore failure 不能冒充未发生 |
 | Books.app lifecycle | 已实现（强化） | normal mutation 保留 closed/background/frontmost；explicit sync temporary launch 不夺取最终状态 ownership |
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |
 | sanitised errors | 已实现 | 默认 error 不回显用户正文/SQLite payload |
 | 输入边界校验 | 已实现 | selector/search/name/note 等在副作用前校验 |
-| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | mutation `--sync` 或 root `sync` 等待当前 Mac ack；普通 mutation 只 projection，ack 不证明第二设备已显示 |
+| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | mutation 始终 local commit/read-back + projection，`--sync` 只额外等待当前 Mac ack；root `sync` pending=0 不触碰 Books，有 pending 时恢复原 closed/background/frontmost 状态；ack 不证明第二设备已显示 |
 
 ## 配置与历史数据边界
 

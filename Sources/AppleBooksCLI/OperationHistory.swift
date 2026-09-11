@@ -14,15 +14,279 @@ enum OperationHistoryStatus: String, Codable, Equatable, Sendable {
     case incomplete
 }
 
+struct OperationHistorySelector: Codable, Equatable, Sendable {
+    let annotationUUID: String?
+    let annotationLocalPK: Int64?
+    let collectionID: String?
+    let collectionLocalPK: Int64?
+    let bookAssetID: String?
+    let bookLocalPK: Int64?
+    let backupID: String?
+
+    init(
+        annotationUUID: String? = nil,
+        annotationLocalPK: Int64? = nil,
+        collectionID: String? = nil,
+        collectionLocalPK: Int64? = nil,
+        bookAssetID: String? = nil,
+        bookLocalPK: Int64? = nil,
+        backupID: String? = nil
+    ) {
+        self.annotationUUID = annotationUUID
+        self.annotationLocalPK = annotationLocalPK
+        self.collectionID = collectionID
+        self.collectionLocalPK = collectionLocalPK
+        self.bookAssetID = bookAssetID
+        self.bookLocalPK = bookLocalPK
+        self.backupID = backupID
+    }
+}
+
+struct OperationHistoryNoteAction: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Equatable, Sendable {
+        case set
+        case clear
+    }
+
+    let kind: Kind
+    let text: String?
+
+    static func set(_ text: String? = nil) -> Self { Self(kind: .set, text: text) }
+    static let clear = Self(kind: .clear, text: nil)
+}
+
+struct OperationHistoryRequest: Codable, Equatable, Sendable {
+    let available: Bool
+    let selector: OperationHistorySelector?
+    let noteAction: OperationHistoryNoteAction?
+    let title: String?
+    let syncRequested: Bool?
+
+    static let unavailable = Self(
+        available: false,
+        selector: nil,
+        noteAction: nil,
+        title: nil,
+        syncRequested: nil
+    )
+
+    init(
+        available: Bool = true,
+        selector: OperationHistorySelector? = nil,
+        noteAction: OperationHistoryNoteAction? = nil,
+        title: String? = nil,
+        syncRequested: Bool? = nil
+    ) {
+        self.available = available
+        self.selector = selector
+        self.noteAction = noteAction
+        self.title = title
+        self.syncRequested = syncRequested
+    }
+}
+
+struct OperationHistoryResult: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Equatable, Sendable {
+        case mutation
+        case restore
+        case sync
+        case unavailable
+    }
+
+    let kind: Kind
+    let committed: Bool?
+    let changed: Bool?
+    let acknowledgementRequested: Bool?
+    let acknowledged: Bool?
+    let verified: Bool?
+    let collectionPendingBefore: Int?
+    let annotationPendingBefore: Int?
+    let warningCodes: [String]
+
+    static let unavailable = Self(
+        kind: .unavailable,
+        committed: nil,
+        changed: nil,
+        acknowledgementRequested: nil,
+        acknowledged: nil,
+        verified: nil,
+        collectionPendingBefore: nil,
+        annotationPendingBefore: nil,
+        warningCodes: []
+    )
+
+    var withoutWarnings: Self {
+        Self(
+            kind: kind,
+            committed: committed,
+            changed: changed,
+            acknowledgementRequested: acknowledgementRequested,
+            acknowledged: acknowledged,
+            verified: verified,
+            collectionPendingBefore: collectionPendingBefore,
+            annotationPendingBefore: annotationPendingBefore,
+            warningCodes: []
+        )
+    }
+}
+
+struct OperationHistoryInverse: Codable, Equatable, Sendable {
+    let available: Bool
+    let operation: String?
+    let selector: OperationHistorySelector?
+    let noteAction: OperationHistoryNoteAction?
+    let title: String?
+
+    static let unavailable = Self(
+        available: false,
+        operation: nil,
+        selector: nil,
+        noteAction: nil,
+        title: nil
+    )
+
+    static func annotationState(_ result: MutationResult, operation: String) -> Self {
+        guard result.changed,
+              let uuid = result.stableID,
+              PublicStableTokenPolicy.isEligible(uuid) else {
+            return .unavailable
+        }
+        return Self(
+            available: true,
+            operation: operation,
+            selector: OperationHistorySelector(annotationUUID: uuid),
+            noteAction: nil,
+            title: nil
+        )
+    }
+
+    static func annotationNote(_ result: MutationResult) -> Self {
+        guard result.changed,
+              let uuid = result.stableID,
+              PublicStableTokenPolicy.isEligible(uuid),
+              let effect = result.historyEffect,
+              case let .annotationNote(previous) = effect else {
+            return .unavailable
+        }
+        return Self(
+            available: true,
+            operation: "annotations.update-note",
+            selector: OperationHistorySelector(annotationUUID: uuid),
+            noteAction: previous.map(OperationHistoryNoteAction.set) ?? .clear,
+            title: nil
+        )
+    }
+
+    static func collectionRename(_ result: MutationResult) -> Self {
+        guard result.changed,
+              let collectionID = result.stableID,
+              PublicStableTokenPolicy.isEligible(collectionID),
+              let effect = result.historyEffect,
+              case let .collectionTitle(previous) = effect else {
+            return .unavailable
+        }
+        return Self(
+            available: true,
+            operation: "collections.rename",
+            selector: OperationHistorySelector(collectionID: collectionID),
+            noteAction: nil,
+            title: previous
+        )
+    }
+
+    static func membership(_ result: MutationResult, operation: String) -> Self {
+        guard result.changed,
+              let collectionID = result.stableID,
+              PublicStableTokenPolicy.isEligible(collectionID),
+              let bookAssetID = result.relatedStableID,
+              PublicStableTokenPolicy.isEligible(bookAssetID) else {
+            return .unavailable
+        }
+        return Self(
+            available: true,
+            operation: operation,
+            selector: OperationHistorySelector(collectionID: collectionID, bookAssetID: bookAssetID),
+            noteAction: nil,
+            title: nil
+        )
+    }
+}
+
+struct OperationHistoryCompletion: Equatable, Sendable {
+    let result: OperationHistoryResult
+    let inverse: OperationHistoryInverse
+}
+
+final class OperationHistoryCompletionSink {
+    private(set) var completion: OperationHistoryCompletion?
+
+    func record(_ completion: OperationHistoryCompletion) {
+        self.completion = completion
+    }
+}
+
+extension OperationHistoryCompletion {
+    static func mutation(_ result: MutationResult, inverse: OperationHistoryInverse = .unavailable) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .mutation,
+                committed: result.committed,
+                changed: result.changed,
+                acknowledgementRequested: result.acknowledgementRequested,
+                acknowledged: result.acknowledged,
+                verified: nil,
+                collectionPendingBefore: nil,
+                annotationPendingBefore: nil,
+                warningCodes: Array(result.warnings.prefix(100).map(\.rawValue))
+            ),
+            inverse: inverse
+        )
+    }
+
+    static func restore(_ result: RestoreResult) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .restore,
+                committed: result.restoreApplied,
+                changed: result.restoreApplied,
+                acknowledgementRequested: nil,
+                acknowledged: nil,
+                verified: result.verified,
+                collectionPendingBefore: nil,
+                annotationPendingBefore: nil,
+                warningCodes: Array(result.warnings.prefix(100).map(\.rawValue))
+            ),
+            inverse: .unavailable
+        )
+    }
+
+    static func sync(_ summary: CloudSyncSummary) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .sync,
+                committed: nil,
+                changed: summary.collectionPendingBefore > 0 || summary.annotationPendingBefore > 0,
+                acknowledgementRequested: true,
+                acknowledged: summary.acknowledged,
+                verified: nil,
+                collectionPendingBefore: summary.collectionPendingBefore,
+                annotationPendingBefore: summary.annotationPendingBefore,
+                warningCodes: summary.warnings.map(\.rawValue)
+            ),
+            inverse: .unavailable
+        )
+    }
+}
+
 struct OperationHistoryRecord: Equatable, Sendable {
     let id: String
     let operation: String
-    let arguments: [String]
+    let request: OperationHistoryRequest
     let startedAt: Date
     let completedAt: Date?
     let exitCode: Int32?
-    let stdout: String?
-    let stderr: String?
+    let result: OperationHistoryResult?
+    let inverse: OperationHistoryInverse
     let status: OperationHistoryStatus
 
     fileprivate let fileName: String
@@ -46,27 +310,31 @@ struct OperationHistorySummaryRecord: Equatable, Sendable {
 struct OperationHistoryStore: Sendable {
     static let retentionInterval: TimeInterval = 24 * 60 * 60
 
-    static let schemaVersion = 1
+    static let schemaVersion = 2
     private static let lockFileName = ".lock"
     private static let temporaryPrefix = ".operation-history-"
     private static let temporarySuffix = ".tmp"
     private static let directoryMode = mode_t(S_IRWXU)
     private static let fileMode = mode_t(S_IRUSR | S_IWUSR)
     private static let lineReadChunkSize = 8 * 1_024
-    // ponytail: v1 可能已有较大的 stdout/stderr 事件；P2 先用 16 MiB 单行硬上限阻止无界读取，P4-T8 迁移 schema 时再收紧到最终 event budget。
-    private static let legacyLineByteCap = 16 * 1_024 * 1_024
+    private static let eventByteCap = 256 * 1_024
+    private static let legacyBufferedLineByteCap = eventByteCap
     private static let processLock = NSLock()
 
     private let root: URL
     private let now: @Sendable () -> Date
     private let timeZone: @Sendable () -> TimeZone
     private let observeListCandidateCount: @Sendable (Int) -> Void
+    private let observeLineBufferedBytes: @Sendable (Int) -> Void
+    private let observeMigrationWarning: @Sendable () -> Void
 
     init(
         root: URL = Self.defaultRoot(),
         now: @escaping @Sendable () -> Date = Date.init,
         timeZone: @escaping @Sendable () -> TimeZone = { .current },
-        observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in }
+        observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in },
+        observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in },
+        observeMigrationWarning: @escaping @Sendable () -> Void = {}
     ) {
         let standardized = root.standardizedFileURL
         let canonicalParent = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
@@ -74,6 +342,8 @@ struct OperationHistoryStore: Sendable {
         self.now = now
         self.timeZone = timeZone
         self.observeListCandidateCount = observeListCandidateCount
+        self.observeLineBufferedBytes = observeLineBufferedBytes
+        self.observeMigrationWarning = observeMigrationWarning
     }
 
     static func defaultRoot() -> URL {
@@ -81,7 +351,7 @@ struct OperationHistoryStore: Sendable {
             .appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
     }
 
-    func begin(operation: String, arguments: [String]) throws -> OperationHistoryToken {
+    func begin(operation: String, request: OperationHistoryRequest) throws -> OperationHistoryToken {
         guard operation.isEmpty == false else { throw OperationHistoryStoreError.unavailable }
         let startedAt = Self.historyTimestamp(now())
         let result = try withLockedRoot(createIfMissing: true) { rootFD in
@@ -91,7 +361,7 @@ struct OperationHistoryStore: Sendable {
             let event = OperationHistoryEvent.started(
                 id: id,
                 operation: operation,
-                arguments: arguments,
+                request: request,
                 startedAt: startedAt
             )
             try append(event, to: fileName, rootFD: rootFD)
@@ -104,8 +374,7 @@ struct OperationHistoryStore: Sendable {
     func complete(
         _ token: OperationHistoryToken,
         exitCode: Int32,
-        stdout: String,
-        stderr: String
+        completion: OperationHistoryCompletion?
     ) throws {
         let completedAt = Self.historyTimestamp(now())
         let cutoff = completedAt.addingTimeInterval(-Self.retentionInterval)
@@ -122,12 +391,11 @@ struct OperationHistoryStore: Sendable {
                   record.startedAt == token.startedAt else {
                 throw OperationHistoryStoreError.unavailable
             }
-            let event = OperationHistoryEvent.completed(
+            let event = try Self.boundedCompletionEvent(
                 id: token.id,
                 completedAt: completedAt,
                 exitCode: exitCode,
-                stdout: stdout,
-                stderr: stderr
+                completion: completion
             )
             try append(event, to: token.fileName, rootFD: rootFD)
         }
@@ -260,7 +528,7 @@ struct OperationHistoryStore: Sendable {
     private func pruneDateFile(_ fileName: String, cutoff: Date, rootFD: Int32) throws {
         var states: [String: PruneState] = [:]
         var hasExpired = false
-        try forEachStoredLine(fileName, rootFD: rootFD) { line in
+        try forEachStoredLine(fileName, rootFD: rootFD, reportMigrationWarnings: false) { line in
             let event = line.event
             switch event.kind {
             case .started:
@@ -288,9 +556,12 @@ struct OperationHistoryStore: Sendable {
             return
         }
         try replaceControlledFile(fileName, rootFD: rootFD) { temporaryFD in
-            try forEachStoredLine(fileName, rootFD: rootFD) { line in
+            try forEachStoredLine(fileName, rootFD: rootFD, reportMigrationWarnings: false) { line in
                 guard states[line.event.id]?.keep == true else { return }
-                try Self.writeAll(line.rawLine, to: temporaryFD)
+                var data = try Self.encoder().encode(line.event.v2Event)
+                guard data.count <= Self.eventByteCap else { throw OperationHistoryStoreError.unavailable }
+                data.append(0x0A)
+                try Self.writeAll(data, to: temporaryFD)
             }
         }
     }
@@ -302,6 +573,43 @@ struct OperationHistoryStore: Sendable {
             try Self.applyTargetEvent(line.event, fileName: fileName, to: &state)
         }
         return state.map { Self.record(id: id, state: $0) }
+    }
+
+    private static func boundedCompletionEvent(
+        id: String,
+        completedAt: Date,
+        exitCode: Int32,
+        completion: OperationHistoryCompletion?
+    ) throws -> OperationHistoryEvent {
+        let result = completion?.result ?? .unavailable
+        let inverse = completion?.inverse ?? .unavailable
+        let candidates = [
+            OperationHistoryEvent.completed(
+                id: id,
+                completedAt: completedAt,
+                exitCode: exitCode,
+                result: result,
+                inverse: inverse
+            ),
+            OperationHistoryEvent.completed(
+                id: id,
+                completedAt: completedAt,
+                exitCode: exitCode,
+                result: result,
+                inverse: .unavailable
+            ),
+            OperationHistoryEvent.completed(
+                id: id,
+                completedAt: completedAt,
+                exitCode: exitCode,
+                result: result.withoutWarnings,
+                inverse: .unavailable
+            ),
+        ]
+        for event in candidates where try encoder().encode(event).count <= eventByteCap {
+            return event
+        }
+        throw OperationHistoryStoreError.unavailable
     }
 
     private func append(_ event: OperationHistoryEvent, to fileName: String, rootFD: Int32) throws {
@@ -318,7 +626,7 @@ struct OperationHistoryStore: Sendable {
         try Self.repairTrailingPartialLine(fd)
 
         var data = try Self.encoder().encode(event)
-        guard data.count <= Self.legacyLineByteCap else { throw OperationHistoryStoreError.unavailable }
+        guard data.count <= Self.eventByteCap else { throw OperationHistoryStoreError.unavailable }
         data.append(0x0A)
         try Self.writeAll(data, to: fd)
         guard fsync(fd) == 0,
@@ -330,6 +638,7 @@ struct OperationHistoryStore: Sendable {
     private func forEachStoredLine(
         _ fileName: String,
         rootFD: Int32,
+        reportMigrationWarnings: Bool = true,
         _ body: (StoredLine) throws -> Void
     ) throws {
         guard Self.isDateFileName(fileName) else { throw OperationHistoryStoreError.unavailable }
@@ -341,9 +650,46 @@ struct OperationHistoryStore: Sendable {
 
         var buffer = [UInt8](repeating: 0, count: Self.lineReadChunkSize)
         var line = [UInt8]()
-        line.reserveCapacity(min(Self.legacyLineByteCap, Self.lineReadChunkSize))
+        line.reserveCapacity(Self.lineReadChunkSize)
+        var bufferingLine = true
+        var legacyTokenizer = LegacyHistoryScalarTokenizer()
         var absoluteOffset: off_t = 0
         var lastCompleteOffset: off_t = 0
+
+        func finishLine() throws {
+            let event: OperationHistoryEvent?
+            if bufferingLine {
+                do {
+                    let decoded = try Self.decoder().decode(OperationHistoryEvent.self, from: Data(line))
+                    try decoded.validate()
+                    event = decoded
+                } catch {
+                    switch legacyTokenizer.finish() {
+                    case let .event(legacy): event = legacy
+                    case .malformedLegacy:
+                        if reportMigrationWarnings { observeMigrationWarning() }
+                        event = nil
+                    case .notLegacy:
+                        throw OperationHistoryStoreError.unavailable
+                    }
+                }
+            } else {
+                switch legacyTokenizer.finish() {
+                case let .event(legacy): event = legacy
+                case .malformedLegacy:
+                    if reportMigrationWarnings { observeMigrationWarning() }
+                    event = nil
+                case .notLegacy:
+                    throw OperationHistoryStoreError.unavailable
+                }
+            }
+            if let event {
+                try body(StoredLine(fileName: fileName, event: event))
+            }
+            line.removeAll(keepingCapacity: true)
+            bufferingLine = true
+            legacyTokenizer = LegacyHistoryScalarTokenizer()
+        }
 
         while true {
             let count = buffer.withUnsafeMutableBytes { bytes in
@@ -353,29 +699,27 @@ struct OperationHistoryStore: Sendable {
                 for byte in buffer.prefix(count) {
                     absoluteOffset += 1
                     if byte == 0x0A {
-                        guard line.isEmpty == false else { throw OperationHistoryStoreError.unavailable }
-                        let raw = Data(line)
-                        let event: OperationHistoryEvent
-                        do {
-                            event = try Self.decoder().decode(OperationHistoryEvent.self, from: raw)
-                        } catch {
+                        guard bufferingLine == false || line.isEmpty == false else {
                             throw OperationHistoryStoreError.unavailable
                         }
-                        try event.validate()
-                        var rawLine = raw
-                        rawLine.append(0x0A)
-                        try body(StoredLine(fileName: fileName, event: event, rawLine: rawLine))
-                        line.removeAll(keepingCapacity: true)
+                        try finishLine()
                         lastCompleteOffset = absoluteOffset
-                    } else {
-                        guard line.count < Self.legacyLineByteCap else {
-                            throw OperationHistoryStoreError.unavailable
+                        continue
+                    }
+
+                    legacyTokenizer.consume(byte)
+                    if bufferingLine {
+                        if line.count < Self.legacyBufferedLineByteCap {
+                            line.append(byte)
+                            observeLineBufferedBytes(line.count)
+                        } else {
+                            bufferingLine = false
+                            line.removeAll(keepingCapacity: false)
                         }
-                        line.append(byte)
                     }
                 }
             } else if count == 0 {
-                if line.isEmpty == false {
+                if bufferingLine == false || line.isEmpty == false {
                     guard ftruncate(fd, lastCompleteOffset) == 0,
                           fsync(fd) == 0 else {
                         throw OperationHistoryStoreError.unavailable
@@ -651,13 +995,13 @@ struct OperationHistoryStore: Sendable {
         case .started:
             guard state == nil,
                   let operation = event.operation,
-                  let arguments = event.arguments,
+                  let request = event.semanticRequest,
                   let startedAt = event.startedAt else {
                 throw OperationHistoryStoreError.unavailable
             }
             state = FoldState(
                 operation: operation,
-                arguments: arguments,
+                request: request,
                 startedAt: startedAt,
                 fileName: fileName,
                 completed: nil
@@ -668,15 +1012,15 @@ struct OperationHistoryStore: Sendable {
                   current.completed == nil,
                   let completedAt = event.completedAt,
                   let exitCode = event.exitCode,
-                  let stdout = event.stdout,
-                  let stderr = event.stderr else {
+                  let result = event.semanticResult,
+                  let inverse = event.semanticInverse else {
                 throw OperationHistoryStoreError.unavailable
             }
             current.completed = CompletedState(
                 completedAt: completedAt,
                 exitCode: exitCode,
-                stdout: stdout,
-                stderr: stderr
+                result: result,
+                inverse: inverse
             )
             state = current
         }
@@ -687,12 +1031,12 @@ struct OperationHistoryStore: Sendable {
         return OperationHistoryRecord(
             id: id,
             operation: state.operation,
-            arguments: state.arguments,
+            request: state.request,
             startedAt: state.startedAt,
             completedAt: completed?.completedAt,
             exitCode: completed?.exitCode,
-            stdout: completed?.stdout,
-            stderr: completed?.stderr,
+            result: completed?.result,
+            inverse: completed?.inverse ?? .unavailable,
             status: completed.map { $0.exitCode == 0 ? .success : .failure } ?? .incomplete,
             fileName: state.fileName
         )
@@ -827,28 +1171,27 @@ struct OperationHistoryStore: Sendable {
         guard lastRead == 1 else { throw OperationHistoryStoreError.unavailable }
         guard lastByte != 0x0A else { return }
 
-        var remaining = Self.legacyLineByteCap + 1
-        var cursor = size
+        guard lseek(fd, 0, SEEK_SET) >= 0 else { throw OperationHistoryStoreError.unavailable }
         var buffer = [UInt8](repeating: 0, count: Self.lineReadChunkSize)
-        var lastCompleteOffset: off_t?
-        while cursor > 0, remaining > 0 {
-            let requested = min(buffer.count, remaining, Int(min(cursor, off_t(buffer.count))))
-            let start = cursor - off_t(requested)
+        var absoluteOffset: off_t = 0
+        var lastCompleteOffset: off_t = 0
+        while true {
             let count = buffer.withUnsafeMutableBytes { bytes in
-                Darwin.pread(fd, bytes.baseAddress, requested, start)
+                Darwin.read(fd, bytes.baseAddress, bytes.count)
             }
-            guard count == requested else { throw OperationHistoryStoreError.unavailable }
-            if let index = buffer.prefix(count).lastIndex(of: 0x0A) {
-                lastCompleteOffset = start + off_t(index + 1)
+            if count > 0 {
+                for byte in buffer.prefix(count) {
+                    absoluteOffset += 1
+                    if byte == 0x0A { lastCompleteOffset = absoluteOffset }
+                }
+            } else if count == 0 {
                 break
+            } else if errno != EINTR {
+                throw OperationHistoryStoreError.unavailable
             }
-            cursor = start
-            remaining -= count
         }
 
-        let truncateOffset = lastCompleteOffset ?? 0
-        guard size - truncateOffset <= off_t(Self.legacyLineByteCap),
-              ftruncate(fd, truncateOffset) == 0,
+        guard ftruncate(fd, lastCompleteOffset) == 0,
               fsync(fd) == 0 else {
             throw OperationHistoryStoreError.unavailable
         }
@@ -965,78 +1308,540 @@ private struct OperationHistoryEvent: Codable {
     let kind: Kind
     let id: String
     let operation: String?
-    let arguments: [String]?
+    let request: OperationHistoryRequest?
     let startedAt: Date?
     let completedAt: Date?
     let exitCode: Int32?
+    let result: OperationHistoryResult?
+    let inverse: OperationHistoryInverse?
+
+    // v1 read-only compatibility. New writes never populate these fields.
+    let arguments: [String]?
     let stdout: String?
     let stderr: String?
 
-    static func started(id: String, operation: String, arguments: [String], startedAt: Date) -> Self {
+    static func started(id: String, operation: String, request: OperationHistoryRequest, startedAt: Date) -> Self {
         Self(
             schemaVersion: OperationHistoryStore.schemaVersion,
             kind: .started,
             id: id,
             operation: operation,
-            arguments: arguments,
+            request: request,
             startedAt: startedAt,
             completedAt: nil,
             exitCode: nil,
+            result: nil,
+            inverse: nil,
+            arguments: nil,
             stdout: nil,
             stderr: nil
         )
     }
 
-    static func completed(id: String, completedAt: Date, exitCode: Int32, stdout: String, stderr: String) -> Self {
+    static func completed(
+        id: String,
+        completedAt: Date,
+        exitCode: Int32,
+        result: OperationHistoryResult,
+        inverse: OperationHistoryInverse
+    ) -> Self {
         Self(
             schemaVersion: OperationHistoryStore.schemaVersion,
             kind: .completed,
             id: id,
             operation: nil,
-            arguments: nil,
+            request: nil,
             startedAt: nil,
             completedAt: completedAt,
             exitCode: exitCode,
-            stdout: stdout,
-            stderr: stderr
+            result: result,
+            inverse: inverse,
+            arguments: nil,
+            stdout: nil,
+            stderr: nil
         )
     }
 
     func validate() throws {
-        guard schemaVersion == OperationHistoryStore.schemaVersion,
+        guard (schemaVersion == 1 || schemaVersion == OperationHistoryStore.schemaVersion),
               let uuid = UUID(uuidString: id),
               id == uuid.uuidString.lowercased() else {
             throw OperationHistoryStoreError.unavailable
         }
-        switch kind {
-        case .started:
+        switch (schemaVersion, kind) {
+        case (1, .started):
             guard let operation, operation.isEmpty == false,
                   arguments != nil,
                   startedAt != nil,
                   completedAt == nil,
+                  exitCode == nil else {
+                throw OperationHistoryStoreError.unavailable
+            }
+        case (1, .completed):
+            guard operation == nil,
+                  startedAt == nil,
+                  completedAt != nil,
+                  exitCode != nil else {
+                throw OperationHistoryStoreError.unavailable
+            }
+        case (OperationHistoryStore.schemaVersion, .started):
+            guard let operation, operation.isEmpty == false,
+                  request != nil,
+                  startedAt != nil,
+                  completedAt == nil,
                   exitCode == nil,
+                  result == nil,
+                  inverse == nil,
+                  arguments == nil,
                   stdout == nil,
                   stderr == nil else {
                 throw OperationHistoryStoreError.unavailable
             }
-        case .completed:
+        case (OperationHistoryStore.schemaVersion, .completed):
             guard operation == nil,
-                  arguments == nil,
+                  request == nil,
                   startedAt == nil,
                   completedAt != nil,
                   exitCode != nil,
-                  stdout != nil,
-                  stderr != nil else {
+                  result != nil,
+                  inverse != nil,
+                  arguments == nil,
+                  stdout == nil,
+                  stderr == nil else {
                 throw OperationHistoryStoreError.unavailable
             }
+        default:
+            throw OperationHistoryStoreError.unavailable
         }
+    }
+
+    var semanticRequest: OperationHistoryRequest? {
+        schemaVersion == 1 ? .unavailable : request
+    }
+
+    var semanticResult: OperationHistoryResult? {
+        schemaVersion == 1 ? .unavailable : result
+    }
+
+    var semanticInverse: OperationHistoryInverse? {
+        schemaVersion == 1 ? .unavailable : inverse
+    }
+
+    var v2Event: Self {
+        guard schemaVersion == 1 else { return self }
+        switch kind {
+        case .started:
+            return .started(
+                id: id,
+                operation: operation ?? "unknown",
+                request: .unavailable,
+                startedAt: startedAt ?? Date(timeIntervalSince1970: 0)
+            )
+        case .completed:
+            return .completed(
+                id: id,
+                completedAt: completedAt ?? Date(timeIntervalSince1970: 0),
+                exitCode: exitCode ?? CLIProcessExit.internal.rawValue,
+                result: .unavailable,
+                inverse: .unavailable
+            )
+        }
+    }
+}
+
+private struct LegacyHistoryScalarTokenizer {
+    enum FinishResult {
+        case event(OperationHistoryEvent)
+        case malformedLegacy
+        case notLegacy
+    }
+
+    private enum State {
+        case start
+        case keyOrEnd
+        case keyString
+        case colon
+        case value
+        case stringValue
+        case primitiveValue
+        case compositeValue
+        case commaOrEnd
+        case done
+        case invalid
+    }
+
+    private static let legacyMarker = Array(#"\"schemaVersion\":1"#.utf8)
+    private static let knownKeys: Set<String> = [
+        "schemaVersion", "kind", "id", "operation", "arguments", "startedAt",
+        "completedAt", "exitCode", "stdout", "stderr",
+    ]
+    private static let capturedStringByteCap = 4 * 1_024
+
+    private var state: State = .start
+    private var keyBytes: [UInt8] = []
+    private var valueBytes: [UInt8] = []
+    private var currentKey: String?
+    private var stringEscaped = false
+    private var compositeStack: [UInt8] = []
+    private var compositeInString = false
+    private var compositeEscaped = false
+    private var seenKnownKeys = Set<String>()
+    private var markerIndex = 0
+    private var sawLegacyMarker = false
+
+    private var schemaVersion: Int?
+    private var kind: String?
+    private var id: String?
+    private var operation: String?
+    private var startedAt: String?
+    private var completedAt: String?
+    private var exitCode: Int32?
+    private var sawArguments = false
+    private var sawStdout = false
+    private var sawStderr = false
+
+    mutating func consume(_ byte: UInt8) {
+        observeLegacyMarker(byte)
+        guard state != .invalid else { return }
+
+        switch state {
+        case .start:
+            if Self.isWhitespace(byte) { return }
+            state = byte == 0x7B ? .keyOrEnd : .invalid
+
+        case .keyOrEnd:
+            if Self.isWhitespace(byte) { return }
+            if byte == 0x7D {
+                state = .done
+            } else if byte == 0x22 {
+                keyBytes.removeAll(keepingCapacity: true)
+                state = .keyString
+            } else {
+                state = .invalid
+            }
+
+        case .keyString:
+            if byte == 0x22 {
+                guard let key = String(bytes: keyBytes, encoding: .utf8), key.isEmpty == false else {
+                    state = .invalid
+                    return
+                }
+                currentKey = key
+                if Self.knownKeys.contains(key) {
+                    guard seenKnownKeys.insert(key).inserted else {
+                        state = .invalid
+                        return
+                    }
+                    switch key {
+                    case "arguments": sawArguments = true
+                    case "stdout": sawStdout = true
+                    case "stderr": sawStderr = true
+                    default: break
+                    }
+                }
+                state = .colon
+            } else if byte == 0x5C || byte < 0x20 || keyBytes.count >= 64 {
+                state = .invalid
+            } else {
+                keyBytes.append(byte)
+            }
+
+        case .colon:
+            if Self.isWhitespace(byte) { return }
+            state = byte == 0x3A ? .value : .invalid
+
+        case .value:
+            if Self.isWhitespace(byte) { return }
+            if byte == 0x22 {
+                valueBytes.removeAll(keepingCapacity: true)
+                if capturesCurrentValue { valueBytes.append(byte) }
+                stringEscaped = false
+                state = .stringValue
+            } else if byte == 0x5B || byte == 0x7B {
+                guard capturesCurrentValue == false else {
+                    state = .invalid
+                    return
+                }
+                compositeStack = [byte]
+                compositeInString = false
+                compositeEscaped = false
+                state = .compositeValue
+            } else if Self.isPrimitiveStart(byte) {
+                valueBytes.removeAll(keepingCapacity: true)
+                if capturesCurrentValue { valueBytes.append(byte) }
+                state = .primitiveValue
+            } else {
+                state = .invalid
+            }
+
+        case .stringValue:
+            if capturesCurrentValue {
+                guard valueBytes.count < Self.capturedStringByteCap else {
+                    state = .invalid
+                    return
+                }
+                valueBytes.append(byte)
+            }
+            if stringEscaped {
+                stringEscaped = false
+            } else if byte == 0x5C {
+                stringEscaped = true
+            } else if byte == 0x22 {
+                finalizeStringValue()
+                if state != .invalid { state = .commaOrEnd }
+            } else if byte < 0x20 {
+                state = .invalid
+            }
+
+        case .primitiveValue:
+            if Self.isWhitespace(byte) {
+                finalizePrimitiveValue()
+                if state != .invalid { state = .commaOrEnd }
+            } else if byte == 0x2C {
+                finalizePrimitiveValue()
+                if state != .invalid { state = .keyOrEnd }
+            } else if byte == 0x7D {
+                finalizePrimitiveValue()
+                if state != .invalid { state = .done }
+            } else if Self.isPrimitiveBody(byte) {
+                if capturesCurrentValue {
+                    guard valueBytes.count < 64 else {
+                        state = .invalid
+                        return
+                    }
+                    valueBytes.append(byte)
+                }
+            } else {
+                state = .invalid
+            }
+
+        case .compositeValue:
+            consumeComposite(byte)
+
+        case .commaOrEnd:
+            if Self.isWhitespace(byte) { return }
+            if byte == 0x2C {
+                currentKey = nil
+                state = .keyOrEnd
+            } else if byte == 0x7D {
+                currentKey = nil
+                state = .done
+            } else {
+                state = .invalid
+            }
+
+        case .done:
+            if Self.isWhitespace(byte) == false { state = .invalid }
+
+        case .invalid:
+            break
+        }
+    }
+
+    func finish() -> FinishResult {
+        guard state == .done,
+              schemaVersion == 1,
+              let kind,
+              let id,
+              let uuid = UUID(uuidString: id),
+              id == uuid.uuidString.lowercased() else {
+            return (schemaVersion == 1 || sawLegacyMarker) ? .malformedLegacy : .notLegacy
+        }
+
+        let event: OperationHistoryEvent
+        switch kind {
+        case OperationHistoryEvent.Kind.started.rawValue:
+            guard let operation, operation.isEmpty == false,
+                  let startedAt = Self.date(startedAt),
+                  sawArguments,
+                  completedAt == nil,
+                  exitCode == nil,
+                  sawStdout == false,
+                  sawStderr == false else {
+                return .malformedLegacy
+            }
+            event = OperationHistoryEvent(
+                schemaVersion: 1,
+                kind: .started,
+                id: id,
+                operation: operation,
+                request: nil,
+                startedAt: startedAt,
+                completedAt: nil,
+                exitCode: nil,
+                result: nil,
+                inverse: nil,
+                arguments: [],
+                stdout: nil,
+                stderr: nil
+            )
+        case OperationHistoryEvent.Kind.completed.rawValue:
+            guard operation == nil,
+                  startedAt == nil,
+                  let completedAt = Self.date(completedAt),
+                  let exitCode,
+                  sawArguments == false,
+                  sawStdout,
+                  sawStderr else {
+                return .malformedLegacy
+            }
+            event = OperationHistoryEvent(
+                schemaVersion: 1,
+                kind: .completed,
+                id: id,
+                operation: nil,
+                request: nil,
+                startedAt: nil,
+                completedAt: completedAt,
+                exitCode: exitCode,
+                result: nil,
+                inverse: nil,
+                arguments: nil,
+                stdout: "",
+                stderr: ""
+            )
+        default:
+            return .malformedLegacy
+        }
+
+        do {
+            try event.validate()
+            return .event(event)
+        } catch {
+            return .malformedLegacy
+        }
+    }
+
+    private var capturesCurrentValue: Bool {
+        switch currentKey {
+        case "schemaVersion", "kind", "id", "operation", "startedAt", "completedAt", "exitCode": true
+        default: false
+        }
+    }
+
+    private mutating func finalizeStringValue() {
+        defer {
+            valueBytes.removeAll(keepingCapacity: true)
+            currentKey = nil
+        }
+        guard capturesCurrentValue,
+              let key = currentKey,
+              let value = try? JSONDecoder().decode(String.self, from: Data(valueBytes)) else {
+            if capturesCurrentValue { state = .invalid }
+            return
+        }
+        switch key {
+        case "kind": kind = value
+        case "id": id = value
+        case "operation": operation = value
+        case "startedAt": startedAt = value
+        case "completedAt": completedAt = value
+        default: state = .invalid
+        }
+    }
+
+    private mutating func finalizePrimitiveValue() {
+        defer {
+            valueBytes.removeAll(keepingCapacity: true)
+            currentKey = nil
+        }
+        guard capturesCurrentValue, let key = currentKey else { return }
+        guard let raw = String(bytes: valueBytes, encoding: .utf8) else {
+            state = .invalid
+            return
+        }
+        switch key {
+        case "schemaVersion":
+            schemaVersion = Int(raw)
+            if schemaVersion == nil { state = .invalid }
+        case "exitCode":
+            exitCode = Int32(raw)
+            if exitCode == nil { state = .invalid }
+        case "operation" where raw == "null",
+             "startedAt" where raw == "null",
+             "completedAt" where raw == "null":
+            break
+        default:
+            state = .invalid
+        }
+    }
+
+    private mutating func consumeComposite(_ byte: UInt8) {
+        if compositeInString {
+            if compositeEscaped {
+                compositeEscaped = false
+            } else if byte == 0x5C {
+                compositeEscaped = true
+            } else if byte == 0x22 {
+                compositeInString = false
+            } else if byte < 0x20 {
+                state = .invalid
+            }
+            return
+        }
+
+        if byte == 0x22 {
+            compositeInString = true
+            return
+        }
+        if byte == 0x5B || byte == 0x7B {
+            guard compositeStack.count < 64 else {
+                state = .invalid
+                return
+            }
+            compositeStack.append(byte)
+            return
+        }
+        if byte == 0x5D || byte == 0x7D {
+            guard let opening = compositeStack.last,
+                  (opening == 0x5B && byte == 0x5D) || (opening == 0x7B && byte == 0x7D) else {
+                state = .invalid
+                return
+            }
+            compositeStack.removeLast()
+            if compositeStack.isEmpty {
+                currentKey = nil
+                state = .commaOrEnd
+            }
+        }
+    }
+
+    private mutating func observeLegacyMarker(_ byte: UInt8) {
+        guard sawLegacyMarker == false else { return }
+        let marker = Self.legacyMarker
+        if byte == marker[markerIndex] {
+            markerIndex += 1
+            if markerIndex == marker.count {
+                sawLegacyMarker = true
+                markerIndex = 0
+            }
+        } else {
+            markerIndex = byte == marker[0] ? 1 : 0
+        }
+    }
+
+    private static func date(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func isWhitespace(_ byte: UInt8) -> Bool {
+        byte == 0x20 || byte == 0x09 || byte == 0x0D
+    }
+
+    private static func isPrimitiveStart(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || byte == 0x2D || byte == 0x6E || byte == 0x74 || byte == 0x66
+    }
+
+    private static func isPrimitiveBody(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || byte == 0x2D || byte == 0x2B || byte == 0x2E
+            || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
     }
 }
 
 private struct StoredLine {
     let fileName: String
     let event: OperationHistoryEvent
-    let rawLine: Data
 }
 
 private struct HistoryAnchor: Equatable {
@@ -1077,13 +1882,13 @@ private struct PruneState {
 private struct CompletedState {
     let completedAt: Date
     let exitCode: Int32
-    let stdout: String
-    let stderr: String
+    let result: OperationHistoryResult
+    let inverse: OperationHistoryInverse
 }
 
 private struct FoldState {
     let operation: String
-    let arguments: [String]
+    let request: OperationHistoryRequest
     let startedAt: Date
     let fileName: String
     var completed: CompletedState?

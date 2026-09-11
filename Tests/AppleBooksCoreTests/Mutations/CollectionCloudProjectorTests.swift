@@ -40,14 +40,24 @@ struct CollectionCloudProjectorTests {
     }
 
     @Test
-    func collectionIdentityPreservesEmbeddedNULFromDatabase() throws {
+    func collectionIdentityPreservesEmbeddedNULAtBudgetAndRejectsOversizeBeforePayloadMaterialization() throws {
         let root = try fixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let library = root.appendingPathComponent("library.sqlite")
-        try execute(library, "CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY,ZCOLLECTIONID TEXT)")
-        try insertCollection(library, collectionID: "collection\0tail")
+        let acceptedLibrary = root.appendingPathComponent("library-accepted.sqlite")
+        try execute(acceptedLibrary, "CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY,ZCOLLECTIONID TEXT)")
+        let acceptedID = String(repeating: "c", count: CloudProjectionResourcePolicy.stableIdentityBytes - 5) + "\0tail"
+        try insertCollection(acceptedLibrary, collectionID: acceptedID)
+        #expect(try CollectionCloudProjector.collectionID(libraryDatabase: acceptedLibrary, localPK: 7) == acceptedID)
 
-        #expect(try CollectionCloudProjector.collectionID(libraryDatabase: library, localPK: 7) == "collection\0tail")
+        let oversizedLibrary = root.appendingPathComponent("library-oversized.sqlite")
+        try execute(oversizedLibrary, "CREATE TABLE ZBKCOLLECTION(Z_PK INTEGER PRIMARY KEY,ZCOLLECTIONID TEXT)")
+        try insertCollection(
+            oversizedLibrary,
+            collectionID: String(repeating: "d", count: CloudProjectionResourcePolicy.stableIdentityBytes + 1)
+        )
+        #expect(throws: CollectionCloudProjectionError.collectionIdentityUnavailable) {
+            _ = try CollectionCloudProjector.collectionID(libraryDatabase: oversizedLibrary, localPK: 7)
+        }
     }
 
     @Test
@@ -90,6 +100,41 @@ struct CollectionCloudProjectorTests {
             }
         }
         #expect(status >= 4)
+    }
+
+    @Test
+    func bridgeBoundsCollectionBodiesButDeletedRowsSkipLegacyTitleAndDetails() throws {
+        let titleLimit = CloudProjectionResourcePolicy.collectionTitleBytes
+        let detailsLimit = CloudProjectionResourcePolicy.collectionDetailsBytes
+
+        let titleAtLimit = try collectionBridgeStatus(
+            deleted: false,
+            titleSQL: "printf('%.*c',\(titleLimit),97)",
+            detailsSQL: "NULL"
+        )
+        #expect(titleAtLimit == 0)
+        #expect(try collectionBridgeStatus(
+            deleted: false,
+            titleSQL: "printf('%.*c',\(titleLimit + 1),97)",
+            detailsSQL: "NULL"
+        ) == 3)
+        let detailsAtLimit = try collectionBridgeStatus(
+            deleted: false,
+            titleSQL: "'Synthetic'",
+            detailsSQL: "printf('%.*c',\(detailsLimit),98)"
+        )
+        #expect(detailsAtLimit == 0)
+        #expect(try collectionBridgeStatus(
+            deleted: false,
+            titleSQL: "'Synthetic'",
+            detailsSQL: "printf('%.*c',\(detailsLimit + 1),98)"
+        ) == 3)
+        let deletedLegacyBodies = try collectionBridgeStatus(
+            deleted: true,
+            titleSQL: "printf('%.*c',\(detailsLimit + 1),97)",
+            detailsSQL: "printf('%.*c',\(detailsLimit + 1),98)"
+        )
+        #expect(deletedLegacyBodies == 0)
     }
 
     @Test
@@ -168,6 +213,47 @@ struct CollectionCloudProjectorTests {
             }
         }
         #expect(invalidStatus == 1)
+    }
+
+    private func collectionBridgeStatus(deleted: Bool, titleSQL: String, detailsSQL: String) throws -> Int32 {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeDirectory = root.appendingPathComponent("BCCloudCollections", isDirectory: true)
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let cloudDatabase = storeDirectory.appendingPathComponent("BCCloudCollections")
+        try Data().write(to: cloudDatabase)
+        let library = root.appendingPathComponent("library.sqlite")
+        try execute(library, """
+            CREATE TABLE ZBKCOLLECTION(
+              Z_PK INTEGER PRIMARY KEY,
+              ZCOLLECTIONID TEXT,
+              ZDELETEDFLAG INTEGER,
+              ZHIDDEN INTEGER,
+              ZSORTMODE INTEGER,
+              ZSORTKEY INTEGER,
+              ZLASTMODIFICATION REAL,
+              ZTITLE TEXT,
+              ZDETAILS TEXT
+            );
+            INSERT INTO ZBKCOLLECTION VALUES(
+              7,'COLLECTION-ID',\(deleted ? 1 : 0),0,6,20000,1,\(titleSQL),\(detailsSQL)
+            );
+            """)
+        return root.path.withCString { rootPath in
+            cloudDatabase.path.withCString { cloudPath in
+                library.path.withCString { libraryPath in
+                    withCloudBridgeUTF8Bytes("COLLECTION-ID") { collectionID, collectionIDLength in
+                        ABProjectCollectionState(
+                            rootPath,
+                            cloudPath,
+                            libraryPath,
+                            collectionID,
+                            collectionIDLength
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private func insertCollection(_ database: URL, collectionID: String) throws {

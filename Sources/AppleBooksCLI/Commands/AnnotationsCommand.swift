@@ -1,5 +1,6 @@
 import AppleBooksCore
 import ArgumentParser
+import Darwin
 import Foundation
 
 struct AnnotationsCommand: ParsableCommand {
@@ -12,6 +13,7 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsContextCommand.self,
             AnnotationsUpdateNoteCommand.self,
             AnnotationsDeleteCommand.self,
+            AnnotationsRestoreCommand.self,
         ]
     )
 }
@@ -248,7 +250,7 @@ struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "update-note",
-        abstract: "Update one annotation note through the guarded mutation rail."
+        abstract: "Set an annotation note from stdin, or clear it explicitly."
     )
 
     @Argument(help: "Exact annotation UUID.")
@@ -257,30 +259,51 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Option(name: .long, help: "Replacement note text.")
-    var note: String
+    @Flag(name: .long, help: "Clear the note to NULL. Do not provide stdin with this flag.")
+    var clear = false
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "annotations.update-note" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(
+            selector: selector.historySelector,
+            noteAction: clear ? .clear : .set(),
+            syncRequested: sync
+        )
+    }
+
     mutating func run() throws {
         try run(output: .standard)
     }
 
     func run(output: CLIOutput) throws {
-        let result = try execute()
+        let result = try execute(input: .standardInput)
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(input: .standardInput, historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        input: FileHandle = .standardInput,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        let note = try AnnotationNoteInput.resolve(clear: clear, from: input)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return try MutationCommandResult(try selector.updateNote(note, in: books, syncCloud: sync))
+            let mutation = try selector.updateNote(note, in: books, syncCloud: sync)
+            historySink?.record(.mutation(mutation, inverse: .annotationNote(mutation)))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
         }
     }
 }
@@ -297,12 +320,17 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "annotations.delete" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(selector: selector.historySelector, syncRequested: sync)
+    }
 
     mutating func run() throws {
         try run(output: .standard)
@@ -313,11 +341,124 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return try MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            let mutation = try selector.delete(in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .annotationState(mutation, operation: "annotations.restore")
+            ))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
+        }
+    }
+}
+
+struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(
+        commandName: "restore",
+        abstract: "Restore one existing soft-deleted user annotation."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
+    var pk: Int64?
+
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; projection still occurs.")
+    var sync = false
+
+    @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.restore" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(selector: selector.historySelector, syncRequested: sync)
+    }
+
+    mutating func run() throws {
+        try run(output: .standard)
+    }
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(try execute())
+    }
+
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        try output.writeJSON(try execute(historySink: sink))
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
+            let mutation = try selector.restore(in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .annotationState(mutation, operation: "annotations.delete")
+            ))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
+        }
+    }
+}
+
+enum AnnotationNoteInput {
+    static let maximumUTF8Bytes = 64 * 1_024
+    private static let chunkBytes = 4 * 1_024
+
+    static func resolve(clear: Bool, from input: FileHandle) throws -> String? {
+        if clear {
+            if isatty(input.fileDescriptor) == 0, try readChunk(from: input, maximumBytes: 1).isEmpty == false {
+                throw CLIError.usageInvalid("Use either stdin note text or --clear, not both.")
+            }
+            return nil
+        }
+
+        return try readBody { maximumBytes in
+            try readChunk(from: input, maximumBytes: maximumBytes)
+        }
+    }
+
+    static func readBody(_ read: (Int) throws -> Data) throws -> String {
+        var data = Data()
+        data.reserveCapacity(maximumUTF8Bytes)
+        while true {
+            let remaining = maximumUTF8Bytes + 1 - data.count
+            guard remaining > 0 else {
+                throw CLIError.usageInvalid("Annotation note stdin exceeds 64 KiB.")
+            }
+            let chunk = try read(min(chunkBytes, remaining))
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            if data.count > maximumUTF8Bytes {
+                throw CLIError.usageInvalid("Annotation note stdin exceeds 64 KiB.")
+            }
+        }
+        guard let body = String(data: data, encoding: .utf8) else {
+            throw CLIError.usageInvalid("Annotation note stdin must be valid UTF-8.")
+        }
+        return body
+    }
+
+    private static func readChunk(from input: FileHandle, maximumBytes: Int) throws -> Data {
+        do {
+            return try input.read(upToCount: maximumBytes) ?? Data()
+        } catch {
+            throw CLIError.usageInvalid("Annotation note stdin is unavailable.")
         }
     }
 }

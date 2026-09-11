@@ -177,18 +177,19 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         abstract: "Create a collection through the guarded mutation rail."
     )
 
-    @Argument(help: "New collection title.")
+    @Argument(help: "New collection title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
-    @Option(name: .long, help: "Optional collection details.")
-    var details: String?
-
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.create" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        OperationHistoryRequest(title: try canonicalCollectionTitle(title), syncRequested: sync)
+    }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -197,10 +198,21 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
-        try CLIOperation.run {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> CollectionMutationCommandResult {
+        let canonicalTitle = try canonicalCollectionTitle(title)
+        return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return try MutationCommandResult(try books.createCollection(title: title, details: details, syncCloud: sync))
+            let mutation = try books.createCollection(title: canonicalTitle, syncCloud: sync)
+            historySink?.record(.mutation(mutation))
+            return CollectionMutationCommandResult(mutation)
         }
     }
 }
@@ -217,15 +229,24 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
-    @Option(name: .customLong("title"), help: "Replacement collection title.")
+    @Option(name: .customLong("title"), help: "Replacement title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.rename" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        return OperationHistoryRequest(
+            selector: selector.historySelector,
+            title: try canonicalCollectionTitle(title),
+            syncRequested: sync
+        )
+    }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -234,11 +255,22 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> CollectionMutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        let canonicalTitle = try canonicalCollectionTitle(title)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return try MutationCommandResult(try selector.rename(to: title, in: books, syncCloud: sync))
+            let mutation = try selector.rename(to: canonicalTitle, in: books, syncCloud: sync)
+            historySink?.record(.mutation(mutation, inverse: .collectionRename(mutation)))
+            return CollectionMutationCommandResult(mutation, selector: selector)
         }
     }
 }
@@ -255,12 +287,17 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.delete" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        return OperationHistoryRequest(selector: selector.historySelector, syncRequested: sync)
+    }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -269,11 +306,21 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> CollectionMutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return try MutationCommandResult(try selector.delete(in: books, syncCloud: sync))
+            let mutation = try selector.delete(in: books, syncCloud: sync)
+            historySink?.record(.mutation(mutation))
+            return CollectionMutationCommandResult(mutation, selector: selector)
         }
     }
 }
@@ -296,12 +343,25 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.add-book" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selectors = try parseCollectionMembershipSelectors(
+            collectionID: collectionID,
+            assetID: assetID,
+            collectionPK: collectionPK,
+            bookPK: bookPK
+        )
+        return OperationHistoryRequest(
+            selector: selectors.book.addingHistoryIdentity(to: selectors.collection.historySelector),
+            syncRequested: sync
+        )
+    }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -310,7 +370,15 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> MembershipMutationCommandResult {
         let selectors = try parseCollectionMembershipSelectors(
             collectionID: collectionID,
             assetID: assetID,
@@ -319,7 +387,16 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return try MutationCommandResult(try selectors.collection.add(selectors.book, in: books, syncCloud: sync))
+            let mutation = try selectors.collection.add(selectors.book, in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .membership(mutation, operation: "collections.remove-book")
+            ))
+            return MembershipMutationCommandResult(
+                mutation,
+                collection: selectors.collection,
+                book: selectors.book
+            )
         }
     }
 }
@@ -342,12 +419,25 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
 
     var historyOperation: String { "collections.remove-book" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selectors = try parseCollectionMembershipSelectors(
+            collectionID: collectionID,
+            assetID: assetID,
+            collectionPK: collectionPK,
+            bookPK: bookPK
+        )
+        return OperationHistoryRequest(
+            selector: selectors.book.addingHistoryIdentity(to: selectors.collection.historySelector),
+            syncRequested: sync
+        )
+    }
 
     mutating func run() throws { try run(output: .standard) }
 
@@ -356,7 +446,15 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> MutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> MembershipMutationCommandResult {
         let selectors = try parseCollectionMembershipSelectors(
             collectionID: collectionID,
             assetID: assetID,
@@ -365,7 +463,16 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
         )
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
-            return try MutationCommandResult(try selectors.collection.remove(selectors.book, in: books, syncCloud: sync))
+            let mutation = try selectors.collection.remove(selectors.book, in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .membership(mutation, operation: "collections.add-book")
+            ))
+            return MembershipMutationCommandResult(
+                mutation,
+                collection: selectors.collection,
+                book: selectors.book
+            )
         }
     }
 }
@@ -452,6 +559,15 @@ private func validateCollectionPageInput(limit: Int?, cursor: String?) throws {
         _ = try resolvedCursorPageLimit(limit)
         try validateCursorInputSyntax(cursor)
     }
+}
+
+private func canonicalCollectionTitle(_ raw: String) throws -> String {
+    let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard title.isEmpty == false,
+          BoundedTextPolicy.accepts(title, profile: .metadata) else {
+        throw CLIError.usageInvalid("Collection title must be non-empty and at most 512 characters / 8 KiB UTF-8 after trimming.")
+    }
+    return title
 }
 
 private func validateCollectionSearchInput(_ query: String) throws {

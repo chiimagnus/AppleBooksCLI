@@ -1304,7 +1304,7 @@
       ]
     ]
   },
-  "soft-delete annotation": {
+  "soft-delete / restore annotation": {
     "owner": "core",
     "implementationPaths": [
       "Sources/AppleBooksCore/Mutations/AnnotationWriter.swift"
@@ -1316,6 +1316,10 @@
       [
         "annotations",
         "delete"
+      ],
+      [
+        "annotations",
+        "restore"
       ]
     ]
   },
@@ -1428,8 +1432,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "update-note",
-        "--note"
+        "update-note"
       ]
     ]
   },
@@ -1599,8 +1602,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "update-note",
-        "--note"
+        "update-note"
       ],
       [
         "collections",

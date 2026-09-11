@@ -192,7 +192,7 @@ public enum AppleBooksDiagnostics {
             supplementalRootReady = true
         }
 
-        let backupReady = backupLocationIsReady(backupRoot)
+        let backupReady = BackupRootGuard.isReady(backupRoot)
         if backupReady == false {
             issues.append(.init(code: .backupLocationUnavailable, state: .degraded))
         }
@@ -332,18 +332,4 @@ public enum AppleBooksDiagnostics {
         }
     }
 
-    private static func backupLocationIsReady(_ rawRoot: URL) -> Bool {
-        var candidate = rawRoot.standardizedFileURL
-        while true {
-            var metadata = stat()
-            if lstat(candidate.path, &metadata) == 0 {
-                guard metadata.st_mode & S_IFMT == S_IFDIR else { return false }
-                return access(candidate.path, W_OK | X_OK) == 0
-            }
-            guard errno == ENOENT || errno == ENOTDIR else { return false }
-            let parent = candidate.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != candidate.path else { return false }
-            candidate = parent
-        }
-    }
 }

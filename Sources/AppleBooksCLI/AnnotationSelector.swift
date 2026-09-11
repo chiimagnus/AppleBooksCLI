@@ -5,6 +5,13 @@ enum AnnotationSelector: Equatable, Sendable {
     case uuid(String)
     case localPK(Int64)
 
+    var historySelector: OperationHistorySelector {
+        switch self {
+        case let .uuid(uuid): OperationHistorySelector(annotationUUID: uuid)
+        case let .localPK(localPK): OperationHistorySelector(annotationLocalPK: localPK)
+        }
+    }
+
     func resolveSemantic(in books: AppleBooks) throws -> SemanticAnnotation? {
         switch self {
         case let .uuid(uuid):
@@ -27,7 +34,7 @@ enum AnnotationSelector: Equatable, Sendable {
         }
     }
 
-    func updateNote(_ note: String, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func updateNote(_ note: String?, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
         switch self {
         case let .uuid(uuid):
             try books.updateAnnotationNote(uuid: uuid, note: note, syncCloud: syncCloud)
@@ -42,6 +49,15 @@ enum AnnotationSelector: Equatable, Sendable {
             try books.deleteAnnotation(uuid: uuid, syncCloud: syncCloud)
         case let .localPK(localPK):
             try books.deleteAnnotation(localPK: localPK, syncCloud: syncCloud)
+        }
+    }
+
+    func restore(in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+        switch self {
+        case let .uuid(uuid):
+            try books.restoreAnnotation(uuid: uuid, syncCloud: syncCloud)
+        case let .localPK(localPK):
+            try books.restoreAnnotation(localPK: localPK, syncCloud: syncCloud)
         }
     }
 }

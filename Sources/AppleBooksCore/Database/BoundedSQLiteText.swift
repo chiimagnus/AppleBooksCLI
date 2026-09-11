@@ -68,8 +68,6 @@ enum SQLiteTextProjection {
         }
 
         guard let rawLength = try row.int64(lengthAlias(alias)),
-              rawLength >= 0,
-              rawLength <= Int64(Int.max),
               let payload = try row.blob(payloadAlias(alias)) else {
             throw QueryDecodingError.nullRequiredColumn(column)
         }
@@ -100,9 +98,7 @@ enum SQLiteTextProjection {
             break
         }
 
-        guard let rawLength = try row.int64(lengthAlias(alias)),
-              rawLength >= 0,
-              rawLength <= Int64(Int.max) else {
+        guard let rawLength = try row.int64(lengthAlias(alias)) else {
             throw QueryDecodingError.nullRequiredColumn(column)
         }
         let originalLength = Int(rawLength)

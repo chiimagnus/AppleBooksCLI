@@ -82,7 +82,7 @@ struct CollectionFacadeTests {
                 )
             },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: { events.append("recycle"); acknowledged = true }
         )
         let books = try AppleBooks(
@@ -135,7 +135,7 @@ struct CollectionFacadeTests {
                         return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
                     },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     recycleAction: { events.append("recycle") }
                 )
             )
@@ -157,7 +157,7 @@ struct CollectionFacadeTests {
         #expect(result.committed)
         #expect(result.localPK == 11)
         #expect(result.warnings == [.readBackFailed])
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "library") } != nil)
         #expect(try integer(fixture.library, "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Committed But Hidden' AND ZDELETEDFLAG=1") == 1)
     }
 

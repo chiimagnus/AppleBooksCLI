@@ -18,7 +18,7 @@ struct AnnotationUpdateNoteTests {
         #expect(result.localPK == 1)
         #expect(result.stableID == "uuid-1")
         #expect(result.warnings.isEmpty)
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "annotations") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "annotations") } != nil)
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=3") == "upper-note")
         #expect(try text(fixture.database, "SELECT ZANNOTATIONSELECTEDTEXT FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-selected")
@@ -97,15 +97,21 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
-    func localPKIsExplicitAndWhitespaceNoteIsNotTrimmed() throws {
-        let fixture = try fixture()
-        defer { fixture.remove() }
+    func whitespaceOnlyNoteIsRejectedButMeaningfulWhitespaceIsPreserved() throws {
+        let rejected = try fixture()
+        defer { rejected.remove() }
+        #expect(throws: AnnotationWriteError.invalidNoteLength) {
+            _ = try rejected.writer.updateNote(localPK: 1, note: " \t\r\n")
+        }
+        #expect(FileManager.default.fileExists(atPath: rejected.backupRoot.path) == false)
 
-        let result = try fixture.writer.updateNote(localPK: 1, note: " ")
-
+        let preserved = try fixture()
+        defer { preserved.remove() }
+        let note = "  kept\ntext  "
+        let result = try preserved.writer.updateNote(localPK: 1, note: note)
         #expect(result.localPK == 1)
-        #expect(result.stableID == nil)
-        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == " ")
+        #expect(result.stableID == "uuid-1")
+        #expect(try text(preserved.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
     }
 
     @Test
@@ -128,6 +134,90 @@ struct AnnotationUpdateNoteTests {
         defer { boundary.remove() }
         let result = try boundary.writer.updateNote(localPK: 1, note: String(repeating: "x", count: 10_000))
         #expect(result.changed)
+
+        let byteOverflow = try fixture()
+        defer { byteOverflow.remove() }
+        let oneOversizedGrapheme = "a" + String(repeating: "\u{0301}", count: 32_768)
+        #expect(oneOversizedGrapheme.count == 1)
+        #expect(oneOversizedGrapheme.utf8.count > 64 * 1_024)
+        #expect(throws: AnnotationWriteError.invalidNoteLength) {
+            _ = try byteOverflow.writer.updateNote(localPK: 1, note: oneOversizedGrapheme)
+        }
+        #expect(FileManager.default.fileExists(atPath: byteOverflow.backupRoot.path) == false)
+    }
+
+    @Test
+    func postCommitProjectionResourceRejectionIsWarningWithoutMutationReplay() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        var projectionCalls = 0
+        let writer = AnnotationWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector { _ in
+                projectionCalls += 1
+                throw AnnotationCloudProjectionError.bridgeRejected(3)
+            }
+        )
+
+        let result = try writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.warnings == [.cloudProjectionFailed])
+        #expect(projectionCalls == 1)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+    }
+
+    @Test
+    func oversizedAssetIdentityOnlyDropsMutationFocus() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+        let oversized = String(repeating: "x", count: CloudProjectionResourcePolicy.stableIdentityBytes + 1)
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID='\(oversized)', ZANNOTATIONLOCATION='epubcfi(/6/2!/4/2)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.appleBooksURL == nil)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+    }
+
+    @Test
+    func identicalTextAndIdenticalNullAreQuietNoOpsWhileClearStoresNull() throws {
+        let textFixture = try fixture()
+        defer { textFixture.remove() }
+        let textNoOp = try textFixture.writer.updateNote(localPK: 1, note: "old-note", syncCloud: true)
+        #expect(textNoOp.committed == false)
+        #expect(textNoOp.changed == false)
+        #expect(textNoOp.backupID == nil)
+        #expect(textNoOp.acknowledgementRequested)
+        #expect(textNoOp.acknowledged == nil)
+        #expect(FileManager.default.fileExists(atPath: textFixture.backupRoot.path) == false)
+
+        let clearFixture = try fixture()
+        defer { clearFixture.remove() }
+        let cleared = try clearFixture.writer.updateNote(localPK: 1, note: nil)
+        #expect(cleared.committed)
+        #expect(cleared.changed)
+        #expect(try integer(clearFixture.database, "SELECT ZANNOTATIONNOTE IS NULL FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
+        #expect(try completedBackups(clearFixture.backupRoot).count == 1)
+
+        let clearNoOp = try clearFixture.writer.updateNote(localPK: 1, note: nil, syncCloud: true)
+        #expect(clearNoOp.committed == false)
+        #expect(clearNoOp.changed == false)
+        #expect(clearNoOp.backupID == nil)
+        #expect(clearNoOp.acknowledgementRequested)
+        #expect(clearNoOp.acknowledged == nil)
+        #expect(try completedBackups(clearFixture.backupRoot).count == 1)
     }
 
     @Test
@@ -213,7 +303,7 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
-    func transactionRevalidationRejectsStateChangedDuringBooksQuit() throws {
+    func quietRevalidationRejectsStateChangedDuringBooksQuitBeforeBackup() throws {
         let root = try baseFixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let database = root.appendingPathComponent("annotations.sqlite")
@@ -238,16 +328,65 @@ struct AnnotationUpdateNoteTests {
 
         do {
             _ = try writer.updateNote(localPK: 1, note: "must-not-write")
-            Issue.record("expected transaction revalidation failure")
+            Issue.record("expected quiet-state revalidation failure")
         } catch let error as MutationFailure {
             #expect(error.code == .revalidateFailed)
-            #expect(error.backupHandle != nil)
+            #expect(error.backupHandle == nil)
         }
         #expect(launches == 1)
         #expect(running)
         #expect(try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old-note")
         #expect(try integer(database, "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
-        #expect(try completedBackups(backupRoot).count == 1)
+        #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
+    }
+
+    @Test
+    func historyEffectUsesTransactionStateAfterBooksQuitInsteadOfEarlierRead() throws {
+        let root = try baseFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("annotations.sqlite")
+        try createSchema(at: database, deleted: 0, entityID: 17, duplicateUUID: false)
+        let backupRoot = root.appendingPathComponent("backups")
+        let earlierRead = try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1")
+        #expect(earlierRead == "old-note")
+        var running = true
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                let changed = executeNoThrow(
+                    database,
+                    "UPDATE ZAEANNOTATION SET ZANNOTATIONNOTE='transaction-note' WHERE Z_PK=1"
+                )
+                running = false
+                return changed
+            },
+            launch: { running = true },
+            sleep: { _ in }
+        )
+        let writer = AnnotationWriter(database: database, backupRoot: backupRoot, booksApp: controller)
+
+        let result = try writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.historyEffect == .annotationNote(previous: "transaction-note"))
+        #expect(try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+    }
+
+    @Test
+    func oversizedPriorNoteCommitsButDoesNotClaimAutomaticInverse() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        let oversized = String(repeating: "x", count: 64 * 1_024 + 1)
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONNOTE='\(oversized)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.historyEffect == nil)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
     }
 
     @Test
@@ -272,7 +411,7 @@ struct AnnotationUpdateNoteTests {
         #expect(byUUID.stableID == "uuid-1")
         let byPK = try books.updateAnnotationNote(localPK: 1, note: "pk-note")
         #expect(byPK.localPK == 1)
-        #expect(byPK.stableID == nil)
+        #expect(byPK.stableID == "uuid-1")
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "pk-note")
     }
 

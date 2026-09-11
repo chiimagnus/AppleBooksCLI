@@ -6,8 +6,8 @@ import Testing
 @Suite("RestoreCoordinatorTests")
 struct RestoreCoordinatorTests {
     @Test
-    func runningRestoreQuitsBeforeQuietSafetyBackupAndRestoresOriginalState() throws {
-        let fixture = try fixture(running: true)
+    func backgroundRestoreQuitsBeforeQuietSafetyBackupAndRestoresBackgroundState() throws {
+        let fixture = try fixture(initialState: .background)
         defer { fixture.remove() }
 
         let result = try fixture.coordinator.restoreLibrary(handle: fixture.selectedBackup.lastPathComponent)
@@ -17,14 +17,29 @@ struct RestoreCoordinatorTests {
         #expect(result.restoredFromHandle == fixture.selectedBackup.lastPathComponent)
         #expect(result.safetyBackupHandle.contains("/") == false)
         #expect(result.warnings.isEmpty)
-        #expect(fixture.state.running)
+        #expect(fixture.state.appState == .background)
         #expect(try readValue(at: fixture.database) == "snapshot")
-        try assertOrdered(["terminate", "backup", "launch"], in: fixture.state.events)
+        try assertOrdered(["terminate", "backup", "launch-background"], in: fixture.state.events)
+    }
+
+    @Test
+    func frontmostRestoreReturnsToFrontmostWithoutLeavingBackgroundState() throws {
+        let fixture = try fixture(initialState: .frontmost)
+        defer { fixture.remove() }
+
+        let result = try fixture.coordinator.restoreLibrary(handle: fixture.selectedBackup.lastPathComponent)
+
+        #expect(result.restoreApplied)
+        #expect(result.verified)
+        #expect(result.warnings.isEmpty)
+        #expect(fixture.state.appState == .frontmost)
+        try assertOrdered(["terminate", "backup", "launch", "activate"], in: fixture.state.events)
+        #expect(fixture.state.events.contains("launch-background") == false)
     }
 
     @Test
     func originallyClosedRestoreNeverTerminatesOrLaunches() throws {
-        let fixture = try fixture(running: false)
+        let fixture = try fixture(initialState: .closed)
         defer { fixture.remove() }
 
         let result = try fixture.coordinator.restoreLibrary(handle: fixture.selectedBackup.lastPathComponent)
@@ -34,12 +49,14 @@ struct RestoreCoordinatorTests {
         #expect(fixture.state.running == false)
         #expect(fixture.state.events.contains("terminate") == false)
         #expect(fixture.state.events.contains("launch") == false)
+        #expect(fixture.state.events.contains("launch-background") == false)
+        #expect(fixture.state.events.contains("activate") == false)
         #expect(fixture.state.events.contains("backup"))
     }
 
     @Test
     func rejectedHandleFailsBeforeLifecycleOrSafetyBackup() throws {
-        let fixture = try fixture(running: true)
+        let fixture = try fixture(initialState: .background)
         defer { fixture.remove() }
         let countBefore = try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count
 
@@ -54,14 +71,14 @@ struct RestoreCoordinatorTests {
         }
 
         #expect(fixture.state.events.isEmpty)
-        #expect(fixture.state.running)
+        #expect(fixture.state.appState == .background)
         #expect(try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count == countBefore)
         #expect(try readValue(at: fixture.database) == "current")
     }
 
     @Test
     func quitFailureCreatesNoSafetyBackupAndDoesNotRestore() throws {
-        let fixture = try fixture(running: true, terminateSucceeds: false)
+        let fixture = try fixture(initialState: .background, terminateSucceeds: false)
         defer { fixture.remove() }
         let countBefore = try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count
 
@@ -83,8 +100,8 @@ struct RestoreCoordinatorTests {
     }
 
     @Test
-    func safetyBackupFailureAfterQuitRestoresOriginalRunningState() throws {
-        let fixture = try fixture(running: true, backupFails: true)
+    func safetyBackupFailureAfterQuitRestoresOriginalBackgroundState() throws {
+        let fixture = try fixture(initialState: .background, backupFails: true)
         defer { fixture.remove() }
 
         do {
@@ -97,14 +114,29 @@ struct RestoreCoordinatorTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        try assertOrdered(["terminate", "backup", "launch"], in: fixture.state.events)
-        #expect(fixture.state.running)
+        try assertOrdered(["terminate", "backup", "launch-background"], in: fixture.state.events)
+        #expect(fixture.state.appState == .background)
         #expect(try readValue(at: fixture.database) == "current")
     }
 
     @Test
-    func restoreFailureKeepsSafetyHandleAndRestoresOriginalRunningState() throws {
-        let fixture = try fixture(running: true, large: true)
+    func safetyBackupFailureKeepsPrimaryErrorWhenBooksStateRestoreAlsoFails() throws {
+        let fixture = try fixture(initialState: .background, launchFails: true, backupFails: true)
+        defer { fixture.remove() }
+
+        do {
+            _ = try fixture.coordinator.restoreLibrary(handle: fixture.selectedBackup.lastPathComponent)
+            Issue.record("expected safety backup failure")
+        } catch let failure as RestoreFailure {
+            #expect(failure.restoreApplied == false)
+            #expect(failure.code == .safetyBackupFailed)
+            #expect(failure.warnings == [.booksStateRestoreFailed])
+        }
+    }
+
+    @Test
+    func restoreFailureKeepsSafetyHandleAndRestoresOriginalBackgroundState() throws {
+        let fixture = try fixture(initialState: .background, large: true)
         defer { fixture.remove() }
 
         do {
@@ -122,14 +154,14 @@ struct RestoreCoordinatorTests {
             #expect(failure.warnings.isEmpty)
         }
 
-        #expect(fixture.state.running)
+        #expect(fixture.state.appState == .background)
         #expect(try readValue(at: fixture.database) == "current")
         try SQLiteBackup.verifyIntegrity(of: fixture.database)
     }
 
     @Test
     func selectedBackupMayRotateAwayAfterItsReadOnlyHandleIsOpened() throws {
-        let fixture = try fixture(running: false, safetyKeep: 1)
+        let fixture = try fixture(initialState: .closed, safetyKeep: 1)
         defer { fixture.remove() }
         let selectedHandle = fixture.selectedBackup.lastPathComponent
         #expect(FileManager.default.fileExists(atPath: fixture.selectedBackup.path))
@@ -145,7 +177,7 @@ struct RestoreCoordinatorTests {
 
     @Test
     func postApplyVerificationFailureReturnsAppliedUnverifiedOutcome() throws {
-        let fixture = try fixture(running: false, verificationFails: true)
+        let fixture = try fixture(initialState: .closed, verificationFails: true)
         defer { fixture.remove() }
         let countBefore = try completedBackups(in: fixture.backupRoot, stem: "BKLibrary").count
 
@@ -159,21 +191,21 @@ struct RestoreCoordinatorTests {
     }
 
     @Test
-    func relaunchFailureIsAppliedSuccessWarning() throws {
-        let fixture = try fixture(running: true, launchFails: true)
+    func booksStateRestoreFailureIsAppliedSuccessWarning() throws {
+        let fixture = try fixture(initialState: .background, launchFails: true)
         defer { fixture.remove() }
 
         let result = try fixture.coordinator.restoreLibrary(handle: fixture.selectedBackup.lastPathComponent)
 
         #expect(result.restoreApplied)
         #expect(result.verified)
-        #expect(result.warnings == [.relaunchFailed])
+        #expect(result.warnings == [.booksStateRestoreFailed])
         #expect(try readValue(at: fixture.database) == "snapshot")
     }
 
     @Test
     func facadeRestoresOnlyByOpaqueBackupID() throws {
-        let fixture = try fixture(running: false)
+        let fixture = try fixture(initialState: .closed)
         defer { fixture.remove() }
         let books = try AppleBooks(
             libraryDB: fixture.database,
@@ -194,7 +226,7 @@ struct RestoreCoordinatorTests {
     }
 
     private func fixture(
-        running: Bool,
+        initialState: BooksAppState,
         terminateSucceeds: Bool = true,
         launchFails: Bool = false,
         backupFails: Bool = false,
@@ -208,7 +240,7 @@ struct RestoreCoordinatorTests {
         let selectedBackup = try SQLiteBackup.create(source: database, backupRoot: backupRoot, keep: 10)
         try setValue(database, value: "current")
         let state = LifecycleState(
-            running: running,
+            appState: initialState,
             terminateSucceeds: terminateSucceeds,
             launchFails: launchFails
         )
@@ -350,13 +382,15 @@ struct RestoreCoordinatorTests {
     }
 
     private final class LifecycleState {
-        var running: Bool
+        var appState: BooksAppState
         var events: [String] = []
         let terminateSucceeds: Bool
         let launchFails: Bool
 
-        init(running: Bool, terminateSucceeds: Bool, launchFails: Bool) {
-            self.running = running
+        var running: Bool { appState != .closed }
+
+        init(appState: BooksAppState, terminateSucceeds: Bool, launchFails: Bool) {
+            self.appState = appState
             self.terminateSucceeds = terminateSucceeds
             self.launchFails = launchFails
         }
@@ -370,13 +404,23 @@ struct RestoreCoordinatorTests {
                 terminate: { [self] in
                     events.append("terminate")
                     guard terminateSucceeds else { return false }
-                    running = false
+                    appState = .closed
                     return true
                 },
                 launch: { [self] in
                     events.append("launch")
                     if launchFails { throw TestFailure.launch }
-                    running = true
+                    appState = .background
+                },
+                isFrontmost: { [self] in appState == .frontmost },
+                launchWithoutActivation: { [self] in
+                    events.append("launch-background")
+                    if launchFails { throw TestFailure.launch }
+                    appState = .background
+                },
+                activate: { [self] in
+                    events.append("activate")
+                    appState = .frontmost
                 }
             )
         }

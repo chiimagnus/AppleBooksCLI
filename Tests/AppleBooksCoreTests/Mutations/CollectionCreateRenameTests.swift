@@ -98,7 +98,7 @@ struct CollectionCreateRenameTests {
                 return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
             },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: {}
         )
         let writer = CollectionWriter(
@@ -131,7 +131,7 @@ struct CollectionCreateRenameTests {
                 booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
                 detailState: { _ in .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1) },
                 memberState: { _, _ in nil },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: {}
             )
         )
@@ -158,6 +158,99 @@ struct CollectionCreateRenameTests {
         #expect(after.opt == before.opt + 1)
         #expect(after.lastModification == after.localModification)
         #expect(after.lastModification > before.lastModification)
+    }
+
+    @Test
+    func identicalCanonicalRenameIsQuietNoOpWithoutBackupProjectionOrAcknowledgement() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let before = try collectionRow(fixture.database, pk: 10)
+        var running = true
+        var terminateCount = 0
+        var launchCount = 0
+        var projectionCount = 0
+        var acknowledgementCount = 0
+        let booksApp = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                terminateCount += 1
+                running = false
+                return true
+            },
+            launch: {
+                launchCount += 1
+                running = true
+            }
+        )
+        let synchronizer = CollectionCloudSynchronizer(
+            booksApp: booksApp,
+            detailState: { _ in
+                acknowledgementCount += 1
+                return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+            },
+            memberState: { _, _ in nil },
+            deletedMembersSatisfied: { _ in true },
+            recycleAction: {}
+        )
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: booksApp,
+            cloudProjector: CollectionCloudProjector { _ in projectionCount += 1 },
+            cloudSynchronizer: synchronizer
+        )
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "  Old\n", syncCloud: true)
+
+        let after = try collectionRow(fixture.database, pk: 10)
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warnings.isEmpty)
+        #expect(before.opt == after.opt)
+        #expect(before.lastModification == after.lastModification)
+        #expect(before.localModification == after.localModification)
+        #expect(try completedBackups(fixture.backupRoot).isEmpty)
+        #expect(projectionCount == 0)
+        #expect(acknowledgementCount == 0)
+        #expect(terminateCount == 1)
+        #expect(launchCount == 1)
+        #expect(running)
+    }
+
+    @Test
+    func renameHistoryEffectUsesTransactionTitleAfterBooksQuit() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let earlierRead = try collectionRow(fixture.database, pk: 10).title
+        #expect(earlierRead == "Old")
+        var running = true
+        let booksApp = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                do {
+                    try execute(fixture.database, "UPDATE ZBKCOLLECTION SET ZTITLE='Concurrent' WHERE Z_PK=10")
+                    running = false
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            launch: { running = true },
+            sleep: { _ in }
+        )
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: booksApp
+        )
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Final")
+
+        #expect(result.historyEffect == .collectionTitle(previous: "Concurrent"))
+        #expect(try collectionRow(fixture.database, pk: 10).title == "Final")
     }
 
     @Test

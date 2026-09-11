@@ -49,10 +49,92 @@ struct MutationCoordinatorTests {
         #expect(result.localPK == 42)
         #expect(result.stableID == "sample")
         #expect(result.changed)
+        #expect(result.acknowledgementRequested == false)
+        #expect(result.acknowledged == nil)
         #expect(result.warnings.isEmpty)
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "library") } != nil)
         #expect(stages == ["preflight", "revalidate", "mutation", "invariant", "readBack"])
         #expect(try readValue(at: fixture.database) == "after")
+    }
+
+    @Test
+    func closedQuietNoOpSkipsBackupWritableRailAndAcknowledgement() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var stages: [String] = []
+        var acknowledgementCount = 0
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in stages.append("preflight") },
+            quietDecision: { connection in
+                stages.append("quietDecision")
+                #expect(sqlite3_db_readonly(connection.handle, "main") == 1)
+                let quietValue = try self.value(connection)
+                #expect(quietValue == "before")
+                return .noChange(MutationDomainData(localPK: 7, stableID: "stable", changed: false))
+            },
+            revalidate: { _ in Issue.record("writable rail must not open") },
+            mutation: { _ in
+                Issue.record("mutation must not run")
+                return Int64(0)
+            },
+            domainData: { MutationDomainData(localPK: $0, changed: true) },
+            cloudProjection: { _ in Issue.record("projection must not run") },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
+            readBack: { _, _ in Issue.record("read-back must not run") }
+        )
+
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.backupID == nil)
+        #expect(result.localPK == 7)
+        #expect(result.stableID == "stable")
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warnings.isEmpty)
+        #expect(acknowledgementCount == 0)
+        #expect(stages == ["preflight", "quietDecision"])
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        #expect(try readValue(at: fixture.database) == "before")
+    }
+
+    @Test
+    func quietDecisionNeedsMutationKeepsBackupBeforeTransactionRevalidation() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var stages: [String] = []
+
+        do {
+            _ = try fixture.coordinator.perform(
+                preflight: { _ in stages.append("preflight") },
+                quietDecision: { _ in
+                    stages.append("quietDecision")
+                    return .needsMutation
+                },
+                revalidate: { handle in
+                    stages.append("revalidate")
+                    #expect(sqlite3_get_autocommit(handle) == 0)
+                    let backupCount = try self.completedBackups(in: fixture.backupRoot).count
+                    #expect(backupCount == 1)
+                    throw TestFailure.revalidate
+                },
+                mutation: { _ in
+                    Issue.record("mutation must not run after failed revalidation")
+                    return ()
+                },
+                domainData: { _ in MutationDomainData(changed: true) },
+                readBack: { _, _ in Issue.record("read-back must not run") }
+            )
+            Issue.record("expected revalidation failure")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .revalidateFailed)
+            #expect(failure.backupHandle != nil)
+        }
+
+        #expect(stages == ["preflight", "quietDecision", "revalidate"])
+        #expect(try readValue(at: fixture.database) == "before")
     }
 
     @Test
@@ -148,7 +230,7 @@ struct MutationCoordinatorTests {
         let mutation = MutationFailure(
             backupHandle: rawMutationHandle,
             code: .mutationFailed,
-            warnings: [.relaunchFailed],
+            warnings: [.booksStateRestoreFailed],
             underlying: underlying
         )
         let restore = RestoreFailure(
@@ -222,7 +304,7 @@ struct MutationCoordinatorTests {
         #expect(result.committed)
         #expect(result.localPK == 77)
         #expect(result.warnings == [.readBackFailed])
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "library") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "library") } != nil)
         #expect(try readValue(at: fixture.database) == "committed")
     }
 
@@ -344,6 +426,7 @@ struct MutationCoordinatorTests {
 
     private enum TestFailure: Error, Equatable {
         case preflight
+        case revalidate
         case mutation
         case readBack
     }

@@ -8,8 +8,10 @@ protocol CLIOutputRunnable {
     func run(output: CLIOutput) throws
 }
 
-protocol OperationHistoryRecordable {
+protocol OperationHistoryRecordable: CLIOutputRunnable {
     var historyOperation: String { get }
+    func historyRequest() throws -> OperationHistoryRequest
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws
 }
 
 enum CLIEntrypoint {
@@ -43,7 +45,7 @@ enum CLIEntrypoint {
 
     static func runParsed(
         _ command: any ParsableCommand,
-        arguments: [String],
+        arguments _: [String],
         output: CLIOutput,
         historyStore: OperationHistoryStore? = nil
     ) -> Int32 {
@@ -51,10 +53,17 @@ enum CLIEntrypoint {
             return dispatch(command, output: output)
         }
 
+        let request: OperationHistoryRequest
+        do {
+            request = try recordable.historyRequest()
+        } catch {
+            return presentRunError(error, output: output)
+        }
+
         let activeHistoryStore = historyStore ?? OperationHistoryStore()
         let token: OperationHistoryToken
         do {
-            token = try activeHistoryStore.begin(operation: recordable.historyOperation, arguments: arguments)
+            token = try activeHistoryStore.begin(operation: recordable.historyOperation, request: request)
         } catch {
             return presentRunError(
                 CLIError.unavailable("Operation history is unavailable."),
@@ -62,25 +71,13 @@ enum CLIEntrypoint {
             )
         }
 
-        var capturedStdout = ""
-        var capturedStderr = ""
-        let historyOutput = CLIOutput(
-            stdout: { text in
-                output.stdout(text)
-                capturedStdout += normalizedHistoryStreamText(text)
-            },
-            stderr: { text in
-                output.stderr(text)
-                capturedStderr += normalizedHistoryStreamText(text)
-            }
-        )
-        let exitCode = dispatch(command, output: historyOutput)
+        let sink = OperationHistoryCompletionSink()
+        let exitCode = dispatchRecordable(recordable, output: output, sink: sink)
         do {
             try activeHistoryStore.complete(
                 token,
                 exitCode: exitCode,
-                stdout: capturedStdout,
-                stderr: capturedStderr
+                completion: sink.completion
             )
         } catch {
             do {
@@ -90,6 +87,19 @@ enum CLIEntrypoint {
             }
         }
         return exitCode
+    }
+
+    private static func dispatchRecordable(
+        _ command: any OperationHistoryRecordable,
+        output: CLIOutput,
+        sink: OperationHistoryCompletionSink
+    ) -> Int32 {
+        do {
+            try command.runForHistory(output: output, sink: sink)
+            return CLIProcessExit.success.rawValue
+        } catch {
+            return presentRunError(error, output: output)
+        }
     }
 
     private static func dispatch(
@@ -160,7 +170,4 @@ enum CLIEntrypoint {
         return error.exitCode.rawValue
     }
 
-    private static func normalizedHistoryStreamText(_ text: String) -> String {
-        text.hasSuffix("\n") ? text : text + "\n"
-    }
 }

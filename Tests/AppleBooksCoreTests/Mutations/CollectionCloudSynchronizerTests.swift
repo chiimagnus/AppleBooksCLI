@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import AppleBooksCore
 
@@ -70,11 +71,10 @@ struct CollectionCloudSynchronizerTests {
     @Test
     func collectionDeleteAcceptsPhysicalRemovalAndAckedMemberTombstones() throws {
         let events = Events()
-        let deletedAck = state(deleted: true, edit: 3, sync: 3)
         let synchronizer = makeSynchronizer(
             events: events,
             detail: { _ in nil },
-            deletedMembers: { _ in [deletedAck] }
+            deletedMembersSatisfied: { _ in true }
         )
         try synchronizer.syncCollection(
             localPK: 7,
@@ -82,6 +82,113 @@ struct CollectionCloudSynchronizerTests {
             onTemporaryBooksLaunch: { events.values.append("temporaryLaunch") }
         )
         #expect(events.values.isEmpty)
+    }
+
+    @Test
+    func deletedMemberAggregateHandlesLargeSetsAndLiteralCollectionPrefix() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("cloud.sqlite")
+        let collectionID = "COLL%_\\"
+        try executeSQL(
+            """
+            CREATE TABLE ZBCCOLLECTIONMEMBER(
+              ZCOLLECTIONMEMBERID TEXT,
+              ZDELETEDFLAG INTEGER,
+              ZEDITGENERATION INTEGER,
+              ZSYNCGENERATION INTEGER,
+              ZCKSYSTEMFIELDS BLOB
+            );
+            WITH digits(d) AS (VALUES(0),(1),(2),(3),(4),(5),(6),(7),(8),(9))
+            INSERT INTO ZBCCOLLECTIONMEMBER
+            SELECT '\(collectionID)|A' || (a.d + b.d*10 + c.d*100 + d.d*1000), 1, 3, 3, X'01'
+            FROM digits a, digits b, digits c, digits d;
+            INSERT INTO ZBCCOLLECTIONMEMBER VALUES('COLL-otherX\\|foreign', 0, 9, 0, NULL);
+            """,
+            at: database
+        )
+
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID))
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZSYNCGENERATION=2 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZSYNCGENERATION=3, ZCKSYSTEMFIELDS=NULL WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=123 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS='fields' WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'' WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'01', ZDELETEDFLAG=2 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZDELETEDFLAG=1 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID))
+
+        try executeSQL("DELETE FROM ZBCCOLLECTIONMEMBER", at: database)
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID))
+    }
+
+    @Test
+    func livePendingCountFailsClosedOnMalformedCloudStorage() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("cloud.sqlite")
+        try executeSQL(
+            """
+            CREATE TABLE ZBCCOLLECTIONDETAIL(ZEDITGENERATION, ZSYNCGENERATION, ZCKSYSTEMFIELDS);
+            CREATE TABLE ZBCCOLLECTIONMEMBER(ZEDITGENERATION, ZSYNCGENERATION, ZCKSYSTEMFIELDS);
+            INSERT INTO ZBCCOLLECTIONDETAIL VALUES(2, 2, X'01');
+            INSERT INTO ZBCCOLLECTIONMEMBER VALUES(3, 3, X'01');
+            """,
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 0)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=NULL", at: database)
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 1)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X''", at: database)
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 1)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=123", at: database)
+        #expect(throws: CollectionCloudSyncError.cloudRecordInvalid) {
+            _ = try CollectionCloudSynchronizer.readPendingCount(database: database)
+        }
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'01', ZSYNCGENERATION='bad'", at: database)
+        #expect(throws: CollectionCloudSyncError.cloudRecordInvalid) {
+            _ = try CollectionCloudSynchronizer.readPendingCount(database: database)
+        }
     }
 
     @Test
@@ -123,7 +230,7 @@ struct CollectionCloudSynchronizerTests {
             booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: { events.values.append("launch") }),
             detailState: { _ in dirty },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: { events.values.append("recycle"); throw CollectionCloudSyncError.serviceRecycleFailed },
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: 1
@@ -138,20 +245,7 @@ struct CollectionCloudSynchronizerTests {
     }
 
     @Test
-    func pendingBatchWithNoChangesSkipsLifecycle() throws {
-        let events = Events()
-        let synchronizer = makeSynchronizer(
-            events: events,
-            detail: { _ in nil },
-            pending: { 0 }
-        )
-        #expect(try synchronizer.pendingCount() == 0)
-        try synchronizer.syncPending()
-        #expect(events.values.isEmpty)
-    }
-
-    @Test
-    func pendingBatchTriggersOneLifecycleAndWaitsForAllRows() throws {
+    func pendingBatchSeamOnlyRecyclesAndWaitsForAcknowledgement() throws {
         let events = Events()
         var reads = 0
         let synchronizer = makeSynchronizer(
@@ -163,8 +257,12 @@ struct CollectionCloudSynchronizerTests {
             },
             maxPollCount: 3
         )
-        try synchronizer.syncPending()
-        #expect(events.values == ["recycle", "launch", "sleep"])
+
+        #expect(try synchronizer.pendingCount() == 3)
+        try synchronizer.preparePendingBatch()
+        try synchronizer.waitForPendingAcknowledgement()
+
+        #expect(events.values == ["recycle", "sleep"])
         #expect(reads == 3)
     }
 
@@ -187,7 +285,7 @@ struct CollectionCloudSynchronizerTests {
         runningInitially: Bool = false,
         detail: @escaping CollectionCloudSynchronizer.DetailStateAction,
         member: @escaping CollectionCloudSynchronizer.MemberStateAction = { _, _ in nil },
-        deletedMembers: @escaping CollectionCloudSynchronizer.DeletedMemberStatesAction = { _ in [] },
+        deletedMembersSatisfied: @escaping CollectionCloudSynchronizer.DeletedMembersSatisfiedAction = { _ in true },
         pending: @escaping CollectionCloudSynchronizer.PendingCountAction = { 0 },
         maxPollCount: Int = 1
     ) -> CollectionCloudSynchronizer {
@@ -202,12 +300,23 @@ struct CollectionCloudSynchronizerTests {
             ),
             detailState: detail,
             memberState: member,
-            deletedMemberStates: deletedMembers,
+            deletedMembersSatisfied: deletedMembersSatisfied,
             pendingCount: pending,
             recycleAction: { events.values.append("recycle") },
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: maxPollCount
         )
+    }
+
+    private func executeSQL(_ sql: String, at database: URL) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else {
+            throw CollectionCloudSyncError.cloudRecordInvalid
+        }
+        defer { sqlite3_close_v2(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw CollectionCloudSyncError.cloudRecordInvalid
+        }
     }
 
     private func state(

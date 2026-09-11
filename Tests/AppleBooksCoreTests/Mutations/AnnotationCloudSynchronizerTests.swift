@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import AppleBooksCore
 
@@ -85,43 +86,11 @@ struct AnnotationCloudSynchronizerTests {
     }
 
     @Test
-    func pendingBatchWithNoChangesSkipsBooksLifecycle() throws {
-        let events = Events()
-        let synchronizer = AnnotationCloudSynchronizer(
-            booksApp: controller(events: events, running: false),
-            stateAction: { _ in nil },
-            pendingCount: { 0 }
-        )
-        #expect(try synchronizer.pendingCount() == 0)
-        try synchronizer.syncPending()
-        #expect(events.values.isEmpty)
-    }
-
-    @Test
-    func annotationOnlyPendingBatchRestartsAlreadyRunningBooksOnce() throws {
+    func pendingBatchSeamOnlyWaitsForAcknowledgement() throws {
         let events = Events()
         var reads = 0
         let synchronizer = AnnotationCloudSynchronizer(
             booksApp: controller(events: events, running: true),
-            stateAction: { _ in nil },
-            pendingCount: {
-                defer { reads += 1 }
-                return reads < 2 ? 1 : 0
-            },
-            sleep: { _ in events.values.append("sleep") },
-            maxPollCount: 3
-        )
-        try synchronizer.syncPending(restartRunningBooks: true)
-        #expect(events.values == ["terminate", "launch", "sleep"])
-        #expect(reads == 3)
-    }
-
-    @Test
-    func pendingBatchLaunchesBooksOnceAndWaitsForAllAssets() throws {
-        let events = Events()
-        var reads = 0
-        let synchronizer = AnnotationCloudSynchronizer(
-            booksApp: controller(events: events, running: false),
             stateAction: { _ in nil },
             pendingCount: {
                 defer { reads += 1 }
@@ -130,9 +99,61 @@ struct AnnotationCloudSynchronizerTests {
             sleep: { _ in events.values.append("sleep") },
             maxPollCount: 3
         )
-        try synchronizer.syncPending()
-        #expect(events.values == ["launch", "sleep"])
+
+        #expect(try synchronizer.pendingCount() == 2)
+        try synchronizer.waitForPendingAcknowledgement()
+
+        #expect(events.values == ["sleep"])
         #expect(reads == 3)
+    }
+
+    @Test
+    func liveStateAndPendingCountFailClosedOnMalformedCloudStorage() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("cloud.sqlite")
+        try executeSQL(
+            """
+            CREATE TABLE ZBCASSETANNOTATIONS(
+              Z_PK INTEGER PRIMARY KEY,
+              ZASSETID TEXT,
+              ZEDITGENERATION,
+              ZSYNCGENERATION,
+              ZCKSYSTEMFIELDS
+            );
+            INSERT INTO ZBCASSETANNOTATIONS VALUES(1, 'ASSET', 2, 2, X'01');
+            """,
+            at: database
+        )
+
+        #expect(try AnnotationCloudSynchronizer.readPendingCount(database: database) == 0)
+        #expect(try AnnotationCloudSynchronizer.readState(database: database, assetID: "ASSET")?.isAcknowledged == true)
+
+        try executeSQL("UPDATE ZBCASSETANNOTATIONS SET ZCKSYSTEMFIELDS=NULL", at: database)
+        #expect(try AnnotationCloudSynchronizer.readPendingCount(database: database) == 1)
+        #expect(try AnnotationCloudSynchronizer.readState(database: database, assetID: "ASSET")?.systemFieldsBytes == 0)
+
+        try executeSQL("UPDATE ZBCASSETANNOTATIONS SET ZCKSYSTEMFIELDS=X''", at: database)
+        #expect(try AnnotationCloudSynchronizer.readPendingCount(database: database) == 1)
+
+        for malformed in ["123", "'fields'"] {
+            try executeSQL("UPDATE ZBCASSETANNOTATIONS SET ZCKSYSTEMFIELDS=\(malformed)", at: database)
+            #expect(throws: AnnotationCloudSyncError.cloudRecordInvalid) {
+                _ = try AnnotationCloudSynchronizer.readPendingCount(database: database)
+            }
+            #expect(throws: AnnotationCloudSyncError.cloudRecordInvalid) {
+                _ = try AnnotationCloudSynchronizer.readState(database: database, assetID: "ASSET")
+            }
+        }
+
+        try executeSQL("UPDATE ZBCASSETANNOTATIONS SET ZCKSYSTEMFIELDS=X'01', ZEDITGENERATION='bad'", at: database)
+        #expect(throws: AnnotationCloudSyncError.cloudRecordInvalid) {
+            _ = try AnnotationCloudSynchronizer.readPendingCount(database: database)
+        }
+        #expect(throws: AnnotationCloudSyncError.cloudRecordInvalid) {
+            _ = try AnnotationCloudSynchronizer.readState(database: database, assetID: "ASSET")
+        }
     }
 
     @Test
@@ -151,6 +172,17 @@ struct AnnotationCloudSynchronizerTests {
             )
         }
         #expect(events.values == ["launchWithoutActivation", "temporaryLaunch", "sleep", "sleep"])
+    }
+
+    private func executeSQL(_ sql: String, at database: URL) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else {
+            throw AnnotationCloudSyncError.cloudRecordInvalid
+        }
+        defer { sqlite3_close_v2(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+            throw AnnotationCloudSyncError.cloudRecordInvalid
+        }
     }
 
     private func controller(events: Events, running initial: Bool) -> BooksAppController {

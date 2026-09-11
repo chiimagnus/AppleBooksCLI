@@ -645,9 +645,9 @@ struct AnnotationWriter {
         return try cloudSynchronizer.pendingCount()
     }
 
-    func syncPendingCloudChanges(restartRunningBooks: Bool = false) throws {
+    func waitForPendingCloudAcknowledgement() throws {
         guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
-        try cloudSynchronizer.syncPending(restartRunningBooks: restartRunningBooks)
+        try cloudSynchronizer.waitForPendingAcknowledgement()
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer, index: Int32) -> Int32 {

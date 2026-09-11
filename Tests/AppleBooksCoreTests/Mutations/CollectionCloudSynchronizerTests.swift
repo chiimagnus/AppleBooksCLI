@@ -138,20 +138,7 @@ struct CollectionCloudSynchronizerTests {
     }
 
     @Test
-    func pendingBatchWithNoChangesSkipsLifecycle() throws {
-        let events = Events()
-        let synchronizer = makeSynchronizer(
-            events: events,
-            detail: { _ in nil },
-            pending: { 0 }
-        )
-        #expect(try synchronizer.pendingCount() == 0)
-        try synchronizer.syncPending()
-        #expect(events.values.isEmpty)
-    }
-
-    @Test
-    func pendingBatchTriggersOneLifecycleAndWaitsForAllRows() throws {
+    func pendingBatchSeamOnlyRecyclesAndWaitsForAcknowledgement() throws {
         let events = Events()
         var reads = 0
         let synchronizer = makeSynchronizer(
@@ -163,8 +150,12 @@ struct CollectionCloudSynchronizerTests {
             },
             maxPollCount: 3
         )
-        try synchronizer.syncPending()
-        #expect(events.values == ["recycle", "launch", "sleep"])
+
+        #expect(try synchronizer.pendingCount() == 3)
+        try synchronizer.preparePendingBatch()
+        try synchronizer.waitForPendingAcknowledgement()
+
+        #expect(events.values == ["recycle", "sleep"])
         #expect(reads == 3)
     }
 

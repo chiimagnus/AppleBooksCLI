@@ -267,11 +267,11 @@ extension OperationHistoryCompletion {
                 committed: nil,
                 changed: summary.collectionPendingBefore > 0 || summary.annotationPendingBefore > 0,
                 acknowledgementRequested: true,
-                acknowledged: true,
+                acknowledged: summary.acknowledged,
                 verified: nil,
                 collectionPendingBefore: summary.collectionPendingBefore,
                 annotationPendingBefore: summary.annotationPendingBefore,
-                warningCodes: []
+                warningCodes: summary.warnings.map(\.rawValue)
             ),
             inverse: .unavailable
         )

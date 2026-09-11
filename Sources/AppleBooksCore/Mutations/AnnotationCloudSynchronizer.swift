@@ -62,14 +62,7 @@ struct AnnotationCloudSynchronizer {
         try pendingCountAction()
     }
 
-    func syncPending(restartRunningBooks: Bool = false) throws {
-        guard try pendingCountAction() > 0 else { return }
-        if restartRunningBooks, booksApp.isRunning() {
-            try booksApp.terminateAndWait()
-            try booksApp.launch()
-        } else if booksApp.isRunning() == false {
-            try booksApp.launch()
-        }
+    func waitForPendingAcknowledgement() throws {
         try waitUntil { try pendingCountAction() == 0 }
     }
 

@@ -137,7 +137,7 @@
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |
 | sanitised errors | 已实现 | 默认 error 不回显用户正文/SQLite payload |
 | 输入边界校验 | 已实现 | selector/search/name/note 等在副作用前校验 |
-| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | mutation `--sync` 或 root `sync` 等待当前 Mac ack；普通 mutation 只 projection，ack 不证明第二设备已显示 |
+| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | mutation 始终 local commit/read-back + projection，`--sync` 只额外等待当前 Mac ack；root `sync` pending=0 不触碰 Books，有 pending 时恢复原 closed/background/frontmost 状态；ack 不证明第二设备已显示 |
 
 ## 配置与历史数据边界
 

@@ -64,6 +64,10 @@ enum CLIError: Error, Equatable, Sendable {
         }
     }
 
+    var recoveryHint: String? {
+        reason == "cloud_sync_failed" ? "It is safe to rerun `applebookscli sync`." : nil
+    }
+
     var exitCode: CLIProcessExit {
         switch self {
         case .usageInvalid: .usageInvalid
@@ -201,8 +205,13 @@ enum CLIOperation {
             switch cloudSyncError {
             case .unavailable:
                 return .unavailable("Apple Books cloud sync is unavailable for the selected databases.")
-            case .acknowledgementFailed:
-                return .unavailable("Apple Books cloud sync did not reach acknowledgement.")
+            case let .acknowledgementFailed(stateRestoreFailed):
+                return .unavailableWithReason(
+                    message: stateRestoreFailed
+                        ? "Apple Books cloud sync did not reach acknowledgement, and the original Books app state could not be restored."
+                        : "Apple Books cloud sync did not reach acknowledgement.",
+                    reason: "cloud_sync_failed"
+                )
             }
         }
         if error as? AppleBooksDependencyError == .unavailable(.pdfWorker) {

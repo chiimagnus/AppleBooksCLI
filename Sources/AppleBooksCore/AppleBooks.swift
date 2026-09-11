@@ -8,16 +8,33 @@ public enum StableIdentityError: Error, Equatable, Sendable {
 
 public enum AppleBooksCloudSyncError: Error, Equatable, Sendable {
     case unavailable
-    case acknowledgementFailed
+    case acknowledgementFailed(stateRestoreFailed: Bool)
+}
+
+public enum CloudSyncStatus: String, Codable, Equatable, Sendable {
+    case noPendingChanges = "no_pending_changes"
+    case acknowledged
 }
 
 public struct CloudSyncSummary: Equatable, Sendable {
+    public let status: CloudSyncStatus
     public let collectionPendingBefore: Int
     public let annotationPendingBefore: Int
+    public let acknowledged: Bool?
+    public let warnings: [MutationWarning]
 
-    public init(collectionPendingBefore: Int, annotationPendingBefore: Int) {
+    public init(
+        status: CloudSyncStatus,
+        collectionPendingBefore: Int,
+        annotationPendingBefore: Int,
+        acknowledged: Bool?,
+        warnings: [MutationWarning]
+    ) {
+        self.status = status
         self.collectionPendingBefore = collectionPendingBefore
         self.annotationPendingBefore = annotationPendingBefore
+        self.acknowledged = acknowledged
+        self.warnings = warnings
     }
 }
 
@@ -32,6 +49,7 @@ public final class AppleBooks {
     private let collectionWriter: CollectionWriter?
     private let annotationWriter: AnnotationWriter?
     private let restoreCoordinator: MutationCoordinator?
+    private let syncBooksApp: BooksAppController
     private let libraryDatabase: URL?
     private let annotationsDatabase: URL?
     private let libraryBackupRoot: URL
@@ -95,7 +113,8 @@ public final class AppleBooks {
         libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
         restoreCoordinator: MutationCoordinator? = nil,
         pdfSourceResolver: PDFSourceResolver = PDFSourceResolver(),
-        pdfWorkerClient: PDFWorkerClient? = nil
+        pdfWorkerClient: PDFWorkerClient? = nil,
+        syncBooksApp: BooksAppController = .detached
     ) throws {
         try self.init(
             libraryDB: libraryDB,
@@ -112,7 +131,8 @@ public final class AppleBooks {
                 backupRoot: libraryBackupRoot
             ),
             pdfSourceResolver: pdfSourceResolver,
-            pdfWorkerClient: pdfWorkerClient
+            pdfWorkerClient: pdfWorkerClient,
+            syncBooksApp: syncBooksApp
         )
     }
 
@@ -156,12 +176,16 @@ public final class AppleBooks {
         annotationWriter injectedAnnotationWriter: AnnotationWriter?,
         restoreCoordinator injectedRestoreCoordinator: MutationCoordinator?,
         pdfSourceResolver: PDFSourceResolver,
-        pdfWorkerClient: PDFWorkerClient?
+        pdfWorkerClient: PDFWorkerClient?,
+        syncBooksApp injectedSyncBooksApp: BooksAppController? = nil
     ) throws {
         guard dependencies.needsLibraryDatabase == (libraryDB != nil),
               dependencies.needsAnnotationsDatabase == (annotationsDB != nil) else {
             throw AppleBooksDependencyError.invalidComposition
         }
+
+        let sharedBooksApp = injectedSyncBooksApp
+            ?? ((manageCollectionBooksApplication || manageAnnotationBooksApplication) ? .live : .detached)
 
         let libraryConnection = try dependencies.contains(.libraryRead)
             ? SQLiteConnection.readOnly(path: libraryDB!.path)
@@ -197,7 +221,7 @@ public final class AppleBooks {
             if let injectedCollectionWriter {
                 collectionWriter = injectedCollectionWriter
             } else {
-                let booksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+                let booksApp = manageCollectionBooksApplication ? sharedBooksApp : .detached
                 collectionWriter = CollectionWriter(
                     database: libraryDB,
                     booksApp: booksApp,
@@ -215,7 +239,7 @@ public final class AppleBooks {
             if let injectedAnnotationWriter {
                 annotationWriter = injectedAnnotationWriter
             } else {
-                let booksApp = manageAnnotationBooksApplication ? BooksAppController.live : BooksAppController.detached
+                let booksApp = manageAnnotationBooksApplication ? sharedBooksApp : .detached
                 annotationWriter = AnnotationWriter(
                     database: annotationsDB,
                     booksApp: booksApp,
@@ -233,7 +257,7 @@ public final class AppleBooks {
             if let injectedRestoreCoordinator {
                 restoreCoordinator = injectedRestoreCoordinator
             } else {
-                let booksApp = manageCollectionBooksApplication ? BooksAppController.live : BooksAppController.detached
+                let booksApp = manageCollectionBooksApplication ? sharedBooksApp : .detached
                 restoreCoordinator = MutationCoordinator(database: libraryDB, backupRoot: libraryBackupRoot, booksApp: booksApp)
             }
         } else {
@@ -245,6 +269,7 @@ public final class AppleBooks {
         self.libraryBackupRoot = libraryBackupRoot
         self.pdfSourceResolver = pdfSourceResolver
         self.pdfWorkerClient = dependencies.contains(.pdfWorker) ? pdfWorkerClient : nil
+        syncBooksApp = sharedBooksApp
         self.dependencies = dependencies
         self.configuration = configuration
     }
@@ -451,23 +476,65 @@ public final class AppleBooks {
     }
 
     public func syncPendingCloudChanges() throws -> CloudSyncSummary {
-        let collectionPending = try requiredCollectionWriter().pendingCloudChangeCount()
-        let annotationPending = try requiredAnnotationWriter().pendingCloudChangeCount()
+        let collectionWriter = try requiredCollectionWriter()
+        let annotationWriter = try requiredAnnotationWriter()
+        let collectionPending = try collectionWriter.pendingCloudChangeCount()
+        let annotationPending = try annotationWriter.pendingCloudChangeCount()
+        guard collectionPending > 0 || annotationPending > 0 else {
+            return CloudSyncSummary(
+                status: .noPendingChanges,
+                collectionPendingBefore: 0,
+                annotationPendingBefore: 0,
+                acknowledged: nil,
+                warnings: []
+            )
+        }
+
+        let originalState = syncBooksApp.state()
+        var primaryFailure: AppleBooksCloudSyncError?
         do {
+            if syncBooksApp.isRunning() {
+                try syncBooksApp.terminateAndWait()
+            }
             if collectionPending > 0 {
-                try requiredCollectionWriter().syncPendingCloudChanges()
+                try collectionWriter.preparePendingCloudSync()
+            }
+            try syncBooksApp.launchWithoutActivationAndWait()
+            if collectionPending > 0 {
+                try collectionWriter.waitForPendingCloudAcknowledgement()
             }
             if annotationPending > 0 {
-                try requiredAnnotationWriter().syncPendingCloudChanges(restartRunningBooks: collectionPending == 0)
+                try annotationWriter.waitForPendingCloudAcknowledgement()
             }
-        } catch is AppleBooksCloudSyncError {
-            throw AppleBooksCloudSyncError.unavailable
+        } catch let error as AppleBooksCloudSyncError {
+            primaryFailure = error
         } catch {
-            throw AppleBooksCloudSyncError.acknowledgementFailed
+            primaryFailure = .acknowledgementFailed(stateRestoreFailed: false)
+        }
+
+        var warnings: [MutationWarning] = []
+        var stateRestoreFailed = false
+        do {
+            try syncBooksApp.restore(originalState)
+        } catch {
+            stateRestoreFailed = true
+            warnings.append(.booksStateRestoreFailed)
+        }
+
+        if let primaryFailure {
+            switch primaryFailure {
+            case .unavailable:
+                throw primaryFailure
+            case .acknowledgementFailed:
+                throw AppleBooksCloudSyncError.acknowledgementFailed(stateRestoreFailed: stateRestoreFailed)
+            }
         }
         return CloudSyncSummary(
+            status: .acknowledged,
             collectionPendingBefore: collectionPending,
-            annotationPendingBefore: annotationPending
+            annotationPendingBefore: annotationPending,
+            acknowledged: true,
+            warnings: warnings
         )
     }
 

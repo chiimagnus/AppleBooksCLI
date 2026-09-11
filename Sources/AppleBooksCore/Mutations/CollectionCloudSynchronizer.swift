@@ -86,9 +86,11 @@ struct CollectionCloudSynchronizer {
         try pendingCountAction()
     }
 
-    func syncPending() throws {
-        guard try pendingCountAction() > 0 else { return }
-        try triggerPendingBatchSync()
+    func preparePendingBatch() throws {
+        try recycleAction()
+    }
+
+    func waitForPendingAcknowledgement() throws {
         try waitUntil { try pendingCountAction() == 0 }
     }
 
@@ -151,14 +153,6 @@ struct CollectionCloudSynchronizer {
             try booksApp.launchWithoutActivationAndWait()
             onTemporaryBooksLaunch()
         }
-    }
-
-    private func triggerPendingBatchSync() throws {
-        if booksApp.isRunning() {
-            try booksApp.terminateAndWait()
-        }
-        try recycleAction()
-        try booksApp.launch()
     }
 
     private func waitUntil(_ condition: () throws -> Bool) throws {

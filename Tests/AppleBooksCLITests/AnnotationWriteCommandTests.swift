@@ -38,8 +38,8 @@ struct AnnotationWriteCommandTests {
             #expect(stdout.contains("After local commit"))
             #expect(stdout.contains("current-Mac CloudKit"))
             if subcommand != "restore" {
-                #expect(stdout.contains("Omit for local-only writes"))
-                #expect(stdout.contains("pending changes later."))
+                #expect(stdout.contains("projection"))
+                #expect(stdout.contains("local-only") == false)
             }
             if subcommand == "update-note" {
                 #expect(stdout.contains("--clear"))

@@ -262,7 +262,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Flag(name: .long, help: "Clear the note to NULL. Do not provide stdin with this flag.")
     var clear = false
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -320,7 +320,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -375,7 +375,7 @@ struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit to skip waiting; projection still occurs.")
+    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; projection still occurs.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions

@@ -149,7 +149,7 @@ struct CLIErrorEnvelope: Codable, Equatable, Sendable {
             code: error.code,
             reason: error.reason,
             message: error.message,
-            recoveryHint: nil
+            recoveryHint: error.recoveryHint
         )
     }
 }

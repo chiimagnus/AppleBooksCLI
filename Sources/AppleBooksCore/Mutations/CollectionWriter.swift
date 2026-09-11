@@ -1213,9 +1213,14 @@ struct CollectionWriter {
         return try cloudSynchronizer.pendingCount()
     }
 
-    func syncPendingCloudChanges() throws {
+    func preparePendingCloudSync() throws {
         guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
-        try cloudSynchronizer.syncPending()
+        try cloudSynchronizer.preparePendingBatch()
+    }
+
+    func waitForPendingCloudAcknowledgement() throws {
+        guard let cloudSynchronizer else { throw AppleBooksCloudSyncError.unavailable }
+        try cloudSynchronizer.waitForPendingAcknowledgement()
     }
 
     private struct CreatedCollection {

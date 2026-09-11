@@ -40,7 +40,7 @@ CLI 以命令实际能力声明组合 Core 依赖，而不是先构造“全能�
 本地 SQLite commit、Apple-native cloud projection、当前 Mac CloudKit acknowledgement 是不同层次：
 
 - mutation 在 commit/read-back 后生成对应 dirty cloud representation；
-- `--sync` 只决定该 mutation 是否立即等待 acknowledgement；
+- mutation 无论是否带 `--sync` 都完成 local commit/read-back 与 cloud projection；`--sync` 只决定是否立即等待 acknowledgement；
 - 多条 mutation 可最后用根 `sync` 一次 flush pending records；
 - AppleBooksCLI 不伪造 Apple identity/entitlement 直接连接 Apple Books CloudKit container。
 

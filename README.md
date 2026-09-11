@@ -89,7 +89,7 @@ Records within each document use reading order by default: available EPUB chapte
 
 AppleBooksCLI writes only through its guarded mutation/restore rails. Ordinary queries are read-only.
 
-A single mutation can explicitly wait for current-Mac CloudKit acknowledgement:
+Every changed mutation still commits locally and projects into Apple-native cloud state. `--sync` only adds an immediate wait for current-Mac CloudKit acknowledgement:
 
 ```sh
 applebookscli collections create "My Shelf" --sync
@@ -106,7 +106,7 @@ applebookscli annotations restore <annotation-uuid>
 applebookscli sync
 ```
 
-Current-Mac acknowledgement does not prove another device already displays the change. Post-commit sync/restore warnings must not be treated as permission to replay a mutation. The full safety and lifecycle contract is in [`docs/write-safety.md`](docs/write-safety.md).
+Root `sync` is a no-op when nothing is pending. When it does run, it restores Books to its original closed/background/frontmost state after acknowledgement; a state-restore failure is reported separately from the acknowledgement fact. Current-Mac acknowledgement does not prove another device already displays the change. Post-commit sync/restore warnings must not be treated as permission to replay a mutation. The full safety and lifecycle contract is in [`docs/write-safety.md`](docs/write-safety.md).
 
 ## Operation history
 

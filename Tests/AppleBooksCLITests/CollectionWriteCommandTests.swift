@@ -36,8 +36,8 @@ struct CollectionWriteCommandTests {
             #expect(stdout.contains("--sync"))
             #expect(stdout.contains("After local commit"))
             #expect(stdout.contains("current-Mac CloudKit"))
-            #expect(stdout.contains("Omit for local-only writes"))
-            #expect(stdout.contains("pending changes later."))
+            #expect(stdout.contains("projection"))
+            #expect(stdout.contains("local-only") == false)
             if subcommand == "add-book" || subcommand == "remove-book" {
                 for selector in ["--collection", "--collection-pk", "--book", "--book-pk"] {
                     #expect(stdout.contains(selector))

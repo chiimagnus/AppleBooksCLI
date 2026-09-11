@@ -90,11 +90,11 @@ restore apply 后同样跨过不可逆边界；后续 verification/retention/rel
 两种显式 sync：
 
 - mutation `--sync`：仅等待该 mutation 的 current-Mac acknowledgement；
-- root `applebookscli sync`：统计并 flush 已存在的 pending collection/member/annotation records；pending=0 时 no-op，多 domain pending 尽量复用一次 lifecycle。
+- root `applebookscli sync`：统计并 flush 已存在的 pending collection/member/annotation records；pending=0 返回 `status=no_pending_changes`、`acknowledged=null`，且不触碰 Books lifecycle。pending>0 时由 root sync 唯一持有 Books lifecycle：先记录原始 `closed/background/frontmost`，完成所需 recycle/launch 与两域 acknowledgement 后 best-effort 恢复原状态；后台态不得被激活，原本关闭时不得残留 Books 进程。
 
-批量写入可以不逐条 `--sync`，最后 root sync 一次。注意 root sync 会处理**所有当前 pending records**，因此不能为了形式上的收尾在一个全 `changed=false` 的任务后无条件执行。
+批量写入可以不逐条 `--sync`，最后 root sync 一次。注意 root sync 会处理**所有当前 pending records**，因此不能为了形式上的收尾在一个全 `changed=false` 的任务后无条件执行。mutation 省略 `--sync` 只是不立即等待 acknowledgement；local commit、read-back 与 cloud projection 仍照常发生。
 
-ack criterion 由 synchronizer/tests 拥有。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
+ack criterion 由 synchronizer/tests 拥有。一个 domain 已 ack、另一个失败时不回滚或重放已完成 domain；root sync 可安全重跑。ack 失败仍是 non-zero failure，并在失败路径 best-effort 恢复 Books；若同时恢复失败，不能覆盖原始 sync failure。ack 已成功但仅 Books 状态恢复失败时，结果仍保持 `acknowledged=true`，并返回结构化 `books_state_restore_failed` warning。成功只证明当前 Mac 的 cloud representation 被 CloudKit 接受，不证明第二台设备已经 render；sync failure 不能触发 mutation replay。restore snapshot 也不会自动推导成一组 pending cloud mutations。
 
 ## Operation history 交叉边界
 

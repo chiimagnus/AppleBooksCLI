@@ -41,14 +41,17 @@ struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, 
 }
 
 struct CloudSyncCommandResult: Codable, Equatable, Sendable {
-    let acknowledged: Bool
+    let status: CloudSyncStatus
+    @ExplicitNullBool var acknowledged: Bool?
     let collectionPendingBefore: Int
     let annotationPendingBefore: Int
+    let warningCodes: [String]
 
     init(_ summary: CloudSyncSummary) {
-        acknowledged = true
+        status = summary.status
+        _acknowledged = ExplicitNullBool(wrappedValue: summary.acknowledged)
         collectionPendingBefore = summary.collectionPendingBefore
         annotationPendingBefore = summary.annotationPendingBefore
+        warningCodes = summary.warnings.map(\.rawValue)
     }
-
 }

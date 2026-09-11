@@ -1109,11 +1109,11 @@ public final class AppleBooks {
         try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid)
     }
 
-    public func updateAnnotationNote(localPK: Int64, note: String, syncCloud: Bool = false) throws -> MutationResult {
+    public func updateAnnotationNote(localPK: Int64, note: String?, syncCloud: Bool = false) throws -> MutationResult {
         try requiredAnnotationWriter().updateNote(localPK: localPK, note: note, syncCloud: syncCloud)
     }
 
-    public func updateAnnotationNote(uuid: String, note: String, syncCloud: Bool = false) throws -> MutationResult {
+    public func updateAnnotationNote(uuid: String, note: String?, syncCloud: Bool = false) throws -> MutationResult {
         try requiredAnnotationWriter().updateNote(uuid: uuid, note: note, syncCloud: syncCloud)
     }
 

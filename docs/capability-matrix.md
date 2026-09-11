@@ -127,7 +127,7 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| 修改已有 annotation note | 已实现 | UUID/PK 定位；只写 user annotation note |
+| 修改已有 annotation note | 已实现 | UUID/PK 定位；stdin 提供完整替换正文，`--clear` 显式清空为 NULL；只写 user annotation note |
 | soft-delete annotation | 已实现 | soft-delete，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |

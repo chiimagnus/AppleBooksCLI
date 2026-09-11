@@ -77,7 +77,7 @@ struct CLIContractTests {
     @Test
     func recordableCommandWhitelistIsExact() throws {
         let cases: [([String], String)] = [
-            (["annotations", "update-note", "annotation-id", "--note", "note"], "annotations.update-note"),
+            (["annotations", "update-note", "annotation-id"], "annotations.update-note"),
             (["annotations", "delete", "annotation-id"], "annotations.delete"),
             (["collections", "create", "Shelf"], "collections.create"),
             (["collections", "rename", "collection-id", "--title", "Renamed"], "collections.rename"),
@@ -271,8 +271,8 @@ struct CLIContractTests {
 
         let note = "black box replacement"
         let update = try fixture.runJSON([
-            "annotations", "update-note", "uuid-update", "--note", note,
-        ])
+            "annotations", "update-note", "uuid-update",
+        ], stdin: Data(note.utf8))
         #expect(update["committed"] as? Bool == true)
         #expect(update["annotationUUID"] as? String == "uuid-update")
         #expect(update["annotationLocalPK"] == nil)
@@ -314,8 +314,8 @@ struct CLIContractTests {
 
         let privateNote = "synthetic private note"
         let annotation = try fixture.run([
-            "annotations", "update-note", "uuid-update", "--note", privateNote, "--sync",
-        ] + fixture.globals)
+            "annotations", "update-note", "uuid-update", "--sync",
+        ] + fixture.globals, stdin: Data(privateNote.utf8))
 
         #expect(annotation.status == 0)
         #expect(annotation.stderr.isEmpty)
@@ -354,6 +354,64 @@ struct CLIContractTests {
     }
 
     @Test
+    func processUpdateNoteUsesBoundedStdinAndExplicitClear() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let base = ["annotations", "update-note", "uuid-update"] + fixture.globals
+
+        let multiline = "line one\nline two\n"
+        let set = try fixture.run(base, stdin: Data(multiline.utf8))
+        #expect(set.status == 0)
+        #expect(try fixture.scalarText("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == multiline)
+
+        let identical = try fixture.run(base + ["--sync"], stdin: Data(multiline.utf8))
+        let identicalResult = try JSONDecoder().decode(AnnotationMutationCommandResult.self, from: Data(identical.stdout.utf8))
+        #expect(identicalResult.committed == false)
+        #expect(identicalResult.changed == false)
+        #expect(identicalResult.acknowledgementRequested)
+        #expect(identicalResult.acknowledged == nil)
+
+        let clear = try fixture.run(base + ["--clear"])
+        #expect(clear.status == 0)
+        #expect(try fixture.scalarInt("SELECT ZANNOTATIONNOTE IS NULL FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == 1)
+        let clearAgain = try fixture.run(base + ["--clear", "--sync"])
+        let clearAgainResult = try JSONDecoder().decode(AnnotationMutationCommandResult.self, from: Data(clearAgain.stdout.utf8))
+        #expect(clearAgainResult.changed == false)
+        #expect(clearAgainResult.acknowledgementRequested)
+        #expect(clearAgainResult.acknowledged == nil)
+
+        let conflict = try fixture.run(base + ["--clear"], stdin: Data("unexpected".utf8))
+        #expect(conflict.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(conflict.stdout.isEmpty)
+
+        for invalid in ["", " \t\r\n"] {
+            let rejected = try fixture.run(base, stdin: Data(invalid.utf8))
+            #expect(rejected.status == CLIProcessExit.usageInvalid.rawValue)
+            #expect(rejected.stdout.isEmpty)
+        }
+
+        let tenThousand = String(repeating: "x", count: 10_000)
+        #expect(try fixture.run(base, stdin: Data(tenThousand.utf8)).status == 0)
+        let tenThousandAndOne = String(repeating: "x", count: 10_001)
+        #expect(try fixture.run(base, stdin: Data(tenThousandAndOne.utf8)).status == CLIProcessExit.usageInvalid.rawValue)
+
+        let byteBoundary = String(repeating: "🇯🇵", count: 8_192)
+        #expect(byteBoundary.count == 8_192)
+        #expect(byteBoundary.utf8.count == 64 * 1_024)
+        #expect(try fixture.run(base, stdin: Data(byteBoundary.utf8)).status == 0)
+        let byteOverflow = byteBoundary + "🇯🇵"
+        #expect(try fixture.run(base, stdin: Data(byteOverflow.utf8)).status == CLIProcessExit.usageInvalid.rawValue)
+
+        let invalidUTF8 = try fixture.run(base, stdin: Data([0xFF]))
+        #expect(invalidUTF8.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(invalidUTF8.stdout.isEmpty)
+
+        let embeddedNUL = "before\0after"
+        #expect(try fixture.run(base, stdin: Data(embeddedNUL.utf8)).status == 0)
+        #expect(try fixture.scalarText("SELECT hex(ZANNOTATIONNOTE) FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'", database: fixture.annotations) == "6265666F7265006166746572")
+    }
+
+    @Test
     func processRecordableCommandsPersistArgumentsAndPresentedResults() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
@@ -366,9 +424,9 @@ struct CLIContractTests {
 
         let privateNote = "history synthetic private note"
         let updateArguments = [
-            "annotations", "update-note", "uuid-update", "--note", privateNote,
+            "annotations", "update-note", "uuid-update",
         ] + fixture.globals
-        let update = try fixture.run(updateArguments)
+        let update = try fixture.run(updateArguments, stdin: Data(privateNote.utf8))
         #expect(update.status == 0)
         #expect(update.stderr.isEmpty)
         #expect(update.stdout.contains(privateNote) == false)
@@ -414,7 +472,7 @@ struct CLIContractTests {
         let updateRecord = try #require(history.first { $0.operation == "annotations.update-note" })
         #expect(updateRecord.status == .success)
         #expect(updateRecord.arguments == updateArguments)
-        #expect(updateRecord.arguments.contains(privateNote))
+        #expect(updateRecord.arguments.contains(privateNote) == false)
         #expect(updateRecord.stdout == update.stdout)
 
         let noOpRecord = try #require(history.first { $0.operation == "collections.add-book" })
@@ -705,7 +763,7 @@ private final class ProcessHarness {
         return products
     }
 
-    func run(_ arguments: [String]) throws -> ProcessInvocation {
+    func run(_ arguments: [String], stdin: Data? = nil) throws -> ProcessInvocation {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -719,7 +777,20 @@ private final class ProcessHarness {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        let stdinPipe: Pipe?
+        if stdin != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            stdinPipe = pipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+            stdinPipe = nil
+        }
         try process.run()
+        if let stdin, let stdinPipe {
+            stdinPipe.fileHandleForWriting.write(stdin)
+            try? stdinPipe.fileHandleForWriting.close()
+        }
         process.waitUntilExit()
         let out = try stdout.fileHandleForReading.readToEnd() ?? Data()
         let err = try stderr.fileHandleForReading.readToEnd() ?? Data()
@@ -789,12 +860,12 @@ private final class ProcessFixture {
         try Data(#"{"historical_assets":{}}"#.utf8).write(to: config)
     }
 
-    func run(_ arguments: [String]) throws -> ProcessInvocation {
-        try harness.run(arguments)
+    func run(_ arguments: [String], stdin: Data? = nil) throws -> ProcessInvocation {
+        try harness.run(arguments, stdin: stdin)
     }
 
-    func runJSON(_ arguments: [String]) throws -> [String: Any] {
-        let invocation = try run(arguments + globals)
+    func runJSON(_ arguments: [String], stdin: Data? = nil) throws -> [String: Any] {
+        let invocation = try run(arguments + globals, stdin: stdin)
         #expect(invocation.status == 0)
         #expect(invocation.stderr.isEmpty)
         return try dictionary(invocation.stdout)

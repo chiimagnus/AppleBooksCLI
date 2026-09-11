@@ -97,15 +97,21 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
-    func localPKIsExplicitAndWhitespaceNoteIsNotTrimmed() throws {
-        let fixture = try fixture()
-        defer { fixture.remove() }
+    func whitespaceOnlyNoteIsRejectedButMeaningfulWhitespaceIsPreserved() throws {
+        let rejected = try fixture()
+        defer { rejected.remove() }
+        #expect(throws: AnnotationWriteError.invalidNoteLength) {
+            _ = try rejected.writer.updateNote(localPK: 1, note: " \t\r\n")
+        }
+        #expect(FileManager.default.fileExists(atPath: rejected.backupRoot.path) == false)
 
-        let result = try fixture.writer.updateNote(localPK: 1, note: " ")
-
+        let preserved = try fixture()
+        defer { preserved.remove() }
+        let note = "  kept\ntext  "
+        let result = try preserved.writer.updateNote(localPK: 1, note: note)
         #expect(result.localPK == 1)
         #expect(result.stableID == "uuid-1")
-        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == " ")
+        #expect(try text(preserved.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
     }
 
     @Test
@@ -128,6 +134,45 @@ struct AnnotationUpdateNoteTests {
         defer { boundary.remove() }
         let result = try boundary.writer.updateNote(localPK: 1, note: String(repeating: "x", count: 10_000))
         #expect(result.changed)
+
+        let byteOverflow = try fixture()
+        defer { byteOverflow.remove() }
+        let oneOversizedGrapheme = "a" + String(repeating: "\u{0301}", count: 32_768)
+        #expect(oneOversizedGrapheme.count == 1)
+        #expect(oneOversizedGrapheme.utf8.count > 64 * 1_024)
+        #expect(throws: AnnotationWriteError.invalidNoteLength) {
+            _ = try byteOverflow.writer.updateNote(localPK: 1, note: oneOversizedGrapheme)
+        }
+        #expect(FileManager.default.fileExists(atPath: byteOverflow.backupRoot.path) == false)
+    }
+
+    @Test
+    func identicalTextAndIdenticalNullAreQuietNoOpsWhileClearStoresNull() throws {
+        let textFixture = try fixture()
+        defer { textFixture.remove() }
+        let textNoOp = try textFixture.writer.updateNote(localPK: 1, note: "old-note", syncCloud: true)
+        #expect(textNoOp.committed == false)
+        #expect(textNoOp.changed == false)
+        #expect(textNoOp.backupID == nil)
+        #expect(textNoOp.acknowledgementRequested)
+        #expect(textNoOp.acknowledged == nil)
+        #expect(FileManager.default.fileExists(atPath: textFixture.backupRoot.path) == false)
+
+        let clearFixture = try fixture()
+        defer { clearFixture.remove() }
+        let cleared = try clearFixture.writer.updateNote(localPK: 1, note: nil)
+        #expect(cleared.committed)
+        #expect(cleared.changed)
+        #expect(try integer(clearFixture.database, "SELECT ZANNOTATIONNOTE IS NULL FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
+        #expect(try completedBackups(clearFixture.backupRoot).count == 1)
+
+        let clearNoOp = try clearFixture.writer.updateNote(localPK: 1, note: nil, syncCloud: true)
+        #expect(clearNoOp.committed == false)
+        #expect(clearNoOp.changed == false)
+        #expect(clearNoOp.backupID == nil)
+        #expect(clearNoOp.acknowledgementRequested)
+        #expect(clearNoOp.acknowledged == nil)
+        #expect(try completedBackups(clearFixture.backupRoot).count == 1)
     }
 
     @Test
@@ -213,7 +258,7 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
-    func transactionRevalidationRejectsStateChangedDuringBooksQuit() throws {
+    func quietRevalidationRejectsStateChangedDuringBooksQuitBeforeBackup() throws {
         let root = try baseFixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let database = root.appendingPathComponent("annotations.sqlite")
@@ -238,16 +283,16 @@ struct AnnotationUpdateNoteTests {
 
         do {
             _ = try writer.updateNote(localPK: 1, note: "must-not-write")
-            Issue.record("expected transaction revalidation failure")
+            Issue.record("expected quiet-state revalidation failure")
         } catch let error as MutationFailure {
             #expect(error.code == .revalidateFailed)
-            #expect(error.backupHandle != nil)
+            #expect(error.backupHandle == nil)
         }
         #expect(launches == 1)
         #expect(running)
         #expect(try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old-note")
         #expect(try integer(database, "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
-        #expect(try completedBackups(backupRoot).count == 1)
+        #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
     }
 
     @Test

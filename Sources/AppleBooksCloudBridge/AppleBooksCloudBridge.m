@@ -470,7 +470,7 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
     return duplicate ? nil : result;
 }
 
-static BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *row) {
+BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *row) {
     NSData *raw = ((id (*)(id, SEL))objc_msgSend)(cloudObject, NSSelectorFromString(@"bookAnnotations"));
     if (![raw isKindOfClass:[NSData class]]) return NO;
     Class bookClass = NSClassFromString(@"BCAnnotationsProtoBook");
@@ -488,7 +488,7 @@ static BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *
     }
     if (target == nil) return NO;
     id note = row[@"note"];
-    if (note != [NSNull null]) ABSetObject(target, @"setNote:", note);
+    ABSetObject(target, @"setNote:", note == [NSNull null] ? nil : note);
     ABSetBool(target, @"setDeleted:", [row[@"deleted"] boolValue]); ABSetBool(target, @"setHasDeleted:", YES);
     ABSetDouble(target, @"setModificationDate:", [row[@"modified"] doubleValue]);
     id fp6 = row[@"fp6"];

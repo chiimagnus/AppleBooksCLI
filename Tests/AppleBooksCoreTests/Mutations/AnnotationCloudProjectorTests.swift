@@ -1,8 +1,15 @@
 import AppleBooksCloudBridge
+import Darwin
 import Foundation
 import SQLite3
 import Testing
 @testable import AppleBooksCore
+
+@_silgen_name("ABUpdateExistingAnnotationCloudObject")
+private func updateExistingAnnotationCloudObject(
+    _ cloudObject: UnsafeMutableRawPointer?,
+    _ row: UnsafeMutableRawPointer?
+) -> Int8
 
 @Suite("AnnotationCloudProjectorTests")
 struct AnnotationCloudProjectorTests {
@@ -141,6 +148,65 @@ struct AnnotationCloudProjectorTests {
             }
         }
         #expect(status == 3)
+    }
+
+    @Test
+    func bridgeClearRemovesExistingSerializedNote() throws {
+        let framework = dlopen(
+            "/System/Library/PrivateFrameworks/BookDataStore.framework/BookDataStore",
+            RTLD_NOW
+        )
+        #expect(framework != nil)
+        defer { if let framework { dlclose(framework) } }
+
+        let annotationClass = try #require(NSClassFromString("BCProtoAnnotation") as? NSObject.Type)
+        let bookClass = try #require(NSClassFromString("BCAnnotationsProtoBook") as? NSObject.Type)
+        let cloudClass = try #require(NSClassFromString("BCMutableAssetAnnotations") as? NSObject.Type)
+
+        let annotation = annotationClass.init()
+        _ = annotation.perform(NSSelectorFromString("setUuid:"), with: "uuid-probe")
+        _ = annotation.perform(NSSelectorFromString("setCreatorIdentifier:"), with: "creator-probe")
+        annotation.setValue(1.0, forKey: "creationDate")
+        annotation.setValue(1.0, forKey: "modificationDate")
+        _ = annotation.perform(NSSelectorFromString("setNote:"), with: "old note")
+
+        let book = bookClass.init()
+        _ = book.perform(NSSelectorFromString("setAssetID:"), with: "asset-probe")
+        _ = book.perform(NSSelectorFromString("setAppVersion:"), with: "1")
+        _ = book.perform(NSSelectorFromString("setAssetVersion:"), with: "1")
+        _ = book.perform(NSSelectorFromString("addAnnotation:"), with: annotation)
+        let original = try #require(book.value(forKey: "data") as? Data)
+
+        let cloudShell = cloudClass.init()
+        let cloudObject = try #require(
+            cloudShell.perform(NSSelectorFromString("initWithAssetID:"), with: "asset-probe")?
+                .takeUnretainedValue() as? NSObject
+        )
+        cloudObject.setValue(original, forKey: "bookAnnotations")
+        let row: NSDictionary = [
+            "uuid": "uuid-probe",
+            "deleted": false,
+            "modified": 2.0,
+            "note": NSNull(),
+            "fp6": NSNull(),
+        ]
+
+        let success = updateExistingAnnotationCloudObject(
+            Unmanaged.passUnretained(cloudObject).toOpaque(),
+            Unmanaged.passUnretained(row).toOpaque()
+        )
+        #expect(success != 0)
+
+        let updated = try #require(cloudObject.value(forKey: "bookAnnotations") as? Data)
+        let decodedShell = bookClass.init()
+        let decoded = try #require(
+            decodedShell.perform(NSSelectorFromString("initWithData:"), with: updated)?
+                .takeUnretainedValue() as? NSObject
+        )
+        let decodedAnnotations = try #require(decoded.value(forKey: "annotations") as? [NSObject])
+        let decodedAnnotation = try #require(decodedAnnotations.first)
+        #expect((decodedAnnotation.value(forKey: "hasNote") as? NSNumber)?.boolValue == false)
+        #expect(decodedAnnotation.value(forKey: "note") == nil)
     }
 
     @Test

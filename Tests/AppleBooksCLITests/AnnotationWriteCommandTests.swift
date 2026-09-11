@@ -38,6 +38,11 @@ struct AnnotationWriteCommandTests {
             #expect(stdout.contains("current-Mac CloudKit"))
             #expect(stdout.contains("Omit for local-only writes"))
             #expect(stdout.contains("pending changes later."))
+            if subcommand == "update-note" {
+                #expect(stdout.contains("--clear"))
+                #expect(stdout.contains("--note") == false)
+                #expect(stdout.contains("stdin"))
+            }
         }
     }
 
@@ -46,8 +51,8 @@ struct AnnotationWriteCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let books = try fixture.books(controller: fixture.closedController())
-        let command = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "sync me", "--sync"])
-        let result = try command.execute(using: books)
+        let command = try AnnotationsUpdateNoteCommand.parse(["123", "--sync"])
+        let result = try withInput("sync me") { try command.execute(using: books, input: $0) }
         #expect(result.committed)
         #expect(result.warningCodes == ["cloud_sync_failed"])
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "sync me")
@@ -60,8 +65,8 @@ struct AnnotationWriteCommandTests {
         let books = try fixture.books(controller: fixture.closedController())
         let privateNote = "  private replacement\nnote  "
 
-        let uuidCommand = try AnnotationsUpdateNoteCommand.parse(["123", "--note", privateNote])
-        let uuidResult = try uuidCommand.execute(using: books)
+        let uuidCommand = try AnnotationsUpdateNoteCommand.parse(["123"])
+        let uuidResult = try withInput(privateNote) { try uuidCommand.execute(using: books, input: $0) }
         #expect(uuidResult.committed)
         #expect(uuidResult.changed)
         #expect(uuidResult.annotationUUID == "123")
@@ -72,8 +77,8 @@ struct AnnotationWriteCommandTests {
         #expect(encoded.contains(privateNote) == false)
         #expect(encoded.contains("appleBooksURL") == false)
 
-        let pkCommand = try AnnotationsUpdateNoteCommand.parse(["--pk", "123", "--note", "pk replacement"])
-        let pkResult = try pkCommand.execute(using: books)
+        let pkCommand = try AnnotationsUpdateNoteCommand.parse(["--pk", "123"])
+        let pkResult = try withInput("pk replacement") { try pkCommand.execute(using: books, input: $0) }
         #expect(pkResult.annotationUUID == "other")
         #expect(pkResult.annotationLocalPK == nil)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=123") == "pk replacement")
@@ -142,8 +147,8 @@ struct AnnotationWriteCommandTests {
     @Test
     func selectorConflictsFailBeforeAnyDatabaseConstruction() throws {
         for arguments in [
-            ["123", "--pk", "1", "--note", "new"],
-            ["--note", "new"],
+            ["123", "--pk", "1"],
+            [],
         ] {
             let command = try AnnotationsUpdateNoteCommand.parse(arguments)
             #expect(throws: ValidationError.self) {
@@ -163,17 +168,15 @@ struct AnnotationWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books(controller: fixture.closedController())
 
-        let empty = try AnnotationsUpdateNoteCommand.parse(["123", "--note", ""])
+        let empty = try AnnotationsUpdateNoteCommand.parse(["123"])
         #expect(throws: CLIError.usageInvalid("Annotation note length is invalid.")) {
-            _ = try empty.execute(using: books)
+            _ = try withInput("") { try empty.execute(using: books, input: $0) }
         }
         #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
 
-        let tooLong = try AnnotationsUpdateNoteCommand.parse([
-            "123", "--note", String(repeating: "x", count: 10_001),
-        ])
+        let tooLong = try AnnotationsUpdateNoteCommand.parse(["123"])
         #expect(throws: CLIError.usageInvalid("Annotation note length is invalid.")) {
-            _ = try tooLong.execute(using: books)
+            _ = try withInput(String(repeating: "x", count: 10_001)) { try tooLong.execute(using: books, input: $0) }
         }
         #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
 
@@ -216,9 +219,9 @@ struct AnnotationWriteCommandTests {
             sleep: { _ in }
         )
         let books = try fixture.books(controller: controller)
-        let command = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "committed note"])
+        let command = try AnnotationsUpdateNoteCommand.parse(["123"])
 
-        let result = try command.execute(using: books)
+        let result = try withInput("committed note") { try command.execute(using: books, input: $0) }
 
         #expect(result.committed)
         #expect(result.changed)
@@ -226,6 +229,55 @@ struct AnnotationWriteCommandTests {
         #expect(terminateCount == 1)
         #expect(launchCount == 1)
         #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "committed note")
+    }
+
+    @Test
+    func removedNoteOptionIsRejectedAndStreamingInputIsBoundedStrictUTF8() throws {
+        #expect(throws: Error.self) {
+            _ = try AnnotationsUpdateNoteCommand.parse(["123", "--note", "private"])
+        }
+
+        let boundary = Data(String(repeating: "🇯🇵", count: 8_192).utf8)
+        #expect(boundary.count == AnnotationNoteInput.maximumUTF8Bytes)
+        var boundaryOffset = 0
+        let decoded = try AnnotationNoteInput.readBody { requested in
+            guard boundaryOffset < boundary.count else { return Data() }
+            let end = min(boundaryOffset + requested, boundary.count)
+            defer { boundaryOffset = end }
+            return boundary[boundaryOffset..<end]
+        }
+        #expect(decoded.utf8.count == AnnotationNoteInput.maximumUTF8Bytes)
+
+        let oversized = Data(repeating: 0x61, count: AnnotationNoteInput.maximumUTF8Bytes * 4)
+        var oversizedOffset = 0
+        #expect(throws: CLIError.usageInvalid("Annotation note stdin exceeds 64 KiB.")) {
+            _ = try AnnotationNoteInput.readBody { requested in
+                let end = min(oversizedOffset + requested, oversized.count)
+                defer { oversizedOffset = end }
+                return oversized[oversizedOffset..<end]
+            }
+        }
+        #expect(oversizedOffset == AnnotationNoteInput.maximumUTF8Bytes + 1)
+
+        var invalidRead = false
+        #expect(throws: CLIError.usageInvalid("Annotation note stdin must be valid UTF-8.")) {
+            _ = try AnnotationNoteInput.readBody { _ in
+                if invalidRead { return Data() }
+                invalidRead = true
+                return Data([0xFF])
+            }
+        }
+    }
+
+    private func withInput<T>(_ text: String, _ body: (FileHandle) throws -> T) throws -> T {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data(text.utf8).write(to: url)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: url)
+        }
+        return try body(handle)
     }
 
     private final class Fixture {

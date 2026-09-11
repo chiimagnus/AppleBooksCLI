@@ -27,7 +27,7 @@ enum AnnotationSelector: Equatable, Sendable {
         }
     }
 
-    func updateNote(_ note: String, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+    func updateNote(_ note: String?, in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
         switch self {
         case let .uuid(uuid):
             try books.updateAnnotationNote(uuid: uuid, note: note, syncCloud: syncCloud)

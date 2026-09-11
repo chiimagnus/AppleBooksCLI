@@ -1,5 +1,4 @@
 import Darwin
-import Darwin
 import Foundation
 import SQLite3
 
@@ -17,6 +16,19 @@ public enum SQLiteBackupError: Error, Equatable, Sendable {
 }
 
 final class BackupCatalogInstrumentation {
+    private(set) var scannedEntryCount = 0
+    private(set) var retainedCandidatePeak = 0
+
+    func observeScannedEntry() {
+        scannedEntryCount += 1
+    }
+
+    func observeRetainedCandidates(_ count: Int) {
+        retainedCandidatePeak = max(retainedCandidatePeak, count)
+    }
+}
+
+final class BackupRetentionInstrumentation {
     private(set) var scannedEntryCount = 0
     private(set) var retainedCandidatePeak = 0
 
@@ -279,6 +291,11 @@ public enum SQLiteBackup {
         let metadata: BackupMetadata
     }
 
+    private struct RetentionCandidate {
+        let name: String
+        let metadata: BackupMetadata
+    }
+
     public static func defaultRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/AppleBooksCLI/backups", isDirectory: true)
@@ -459,7 +476,10 @@ public enum SQLiteBackup {
     static func enforceRetention(
         source: URL,
         backupRoot: URL = defaultRoot(),
-        keep: Int = retentionCount
+        keep: Int = retentionCount,
+        preserving: Set<String> = [],
+        instrumentation: BackupRetentionInstrumentation? = nil,
+        betweenPasses: (() throws -> Void)? = nil
     ) throws {
         guard keep >= 1 else { throw SQLiteBackupError.invalidRetention }
         guard let root = try BackupRootGuard.openExisting(backupRoot) else {
@@ -469,7 +489,9 @@ public enum SQLiteBackup {
             in: root,
             sourceStem: source.deletingPathExtension().lastPathComponent,
             keep: keep,
-            preserving: []
+            preserving: preserving,
+            instrumentation: instrumentation,
+            betweenPasses: betweenPasses
         )
     }
 
@@ -629,10 +651,15 @@ public enum SQLiteBackup {
         in root: BackupRootGuard,
         sourceStem: String,
         keep: Int,
-        preserving: Set<String>
+        preserving: Set<String>,
+        instrumentation: BackupRetentionInstrumentation? = nil,
+        betweenPasses: (() throws -> Void)? = nil
     ) throws {
-        var completed: [(String, BackupMetadata)] = []
+        var newest: [RetentionCandidate] = []
+        newest.reserveCapacity(keep)
+
         try root.forEachEntryName { name in
+            instrumentation?.observeScannedEntry()
             if name.hasSuffix(".sqlite.part") {
                 let finalName = String(name.dropLast(".part".count))
                 if BackupMetadata.parse(filename: finalName, sourceStem: sourceStem) != nil {
@@ -640,22 +667,54 @@ public enum SQLiteBackup {
                 }
                 return
             }
-            if let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
-               let entryStat = try root.entryStat(name),
-               entryStat.st_mode & S_IFMT == S_IFREG {
-                completed.append((name, metadata))
+            guard let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
+                  let entryStat = try root.entryStat(name),
+                  entryStat.st_mode & S_IFMT == S_IFREG else {
+                return
             }
+            retainRetentionCandidate(
+                RetentionCandidate(name: name, metadata: metadata),
+                keep: keep,
+                in: &newest
+            )
+            instrumentation?.observeRetainedCandidates(newest.count)
         }
 
-        completed.sort {
-            if $0.1.timestamp != $1.1.timestamp { return $0.1.timestamp > $1.1.timestamp }
-            return $0.1.uuid.uuidString > $1.1.uuid.uuidString
-        }
-        for (name, _) in completed.dropFirst(keep) {
-            guard preserving.contains(name) == false else { continue }
+        try betweenPasses?()
+        let retainedNames = Set(newest.map(\.name)).union(preserving)
+        try root.forEachEntryName { name in
+            instrumentation?.observeScannedEntry()
+            guard retainedNames.contains(name) == false,
+                  BackupMetadata.parse(filename: name, sourceStem: sourceStem) != nil,
+                  let entryStat = try root.entryStat(name),
+                  entryStat.st_mode & S_IFMT == S_IFREG else {
+                return
+            }
             try root.removeRegularFile(named: name)
         }
         try root.validateCurrentPathIdentity()
+    }
+
+    private static func retainRetentionCandidate(
+        _ candidate: RetentionCandidate,
+        keep: Int,
+        in candidates: inout [RetentionCandidate]
+    ) {
+        let insertion = candidates.firstIndex { retentionPrecedes(candidate, $0) } ?? candidates.endIndex
+        if candidates.count < keep {
+            candidates.insert(candidate, at: insertion)
+            return
+        }
+        guard insertion < candidates.endIndex else { return }
+        candidates.insert(candidate, at: insertion)
+        candidates.removeLast()
+    }
+
+    private static func retentionPrecedes(_ lhs: RetentionCandidate, _ rhs: RetentionCandidate) -> Bool {
+        if lhs.metadata.timestamp != rhs.metadata.timestamp {
+            return lhs.metadata.timestamp > rhs.metadata.timestamp
+        }
+        return lhs.metadata.uuid.uuidString > rhs.metadata.uuid.uuidString
     }
 
     private static func withTemporaryBackupDatabase<T>(_ body: (URL) throws -> T) throws -> T {

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -74,6 +75,99 @@ struct SQLiteBackupTests {
         #expect(FileManager.default.fileExists(atPath: ownPart.path) == false)
         #expect(FileManager.default.fileExists(atPath: unrelated.path))
         #expect(FileManager.default.fileExists(atPath: otherStem.path))
+    }
+
+    @Test
+    func retentionStreamsLargeDirectoryKeepsTopKPlusPreservedAndIgnoresUnownedEntries() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("BKLibrary.sqlite")
+        let backupRoot = root.appendingPathComponent("backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+
+        let count = 100_001
+        var preserved = ""
+        for index in 0..<count {
+            let name = retentionFilename(index: index)
+            if index == 0 { preserved = name }
+            let path = backupRoot.appendingPathComponent(name).path
+            let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode_t(S_IRUSR | S_IWUSR))
+            #expect(descriptor >= 0)
+            if descriptor >= 0 { close(descriptor) }
+        }
+
+        let malformed = backupRoot.appendingPathComponent("BKLibrary__not-a-backup.sqlite")
+        let otherStem = backupRoot.appendingPathComponent("AEAnnotation__20260101-000000-000000__00000000-0000-0000-0000-000000000001.sqlite")
+        let ownPart = backupRoot.appendingPathComponent(retentionFilename(index: count + 1) + ".part")
+        let symlinkName = retentionFilename(index: count + 2)
+        let directoryName = retentionFilename(index: count + 3)
+        try Data().write(to: malformed)
+        try Data().write(to: otherStem)
+        try Data().write(to: ownPart)
+        try FileManager.default.createSymbolicLink(
+            at: backupRoot.appendingPathComponent(symlinkName),
+            withDestinationURL: malformed
+        )
+        try FileManager.default.createDirectory(
+            at: backupRoot.appendingPathComponent(directoryName),
+            withIntermediateDirectories: false
+        )
+
+        let instrumentation = BackupRetentionInstrumentation()
+        try SQLiteBackup.enforceRetention(
+            source: source,
+            backupRoot: backupRoot,
+            keep: 10,
+            preserving: [preserved],
+            instrumentation: instrumentation
+        )
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: backupRoot.path)
+        let retainedRegular = names.filter { name in
+            guard BackupMetadata.parse(filename: name, sourceStem: "BKLibrary") != nil else { return false }
+            var metadata = stat()
+            return lstat(backupRoot.appendingPathComponent(name).path, &metadata) == 0
+                && metadata.st_mode & S_IFMT == S_IFREG
+        }
+        #expect(retainedRegular.count == 11)
+        #expect(retainedRegular.contains(preserved))
+        for index in (count - 10)..<count {
+            #expect(retainedRegular.contains(retentionFilename(index: index)))
+        }
+        #expect(instrumentation.retainedCandidatePeak == 10)
+        #expect(instrumentation.scannedEntryCount > 100_000)
+        #expect(FileManager.default.fileExists(atPath: ownPart.path) == false)
+        #expect(FileManager.default.fileExists(atPath: malformed.path))
+        #expect(FileManager.default.fileExists(atPath: otherStem.path))
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(symlinkName).path))
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(directoryName).path))
+    }
+
+    @Test
+    func retentionFailsClosedWhenRootIdentityChangesBetweenStreamingPasses() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("BKLibrary.sqlite")
+        let backupRoot = root.appendingPathComponent("backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+        for index in 0..<3 {
+            try Data().write(to: backupRoot.appendingPathComponent(retentionFilename(index: index)))
+        }
+        let original = root.appendingPathComponent("backups-original", isDirectory: true)
+
+        #expect(throws: SQLiteBackupError.filesystemFailure) {
+            try SQLiteBackup.enforceRetention(
+                source: source,
+                backupRoot: backupRoot,
+                keep: 1,
+                betweenPasses: {
+                    try FileManager.default.moveItem(at: backupRoot, to: original)
+                    try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: false)
+                }
+            )
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: original.path).count == 3)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: backupRoot.path).isEmpty)
     }
 
     @Test
@@ -184,6 +278,11 @@ struct SQLiteBackupTests {
         if FileManager.default.fileExists(atPath: backupRoot.path) {
             #expect(try FileManager.default.contentsOfDirectory(atPath: backupRoot.path).isEmpty)
         }
+    }
+
+    private func retentionFilename(index: Int) -> String {
+        let hex = String(format: "%012llx", UInt64(index))
+        return "BKLibrary__20260101-000000-000000__00000000-0000-0000-0000-\(hex).sqlite"
     }
 
     private func database(at url: URL, value: String) throws -> URL {

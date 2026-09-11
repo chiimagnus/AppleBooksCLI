@@ -654,10 +654,13 @@ struct CollectionWriter {
     }
 
     private static func localPK(forCollectionID collectionID: String, on handle: OpaquePointer) throws -> Int64 {
+        guard PublicStableIdentityPolicy.isEligible(collectionID) else {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(
             handle,
-            "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
+            "SELECT Z_PK FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
             -1,
             &statement,
             nil
@@ -670,18 +673,6 @@ struct CollectionWriter {
             throw CollectionWriteError.writeFailed
         }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
-        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-            throw CollectionWriteError.collectionIdentityUnavailable
-        }
-        let storedID: String
-        do {
-            storedID = try decodeSQLiteText(statement, at: 1)
-        } catch {
-            throw CollectionWriteError.collectionIdentityUnavailable
-        }
-        guard storedID == collectionID else {
-            throw CollectionWriteError.collectionIdentityUnavailable
-        }
         let localPK = sqlite3_column_int64(statement, 0)
         let second = sqlite3_step(statement)
         if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
@@ -694,10 +685,11 @@ struct CollectionWriter {
         expectedCollectionID: String? = nil,
         on handle: OpaquePointer
     ) throws -> CollectionDeleteTargetState {
+        let identityProjection = CloudProjectionResourcePolicy.exactTextProjection("ZCOLLECTIONID")
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(
             handle,
-            "SELECT ZCOLLECTIONID,ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 2",
+            "SELECT \(identityProjection),ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 2",
             -1,
             &statement,
             nil
@@ -710,12 +702,21 @@ struct CollectionWriter {
               sqlite3_step(statement) == SQLITE_ROW else {
             throw CollectionWriteError.collectionMissing
         }
-        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
-            throw CollectionWriteError.collectionIdentityUnavailable
-        }
         let collectionID: String
         do {
-            collectionID = try decodeSQLiteText(statement, at: 0)
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case let .value(value) where value.isEmpty == false:
+                collectionID = value
+            case .value, .null, .oversized:
+                throw CollectionWriteError.collectionIdentityUnavailable
+            }
+        } catch is CollectionWriteError {
+            throw CollectionWriteError.collectionIdentityUnavailable
         } catch {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
@@ -725,10 +726,10 @@ struct CollectionWriter {
         guard CollectionIdentityEditPolicy.capabilities(for: collectionID).canEditCollection else {
             throw CollectionWriteError.collectionNotEditable
         }
-        guard sqlite3_column_type(statement, 1) == SQLITE_INTEGER else {
+        guard sqlite3_column_type(statement, 3) == SQLITE_INTEGER else {
             throw CollectionWriteError.collectionDeletedOrUnknown
         }
-        let deleted = sqlite3_column_int64(statement, 1)
+        let deleted = sqlite3_column_int64(statement, 3)
         let target = CollectionWriteTarget(localPK: localPK, stableID: collectionID)
         switch deleted {
         case 0:
@@ -764,10 +765,13 @@ struct CollectionWriter {
             if requireAssetID, assetID == nil { throw CollectionWriteError.bookAssetIDUnavailable }
             return BookWriteTarget(localPK: localPK, assetID: assetID)
         case let .assetID(assetID):
+            guard PublicStableIdentityPolicy.isEligible(assetID) else {
+                throw CollectionWriteError.bookAssetIDUnavailable
+            }
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 handle,
-                "SELECT Z_PK,ZASSETID FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
+                "SELECT Z_PK FROM ZBKLIBRARYASSET WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
                 -1,
                 &statement,
                 nil
@@ -780,18 +784,6 @@ struct CollectionWriter {
                 throw CollectionWriteError.writeFailed
             }
             guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
-            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
-            let storedID: String
-            do {
-                storedID = try decodeSQLiteText(statement, at: 1)
-            } catch {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
-            guard storedID == assetID else {
-                throw CollectionWriteError.bookAssetIDUnavailable
-            }
             let localPK = sqlite3_column_int64(statement, 0)
             let second = sqlite3_step(statement)
             if second == SQLITE_ROW { throw StableIdentityError.ambiguousBookAssetID }
@@ -805,10 +797,11 @@ struct CollectionWriter {
         scope: CollectionWriteScope,
         on handle: OpaquePointer
     ) throws -> CollectionWriteTarget {
+        let identityProjection = CloudProjectionResourcePolicy.exactTextProjection("ZCOLLECTIONID")
         var statement: OpaquePointer?
         let prepare = sqlite3_prepare_v2(
             handle,
-            "SELECT Z_PK, ZCOLLECTIONID, ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK = ?",
+            "SELECT Z_PK, \(identityProjection), ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK = ?",
             -1,
             &statement,
             nil
@@ -823,16 +816,23 @@ struct CollectionWriter {
             throw CollectionWriteError.collectionMissing
         }
 
-        guard sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
-              sqlite3_column_int64(statement, 2) == 0 else {
+        guard sqlite3_column_type(statement, 4) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 4) == 0 else {
             throw CollectionWriteError.collectionDeletedOrUnknown
-        }
-        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-            throw CollectionWriteError.collectionIdentityUnavailable
         }
         let collectionID: String
         do {
-            collectionID = try decodeSQLiteText(statement, at: 1)
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 1,
+                lengthIndex: 2,
+                payloadIndex: 3
+            ) {
+            case let .value(value) where value.isEmpty == false:
+                collectionID = value
+            case .value, .null, .oversized:
+                throw CollectionWriteError.collectionIdentityUnavailable
+            }
         } catch {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
@@ -1004,8 +1004,9 @@ struct CollectionWriter {
     }
 
     private static func bookAssetID(localPK: Int64, on handle: OpaquePointer) throws -> String? {
+        let projection = CloudProjectionResourcePolicy.exactTextProjection("ZASSETID")
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, "SELECT ZASSETID FROM ZBKLIBRARYASSET WHERE Z_PK=?", -1, &statement, nil) == SQLITE_OK,
+        guard sqlite3_prepare_v2(handle, "SELECT \(projection) FROM ZBKLIBRARYASSET WHERE Z_PK=?", -1, &statement, nil) == SQLITE_OK,
               let statement else {
             throw CollectionWriteError.writeFailed
         }
@@ -1014,14 +1015,22 @@ struct CollectionWriter {
             throw CollectionWriteError.writeFailed
         }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.bookMissing }
-        guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
-        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
-            throw CollectionWriteError.writeFailed
-        }
         do {
-            return try decodeSQLiteText(statement, at: 0)
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case .null:
+                return nil
+            case let .value(value) where value.isEmpty == false:
+                return value
+            case .value, .oversized:
+                throw CollectionWriteError.bookAssetIDUnavailable
+            }
         } catch {
-            throw CollectionWriteError.writeFailed
+            throw CollectionWriteError.bookAssetIDUnavailable
         }
     }
 

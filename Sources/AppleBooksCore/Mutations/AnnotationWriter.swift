@@ -399,10 +399,11 @@ struct AnnotationWriter {
     }
 
     private static func annotationUUID(localPK: Int64, on handle: OpaquePointer) -> String? {
+        let projection = CloudProjectionResourcePolicy.exactTextProjection("ZANNOTATIONUUID")
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(
             handle,
-            "SELECT ZANNOTATIONUUID FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid LIMIT 2",
+            "SELECT \(projection) FROM ZAEANNOTATION WHERE Z_PK=? ORDER BY rowid LIMIT 2",
             -1,
             &statement,
             nil
@@ -412,20 +413,34 @@ struct AnnotationWriter {
         }
         defer { sqlite3_finalize(statement) }
         guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
-              sqlite3_step(statement) == SQLITE_ROW,
-              sqlite3_column_type(statement, 0) == SQLITE_TEXT,
-              let uuid = try? decodeSQLiteText(statement, at: 0),
-              PublicStableIdentityPolicy.isEligible(uuid),
-              sqlite3_step(statement) == SQLITE_DONE else {
+              sqlite3_step(statement) == SQLITE_ROW else {
             return nil
         }
+        let uuid: String
+        do {
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case let .value(value) where PublicStableIdentityPolicy.isEligible(value):
+                uuid = value
+            case .value, .null, .oversized:
+                return nil
+            }
+        } catch {
+            return nil
+        }
+        guard sqlite3_step(statement) == SQLITE_DONE else { return nil }
         return uuid
     }
 
     private static func appleBooksURL(localPK: Int64, on handle: OpaquePointer) -> String? {
         var statement: OpaquePointer?
+        let assetProjection = CloudProjectionResourcePolicy.exactTextProjection("ZANNOTATIONASSETID")
         let sql = """
-        SELECT ZANNOTATIONASSETID,
+        SELECT \(assetProjection),
                CASE
                  WHEN ZANNOTATIONLOCATION IS NOT NULL
                   AND length(CAST(ZANNOTATIONLOCATION AS BLOB)) <= \(CFIResourcePolicy.maximumStructuralBytes)
@@ -446,19 +461,31 @@ struct AnnotationWriter {
             return nil
         }
 
-        func text(_ index: Int32) -> String? {
-            switch sqlite3_column_type(statement, index) {
-            case SQLITE_NULL:
-                return nil
-            case SQLITE_TEXT:
-                return try? decodeSQLiteText(statement, at: index)
-            default:
-                return nil
+        let assetID: String?
+        do {
+            switch try CloudProjectionResourcePolicy.exactText(
+                statement,
+                storageIndex: 0,
+                lengthIndex: 1,
+                payloadIndex: 2
+            ) {
+            case let .value(value) where value.isEmpty == false:
+                assetID = value
+            case .value, .null, .oversized:
+                assetID = nil
             }
+        } catch {
+            assetID = nil
         }
-
-        let assetID = text(0)
-        let rawCFI = text(1)
+        let rawCFI: String?
+        switch sqlite3_column_type(statement, 3) {
+        case SQLITE_NULL:
+            rawCFI = nil
+        case SQLITE_TEXT:
+            rawCFI = try? decodeSQLiteText(statement, at: 3)
+        default:
+            rawCFI = nil
+        }
         guard sqlite3_step(statement) == SQLITE_DONE else { return nil }
         return Annotation.appleBooksURL(rawAssetID: assetID, rawCFI: rawCFI)
     }

@@ -8,6 +8,13 @@
 extern "C" {
 #endif
 
+extern const size_t ABCloudProjectionMaximumIdentityBytes;
+extern const size_t ABCloudProjectionMaximumAnnotationNoteBytes;
+extern const size_t ABCloudProjectionMaximumCollectionTitleBytes;
+extern const size_t ABCloudProjectionMaximumCollectionDetailsBytes;
+extern const size_t ABCloudProjectionMaximumFixedMetadataBytes;
+extern const size_t ABCloudProjectionMaximumBookAnnotationsBytes;
+
 int32_t ABProjectCollectionState(
     const char *root_path,
     const char *canonical_cloud_database_path,

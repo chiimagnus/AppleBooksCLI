@@ -87,6 +87,8 @@ restore source 在触碰 Books 前完成校验；随后 snapshot 原始 `closed/
 
 普通 mutation 在 read-back 后只生成 pending Apple-native cloud representation，不等待 acknowledgement。
 
+Cloud projection 有独立的 process/resource ceilings，不等同于 Agent 输入合同：DB-derived stable identity 最多 2 KiB UTF-8；annotation Note 最多 64 KiB；collection title 最多 64 KiB、details 最多 1 MiB；固定 projection metadata 最多 4 KiB；单个 annotation `bookAnnotations` private proto 的 raw/updated data 最多 64 MiB。identity 必须先由 SQLite byte length 证明在界内再 materialize，所有正文/proto 都保持完整值或 fail closed，禁止截断后同步。Collection tombstone projection 不读取 title/details，annotation tombstone projection 不读取 Note。依赖 identity 的 writer 若能在 COMMIT 前发现超限则拒绝写入；COMMIT 后 bridge 才发现的 resource rejection 只能返回现有 `cloud_projection_failed` committed warning，不能 rollback 或重放 mutation。Root sync 只等待已投影 pending generation，不重新读取这些 payload。
+
 两种显式 sync：
 
 - mutation `--sync`：仅等待该 mutation 的 current-Mac acknowledgement；

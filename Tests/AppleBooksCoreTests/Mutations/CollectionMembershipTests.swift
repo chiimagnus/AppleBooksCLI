@@ -110,6 +110,27 @@ struct CollectionMembershipTests {
     }
 
     @Test
+    func localPKIdentityBudgetFailuresHappenBeforeBackup() throws {
+        let oversized = String(repeating: "x", count: CloudProjectionResourcePolicy.stableIdentityBytes + 1)
+
+        let collection = try fixture()
+        defer { try? FileManager.default.removeItem(at: collection.root) }
+        try execute(collection.database, "UPDATE ZBKCOLLECTION SET ZCOLLECTIONID='\(oversized)' WHERE Z_PK=10")
+        #expect(throws: CollectionWriteError.collectionIdentityUnavailable) {
+            _ = try collection.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+        }
+        #expect(FileManager.default.fileExists(atPath: collection.backupRoot.path) == false)
+
+        let book = try fixture()
+        defer { try? FileManager.default.removeItem(at: book.root) }
+        try execute(book.database, "UPDATE ZBKLIBRARYASSET SET ZASSETID='\(oversized)' WHERE Z_PK=1")
+        #expect(throws: CollectionWriteError.bookAssetIDUnavailable) {
+            _ = try book.writer.addBook(bookLocalPK: 1, toCollectionLocalPK: 10)
+        }
+        #expect(FileManager.default.fileExists(atPath: book.backupRoot.path) == false)
+    }
+
+    @Test
     func missingBookFailsBeforeBackupAndWantToReadAllowsMembership() throws {
         let missing = try fixture()
         defer { try? FileManager.default.removeItem(at: missing.root) }

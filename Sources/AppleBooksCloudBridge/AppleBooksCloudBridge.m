@@ -8,6 +8,13 @@
 #import <sqlite3.h>
 #import <sys/stat.h>
 
+const size_t ABCloudProjectionMaximumIdentityBytes = 2 * 1024;
+const size_t ABCloudProjectionMaximumAnnotationNoteBytes = 64 * 1024;
+const size_t ABCloudProjectionMaximumCollectionTitleBytes = 64 * 1024;
+const size_t ABCloudProjectionMaximumCollectionDetailsBytes = 1024 * 1024;
+const size_t ABCloudProjectionMaximumFixedMetadataBytes = 4 * 1024;
+const size_t ABCloudProjectionMaximumBookAnnotationsBytes = 64 * 1024 * 1024;
+
 static BOOL ABIsDirectory(NSString *path) {
     struct stat value;
     return lstat(path.fileSystemRepresentation, &value) == 0 && (value.st_mode & S_IFMT) == S_IFDIR;
@@ -172,22 +179,15 @@ static BOOL ABDeleteCloudData(id manager, NSPredicate *predicate) {
     return ABWaitForCompletion(&completed);
 }
 
-static NSString *ABText(sqlite3_stmt *statement, int column) {
+static NSString *ABText(sqlite3_stmt *statement, int column, size_t maximumBytes) {
     if (sqlite3_column_type(statement, column) == SQLITE_NULL) return nil;
     if (sqlite3_column_type(statement, column) != SQLITE_TEXT) return nil;
     int length = sqlite3_column_bytes(statement, column);
+    if (length < 0 || (size_t)length > maximumBytes) return nil;
     if (length == 0) return @"";
     const unsigned char *text = sqlite3_column_text(statement, column);
     if (text == NULL) return nil;
     return [[NSString alloc] initWithBytes:text length:(NSUInteger)length encoding:NSUTF8StringEncoding];
-}
-
-static NSData *ABBlob(sqlite3_stmt *statement, int column) {
-    if (sqlite3_column_type(statement, column) == SQLITE_NULL) return nil;
-    if (sqlite3_column_type(statement, column) != SQLITE_BLOB) return nil;
-    int length = sqlite3_column_bytes(statement, column);
-    const void *bytes = sqlite3_column_blob(statement, column);
-    return length <= 0 || bytes == NULL ? [NSData data] : [NSData dataWithBytes:bytes length:(NSUInteger)length];
 }
 
 static NSDictionary *ABReadCollection(NSString *libraryDatabase, NSString *collectionID) {
@@ -197,7 +197,7 @@ static NSDictionary *ABReadCollection(NSString *libraryDatabase, NSString *colle
         return nil;
     }
     sqlite3_stmt *statement = NULL;
-    const char *sql = "SELECT ZDELETEDFLAG,ZHIDDEN,ZSORTMODE,ZSORTKEY,ZLASTMODIFICATION,ZTITLE,ZDETAILS FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK";
+    const char *sql = "SELECT ZDELETEDFLAG,ZHIDDEN,ZSORTMODE,ZSORTKEY,ZLASTMODIFICATION,ZTITLE,ZDETAILS FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
     if (sqlite3_prepare_v2(connection, sql, -1, &statement, NULL) != SQLITE_OK) {
         sqlite3_close_v2(connection);
         return nil;
@@ -212,40 +212,54 @@ static NSDictionary *ABReadCollection(NSString *libraryDatabase, NSString *colle
         || sqlite3_column_type(statement, 1) != SQLITE_INTEGER
         || sqlite3_column_type(statement, 2) != SQLITE_INTEGER
         || sqlite3_column_type(statement, 3) != SQLITE_INTEGER
-        || (sqlite3_column_type(statement, 4) != SQLITE_FLOAT && sqlite3_column_type(statement, 4) != SQLITE_INTEGER)
-        || sqlite3_column_type(statement, 5) != SQLITE_TEXT) {
+        || (sqlite3_column_type(statement, 4) != SQLITE_FLOAT && sqlite3_column_type(statement, 4) != SQLITE_INTEGER)) {
         sqlite3_finalize(statement);
         sqlite3_close_v2(connection);
         return nil;
     }
-    NSString *title = ABText(statement, 5);
-    if (title == nil) {
-        sqlite3_finalize(statement);
-        sqlite3_close_v2(connection);
-        return nil;
-    }
-    id details = [NSNull null];
-    if (sqlite3_column_type(statement, 6) == SQLITE_TEXT) {
-        details = ABText(statement, 6);
-        if (details == nil) {
+
+    BOOL deleted = sqlite3_column_int(statement, 0) != 0;
+    NSNumber *hidden = @(sqlite3_column_int(statement, 1) != 0);
+    NSNumber *sortMode = @(sqlite3_column_int64(statement, 2));
+    NSNumber *sortOrder = @(sqlite3_column_int64(statement, 3));
+    NSNumber *modificationDate = @(sqlite3_column_double(statement, 4));
+    NSMutableDictionary *result = [@{
+        @"deleted": @(deleted),
+        @"hidden": hidden,
+        @"sortMode": sortMode,
+        @"sortOrder": sortOrder,
+        @"modificationDate": modificationDate,
+    } mutableCopy];
+
+    if (!deleted) {
+        if (sqlite3_column_type(statement, 5) != SQLITE_TEXT) {
             sqlite3_finalize(statement);
             sqlite3_close_v2(connection);
             return nil;
         }
-    } else if (sqlite3_column_type(statement, 6) != SQLITE_NULL) {
-        sqlite3_finalize(statement);
-        sqlite3_close_v2(connection);
-        return nil;
+        NSString *title = ABText(statement, 5, ABCloudProjectionMaximumCollectionTitleBytes);
+        if (title == nil) {
+            sqlite3_finalize(statement);
+            sqlite3_close_v2(connection);
+            return nil;
+        }
+        id details = [NSNull null];
+        if (sqlite3_column_type(statement, 6) == SQLITE_TEXT) {
+            details = ABText(statement, 6, ABCloudProjectionMaximumCollectionDetailsBytes);
+            if (details == nil) {
+                sqlite3_finalize(statement);
+                sqlite3_close_v2(connection);
+                return nil;
+            }
+        } else if (sqlite3_column_type(statement, 6) != SQLITE_NULL) {
+            sqlite3_finalize(statement);
+            sqlite3_close_v2(connection);
+            return nil;
+        }
+        result[@"title"] = title;
+        result[@"details"] = details;
     }
-    NSDictionary *result = @{
-        @"deleted": @(sqlite3_column_int(statement, 0) != 0),
-        @"hidden": @(sqlite3_column_int(statement, 1) != 0),
-        @"sortMode": @(sqlite3_column_int64(statement, 2)),
-        @"sortOrder": @(sqlite3_column_int64(statement, 3)),
-        @"modificationDate": @(sqlite3_column_double(statement, 4)),
-        @"title": title,
-        @"details": details,
-    };
+
     BOOL duplicate = sqlite3_step(statement) == SQLITE_ROW;
     sqlite3_finalize(statement);
     sqlite3_close_v2(connection);
@@ -339,6 +353,7 @@ int32_t ABProjectCollectionState(
 ) {
     @autoreleasepool {
         if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id_bytes == NULL) return 1;
+        if (collection_id_length == 0 || collection_id_length > ABCloudProjectionMaximumIdentityBytes) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *libraryDatabase = [NSString stringWithUTF8String:canonical_library_database_path];
@@ -371,6 +386,8 @@ int32_t ABProjectCollectionMemberState(
 ) {
     @autoreleasepool {
         if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_library_database_path == NULL || collection_id_bytes == NULL || asset_id_bytes == NULL) return 1;
+        if (collection_id_length == 0 || collection_id_length > ABCloudProjectionMaximumIdentityBytes
+            || asset_id_length == 0 || asset_id_length > ABCloudProjectionMaximumIdentityBytes) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *libraryDatabase = [NSString stringWithUTF8String:canonical_library_database_path];
@@ -411,7 +428,7 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         if (connection != NULL) sqlite3_close_v2(connection);
         return nil;
     }
-    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK";
+    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
     sqlite3_stmt *statement = NULL;
     if (sqlite3_prepare_v2(connection, sql, -1, &statement, NULL) != SQLITE_OK) {
         sqlite3_close_v2(connection);
@@ -431,22 +448,34 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         sqlite3_close_v2(connection);
         return nil;
     }
-    id note = [NSNull null];
-    if (sqlite3_column_type(statement, 2) == SQLITE_TEXT) {
-        note = ABText(statement, 2);
-        if (note == nil) {
+
+    BOOL deleted = sqlite3_column_int(statement, 0) != 0;
+    NSMutableDictionary *result = [@{
+        @"uuid": annotationUUID,
+        @"deleted": @(deleted),
+        @"modified": @(sqlite3_column_double(statement, 1)),
+    } mutableCopy];
+
+    if (!deleted) {
+        id note = [NSNull null];
+        if (sqlite3_column_type(statement, 2) == SQLITE_TEXT) {
+            note = ABText(statement, 2, ABCloudProjectionMaximumAnnotationNoteBytes);
+            if (note == nil) {
+                sqlite3_finalize(statement);
+                sqlite3_close_v2(connection);
+                return nil;
+            }
+        } else if (sqlite3_column_type(statement, 2) != SQLITE_NULL) {
             sqlite3_finalize(statement);
             sqlite3_close_v2(connection);
             return nil;
         }
-    } else if (sqlite3_column_type(statement, 2) != SQLITE_NULL) {
-        sqlite3_finalize(statement);
-        sqlite3_close_v2(connection);
-        return nil;
+        result[@"note"] = note;
     }
+
     id userModificationDate = [NSNull null];
     if (sqlite3_column_type(statement, 3) == SQLITE_TEXT) {
-        userModificationDate = ABText(statement, 3);
+        userModificationDate = ABText(statement, 3, ABCloudProjectionMaximumFixedMetadataBytes);
         if (userModificationDate == nil) {
             sqlite3_finalize(statement);
             sqlite3_close_v2(connection);
@@ -457,27 +486,22 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         sqlite3_close_v2(connection);
         return nil;
     }
-    NSDictionary *result = @{
-        @"uuid": annotationUUID,
-        @"deleted": @(sqlite3_column_int(statement, 0) != 0),
-        @"modified": @(sqlite3_column_double(statement, 1)),
-        @"note": note,
-        @"fp6": userModificationDate,
-    };
+    result[@"fp6"] = userModificationDate;
+
     BOOL duplicate = sqlite3_step(statement) == SQLITE_ROW;
     sqlite3_finalize(statement);
     sqlite3_close_v2(connection);
     return duplicate ? nil : result;
 }
 
-BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *row) {
+static BOOL ABUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, NSDictionary *row, Class bookClass) {
     NSData *raw = ((id (*)(id, SEL))objc_msgSend)(cloudObject, NSSelectorFromString(@"bookAnnotations"));
-    if (![raw isKindOfClass:[NSData class]]) return NO;
-    Class bookClass = NSClassFromString(@"BCAnnotationsProtoBook");
+    if (![raw isKindOfClass:[NSData class]] || raw.length > ABCloudProjectionMaximumBookAnnotationsBytes || bookClass == Nil) return NO;
     id book = ((id (*)(id, SEL))objc_msgSend)(bookClass, sel_registerName("alloc"));
     book = ((id (*)(id, SEL, id))objc_msgSend)(book, NSSelectorFromString(@"initWithData:"), raw);
     if (book == nil) return NO;
     NSArray *annotations = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"annotations"));
+    if (![annotations isKindOfClass:[NSArray class]]) return NO;
     id target = nil;
     for (id annotation in annotations) {
         NSString *uuid = ((id (*)(id, SEL))objc_msgSend)(annotation, NSSelectorFromString(@"uuid"));
@@ -487,17 +511,41 @@ BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *row) {
         }
     }
     if (target == nil) return NO;
-    id note = row[@"note"];
-    ABSetObject(target, @"setNote:", note == [NSNull null] ? nil : note);
-    ABSetBool(target, @"setDeleted:", [row[@"deleted"] boolValue]); ABSetBool(target, @"setHasDeleted:", YES);
+
+    BOOL deleted = [row[@"deleted"] boolValue];
+    if (!deleted) {
+        id note = row[@"note"];
+        if (note == nil) return NO;
+        ABSetObject(target, @"setNote:", note == [NSNull null] ? nil : note);
+    }
+    ABSetBool(target, @"setDeleted:", deleted);
+    ABSetBool(target, @"setHasDeleted:", YES);
     ABSetDouble(target, @"setModificationDate:", [row[@"modified"] doubleValue]);
     id fp6 = row[@"fp6"];
-    if (fp6 != [NSNull null]) { ABSetDouble(target, @"setUserModificationDate:", [fp6 doubleValue]); ABSetBool(target, @"setHasUserModificationDate:", YES); }
+    if (fp6 == nil) return NO;
+    if (fp6 != [NSNull null]) {
+        ABSetDouble(target, @"setUserModificationDate:", [fp6 doubleValue]);
+        ABSetBool(target, @"setHasUserModificationDate:", YES);
+    }
     NSData *updated = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"data"));
-    if (![updated isKindOfClass:[NSData class]]) return NO;
+    if (![updated isKindOfClass:[NSData class]] || updated.length > ABCloudProjectionMaximumBookAnnotationsBytes) return NO;
     ABSetObject(cloudObject, @"setBookAnnotations:", updated);
     return YES;
 }
+
+BOOL ABUpdateExistingAnnotationCloudObject(id cloudObject, NSDictionary *row) {
+    return ABUpdateExistingAnnotationCloudObjectWithBookClass(
+        cloudObject,
+        row,
+        NSClassFromString(@"BCAnnotationsProtoBook")
+    );
+}
+
+#if DEBUG
+BOOL ABTestUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, NSDictionary *row, Class bookClass) {
+    return ABUpdateExistingAnnotationCloudObjectWithBookClass(cloudObject, row, bookClass);
+}
+#endif
 
 int32_t ABProjectAnnotationState(
     const char *root_path,
@@ -510,6 +558,8 @@ int32_t ABProjectAnnotationState(
 ) {
     @autoreleasepool {
         if (root_path == NULL || canonical_cloud_database_path == NULL || canonical_annotations_database_path == NULL || asset_id_bytes == NULL || annotation_uuid_bytes == NULL) return 1;
+        if (asset_id_length == 0 || asset_id_length > ABCloudProjectionMaximumIdentityBytes
+            || annotation_uuid_length == 0 || annotation_uuid_length > ABCloudProjectionMaximumIdentityBytes) return 1;
         NSString *root = [NSString stringWithUTF8String:root_path];
         NSString *cloudDatabase = [NSString stringWithUTF8String:canonical_cloud_database_path];
         NSString *annotationsDatabase = [NSString stringWithUTF8String:canonical_annotations_database_path];

@@ -147,6 +147,51 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func postCommitProjectionResourceRejectionIsWarningWithoutMutationReplay() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        var projectionCalls = 0
+        let writer = AnnotationWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector { _ in
+                projectionCalls += 1
+                throw AnnotationCloudProjectionError.bridgeRejected(3)
+            }
+        )
+
+        let result = try writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.warnings == [.cloudProjectionFailed])
+        #expect(projectionCalls == 1)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+    }
+
+    @Test
+    func oversizedAssetIdentityOnlyDropsMutationFocus() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(fixture.database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+        let oversized = String(repeating: "x", count: CloudProjectionResourcePolicy.stableIdentityBytes + 1)
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONASSETID='\(oversized)', ZANNOTATIONLOCATION='epubcfi(/6/2!/4/2)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.appleBooksURL == nil)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+    }
+
+    @Test
     func identicalTextAndIdenticalNullAreQuietNoOpsWhileClearStoresNull() throws {
         let textFixture = try fixture()
         defer { textFixture.remove() }

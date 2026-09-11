@@ -34,6 +34,7 @@ struct MutationCoordinator {
 
     func perform<T>(
         preflight: (SQLiteConnection) throws -> Void,
+        quietDecision: ((SQLiteConnection) throws -> MutationQuietDecision)? = nil,
         revalidate: (OpaquePointer) throws -> Void,
         mutation: (OpaquePointer) throws -> T,
         invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
@@ -80,6 +81,56 @@ struct MutationCoordinator {
                     code: .quitFailed,
                     warnings: [],
                     underlying: error
+                )
+            }
+        }
+
+        if let quietDecision {
+            let connection: SQLiteConnection
+            do {
+                connection = try SQLiteConnection.readOnly(path: database.path)
+            } catch {
+                throw failure(
+                    error,
+                    code: .revalidateFailed,
+                    backupHandle: nil,
+                    restoreBooks: initialBooksState
+                )
+            }
+
+            let decision: MutationQuietDecision
+            do {
+                decision = try quietDecision(connection)
+                try connection.close()
+            } catch {
+                try? connection.close()
+                throw failure(
+                    error,
+                    code: .revalidateFailed,
+                    backupHandle: nil,
+                    restoreBooks: initialBooksState
+                )
+            }
+
+            if case let .noChange(domain) = decision {
+                var warnings: [MutationWarning] = []
+                if initialBooksState != .closed {
+                    do {
+                        try booksApp.restore(initialBooksState)
+                    } catch {
+                        warnings.append(.booksStateRestoreFailed)
+                    }
+                }
+                return MutationResult(
+                    committed: false,
+                    backupHandle: nil,
+                    localPK: domain.localPK,
+                    stableID: domain.stableID,
+                    changed: false,
+                    acknowledgementRequested: acknowledgementRequested,
+                    acknowledged: nil,
+                    warnings: warnings,
+                    appleBooksURL: domain.appleBooksURL
                 )
             }
         }
@@ -224,16 +275,20 @@ struct MutationCoordinator {
         }
 
         var ownsTemporaryBooksLaunch = false
+        var acknowledged: Bool?
         if domain.changed, acknowledgementRequested {
             if projectionSucceeded, let acknowledgement {
                 do {
                     try acknowledgement(payload) {
                         ownsTemporaryBooksLaunch = true
                     }
+                    acknowledged = true
                 } catch {
+                    acknowledged = false
                     warnings.append(.cloudSyncFailed)
                 }
             } else {
+                acknowledged = false
                 warnings.append(.cloudSyncFailed)
             }
         }
@@ -268,10 +323,13 @@ struct MutationCoordinator {
         }
 
         return MutationResult(
+            committed: true,
             backupHandle: backupHandle,
             localPK: domain.localPK,
             stableID: domain.stableID,
             changed: domain.changed,
+            acknowledgementRequested: acknowledgementRequested,
+            acknowledged: acknowledged,
             warnings: warnings,
             appleBooksURL: domain.appleBooksURL
         )

@@ -17,7 +17,9 @@
 read-only preflight
 → snapshot Books state (closed / background / frontmost)
 → clean quit when needed
-→ fresh quiet-state backup
+→ quiet-state read-only no-op decision when the mutation has a deterministic target state
+→ no-op: restore original Books state and return without backup / RW / COMMIT
+→ needs mutation: fresh quiet-state backup
 → short-lived RW connection
 → BEGIN IMMEDIATE
 → transaction revalidation + mutation + invariant
@@ -33,7 +35,9 @@ read-only preflight
 关键边界：
 
 - invalid selector/schema 必须尽量在退出 Books 前失败；Books quit reject/timeout 时 fail closed，不猜测性 relaunch。
-- `changed=false` 是成功 no-op：不做 projection、acknowledgement、service recycle 或 sync-only temporary launch。
+- deterministic no-op 的最终判断必须发生在 Books quiet state；最初 preflight 只能验证输入/schema，不能作为 race-free equality owner。
+- quiet-state no-op 返回 `committed=false, changed=false`，不创建 safety backup、不打开 RW、不做 projection/acknowledgement；如果调用者请求了 `--sync`，只保留 acknowledgement intent，不实际等待确认。
+- quiet decision 之后到 `BEGIN IMMEDIATE` 之间仍可能有非 Books 外部 writer，因此真实 mutation 继续保留 transaction revalidation；若 transaction 内最终变成 `changed=false`，已创建 backup 是竞态安全代价。
 - projection/acknowledgement 发生在 commit 后；失败不回滚本地事务。
 - annotation update/delete 的 deeplink 只是 best-effort presentation metadata，不得成为 writer precondition。
 

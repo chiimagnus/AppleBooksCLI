@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import Testing
 @testable import AppleBooksCLI
+@testable import AppleBooksCore
 
 @Suite("OutputContractTests")
 struct OutputContractTests {
@@ -133,6 +134,38 @@ struct OutputContractTests {
         let envelope = try decodeError(capture.stderr)
         #expect(envelope.error.code == .internal)
         #expect(envelope.error.message == "Internal error.")
+    }
+
+    @Test
+    func mutationOutcomeAlwaysEncodesAcknowledgementStateExplicitly() throws {
+        let noSync = MutationCommandResult(MutationResult(
+            committed: false,
+            backupHandle: nil,
+            localPK: 1,
+            stableID: "stable",
+            changed: false,
+            acknowledgementRequested: false,
+            acknowledged: nil,
+            warnings: []
+        ))
+        let requestedNoOp = MutationCommandResult(MutationResult(
+            committed: false,
+            backupHandle: nil,
+            localPK: 1,
+            stableID: "stable",
+            changed: false,
+            acknowledgementRequested: true,
+            acknowledged: nil,
+            warnings: []
+        ))
+
+        for (result, requested) in [(noSync, false), (requestedNoOp, true)] {
+            let data = try JSONEncoder().encode(result)
+            let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(object["acknowledgementRequested"] as? Bool == requested)
+            #expect(object["acknowledged"] is NSNull)
+            #expect(try JSONDecoder().decode(MutationCommandResult.self, from: data) == result)
+        }
     }
 
     @Test

@@ -32,7 +32,7 @@ Ordinary read DTOs may include `truncatedFields`. Each entry names a field whose
 
 ### Mutation output
 
-Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, opaque `backupID`, `localPK`, `stableID`, `warningCodes`, plus optional annotation `appleBooksURL`. Backup/restore command JSON likewise uses `backupID`/`safetyBackupID`; raw backup filenames and paths are not public recovery identities. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
+Mutation commands use the same JSON-only operational transport. The current result keeps `committed`, `changed`, optional opaque `backupID`, `localPK`, `stableID`, explicit `acknowledgementRequested`, explicit nullable `acknowledged`, `warningCodes`, plus optional annotation `appleBooksURL`. Deterministic quiet-state no-op returns `committed=false`, `changed=false`, no `backupID`; `acknowledgementRequested` still records whether the caller asked for `--sync`, while `acknowledged` is `null` unless a real committed mutation actually ran acknowledgement. Backup/restore command JSON likewise uses `backupID`/`safetyBackupID`; raw backup filenames and paths are not public recovery identities. User note/details bodies are not echoed merely because a mutation succeeded. `--sync` changes acknowledgement behavior, not the transport.
 
 ### Export output
 

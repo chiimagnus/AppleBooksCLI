@@ -34,7 +34,7 @@ struct AnnotationDeleteTests {
 
         #expect(result.localPK == 1)
         #expect(result.stableID == "uuid-1")
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "annotations") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "annotations") } != nil)
     }
 
     @Test

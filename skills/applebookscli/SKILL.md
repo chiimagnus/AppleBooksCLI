@@ -44,7 +44,7 @@ For annotation reads, repeat every selector/filter/order when continuing `annota
 - `annotations update-note --note` replaces the whole note. Read the current note first when the user wants to append. `annotations delete` soft-deletes the annotation.
 - Collection membership mutations use named selectors only: choose exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`; never pass collection/book identities as positional arguments.
 - Use `--sync` on a single mutation only when the user wants current-Mac CloudKit acknowledgement; otherwise omit it. For several mutations that need acknowledgement, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch.
-- A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
+- A deterministic no-op returns `committed=false`, `changed=false` and no `backupID`; if `--sync` was requested, `acknowledgementRequested=true` but `acknowledged=null` because no acknowledgement runs. A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
 - `backups list` is a fixed recovery catalog of the newest 10 valid library backups; do not paginate it or treat it as complete backup history. Feed the exact opaque `backupID` returned by the list or a previously saved valid `backupID` to `backups restore`; do not use backup filenames or paths as selectors.
 
 ## Export and failures

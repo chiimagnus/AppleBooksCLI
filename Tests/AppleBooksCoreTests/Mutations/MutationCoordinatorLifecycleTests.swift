@@ -126,6 +126,8 @@ struct MutationCoordinatorLifecycleTests {
         )
 
         #expect(result.warnings.isEmpty)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == true)
         try assertOrdered(
             ["readBack", "cloudProjection", "acknowledgement", "launchWithoutActivation"],
             in: fixture.state.events
@@ -154,6 +156,8 @@ struct MutationCoordinatorLifecycleTests {
         )
 
         #expect(result.warnings == [.readBackFailed, .cloudProjectionFailed, .cloudSyncFailed])
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == false)
         #expect(projectionCount == 0)
         #expect(acknowledgementCount == 0)
     }
@@ -176,11 +180,85 @@ struct MutationCoordinatorLifecycleTests {
             readBack: { _, _ in }
         )
 
+        #expect(result.committed)
         #expect(result.changed == false)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
         #expect(result.warnings.isEmpty)
         #expect(projectionCount == 0)
         #expect(acknowledgementCount == 0)
         #expect(fixture.state.events.contains("terminate") == false)
+    }
+
+    @Test
+    func runningQuietNoOpRestoresBackgroundWithoutBackupOrWritableRail() throws {
+        let fixture = try fixture(running: true)
+        defer { fixture.remove() }
+        var acknowledgementCount = 0
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in fixture.state.events.append("preflight") },
+            quietDecision: { _ in
+                fixture.state.events.append("quietDecision")
+                return .noChange(MutationDomainData(localPK: 41, stableID: "no-op", changed: false))
+            },
+            revalidate: { _ in Issue.record("writable rail must not open") },
+            mutation: { _ in
+                Issue.record("mutation must not run")
+                return ()
+            },
+            domainData: { _ in MutationDomainData(changed: true) },
+            cloudProjection: { _ in Issue.record("projection must not run") },
+            acknowledgementRequested: true,
+            acknowledgement: { _, _ in acknowledgementCount += 1 },
+            readBack: { _, _ in Issue.record("read-back must not run") }
+        )
+
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warnings.isEmpty)
+        #expect(acknowledgementCount == 0)
+        #expect(fixture.state.running)
+        #expect(fixture.state.frontmost == false)
+        #expect(fixture.state.events.contains("backup") == false)
+        try assertOrdered(["preflight", "terminate", "quietDecision", "launchWithoutActivation"], in: fixture.state.events)
+    }
+
+    @Test
+    func frontmostQuietNoOpRestoresFrontmostAndReportsRestoreFailureAsWarning() throws {
+        let restored = try fixture(running: true, frontmost: true)
+        defer { restored.remove() }
+        let success = try restored.coordinator.perform(
+            preflight: { _ in },
+            quietDecision: { _ in .noChange(MutationDomainData(changed: false)) },
+            revalidate: { _ in Issue.record("writable rail must not open") },
+            mutation: { _ in () },
+            domainData: { _ in MutationDomainData(changed: true) },
+            readBack: { _, _ in }
+        )
+        #expect(success.committed == false)
+        #expect(success.warnings.isEmpty)
+        #expect(restored.state.running)
+        #expect(restored.state.frontmost)
+        #expect(restored.state.events.contains("backup") == false)
+        try assertOrdered(["terminate", "launch", "activate"], in: restored.state.events)
+
+        let failed = try fixture(running: true, launchFails: true)
+        defer { failed.remove() }
+        let warning = try failed.coordinator.perform(
+            preflight: { _ in },
+            quietDecision: { _ in .noChange(MutationDomainData(changed: false)) },
+            revalidate: { _ in Issue.record("writable rail must not open") },
+            mutation: { _ in () },
+            domainData: { _ in MutationDomainData(changed: true) },
+            readBack: { _, _ in }
+        )
+        #expect(warning.committed == false)
+        #expect(warning.warnings == [.booksStateRestoreFailed])
+        #expect(failed.state.events.contains("backup") == false)
     }
 
     @Test
@@ -527,6 +605,8 @@ struct MutationCoordinatorLifecycleTests {
 
         #expect(result.committed)
         #expect(result.warnings == [.cloudSyncFailed])
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == false)
         #expect(fixture.state.running == false)
         try assertOrdered(["temporaryLaunch", "terminate"], in: fixture.state.events)
     }

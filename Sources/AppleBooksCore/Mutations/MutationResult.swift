@@ -99,33 +99,45 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
 
 public struct MutationResult: Equatable, Sendable {
     public let committed: Bool
-    let backupHandle: String
+    let backupHandle: String?
     public let localPK: Int64?
     public let stableID: String?
     public let changed: Bool
+    public let acknowledgementRequested: Bool
+    public let acknowledged: Bool?
     public let warnings: [MutationWarning]
     public let appleBooksURL: String?
 
     public var backupID: String? {
-        BackupMetadata.backupID(fromFilename: backupHandle)
+        backupHandle.flatMap(BackupMetadata.backupID(fromFilename:))
     }
 
     init(
-        backupHandle: String,
+        committed: Bool,
+        backupHandle: String?,
         localPK: Int64?,
         stableID: String?,
         changed: Bool,
+        acknowledgementRequested: Bool,
+        acknowledged: Bool?,
         warnings: [MutationWarning],
         appleBooksURL: String? = nil
     ) {
-        committed = true
+        self.committed = committed
         self.backupHandle = backupHandle
         self.localPK = localPK
         self.stableID = stableID
         self.changed = changed
+        self.acknowledgementRequested = acknowledgementRequested
+        self.acknowledged = acknowledged
         self.warnings = warnings
         self.appleBooksURL = appleBooksURL
     }
+}
+
+enum MutationQuietDecision: Equatable, Sendable {
+    case needsMutation
+    case noChange(MutationDomainData)
 }
 
 public struct MutationFailure: Error, CustomStringConvertible, CustomDebugStringConvertible, LocalizedError {

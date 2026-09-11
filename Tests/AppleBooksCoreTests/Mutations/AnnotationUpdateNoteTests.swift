@@ -18,7 +18,7 @@ struct AnnotationUpdateNoteTests {
         #expect(result.localPK == 1)
         #expect(result.stableID == "uuid-1")
         #expect(result.warnings.isEmpty)
-        #expect(BackupMetadata.parse(filename: result.backupHandle, sourceStem: "annotations") != nil)
+        #expect(result.backupHandle.flatMap { BackupMetadata.parse(filename: $0, sourceStem: "annotations") } != nil)
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == note)
         #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=3") == "upper-note")
         #expect(try text(fixture.database, "SELECT ZANNOTATIONSELECTEDTEXT FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-selected")

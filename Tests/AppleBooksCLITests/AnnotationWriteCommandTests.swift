@@ -87,12 +87,15 @@ struct AnnotationWriteCommandTests {
             now: Date(timeIntervalSince1970: 1_700_000_000),
             uuid: UUID(uuidString: "00000000-0000-4000-8000-000000000007")!
         )
-        let result = try MutationCommandResult(
+        let result = MutationCommandResult(
             MutationResult(
+                committed: true,
                 backupHandle: backup.filename,
                 localPK: 7,
                 stableID: "uuid-7",
                 changed: true,
+                acknowledgementRequested: true,
+                acknowledged: false,
                 warnings: [.cloudSyncFailed],
                 appleBooksURL: deeplink
             )
@@ -103,9 +106,12 @@ struct AnnotationWriteCommandTests {
         #expect(decoded == result)
         #expect(decoded.committed)
         #expect(decoded.changed)
+        #expect(decoded.acknowledgementRequested)
+        #expect(decoded.acknowledged == false)
         #expect(decoded.backupID == backup.backupID)
-        #expect(decoded.backupID.contains("annotations") == false)
-        #expect(decoded.backupID.contains(".sqlite") == false)
+        let backupID = try #require(decoded.backupID)
+        #expect(backupID.contains("annotations") == false)
+        #expect(backupID.contains(".sqlite") == false)
         #expect(decoded.localPK == 7)
         #expect(decoded.stableID == "uuid-7")
         #expect(decoded.warningCodes == ["cloud_sync_failed"])

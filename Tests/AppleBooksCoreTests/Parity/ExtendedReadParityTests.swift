@@ -49,8 +49,8 @@ struct ExtendedReadParityTests {
         ))
         #expect(readingAnnotations.items.map(\.localPK) == [10, 11])
 
-        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
-        let directory = try fixture.books.semanticBookContent(forBookLocalPK: 2)
+        let packed = try resolvedContent(localPK: 1, fixture: fixture)
+        let directory = try resolvedContent(localPK: 2, fixture: fixture)
         #expect(try packed.listChapters() == directory.listChapters())
         #expect(try packed.getChapter("c1") == directory.getChapter("c1"))
         #expect(try packed.getChapter("c2") == directory.getChapter("c2"))
@@ -135,7 +135,7 @@ struct ExtendedReadParityTests {
             author: "Mapped Author"
         ))
 
-        let packed = try fixture.books.semanticBookContent(forBookLocalPK: 1)
+        let packed = try resolvedContent(localPK: 1, fixture: fixture)
         let metadata = try packed.metadata()
         #expect(metadata.title == "OPF Title")
         #expect(metadata.creator == "OPF Creator")
@@ -149,6 +149,14 @@ struct ExtendedReadParityTests {
             maximumUTF8Bytes: 1_024
         )
         #expect(page.content == "👨‍👩‍👧‍👦")
+    }
+
+    private func resolvedContent(localPK: Int64, fixture: Fixture) throws -> BookContent {
+        let queries = BookQueries(connection: try SQLiteConnection.readOnly(path: fixture.library.path))
+        let target = try #require(try queries.resourceTarget(localPK: localPK))
+        guard target.path != nil else { throw ContentError.bookPathUnavailable }
+        let reader = try EPUBSourceResolver.reader(for: target, configuration: fixture.books.configuration)
+        return try BookContent(reader: reader)
     }
 
     private final class Fixture {

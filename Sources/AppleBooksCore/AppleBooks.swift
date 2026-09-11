@@ -1139,15 +1139,6 @@ public final class AppleBooks {
         return Int(locator.words[0])
     }
 
-    package func semanticBookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
-        guard let target = try requiredBookQueries().resourceTarget(localPK: localPK), target.path != nil else {
-            throw ContentError.bookPathUnavailable
-        }
-        return try BookContent(
-            reader: EPUBSourceResolver.reader(for: target, configuration: try requiredConfiguration())
-        )
-    }
-
     package func semanticAnnotationPage(
         _ request: AnnotationQueryRequest
     ) throws -> CursorPage<SemanticAnnotation> {

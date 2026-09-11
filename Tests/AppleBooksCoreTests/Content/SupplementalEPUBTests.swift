@@ -159,15 +159,6 @@ struct SupplementalEPUBTests {
         let fallbackReader = try EPUBSourceResolver.reader(for: currentTarget, configuration: configuration)
         #expect(try BookContent(reader: fallbackReader).getChapter("chapter") == "packed fallback")
 
-        let annotationsURL = root.appendingPathComponent("annotations.sqlite")
-        try Self.emptyDatabase(at: annotationsURL)
-        let books = try AppleBooks(
-            libraryDB: libraryURL,
-            annotationsDB: annotationsURL,
-            configurationFile: root.appendingPathComponent("config.json")
-        )
-        #expect(try books.semanticBookContent(forBookLocalPK: 1).getChapter("chapter") == "packed fallback")
-
         let symlinkRoot = root.appendingPathComponent("symlink", isDirectory: true)
         try FileManager.default.createDirectory(at: symlinkRoot, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(

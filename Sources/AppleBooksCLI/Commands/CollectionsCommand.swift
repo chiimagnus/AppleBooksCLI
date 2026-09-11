@@ -177,7 +177,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         abstract: "Create a collection through the guarded mutation rail."
     )
 
-    @Argument(help: "New collection title.")
+    @Argument(help: "New collection title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
     @Option(name: .long, help: "Optional collection details.")
@@ -198,10 +198,11 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> CollectionMutationCommandResult {
-        try CLIOperation.run {
+        let canonicalTitle = try canonicalCollectionTitle(title)
+        return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return CollectionMutationCommandResult(
-                try books.createCollection(title: title, details: details, syncCloud: sync)
+                try books.createCollection(title: canonicalTitle, details: details, syncCloud: sync)
             )
         }
     }
@@ -219,7 +220,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
-    @Option(name: .customLong("title"), help: "Replacement collection title.")
+    @Option(name: .customLong("title"), help: "Replacement title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
     @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
@@ -238,10 +239,11 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     func execute(using injectedBooks: AppleBooks? = nil) throws -> CollectionMutationCommandResult {
         let selector = try parseCollectionSelector(collectionID: collectionID, localPK: pk)
+        let canonicalTitle = try canonicalCollectionTitle(title)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return CollectionMutationCommandResult(
-                try selector.rename(to: title, in: books, syncCloud: sync),
+                try selector.rename(to: canonicalTitle, in: books, syncCloud: sync),
                 selector: selector
             )
         }
@@ -468,6 +470,15 @@ private func validateCollectionPageInput(limit: Int?, cursor: String?) throws {
         _ = try resolvedCursorPageLimit(limit)
         try validateCursorInputSyntax(cursor)
     }
+}
+
+private func canonicalCollectionTitle(_ raw: String) throws -> String {
+    let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard title.isEmpty == false,
+          BoundedTextPolicy.accepts(title, profile: .metadata) else {
+        throw CLIError.usageInvalid("Collection title must be non-empty and at most 512 characters / 8 KiB UTF-8 after trimming.")
+    }
+    return title
 }
 
 private func validateCollectionSearchInput(_ query: String) throws {

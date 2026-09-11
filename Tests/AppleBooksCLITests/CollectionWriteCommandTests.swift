@@ -253,6 +253,49 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
+    func collectionTitlesTrimAndEnforceMetadataInputBoundsBeforeBackup() throws {
+        let valid = try Fixture()
+        defer { valid.remove() }
+        let books = try valid.books()
+
+        let trimmed = try CollectionsCreateCommand.parse(["  Trimmed Shelf  \n"])
+        _ = try trimmed.execute(using: books)
+        #expect(try valid.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE ZTITLE='Trimmed Shelf'") == "Trimmed Shelf")
+
+        let exactGraphemes = String(repeating: "a", count: 512)
+        _ = try CollectionsCreateCommand.parse([exactGraphemes]).execute(using: books)
+        #expect(try valid.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE ZTITLE='\(exactGraphemes)'") == exactGraphemes)
+
+        let combiningCluster = "a" + String(repeating: "\u{0301}", count: 7)
+        let exactUnicode = String(repeating: combiningCluster, count: 512)
+        #expect(exactUnicode.count == 512)
+        #expect(exactUnicode.utf8.count < 8 * 1_024)
+        _ = try CollectionsCreateCommand.parse([exactUnicode]).execute(using: books)
+
+        for invalidTitle in [
+            " \t\r\n ",
+            String(repeating: "a", count: 513),
+            String(repeating: "a" + String(repeating: "\u{0301}", count: 8), count: 512),
+        ] {
+            let fixture = try Fixture()
+            defer { fixture.remove() }
+            let command = try CollectionsCreateCommand.parse([invalidTitle])
+            #expect(throws: CLIError.usageInvalid("Collection title must be non-empty and at most 512 characters / 8 KiB UTF-8 after trimming.")) {
+                _ = try command.execute(using: fixture.books())
+            }
+            #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        }
+
+        let renameFixture = try Fixture()
+        defer { renameFixture.remove() }
+        let rename = try CollectionsRenameCommand.parse([
+            "550E8400-E29B-41D4-A716-446655440000", "--title", "  Canonical Rename\n",
+        ])
+        _ = try rename.execute(using: renameFixture.books())
+        #expect(try renameFixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=10") == "Canonical Rename")
+    }
+
+    @Test
     func systemCollectionGuardRemainsCoreOwned() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

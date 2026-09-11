@@ -82,7 +82,7 @@ struct CollectionFacadeTests {
                 )
             },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: { events.append("recycle"); acknowledged = true }
         )
         let books = try AppleBooks(
@@ -135,7 +135,7 @@ struct CollectionFacadeTests {
                         return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
                     },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     recycleAction: { events.append("recycle") }
                 )
             )

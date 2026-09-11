@@ -253,7 +253,7 @@ struct SyncCommandTests {
                 booksApp: controller,
                 detailState: { _ in nil },
                 memberState: { _, _ in nil },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 pendingCount: { harness.collectionPending },
                 recycleAction: {
                     harness.events.append("recycle")

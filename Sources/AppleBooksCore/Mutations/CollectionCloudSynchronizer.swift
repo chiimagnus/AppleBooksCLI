@@ -23,14 +23,14 @@ struct CollectionCloudSyncState: Equatable {
 struct CollectionCloudSynchronizer {
     typealias DetailStateAction = (Int64) throws -> CollectionCloudSyncState?
     typealias MemberStateAction = (Int64, String) throws -> CollectionCloudSyncState?
-    typealias DeletedMemberStatesAction = (Int64) throws -> [CollectionCloudSyncState]
+    typealias DeletedMembersSatisfiedAction = (Int64) throws -> Bool
     typealias PendingCountAction = () throws -> Int
     typealias RecycleAction = () throws -> Void
 
     private let booksApp: BooksAppController
     private let detailStateAction: DetailStateAction
     private let memberStateAction: MemberStateAction
-    private let deletedMemberStatesAction: DeletedMemberStatesAction
+    private let deletedMembersSatisfiedAction: DeletedMembersSatisfiedAction
     private let pendingCountAction: PendingCountAction
     private let recycleAction: RecycleAction
     private let sleepAction: (TimeInterval) -> Void
@@ -41,7 +41,7 @@ struct CollectionCloudSynchronizer {
         booksApp: BooksAppController,
         detailState: @escaping DetailStateAction,
         memberState: @escaping MemberStateAction,
-        deletedMemberStates: @escaping DeletedMemberStatesAction,
+        deletedMembersSatisfied: @escaping DeletedMembersSatisfiedAction,
         pendingCount: @escaping PendingCountAction = { 0 },
         recycleAction: @escaping RecycleAction,
         sleep: @escaping (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
@@ -51,7 +51,7 @@ struct CollectionCloudSynchronizer {
         self.booksApp = booksApp
         detailStateAction = detailState
         memberStateAction = memberState
-        deletedMemberStatesAction = deletedMemberStates
+        deletedMembersSatisfiedAction = deletedMembersSatisfied
         pendingCountAction = pendingCount
         self.recycleAction = recycleAction
         sleepAction = sleep
@@ -115,9 +115,9 @@ struct CollectionCloudSynchronizer {
                 let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: localPK)
                 return try readState(database: location.database, table: "ZBCCOLLECTIONMEMBER", identityColumn: "ZCOLLECTIONMEMBERID", identity: "\(collectionID)|\(assetID)")
             },
-            deletedMemberStates: { localPK in
+            deletedMembersSatisfied: { localPK in
                 let collectionID = try CollectionCloudProjector.collectionID(libraryDatabase: libraryDatabase, localPK: localPK)
-                return try readMemberStates(database: location.database, collectionID: collectionID)
+                return try readDeletedMembersSatisfied(database: location.database, collectionID: collectionID)
             },
             pendingCount: { try readPendingCount(database: location.database) },
             recycleAction: liveRecycle
@@ -128,7 +128,7 @@ struct CollectionCloudSynchronizer {
         let detail = try detailStateAction(localPK)
         if deleting {
             guard detail == nil || (detail?.deleted == true && detail?.isAcknowledged == true) else { return false }
-            return try deletedMemberStatesAction(localPK).allSatisfy { $0.deleted && $0.isAcknowledged }
+            return try deletedMembersSatisfiedAction(localPK)
         }
         guard let detail else { throw CollectionCloudSyncError.cloudRecordMissing }
         return detail.deleted == false && detail.isAcknowledged
@@ -185,25 +185,35 @@ struct CollectionCloudSynchronizer {
         return state
     }
 
-    private static func readMemberStates(database: URL, collectionID: String) throws -> [CollectionCloudSyncState] {
+    static func readDeletedMembersSatisfied(database: URL, collectionID: String) throws -> Bool {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
-            SELECT ZDELETEDFLAG, ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
+            SELECT COALESCE(SUM(
+                CASE
+                    WHEN typeof(ZDELETEDFLAG) != 'integer' OR ZDELETEDFLAG = 0
+                      OR typeof(ZEDITGENERATION) != 'integer'
+                      OR typeof(ZSYNCGENERATION) != 'integer'
+                      OR ZSYNCGENERATION < ZEDITGENERATION
+                      OR ZCKSYSTEMFIELDS IS NULL
+                      OR length(ZCKSYSTEMFIELDS) = 0
+                    THEN 1 ELSE 0
+                END
+            ), 0) AS ZUNSATISFIED
             FROM ZBCCOLLECTIONMEMBER
             WHERE ZCOLLECTIONMEMBERID LIKE ? ESCAPE '\\'
-            ORDER BY Z_PK
             """)
         let escaped = collectionID
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "%", with: "\\%")
             .replacingOccurrences(of: "_", with: "\\_")
         try statement.bind("\(escaped)|%", at: 1)
-        var states: [CollectionCloudSyncState] = []
-        while try statement.step() {
-            states.append(try state(from: SQLiteRow(statement: statement)))
+        guard try statement.step(),
+              let unsatisfied = try SQLiteRow(statement: statement).int64("ZUNSATISFIED"),
+              try statement.step() == false else {
+            throw CollectionCloudSyncError.cloudRecordInvalid
         }
-        return states
+        return unsatisfied == 0
     }
 
     private static func readPendingCount(database: URL) throws -> Int {

@@ -204,7 +204,7 @@ struct CollectionMembershipTests {
                     events.values.append("memberState")
                     return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
                 },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: { events.values.append("recycle") }
             )
         )

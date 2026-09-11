@@ -60,7 +60,7 @@ struct AppleBooksFacadeTests {
                     booksApp: controller,
                     detailState: { _ in nil },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     pendingCount: { 0 },
                     recycleAction: { events.append("recycle") }
                 )
@@ -125,7 +125,7 @@ struct AppleBooksFacadeTests {
                     booksApp: controller,
                     detailState: { _ in nil },
                     memberState: { _, _ in nil },
-                    deletedMemberStates: { _ in [] },
+                    deletedMembersSatisfied: { _ in true },
                     pendingCount: { 0 },
                     recycleAction: { events.append("recycle") }
                 )

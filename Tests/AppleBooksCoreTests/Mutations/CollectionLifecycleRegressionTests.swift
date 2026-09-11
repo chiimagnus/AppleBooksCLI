@@ -164,7 +164,7 @@ struct CollectionLifecycleRegressionTests {
                     )
                 },
                 memberState: { _, _ in nil },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: {
                     state.events.append("recycle")
                     state.acknowledged = true

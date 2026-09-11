@@ -98,7 +98,7 @@ struct CollectionCreateRenameTests {
                 return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
             },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: {}
         )
         let writer = CollectionWriter(
@@ -131,7 +131,7 @@ struct CollectionCreateRenameTests {
                 booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}),
                 detailState: { _ in .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1) },
                 memberState: { _, _ in nil },
-                deletedMemberStates: { _ in [] },
+                deletedMembersSatisfied: { _ in true },
                 recycleAction: {}
             )
         )
@@ -189,7 +189,7 @@ struct CollectionCreateRenameTests {
                 return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
             },
             memberState: { _, _ in nil },
-            deletedMemberStates: { _ in [] },
+            deletedMembersSatisfied: { _ in true },
             recycleAction: {}
         )
         let writer = CollectionWriter(

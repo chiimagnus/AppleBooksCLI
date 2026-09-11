@@ -91,7 +91,7 @@
 | list collection books | 已实现（强化） | relation owner 在分页前跳过 stale membership 并按 canonical membership order 去重；opaque cursor 分页，默认 20、最大 100 |
 | create collection | 已实现 | public CLI 只接收 title，走 guarded write rail |
 | rename collection | 已实现 | system collection fail closed |
-| delete collection | 已实现 | soft-delete |
+| delete collection | 已实现（强化） | soft-delete；对已完成且无残留 membership 的普通 UUID collection 重试返回 deterministic no-op；异常 tombstone/system collection 仍 fail closed |
 | add book | 已实现（强化） | idempotent membership add；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk` |
 | remove book | 已实现（强化） | idempotent membership remove；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk`；system collection guard |
 

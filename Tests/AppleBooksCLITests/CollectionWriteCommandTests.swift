@@ -220,6 +220,31 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
+    func repeatedDeleteReturnsDomainIdentityAndExplicitNoOpSyncState() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let books = try fixture.books()
+        let collectionID = "550E8400-E29B-41D4-A716-446655440001"
+        let first = try CollectionsDeleteCommand.parse([collectionID])
+        let firstResult = try first.execute(using: books)
+        #expect(firstResult.committed)
+        #expect(firstResult.changed)
+        #expect(firstResult.backupID != nil)
+
+        let retry = try CollectionsDeleteCommand.parse([collectionID, "--sync"])
+        let result = try retry.execute(using: books)
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupID == nil)
+        #expect(result.collectionID == collectionID)
+        #expect(result.collectionLocalPK == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warningCodes.isEmpty)
+        #expect(try SQLiteBackup.list(source: fixture.library, backupRoot: fixture.backupRoot).count == 1)
+    }
+
+    @Test
     func numericLookingValuesNeverGuessPKAndSelectorConflictsFailBeforeDatabase() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

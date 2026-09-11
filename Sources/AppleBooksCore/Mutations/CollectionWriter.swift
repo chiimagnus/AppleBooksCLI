@@ -37,6 +37,17 @@ private struct BookWriteTarget: Equatable {
     let assetID: String?
 }
 
+private enum CollectionDeleteTargetState: Equatable {
+    case active(CollectionWriteTarget)
+    case tombstone(CollectionWriteTarget)
+
+    var target: CollectionWriteTarget {
+        switch self {
+        case let .active(target), let .tombstone(target): target
+        }
+    }
+}
+
 struct CollectionWriter {
     private static let collectionEntityName = "BKCollection"
     private static let memberEntityName = "BKCollectionMember"
@@ -272,52 +283,62 @@ struct CollectionWriter {
             preflight: { connection in
                 try Self.validateDeleteSchema(on: connection)
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
-                _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                _ = try Self.resolveDeleteTarget(selector, on: handle)
+            },
+            quietDecision: { connection in
+                try Self.validateDeleteSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let state = try Self.resolveDeleteTarget(selector, on: handle)
+                guard case let .tombstone(target) = state else { return .needsMutation }
+                try Self.validateCollectionEntity(localPK: target.localPK, on: handle)
+                return .noChange(MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: false))
             },
             revalidate: { handle in
                 try Self.validateDeleteSchema(on: handle)
-                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
-                let entity = try WriteSchemaGuard.entity(named: Self.collectionEntityName, on: handle)
-                try WriteSchemaGuard.validateExistingEntity(
-                    table: .collections,
-                    localPK: target.localPK,
-                    expectedEntityID: entity.entityID,
-                    on: handle
-                )
+                let target = try Self.resolveDeleteTarget(selector, on: handle).target
+                try Self.validateCollectionEntity(localPK: target.localPK, on: handle)
             },
             mutation: { handle in
-                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                let state = try Self.resolveDeleteTarget(selector, on: handle)
+                let target = state.target
+                if case .tombstone = state {
+                    return DeleteMutationResult(changed: false, target: target)
+                }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.tombstoneCollection(localPK: target.localPK, timestamp: timestamp, on: handle)
                 try Self.deleteMembershipRows(collectionLocalPK: target.localPK, on: handle)
-                return target
+                return DeleteMutationResult(changed: true, target: target)
             },
-            invariant: { handle, target in
-                guard try Self.isDeleted(localPK: target.localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
+            invariant: { handle, payload in
+                guard try Self.isDeleted(localPK: payload.target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: payload.target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             },
-            domainData: {
-                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            domainData: { payload in
+                MutationDomainData(
+                    localPK: payload.target.localPK,
+                    stableID: payload.target.stableID,
+                    changed: payload.changed
+                )
             },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.collection(localPK: target.localPK)) }
+                { payload in try projector.project(.collection(localPK: payload.target.localPK)) }
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target, onTemporaryBooksLaunch in
+                { payload, onTemporaryBooksLaunch in
                     try synchronizer.syncCollection(
-                        localPK: target.localPK,
+                        localPK: payload.target.localPK,
                         deleting: true,
                         onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },
-            readBack: { connection, target in
+            readBack: { connection, payload in
                 guard let handle = connection.handle,
-                      try Self.isDeleted(localPK: target.localPK, on: handle),
-                      try Self.membershipCount(collectionLocalPK: target.localPK, on: handle) == 0 else {
+                      try Self.isDeleted(localPK: payload.target.localPK, on: handle),
+                      try Self.membershipCount(collectionLocalPK: payload.target.localPK, on: handle) == 0 else {
                     throw CollectionWriteError.writeFailed
                 }
             }
@@ -613,41 +634,123 @@ struct CollectionWriter {
         case let .localPK(localPK):
             return try editableTarget(localPK: localPK, scope: scope, on: handle)
         case let .collectionID(collectionID):
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(
-                handle,
-                "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
-                -1,
-                &statement,
-                nil
-            ) == SQLITE_OK,
-            let statement else {
-                throw CollectionWriteError.collectionMissing
-            }
-            defer { sqlite3_finalize(statement) }
-            guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
-                throw CollectionWriteError.writeFailed
-            }
-            guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
-            guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            let storedID: String
-            do {
-                storedID = try decodeSQLiteText(statement, at: 1)
-            } catch {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            guard storedID == collectionID else {
-                throw CollectionWriteError.collectionIdentityUnavailable
-            }
-            let localPK = sqlite3_column_int64(statement, 0)
-            let second = sqlite3_step(statement)
-            if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
-            guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+            let localPK = try localPK(forCollectionID: collectionID, on: handle)
             _ = try editableTarget(localPK: localPK, scope: scope, on: handle)
             return CollectionWriteTarget(localPK: localPK, stableID: collectionID)
         }
+    }
+
+    private static func resolveDeleteTarget(
+        _ selector: CollectionWriteSelector,
+        on handle: OpaquePointer
+    ) throws -> CollectionDeleteTargetState {
+        switch selector {
+        case let .localPK(localPK):
+            return try deleteTarget(localPK: localPK, on: handle)
+        case let .collectionID(collectionID):
+            let localPK = try localPK(forCollectionID: collectionID, on: handle)
+            return try deleteTarget(localPK: localPK, expectedCollectionID: collectionID, on: handle)
+        }
+    }
+
+    private static func localPK(forCollectionID collectionID: String, on handle: OpaquePointer) throws -> Int64 {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT Z_PK,ZCOLLECTIONID FROM ZBKCOLLECTION WHERE ZCOLLECTIONID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK,
+        let statement else {
+            throw CollectionWriteError.collectionMissing
+        }
+        defer { sqlite3_finalize(statement) }
+        guard bind(collectionID, to: statement, index: 1) == SQLITE_OK else {
+            throw CollectionWriteError.writeFailed
+        }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw CollectionWriteError.collectionMissing }
+        guard sqlite3_column_type(statement, 1) == SQLITE_TEXT else {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        let storedID: String
+        do {
+            storedID = try decodeSQLiteText(statement, at: 1)
+        } catch {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        guard storedID == collectionID else {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        let localPK = sqlite3_column_int64(statement, 0)
+        let second = sqlite3_step(statement)
+        if second == SQLITE_ROW { throw StableIdentityError.ambiguousCollectionID }
+        guard second == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+        return localPK
+    }
+
+    private static func deleteTarget(
+        localPK: Int64,
+        expectedCollectionID: String? = nil,
+        on handle: OpaquePointer
+    ) throws -> CollectionDeleteTargetState {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT ZCOLLECTIONID,ZDELETEDFLAG FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 2",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK,
+        let statement else {
+            throw CollectionWriteError.collectionMissing
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw CollectionWriteError.collectionMissing
+        }
+        guard sqlite3_column_type(statement, 0) == SQLITE_TEXT else {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        let collectionID: String
+        do {
+            collectionID = try decodeSQLiteText(statement, at: 0)
+        } catch {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        if let expectedCollectionID, collectionID != expectedCollectionID {
+            throw CollectionWriteError.collectionIdentityUnavailable
+        }
+        guard CollectionIdentityEditPolicy.capabilities(for: collectionID).canEditCollection else {
+            throw CollectionWriteError.collectionNotEditable
+        }
+        guard sqlite3_column_type(statement, 1) == SQLITE_INTEGER else {
+            throw CollectionWriteError.collectionDeletedOrUnknown
+        }
+        let deleted = sqlite3_column_int64(statement, 1)
+        let target = CollectionWriteTarget(localPK: localPK, stableID: collectionID)
+        switch deleted {
+        case 0:
+            return .active(target)
+        case 1:
+            guard try membershipCount(collectionLocalPK: localPK, on: handle) == 0 else {
+                throw CollectionWriteError.collectionDeletedOrUnknown
+            }
+            return .tombstone(target)
+        default:
+            throw CollectionWriteError.collectionDeletedOrUnknown
+        }
+    }
+
+    private static func validateCollectionEntity(localPK: Int64, on handle: OpaquePointer) throws {
+        let entity = try WriteSchemaGuard.entity(named: collectionEntityName, on: handle)
+        try WriteSchemaGuard.validateExistingEntity(
+            table: .collections,
+            localPK: localPK,
+            expectedEntityID: entity.entityID,
+            on: handle
+        )
     }
 
     private static func resolveBook(
@@ -1251,6 +1354,11 @@ struct CollectionWriter {
         let changed: Bool
         let target: CollectionWriteTarget
         let historyEffect: MutationHistoryEffect?
+    }
+
+    private struct DeleteMutationResult {
+        let changed: Bool
+        let target: CollectionWriteTarget
     }
 
     private struct MembershipMutationResult {

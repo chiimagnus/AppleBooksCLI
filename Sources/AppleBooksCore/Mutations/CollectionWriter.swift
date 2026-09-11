@@ -326,6 +326,33 @@ struct CollectionWriter {
                 _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 _ = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
             },
+            quietDecision: { connection in
+                try Self.validateMembershipSchema(inserting: true, on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: true, on: handle)
+                guard let assetID = book.assetID else { throw CollectionWriteError.bookAssetIDUnavailable }
+                guard try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) > 0 else {
+                    return .needsMutation
+                }
+                let memberEntity = try WriteSchemaGuard.entity(named: Self.memberEntityName, on: handle)
+                do {
+                    try Self.validateMatchingMemberEntities(
+                        collectionLocalPK: collection.localPK,
+                        assetID: assetID,
+                        expectedEntityID: memberEntity.entityID,
+                        on: handle
+                    )
+                } catch {
+                    return .needsMutation
+                }
+                return .noChange(Self.membershipDomainData(
+                    collection: collection,
+                    bookLocalPK: book.localPK,
+                    assetID: assetID,
+                    changed: false
+                ))
+            },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: true, on: handle)
                 let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
@@ -385,11 +412,10 @@ struct CollectionWriter {
                 }
             },
             domainData: {
-                MutationDomainData(
-                    localPK: $0.collection.localPK,
-                    stableID: $0.collection.stableID,
-                    relatedLocalPK: $0.bookLocalPK,
-                    relatedStableID: $0.assetID,
+                Self.membershipDomainData(
+                    collection: $0.collection,
+                    bookLocalPK: $0.bookLocalPK,
+                    assetID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -435,6 +461,29 @@ struct CollectionWriter {
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
                 _ = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
                 _ = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
+            },
+            quietDecision: { connection in
+                try Self.validateMembershipSchema(inserting: false, on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let collection = try Self.resolveCollection(collectionSelector, scope: .membership, on: handle)
+                let book = try Self.resolveBook(bookSelector, requireAssetID: false, on: handle)
+                guard let assetID = book.assetID else {
+                    return .noChange(Self.membershipDomainData(
+                        collection: collection,
+                        bookLocalPK: book.localPK,
+                        assetID: nil,
+                        changed: false
+                    ))
+                }
+                guard try Self.membershipCount(collectionLocalPK: collection.localPK, assetID: assetID, on: handle) == 0 else {
+                    return .needsMutation
+                }
+                return .noChange(Self.membershipDomainData(
+                    collection: collection,
+                    bookLocalPK: book.localPK,
+                    assetID: assetID,
+                    changed: false
+                ))
             },
             revalidate: { handle in
                 try Self.validateMembershipSchema(inserting: false, on: handle)
@@ -485,11 +534,10 @@ struct CollectionWriter {
                 }
             },
             domainData: {
-                MutationDomainData(
-                    localPK: $0.collection.localPK,
-                    stableID: $0.collection.stableID,
-                    relatedLocalPK: $0.bookLocalPK,
-                    relatedStableID: $0.assetID,
+                Self.membershipDomainData(
+                    collection: $0.collection,
+                    bookLocalPK: $0.bookLocalPK,
+                    assetID: $0.assetID,
                     changed: $0.changed
                 )
             },
@@ -1160,6 +1208,21 @@ struct CollectionWriter {
         let title: String
         let sortKey: Int64
         let timestamp: Double
+    }
+
+    private static func membershipDomainData(
+        collection: CollectionWriteTarget,
+        bookLocalPK: Int64,
+        assetID: String?,
+        changed: Bool
+    ) -> MutationDomainData {
+        MutationDomainData(
+            localPK: collection.localPK,
+            stableID: collection.stableID,
+            relatedLocalPK: bookLocalPK,
+            relatedStableID: assetID,
+            changed: changed
+        )
     }
 
     private struct RenameMutationResult {

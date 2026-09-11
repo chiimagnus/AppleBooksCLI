@@ -79,9 +79,14 @@ struct CollectionMembershipTests {
             syncCloud: true
         )
 
+        #expect(duplicateResult.committed == false)
         #expect(duplicateResult.changed == false)
+        #expect(duplicateResult.backupHandle == nil)
+        #expect(duplicateResult.acknowledgementRequested)
+        #expect(duplicateResult.acknowledged == nil)
         #expect(duplicateResult.warnings.isEmpty)
         #expect(duplicateEvents.values.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: duplicate.backupRoot.path) == false)
 
         let missing = try fixture()
         defer { try? FileManager.default.removeItem(at: missing.root) }
@@ -94,9 +99,14 @@ struct CollectionMembershipTests {
             syncCloud: true
         )
 
+        #expect(missingResult.committed == false)
         #expect(missingResult.changed == false)
+        #expect(missingResult.backupHandle == nil)
+        #expect(missingResult.acknowledgementRequested)
+        #expect(missingResult.acknowledged == nil)
         #expect(missingResult.warnings.isEmpty)
         #expect(missingEvents.values.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: missing.backupRoot.path) == false)
     }
 
     @Test

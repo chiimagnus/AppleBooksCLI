@@ -164,7 +164,7 @@ struct CollectionCloudSynchronizer {
         throw CollectionCloudSyncError.acknowledgementTimedOut
     }
 
-    private static func readState(
+    static func readState(
         database: URL,
         table: String,
         identityColumn: String,
@@ -176,7 +176,10 @@ struct CollectionCloudSynchronizer {
             SELECT ZDELETEDFLAG,
                    ZEDITGENERATION,
                    ZSYNCGENERATION,
-                   CASE WHEN typeof(ZCKSYSTEMFIELDS) = 'blob' THEN length(ZCKSYSTEMFIELDS) END AS ZSYSTEMFIELDSBYTES
+                   CASE typeof(ZCKSYSTEMFIELDS)
+                       WHEN 'null' THEN 0
+                       WHEN 'blob' THEN length(ZCKSYSTEMFIELDS)
+                   END AS ZSYSTEMFIELDSBYTES
             FROM \(table)
             WHERE \(identityColumn)=? COLLATE BINARY
             ORDER BY Z_PK
@@ -219,38 +222,69 @@ struct CollectionCloudSynchronizer {
         return unsatisfied == 0
     }
 
-    private static func readPendingCount(database: URL) throws -> Int {
+    static func readPendingCount(database: URL) throws -> Int {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
             SELECT
               (SELECT COUNT(*) FROM ZBCCOLLECTIONDETAIL
-               WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0)
+               WHERE typeof(ZEDITGENERATION) != 'integer'
+                  OR typeof(ZSYNCGENERATION) != 'integer'
+                  OR typeof(ZCKSYSTEMFIELDS) NOT IN ('null', 'blob'))
               +
               (SELECT COUNT(*) FROM ZBCCOLLECTIONMEMBER
-               WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0)
+               WHERE typeof(ZEDITGENERATION) != 'integer'
+                  OR typeof(ZSYNCGENERATION) != 'integer'
+                  OR typeof(ZCKSYSTEMFIELDS) NOT IN ('null', 'blob'))
+              AS ZINVALIDCOUNT,
+              (SELECT COUNT(*) FROM ZBCCOLLECTIONDETAIL
+               WHERE typeof(ZEDITGENERATION) = 'integer'
+                 AND typeof(ZSYNCGENERATION) = 'integer'
+                 AND typeof(ZCKSYSTEMFIELDS) IN ('null', 'blob')
+                 AND (ZSYNCGENERATION < ZEDITGENERATION
+                      OR typeof(ZCKSYSTEMFIELDS) = 'null'
+                      OR length(ZCKSYSTEMFIELDS) = 0))
+              +
+              (SELECT COUNT(*) FROM ZBCCOLLECTIONMEMBER
+               WHERE typeof(ZEDITGENERATION) = 'integer'
+                 AND typeof(ZSYNCGENERATION) = 'integer'
+                 AND typeof(ZCKSYSTEMFIELDS) IN ('null', 'blob')
+                 AND (ZSYNCGENERATION < ZEDITGENERATION
+                      OR typeof(ZCKSYSTEMFIELDS) = 'null'
+                      OR length(ZCKSYSTEMFIELDS) = 0))
               AS ZPENDINGCOUNT
             """)
-        guard try statement.step(),
-              let count = try SQLiteRow(statement: statement).int64("ZPENDINGCOUNT") else {
+        guard try statement.step() else { throw CollectionCloudSyncError.cloudRecordInvalid }
+        let row = try SQLiteRow(statement: statement)
+        guard let invalidCount = try row.int64("ZINVALIDCOUNT"),
+              invalidCount == 0,
+              let count = try row.int64("ZPENDINGCOUNT"),
+              count >= 0,
+              try statement.step() == false else {
             throw CollectionCloudSyncError.cloudRecordInvalid
         }
         return Int(count)
     }
 
     private static func state(from row: SQLiteRow) throws -> CollectionCloudSyncState {
-        guard let deleted = try row.int64("ZDELETEDFLAG"),
-              deleted == 0 || deleted == 1,
-              let editGeneration = try row.int64("ZEDITGENERATION"),
-              let syncGeneration = try row.int64("ZSYNCGENERATION") else {
+        do {
+            guard let deleted = try row.int64("ZDELETEDFLAG"),
+                  deleted == 0 || deleted == 1,
+                  let editGeneration = try row.int64("ZEDITGENERATION"),
+                  let syncGeneration = try row.int64("ZSYNCGENERATION"),
+                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES"),
+                  systemFieldsBytes >= 0 else {
+                throw CollectionCloudSyncError.cloudRecordInvalid
+            }
+            return CollectionCloudSyncState(
+                deleted: deleted != 0,
+                editGeneration: editGeneration,
+                syncGeneration: syncGeneration,
+                systemFieldsBytes: systemFieldsBytes
+            )
+        } catch {
             throw CollectionCloudSyncError.cloudRecordInvalid
         }
-        return CollectionCloudSyncState(
-            deleted: deleted != 0,
-            editGeneration: editGeneration,
-            syncGeneration: syncGeneration,
-            systemFieldsBytes: try row.int64("ZSYSTEMFIELDSBYTES") ?? 0
-        )
     }
 
     private static func liveRecycle() throws {

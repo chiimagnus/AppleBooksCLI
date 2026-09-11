@@ -158,6 +158,40 @@ struct CollectionCloudSynchronizerTests {
     }
 
     @Test
+    func livePendingCountFailsClosedOnMalformedCloudStorage() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("cloud.sqlite")
+        try executeSQL(
+            """
+            CREATE TABLE ZBCCOLLECTIONDETAIL(ZEDITGENERATION, ZSYNCGENERATION, ZCKSYSTEMFIELDS);
+            CREATE TABLE ZBCCOLLECTIONMEMBER(ZEDITGENERATION, ZSYNCGENERATION, ZCKSYSTEMFIELDS);
+            INSERT INTO ZBCCOLLECTIONDETAIL VALUES(2, 2, X'01');
+            INSERT INTO ZBCCOLLECTIONMEMBER VALUES(3, 3, X'01');
+            """,
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 0)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=NULL", at: database)
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 1)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X''", at: database)
+        #expect(try CollectionCloudSynchronizer.readPendingCount(database: database) == 1)
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=123", at: database)
+        #expect(throws: CollectionCloudSyncError.cloudRecordInvalid) {
+            _ = try CollectionCloudSynchronizer.readPendingCount(database: database)
+        }
+
+        try executeSQL("UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'01', ZSYNCGENERATION='bad'", at: database)
+        #expect(throws: CollectionCloudSyncError.cloudRecordInvalid) {
+            _ = try CollectionCloudSynchronizer.readPendingCount(database: database)
+        }
+    }
+
+    @Test
     func removeMembershipAcceptsPhysicalRemoval() throws {
         let events = Events()
         let acked = state(edit: 2, sync: 2)

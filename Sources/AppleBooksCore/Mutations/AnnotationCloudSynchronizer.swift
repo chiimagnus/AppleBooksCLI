@@ -95,26 +95,54 @@ struct AnnotationCloudSynchronizer {
         throw AnnotationCloudSyncError.acknowledgementTimedOut
     }
 
-    private static func readPendingCount(database: URL) throws -> Int {
+    static func readPendingCount(database: URL) throws -> Int {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
-            SELECT COUNT(*) AS ZPENDINGCOUNT
+            SELECT
+              COALESCE(SUM(
+                CASE
+                  WHEN typeof(ZEDITGENERATION) != 'integer'
+                    OR typeof(ZSYNCGENERATION) != 'integer'
+                    OR typeof(ZCKSYSTEMFIELDS) NOT IN ('null', 'blob')
+                  THEN 1 ELSE 0
+                END
+              ), 0) AS ZINVALIDCOUNT,
+              COALESCE(SUM(
+                CASE
+                  WHEN typeof(ZEDITGENERATION) = 'integer'
+                    AND typeof(ZSYNCGENERATION) = 'integer'
+                    AND typeof(ZCKSYSTEMFIELDS) IN ('null', 'blob')
+                    AND (ZSYNCGENERATION < ZEDITGENERATION
+                         OR typeof(ZCKSYSTEMFIELDS) = 'null'
+                         OR length(ZCKSYSTEMFIELDS) = 0)
+                  THEN 1 ELSE 0
+                END
+              ), 0) AS ZPENDINGCOUNT
             FROM ZBCASSETANNOTATIONS
-            WHERE ZSYNCGENERATION < ZEDITGENERATION OR COALESCE(length(ZCKSYSTEMFIELDS), 0) = 0
             """)
-        guard try statement.step(),
-              let count = try SQLiteRow(statement: statement).int64("ZPENDINGCOUNT") else {
+        guard try statement.step() else { throw AnnotationCloudSyncError.cloudRecordInvalid }
+        let row = try SQLiteRow(statement: statement)
+        guard let invalidCount = try row.int64("ZINVALIDCOUNT"),
+              invalidCount == 0,
+              let count = try row.int64("ZPENDINGCOUNT"),
+              count >= 0,
+              try statement.step() == false else {
             throw AnnotationCloudSyncError.cloudRecordInvalid
         }
         return Int(count)
     }
 
-    private static func readState(database: URL, assetID: String) throws -> AnnotationCloudSyncState? {
+    static func readState(database: URL, assetID: String) throws -> AnnotationCloudSyncState? {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
-            SELECT ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
+            SELECT ZEDITGENERATION,
+                   ZSYNCGENERATION,
+                   CASE typeof(ZCKSYSTEMFIELDS)
+                       WHEN 'null' THEN 0
+                       WHEN 'blob' THEN length(ZCKSYSTEMFIELDS)
+                   END AS ZSYSTEMFIELDSBYTES
             FROM ZBCASSETANNOTATIONS
             WHERE ZASSETID=? COLLATE BINARY
             ORDER BY Z_PK
@@ -122,15 +150,22 @@ struct AnnotationCloudSynchronizer {
         try statement.bind(assetID, at: 1)
         guard try statement.step() else { return nil }
         let row = try SQLiteRow(statement: statement)
-        guard let editGeneration = try row.int64("ZEDITGENERATION"),
-              let syncGeneration = try row.int64("ZSYNCGENERATION") else {
+        let state: AnnotationCloudSyncState
+        do {
+            guard let editGeneration = try row.int64("ZEDITGENERATION"),
+                  let syncGeneration = try row.int64("ZSYNCGENERATION"),
+                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES"),
+                  systemFieldsBytes >= 0 else {
+                throw AnnotationCloudSyncError.cloudRecordInvalid
+            }
+            state = AnnotationCloudSyncState(
+                editGeneration: editGeneration,
+                syncGeneration: syncGeneration,
+                systemFieldsBytes: systemFieldsBytes
+            )
+        } catch {
             throw AnnotationCloudSyncError.cloudRecordInvalid
         }
-        let state = AnnotationCloudSyncState(
-            editGeneration: editGeneration,
-            syncGeneration: syncGeneration,
-            systemFieldsBytes: try row.int64("ZSYSTEMFIELDSBYTES") ?? 0
-        )
         guard try statement.step() == false else { throw AnnotationCloudSyncError.cloudRecordAmbiguous }
         return state
     }

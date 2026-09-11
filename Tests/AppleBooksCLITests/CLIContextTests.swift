@@ -18,6 +18,10 @@ struct CLIContextTests {
         #expect(parsed.global.config == "/tmp/config.json")
         #expect(parsed.global.libraryDB == "/tmp/library.sqlite")
         #expect(parsed.global.annotationsDB == "/tmp/annotations.sqlite")
+        let ordinaryHelp = TestLeaf.helpMessage()
+        for hiddenOption in ["--config", "--library-db", "--annotations-db"] {
+            #expect(ordinaryHelp.contains(hiddenOption) == false)
+        }
         #expect(throws: (any Error).self) {
             _ = try TestLeaf.parse(["--json"])
         }

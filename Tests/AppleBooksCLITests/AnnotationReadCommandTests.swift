@@ -229,8 +229,6 @@ struct AnnotationReadCommandTests {
           (1011,'\(asset2049)','Oversized Current','Olivia',NULL),
           (1013,'nul'||char(0)||'asset','NUL Current','Nora',NULL);
         """)
-        try Data(#"{"historical_assets":{" bad ":{"title":"Boundary History","author":"Hana"}}}"#.utf8)
-            .write(to: fixture.config)
         try fixture.executeAnnotations("""
         INSERT INTO ZAEANNOTATION(Z_PK,ZANNOTATIONUUID,ZANNOTATIONASSETID,ZANNOTATIONDELETED,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE) VALUES
           (1000,'\(uuid2048)','asset-boundary-a',0,1,1000,1000),
@@ -279,11 +277,11 @@ struct AnnotationReadCommandTests {
         #expect(oversizedCurrent.source.bookLocalPK == 1011)
         #expect(oversizedCurrent.source.title == "Oversized Current")
 
-        let whitespaceHistorical = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-space"])
-        #expect(whitespaceHistorical.source.kind == "historicalInferred")
-        #expect(whitespaceHistorical.source.bookAssetID == nil)
-        #expect(whitespaceHistorical.source.bookLocalPK == nil)
-        #expect(whitespaceHistorical.source.title == "Boundary History")
+        let whitespaceUnmapped = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-space"])
+        #expect(whitespaceUnmapped.source.kind == "unmapped")
+        #expect(whitespaceUnmapped.source.bookAssetID == nil)
+        #expect(whitespaceUnmapped.source.bookLocalPK == nil)
+        #expect(whitespaceUnmapped.source.title == nil)
 
         let nulCurrent = try fixture.runJSON(AnnotationDetailResult.self, ["annotations", "get", "source-nul"])
         #expect(nulCurrent.source.kind == "currentLibrary")

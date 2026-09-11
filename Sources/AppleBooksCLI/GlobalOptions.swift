@@ -1,12 +1,12 @@
 import ArgumentParser
 
 struct GlobalOptions: ParsableArguments {
-    @Option(name: .long, help: "Use this AppleBooksCLI configuration file.")
+    @Option(name: .long, help: .hidden)
     var config: String?
 
-    @Option(name: .long, help: "Override the Apple Books library database file.")
+    @Option(name: .long, help: .hidden)
     var libraryDB: String?
 
-    @Option(name: .long, help: "Override the Apple Books annotations database file.")
+    @Option(name: .long, help: .hidden)
     var annotationsDB: String?
 }

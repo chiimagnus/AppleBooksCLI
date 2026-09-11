@@ -663,8 +663,7 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter",
-        "--config"
+        "chapter"
       ]
     ]
   },
@@ -928,8 +927,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "list",
-        "--config"
+        "list"
       ]
     ]
   },
@@ -1293,8 +1291,7 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter",
-        "--config"
+        "chapter"
       ]
     ]
   },
@@ -1476,25 +1473,6 @@
       [
         "content",
         "chapter"
-      ]
-    ]
-  },
-  "自定义 annotations/library DB 路径": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "doctor",
-        "--library-db"
-      ],
-      [
-        "doctor",
-        "--annotations-db"
       ]
     ]
   },

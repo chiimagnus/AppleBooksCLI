@@ -1,21 +1,5 @@
 import AppleBooksCore
 
-private struct MutationOutcome {
-    let committed: Bool
-    let changed: Bool
-    let acknowledgementRequested: Bool
-    let acknowledged: Bool?
-    let warningCodes: [String]
-
-    init(_ result: MutationResult) {
-        committed = result.committed
-        changed = result.changed
-        acknowledgementRequested = result.acknowledgementRequested
-        acknowledged = result.acknowledged
-        warningCodes = result.warnings.map(\.rawValue)
-    }
-}
-
 struct AnnotationMutationCommandResult: Codable, Equatable, Sendable {
     let committed: Bool
     let changed: Bool
@@ -26,9 +10,8 @@ struct AnnotationMutationCommandResult: Codable, Equatable, Sendable {
     let warningCodes: [String]
 
     init(_ result: MutationResult, selector: AnnotationSelector) {
-        let outcome = MutationOutcome(result)
-        committed = outcome.committed
-        changed = outcome.changed
+        committed = result.committed
+        changed = result.changed
         switch selector {
         case let .uuid(uuid):
             annotationUUID = result.stableID ?? uuid
@@ -37,9 +20,9 @@ struct AnnotationMutationCommandResult: Codable, Equatable, Sendable {
             annotationUUID = result.stableID
             annotationLocalPK = result.stableID == nil ? result.localPK : nil
         }
-        acknowledgementRequested = outcome.acknowledgementRequested
-        _acknowledged = ExplicitNullBool(wrappedValue: outcome.acknowledged)
-        warningCodes = outcome.warningCodes
+        acknowledgementRequested = result.acknowledgementRequested
+        _acknowledged = ExplicitNullBool(wrappedValue: result.acknowledged)
+        warningCodes = result.warnings.map(\.rawValue)
     }
 }
 
@@ -54,9 +37,8 @@ struct CollectionMutationCommandResult: Codable, Equatable, Sendable {
     let warningCodes: [String]
 
     init(_ result: MutationResult, selector: CollectionSelector? = nil) {
-        let outcome = MutationOutcome(result)
-        committed = outcome.committed
-        changed = outcome.changed
+        committed = result.committed
+        changed = result.changed
         backupID = result.backupID
         let selectedStableID: String? = switch selector {
         case let .collectionID(collectionID): collectionID
@@ -64,9 +46,9 @@ struct CollectionMutationCommandResult: Codable, Equatable, Sendable {
         }
         collectionID = result.stableID ?? selectedStableID
         collectionLocalPK = collectionID == nil ? result.localPK : nil
-        acknowledgementRequested = outcome.acknowledgementRequested
-        _acknowledged = ExplicitNullBool(wrappedValue: outcome.acknowledged)
-        warningCodes = outcome.warningCodes
+        acknowledgementRequested = result.acknowledgementRequested
+        _acknowledged = ExplicitNullBool(wrappedValue: result.acknowledged)
+        warningCodes = result.warnings.map(\.rawValue)
     }
 }
 
@@ -83,9 +65,8 @@ struct MembershipMutationCommandResult: Codable, Equatable, Sendable {
     let warningCodes: [String]
 
     init(_ result: MutationResult, collection: CollectionSelector, book: BookSelector) {
-        let outcome = MutationOutcome(result)
-        committed = outcome.committed
-        changed = outcome.changed
+        committed = result.committed
+        changed = result.changed
         backupID = result.backupID
         switch collection {
         case let .collectionID(collectionID):
@@ -105,8 +86,8 @@ struct MembershipMutationCommandResult: Codable, Equatable, Sendable {
         }
         bookAssetID = result.relatedStableID ?? selectedBookAssetID
         bookLocalPK = bookAssetID == nil ? (result.relatedLocalPK ?? selectedBookLocalPK) : nil
-        acknowledgementRequested = outcome.acknowledgementRequested
-        _acknowledged = ExplicitNullBool(wrappedValue: outcome.acknowledged)
-        warningCodes = outcome.warningCodes
+        acknowledgementRequested = result.acknowledgementRequested
+        _acknowledged = ExplicitNullBool(wrappedValue: result.acknowledged)
+        warningCodes = result.warnings.map(\.rawValue)
     }
 }

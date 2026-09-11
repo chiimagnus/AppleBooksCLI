@@ -2,22 +2,13 @@
 
 English | [简体中文](README.zh.md)
 
-[AppleBooksCLI](https://github.com/chiimagnus/AppleBooksCLI) is a macOS command-line tool for Apple Books. It can query your library, reading state, annotations, local EPUB/PDF content, exports, backups, and a deliberately small set of guarded writes.
-
-## Features
-
-- Browse books, collections, reading state, and library statistics.
-- Search highlights and notes, inspect recent annotations, and jump back with Apple Books deep links when available.
-- Read locally available EPUB structure/content and extract PDF highlights.
-- Export JSON and Markdown.
-- Safely update existing annotation notes and manage user collections with automatic safety backups.
-- Explicitly acknowledge one mutation with `--sync`, or flush pending cloud changes once after a batch.
-- Inspect the last 24 hours of AppleBooksCLI mutation/restore/sync operation history.
+AppleBooksCLI is a macOS command-line tool for querying and safely updating Apple Books data. It covers books, reading state, annotations, local EPUB/PDF content, exports, backups, collections, sync, and recent write history.
 
 ## Requirements
 
-- macOS may require Full Disk Access for the terminal or calling process.
-- Unmaterialized EPUBs, DRM-protected content, and otherwise unreadable local resources are reported as unavailable; AppleBooksCLI does not bypass system protections.
+- The published npm package targets macOS 12+ on Apple Silicon (`arm64`).
+- The terminal or calling process may need Full Disk Access.
+- AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders or bypass DRM/system protections.
 
 ## Install
 
@@ -26,9 +17,9 @@ npm install --global @chiimagnus/applebookscli@latest
 npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to keep it on the same CLI release tag. `--ignore-scripts` disables that optional alignment.
+If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to align it to the same CLI release tag. `--ignore-scripts` disables that optional step.
 
-## Help
+## Use
 
 The installed CLI is the source of truth for commands and arguments:
 
@@ -38,98 +29,68 @@ applebookscli <group> --help
 applebookscli <group> <subcommand> --help
 ```
 
-## Common tasks
+Common reads:
 
 ```sh
-# Library and reading state
+applebookscli doctor
 applebookscli books list
 applebookscli books search "history" --field all
-applebookscli books search "Fiction" --field genre
 applebookscli reading in-progress
-applebookscli reading recent --limit 20   # continue with --cursor <nextCursor> when present
-applebookscli stats
-applebookscli collections list   # continue with --cursor <nextCursor> when present
-applebookscli doctor   # ready / partial / unavailable + fixed capability map
-
-# Annotation query / exact detail
-applebookscli annotations list --has-note true --order modified   # default 20; continue with --cursor <nextCursor>
-applebookscli annotations list --book <asset-id> --order reading
+applebookscli annotations list --has-note true --order modified
 applebookscli annotations get <annotation-uuid>
 applebookscli annotations context <annotation-uuid>
-applebookscli reading position <asset-id>   # only a real type-3 bookmark mapped to current ToC; returns chapterOrder
-applebookscli content metadata <asset-id>   # compact resolved metadata; stable identity first
-applebookscli content cover <asset-id> --output ./cover.png   # writes the image; JSON returns canonical destination
-applebookscli content chapters --book <asset-id>   # default 20; continue with --cursor <nextCursor>
-applebookscli content chapter --book <asset-id> --chapter 1   # continue with --cursor <nextCursor> when present
-
-# PDF inventory / extraction
-applebookscli pdf list   # continue with --cursor <nextCursor> when present
-applebookscli pdf highlights --book <asset-id>   # default 20; continue with --cursor <nextCursor>
-applebookscli pdf highlights --pdf <pdfSourceID> # use opaque inventory identity for non-unique/fallback sources
+applebookscli reading position <asset-id>
+applebookscli content chapters --book <asset-id>
+applebookscli content chapter --book <asset-id> --chapter 1
+applebookscli pdf list
+applebookscli pdf highlights --book <asset-id>
 ```
 
-Prefer stable identities for exact operations: book asset ID, annotation UUID, collection ID, or opaque `backupID`. `backups list` is a fixed recovery window containing only the newest 10 valid library backups; it is not a paginated history browser, while an already-known valid `backupID` may still be restored even when it has aged out of that window. A local PK (`Z_PK`) is only a row identifier in the current local database and must be selected explicitly. `books list/search`, growing reading-state queries, `collections list/search/books`, `pdf list`, `pdf highlights`, `annotations list`, and `content chapters` use opaque cursors; when `nextCursor` is returned, repeat the same query filters/order and pass it unchanged to `--cursor`. PDF inventory returns either `bookAssetID` or opaque `pdfSourceID`; feed that identity back to `pdf highlights --book` or `--pdf` rather than treating an absolute file path as the ordinary selector. Ordinary reads bound oversized presentation text and report shortened fields in `truncatedFields`; `annotations get` exposes semantic detail and, when available, a book-level `bookURL` without a CFI fragment. Use explicit archival export when the original full text/CFI is required instead of treating ordinary results as raw dumps. `stats` separates historical, unmapped, ambiguous-current, and identity-unavailable annotation counts; `topAnnotatedBooks` contains only a consumable book identity plus `annotationCount`.
-
-## Export
+Export writes a file or managed directory; Markdown is the default and archival JSON is explicit:
 
 ```sh
 applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --book <asset-id> --output notes.md
 applebookscli export --pdf <pdfSourceID> --output pdf-notes.md
-applebookscli export --help
 ```
 
-Export artifacts are written only to the explicit output file/directory. Stdout returns a compact JSON write result; all operational commands otherwise return JSON directly on stdout.
-Markdown is the default; request `--format json` for archival JSON. Markdown is human-readable notes: title/author, quote/Note, semantic chapter/location or PDF page, dates, and presentation attributes; raw asset IDs, raw CFI, and absolute PDF paths stay out of Markdown. Output paths may be relative to the current directory or absolute. Grouping alone chooses a file (`single`) or a managed directory artifact (`per-document`), regardless of extension. Per-document filenames use a bounded display stem plus a stable opaque full document key, so names do not depend on encounter order; the whole directory is published atomically. Existing targets with `--overwrite never` fail with `output_exists`; `--overwrite always` replaces only a previously managed per-document export, and rejects unmanaged directories or unexpected entries with `unsafe_output`. A post-publish cleanup failure keeps the new artifact and reports `old_export_cleanup_failed`. Results return the canonical destination and document count, not a list of generated paths.
-Exact `--book`, `--book-pk`, and `--pdf` selectors are repeatable, deduplicate equivalent sources, and route EPUB/PDF automatically. Missing or ambiguous identities fail; a valid book without annotations may export zero records. Use opaque `pdfSourceID` from `pdf list`, never a PDF path. Without selectors, export covers EPUB and PDF; `--source epub|pdf|all` narrows bulk scope and cannot be combined with exact selectors. Bulk PDF failures produce a partial artifact with `complete=false` and structured warnings; exact PDF read failures produce no artifact.
-Records within each document use reading order by default: available EPUB chapter order and CFI, or PDF page and geometry, with deterministic fallbacks when location is unavailable.
-
-## Safe writes and iCloud sync
-
-AppleBooksCLI writes only through its guarded mutation/restore rails. Ordinary queries are read-only.
-
-Every changed mutation still commits locally and projects into Apple-native cloud state. `--sync` only adds an immediate wait for current-Mac CloudKit acknowledgement:
+Guarded writes and recovery:
 
 ```sh
-applebookscli collections create "My Shelf" --sync
-```
-
-For several mutations, commit them normally and flush pending changes once at the end:
-
-```sh
-applebookscli collections create "Shelf A"
+applebookscli collections create "My Shelf"
 applebookscli collections add-book --collection <collection-id> --book <asset-id>
 printf '%s' 'New note' | applebookscli annotations update-note <annotation-uuid>
 applebookscli annotations delete <annotation-uuid>
 applebookscli annotations restore <annotation-uuid>
 applebookscli sync
+applebookscli backups list
+applebookscli history list
 ```
 
-Root `sync` is a no-op when nothing is pending. When it does run, it restores Books to its original closed/background/frontmost state after acknowledgement; a state-restore failure is reported separately from the acknowledgement fact. Current-Mac acknowledgement does not prove another device already displays the change. Post-commit sync/restore warnings must not be treated as permission to replay a mutation. The full safety and lifecycle contract is in [`docs/write-safety.md`](docs/write-safety.md).
+## Key contracts
 
-## Operation history
+- Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version remain plain text.
+- Prefer stable identities: book asset ID, annotation UUID, collection ID, opaque `pdfSourceID`, or `backupID`. Local PKs are machine-local fallbacks and must be selected explicitly.
+- Growing queries use opaque `nextCursor` continuation. Pass the token unchanged to the same query; do not decode or edit it. `backups list` is different: it is a fixed newest-10 recovery catalog, not paginated history.
+- Ordinary reads are bounded semantic views. `truncatedFields` means presentation text was shortened; use archival JSON export when full raw text/CFI fidelity is required.
+- Ordinary reads are read-only. Mutations use guarded transactions and safety backups. `--sync` waits only for current-Mac acknowledgement; it does not prove another device already displays the change.
+- When a transport may automatically retry a mutation, restore, or root sync, generate one fresh lowercase UUID for that logical request, set it as `APPLEBOOKSCLI_OPERATION_ID`, and reuse it on retry so the write cannot be redispatched blindly.
+- Export artifacts are written only to the explicit destination; stdout returns a compact write result rather than the full artifact.
 
-```sh
-applebookscli history list   # continue with --cursor <nextCursor> when present
-applebookscli history get <history-id>
-```
-
-History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls plus structured inverse guidance when a committed change can be reversed safely. `history list` is bounded (default 20, maximum 100); `history get` returns structured `request`, `result`, and `inverse` detail. Execute an inverse only when `inverse.available=true`; `incomplete` means the outcome is unknown. History does not persist raw argv or captured stdout/stderr, but an available inverse may include the prior Note or collection title required to reverse that exact change. See [`docs/cli-contract.md`](docs/cli-contract.md).
+Detailed contracts live in [`docs/index.md`](docs/index.md). In particular, see [`docs/cli-contract.md`](docs/cli-contract.md) for process/history behavior and [`docs/write-safety.md`](docs/write-safety.md) for mutation, backup, restore, and sync semantics.
 
 ## Optional configuration
 
-Most users do not need a configuration file. `~/.config/applebookscli/config.json` is only for the supported supplemental EPUB root and historical metadata mapping.
+Most users do not need a configuration file. `~/.config/applebookscli/config.json` only configures the supported supplemental EPUB root and historical metadata mapping. See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
 
-See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
+## Development
 
-## Development and maintenance
-
-Start with [`AGENTS.md`](AGENTS.md), then [`docs/index.md`](docs/index.md) for canonical architecture, capability, process, write-safety, and release owners.
+Start with [`AGENTS.md`](AGENTS.md), then use [`docs/index.md`](docs/index.md) to find the canonical owner for the contract you are changing.
 
 ## Acknowledgements
 
-AppleBooksCLI benefited from prior art and ideas in the following open-source projects. Thanks to their authors and contributors:
+AppleBooksCLI benefited from prior art and ideas in:
 
 - [57uff3r/ibooks_notes_exporter](https://github.com/57uff3r/ibooks_notes_exporter)
 - [denya/apple-books-export](https://github.com/denya/apple-books-export)

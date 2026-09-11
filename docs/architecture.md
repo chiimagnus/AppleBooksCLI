@@ -1,133 +1,109 @@
 # AppleBooksCLI 架构边界
 
-> 维护者文档。本文只拥有跨模块长期不变量：数据 ownership、identity、source 与分层。用户可见能力见 [`capability-matrix.md`](capability-matrix.md)，写入顺序见 [`write-safety.md`](write-safety.md)，命令参数以 `--help` 为准。
+> 维护者文档。本文只拥有跨模块长期不变量：数据 ownership、identity、source/trust boundary、Core↔CLI 分层与 hard resource budget。用户能力见 [`capability-matrix.md`](capability-matrix.md)，写入顺序见 [`write-safety.md`](write-safety.md)，process contract 见 [`cli-contract.md`](cli-contract.md)。
 
-## Ownership
+## Ownership / 分层
 
 ```text
 Apple Books
-├── BKLibrary SQLite                  books / collections / membership
-├── AEAnnotation SQLite               highlights / notes / bookmarks
-├── BookDataStore cloud records       collection/member/annotation projection
-├── Apple-owned CloudKit lifecycle
+├── BKLibrary SQLite            books / collections / membership
+├── AEAnnotation SQLite         highlights / notes / bookmarks
+├── Apple-owned cloud stores
 ├── EPUB resources
 └── PDF files
         │
         ▼
 AppleBooksCore
-├── queries + reading state
+├── queries / semantic projections / reading state
 ├── EPUB/CFI + PDF worker protocol
-├── export
-└── guarded mutation / restore / cloud projection
+├── export bundle / renderers
+└── guarded mutation / backup / restore / cloud projection
         │
         ▼
 applebookscli
-├── JSON operational transport + plain help/version
-├── files
+├── argument composition
+├── JSON process presentation
+├── confined artifact writes
 └── local operation history
 ```
 
-下游只消费 CLI 的公开结果或导出产物；不要绕过 Core 重新读写 Apple Books SQLite、复制私有 schema、重做 EPUB/PDF resolver，或直接解析 operation-history 存储文件。
+业务语义归 `AppleBooksCore`；CLI 不重新实现 SQLite 查询/写入、EPUB/PDF 解析或 cloud projection。`AppleBooksCloudBridge` 是唯一允许的非 Swift production runtime，只桥接 Apple Books 自有 cloud representation，不实现独立 CloudKit client。
 
-## Store 与 cloud 分层
+## Store 与依赖组合
 
-BKLibrary 与 AEAnnotation 是独立 store，必须分别发现、override 和打开。annotation existence 不依赖 current BKLibrary row；Book metadata 只是 enrichment。
+BKLibrary 与 AEAnnotation 是独立 store，必须分别发现、打开和管理 lifecycle。annotation existence 不依赖当前 BKLibrary row；library metadata 只是 enrichment。
 
-CLI 以命令实际能力声明组合 Core 依赖，而不是先构造“全能力 AppleBooks”：library-only 命令不发现 AEAnnotation、不加载 config、不解析 PDF worker；annotation-only mutation 不发现 BKLibrary；content 只组合 library + config；需要 enrichment/reading-position/context 的命令才组合 library + annotations + config。Export exact selector 先用 library identity 判定 source，再只装配该 source 真正需要的 annotation/config 或 PDF worker。公开 `AppleBooks` 双 DB initializer 继续表示调用方显式请求完整兼容能力；CLI 的 partial composition 只是 package-internal 装配边界，误调用未装配能力必须明确失败，不能通过 dummy path 或静默空结果伪装。
+CLI 按命令需要组合最小 Core dependencies：library-only 命令不应强制发现 annotation store/config/PDF worker；annotation-only mutation 不应要求 library store；content 只组合 library + config；跨域 context/reading/export 再按真实需要增加依赖。公开 `AppleBooks` 双 DB initializer 表示调用方显式请求完整 Core composition；CLI 的 partial composition 是 package 内部边界，未装配能力必须明确失败。
 
-普通读取使用 read-only SQLite。写入 required schema 漂移时 fail closed；读取 optional 字段缺失可以降级。默认 DB discovery 逐目录项流式扫描，不构造完整目录列表；ambiguity 只保留最多 8 个按 UTF-8 byte lexicographic 排序的 witness。
+普通 SQLite 查询保持 read-only。required write schema 漂移 fail closed；optional read column 可以降级。默认数据库发现流式扫描目录，ambiguity 只保留有限 witness，不 materialize 全目录。
 
-本地 SQLite commit、Apple-native cloud projection、当前 Mac CloudKit acknowledgement 是不同层次：
+## Identity
 
-- mutation 在 commit/read-back 后生成对应 dirty cloud representation；
-- mutation 无论是否带 `--sync` 都完成 local commit/read-back 与 cloud projection；`--sync` 只决定是否立即等待 acknowledgement；
-- 多条 mutation 可最后用根 `sync` 一次 flush pending records；
-- AppleBooksCLI 不伪造 Apple identity/entitlement 直接连接 Apple Books CloudKit container。
+| Domain | Stable/public identity | Local fallback / non-identity |
+| --- | --- | --- |
+| Book | Apple Books asset ID | local `Z_PK`; title/author/genre 仅 search/display |
+| Annotation | `ZANNOTATIONUUID` | local `Z_PK`; raw CFI/range 是 source data，不是 annotation identity |
+| Collection | stable collection ID | local `Z_PK`; title 仅 search |
+| PDF | unique Book asset ID，或 deterministic opaque `pdfSourceID` | absolute path 不是 ordinary public selector |
+| Backup | opaque `backupID` | backup filename/path 不是 public recovery identity |
 
-CLI 的单侧 DB override 只让对应 domain 使用 detached Books lifecycle；公开 `AppleBooksCore` 仍可由调用方显式选择 lifecycle 管理。具体写入/同步顺序只由 [`write-safety.md`](write-safety.md) 拥有。
+数字形式的 stable ID 不能猜成 local PK；多候选 exact identity 必须 fail closed。Derived display/normalization 不得反写 source identity。
 
-## Identity 与 source
+## Ordinary projection 与 archival fidelity
 
-### Book
+普通 Agent read 只从 SQLite/materialized source 读取当前命令所需的 bounded semantic projection；不要“完整 materialize 后再在 CLI 截断”。CLI 侧只有明确的 archival JSON export 承担 source fidelity。
 
-- stable identity 优先 Apple Books asset ID；local primary key（PK，Core Data SQLite 行的 `Z_PK`）只属于当前本机 DB。
-- title/author/genre 是 search/display，不是唯一 identity。
-- raw metadata 与 derived normalization 分开；derived 值不得反写 source identity。
+长期 hard budgets：
 
-### Annotation
+| Boundary | Budget |
+| --- | ---: |
+| stable identity | 2 KiB UTF-8 |
+| short metadata | 2 KiB UTF-8 |
+| list/search preview | 4 KiB UTF-8 |
+| ordinary metadata | 8 KiB UTF-8 |
+| ordinary detail body | 32 KiB UTF-8 |
+| filesystem resource path | 4 KiB UTF-8 |
+| derived CFI structural parsing | 64 KiB UTF-8 |
 
-- `ZANNOTATIONUUID` 是首选 stable identity；numeric PK 只用于明确的本机 selector。
-- raw type/style/text/CFI/physical range/time 保留为 source data。
-- `appleBooksURL` 只由 raw asset ID + optional raw CFI 派生，不替代 UUID/asset ID/CFI。
-- user scope 与 raw/system scope 分开；type=3 current-reading bookmark 不等于 presentation bookmark。
-- historical/unmapped annotation 不能因 current BKLibrary 缺 row 而消失。
+展示文本只能在完整 UTF-8 / Swift `Character` 边界缩短，并必须返回 truncation evidence。Identity/path 不属于展示文本：超限、非法 UTF-8、NUL 或错误 storage class 都使该值不可用，不能拿 prefix 冒充完整值。
 
-### Collection
+Search/filter/order 可以直接在 SQLite 内对完整 source value 运算，不必把完整值 materialize 到 Swift 或 cursor；cursor 只携带 bounded locator/evidence。
 
-stable collection ID 与 local PK 可作精确 selector；title 只用于 search。system collection 与 editable user collection 必须分轨。
+## Configuration 与 EPUB
 
-### PDF
+Configuration 只扩展 source resolution，不创造 identity。`epub_root` 仅在当前 primary EPUB 缺失/不可用时按 exact basename fallback；`historical_assets` 只补充 exact historical asset ID 的 metadata。
 
-PDF highlight 不伪装成 EPUB annotation：不用 annotation UUID/CFI，保留 PDF file/page/geometry identity；text/color approximation 必须保留 provenance。
+Configuration hard limit：regular file 最大 1 MiB；historical entry 最多 10,000；asset ID 走 stable-token 规则；historical title/author 走 metadata budget；`epub_root` 输入最多 4 KiB UTF-8。
 
-## Ordinary semantic projection 与 raw fidelity
+EPUB 不变量：
 
-普通 Agent read 与 archival/raw Core 是两条不同的数据边界，不能用“先完整读取、最后在 CLI 截断”混在一起：
+- 不主动触发 iCloud hydration；DRM/不可读内容明确失败；
+- packed 与 directory EPUB 共用 package/navigation/content 语义；
+- path resolution 不能逃逸 package root，URI 不重复 decode；
+- navigation fallback 固定为 nav → NCX → spine；
+- structure depth 最多 256；manifest/spine/navigation/metadata/encryption/XHTML/ZIP-entry 集合各最多 20,000；packed EPUB retained path index 最多 32 MiB；
+- annotation context 只有真实 anchor 命中才成功。
 
-- ordinary book/collection/annotation query 只把完成当前命令所需的 semantic projection 从 SQLite 带入 Swift。可展示 TEXT 在 SQL 层先证明 storage class 与原始 UTF-8 byte length，只读取 `byteCap + 4` 的 prefix；Core strict-decode 后按完整 Swift `Character` 收敛到 byte cap，并把原始长度造成的截断作为 evidence 传给 CLI。CLI 只再应用 grapheme cap，并与 Core evidence 合并为一个 `truncatedFields`。
-- hard SQL semantic budgets：stable identity `2 KiB`；short metadata `2 KiB`；preview `4 KiB`；ordinary metadata `8 KiB`；detail body `32 KiB`。Book language 使用 short-metadata budget；Book title/author/genre、Collection title、annotation chapter hint 使用 metadata budget；Book description/Collection details 与 exact annotation selectedText/note 使用 detail budget；annotation list/search body 使用 preview budget。超限 presentation TEXT 可以截断，但必须留下 `truncatedFields` evidence。
-- stable asset ID、annotation UUID、collection ID 等 identity 不是 presentation 文本：只有完整 TEXT 在 SQL 层证明 UTF-8 长度不超过 `2 KiB` 后才 materialize，再交给 stable-token validator。oversize identity 不取 prefix、不猜 identity；annotation source 明确进入 `identityUnavailable` 等有限状态。
-- canonical content/PDF filesystem resolution 只消费 `BookResourceTarget` 这类最小 capability view。`Book.path` 只有完整 TEXT 严格 UTF-8、无 NUL 且不超过 `4 KiB` 时才进入 URL/filesystem owner；超过上限或非法 storage/UTF-8 直接视为 path unavailable，绝不把截断 prefix 当路径打开。`BookResourceTarget` 不是新的 raw Book model。
-- raw CFI 可完整保留，但任何 derived structural parsing 只接受最多 `64 KiB` UTF-8；oversize CFI 不参与 chapter/fragment 推导，也不能作为 deeplink fragment。
-- search、filter、collation、ORDER/keyset 可以继续在 SQLite 内部对完整 source TEXT 运算；cursor 只携带 locator/evidence，不把完整 sort key materialize 到 Swift 或写进 token/history。
-- public rich Core compatibility API 与 explicit archival export 继续拥有 full fidelity：raw `SQLiteRow.text()`、rich `Book`/`Collection`/`Annotation` 和 export bundle 不套 ordinary byte budget。新增 ordinary caller 不得为了省事回到 rich decoder；反过来也不得把 ordinary resource gate 偷偷变成 raw/export 截断。
+## PDF
 
-## Configuration 与 content source
+PDF inventory 优先公开唯一 `bookAssetID`，否则公开 opaque `pdfSourceID`；ordinary selector 不暴露 absolute path。Library/fallback source 必须解析为 no-follow 打开的 regular file；同 inode source 合并为一个 inventory item。
 
-配置只扩展 source resolution，不改变 identity：
+PDFKit 只运行在独立 `applebookscli-pdf-worker` 进程。Worker 以 no-follow 语义重新打开/验证 source，并通过 held descriptor 读取；timeout、crash、malformed protocol、generation mismatch、oversized protocol data 都结构化失败。Ordinary highlight read 返回 bounded semantic page；archival export 走独立 archive path 保留 raw page/geometry/color fidelity。
 
-- `epub_root` 仅在 current Book primary EPUB source 缺失/不可用/不支持时按 exact basename 查找 supplemental packed EPUB；unsafe primary 不允许被 fallback 掩盖。
-- `historical_assets` 只按 exact asset ID 提供 historical metadata，不授予 current Book/content identity。
-
-EPUB 的长期边界：
-
-- materialization probe 不主动触发 iCloud hydration；DRM 明确失败；
-- directory 与 packed EPUB 共享 package/navigation/content 语义；
-- path canonicalization 阻止 root escape，URI decode 不重复执行；
-- 结构解析 hard budget 为最大 nesting depth `256`；manifest/spine/navigation/metadata-list/encryption/XHTML-node/ZIP-entry 各最多 `20,000`；packed EPUB retained path index 总计最多 `32 MiB`。超过上限直接 fail closed，不返回部分结构；
-- navigation 按 nav → NCX → spine fallback；raw CFI 永久保留；
-- annotation context 必须实际命中 anchor，不能返回章节开头冒充成功。
-
-PDF 的长期边界：
-
-- ordinary `pdf list` 是 bounded inventory，不 materialize 全库 rich Book，也不公开绝对 path。唯一可用 Book identity 输出 `bookAssetID`；fallback、无 stable Book identity 或同一文件对应多本 Book 时输出 deterministic opaque `pdfSourceID`。两者都是后续 exact action 的 public selector。
-- `pdfSourceID` 表示 validated source slot/path identity，不表示内容版本；fallback slot 由 no-follow 打开的 root directory identity + 单组件 entry name 派生，library opaque slot 由 lexical standardized Book path 派生。public token 不反射 path。
-- fallback discovery 由 root directory FD 拥有 trust boundary：拒绝 root symlink/non-directory，随后只通过 `readdir` + `openat(..., O_NOFOLLOW)` + `fstat` 分类 direct regular `.pdf` entry；不递归、不 fuzzy、不用 symlink-resolved target path 建立 ordinary identity。
-- library Book path 只有满足 ordinary resource path budget、lexical absolute standardized grammar，并经 no-follow regular-file open/fstat 后才成为 PDF source；同 inode 的 library/fallback source只出现一次，symlink fail closed。
-- inventory cursor generation 同时绑定 library SQLite generation 与当前 library/fallback file inventory state；任一 mapping、entry 或 file metadata 变化都会使旧 cursor stale。
-- PDFKit 在独立 worker process 中运行；worker 对收到的 path 自己执行 no-follow open，并通过已打开 descriptor 读取，避免验证后重新跟随被替换的 path。worker protocol v2 以 traversal + source generation 原生分页，stdin 有 64 KiB hard cap；timeout/crash/malformed/oversize output 都是结构化 failure。
-- ordinary `pdf highlights` 只请求 bounded `agentSummary` page，公开 page、bounded Note/text、modified 与 approximate presentation color，不把 geometry/raw RGBA/traversal 先传回主进程。archive/export 使用独立 `archive` mode 并逐页遍历，保留 raw highlight/note/page/geometry fidelity；单页 worker envelope 超过 process hard cap 时该 source 明确失败，不静默截断。
-
-## Export 分层
-
-`ExportSourceResolver` 统一拥有 export source identity：exact current selector 仍以 current localPK 去重；实际 EPUB document identity 由完整 raw asset identity（缺失时统一 unknown-source）派生，PDF 有唯一 Book identity 时使用完整 asset identity，否则复用 `PDFSourceResolver` 的 canonical `pdfSourceID`，从不以 path 作为 artifact identity。Core 从该 source key 增量计算完整 SHA-256 级 `doc1_...` key，并按 source kind + full key 排序；per-document writer 只消费这个 key 生成稳定文件名。不存在的 current/historical/user-scope identity、歧义和 digest collision 都 fail closed。CLI 先用 library-only probe 调用 Core 的 `exportDependencies`，再按 media 装配 annotations/config 与 PDF worker 的依赖并集；pure PDF 不打开 annotations/config，pure EPUB 不解析 worker。无 selector 的 bulk source scope 是独立层，默认 all；PDF worker 不可用或读取失败允许显式 incomplete partial artifact，exact PDF 则 hard failure。
+## Export ownership
 
 ```text
-query/content/PDF
-→ canonical ExportBundle
-→ filtering / ordering / grouping
-→ renderer
-→ confined file writer
+query / content / PDF
+→ ExportSourceResolver
+→ ExportBundle
+→ JSON or Markdown renderer
+→ ExportFileWriter
 ```
 
-不变量：renderer 不 direct SQL；machine JSON 有 schema version；用户内容进入 escaped output context。canonical CLI 的 JSON/Markdown renderer 只向 sink 增量写 bytes，不拥有 filesystem path；`ExportFileWriter` 持有 no-follow 打开的 output parent descriptor，temp create、entry classification、exclusive/replace publish 与 cleanup 都相对该 descriptor 完成，并在 publish 前核对 display path 仍指向同一 directory identity。single-file export 与 surviving `content cover` 直接原子发布一个 file；`per-document` 则把完整目录作为 managed transaction：document 与固定 ownership manifest 都先写入同 parent 下的隐藏 staging directory，manifest 只流式记录 version/format/count、opaque full document key 与单组件 filename。`never` 用 exclusive rename 发布；`always` 仅在 held old-directory/manifest FD 验证旧树完全受控后用 `RENAME_SWAP` 一次替换，并继续用同一 held manifest FD 做旧树 cleanup。任何额外 regular file、subdirectory、symlink 或 identity race 都在 swap 前 fail closed；swap 后 cleanup 失败只保留隐藏旧树并返回 bounded warning，不回滚新 artifact。public Core compatibility renderer/writer 可以显式 materialize artifact，但 canonical CLI 不走该路径。
+`ExportSourceResolver` 统一拥有 stable document source identity；filesystem path 永不成为 artifact identity。Renderer 不访问 DB，只向 sink 增量写 bytes。Canonical CLI writer 负责 destination confinement、no-follow parent identity、single-file atomic publish 与 managed per-document directory publish。Per-document replacement 只能替换已经验证的 AppleBooksCLI managed tree；unexpected entry 或 identity race 必须在 publish 前 fail closed。
 
-## CLI 与维护边界
-
-CLI 负责 transport/presentation 与 operation history，AppleBooksCore 不依赖 CLI。process contract 见 [`cli-contract.md`](cli-contract.md)。完整命令树不在文档复制，以 `applebookscli --help` 为准。
-
-新增 transport / UI 集成时继续复用 `AppleBooksCore` 的公开业务路径；不要在下游建立第二套 Apple Books 数据、content、mutation 或 cloud 逻辑，也不要引入第二套 SQLite runtime / ORM-style manager。
+`AppleBooks.exportBundle(options:)` 是 public archival Core surface。Canonical CLI 的 renderer/file-writer plumbing 保持 package-internal，不再形成第二套 public persistence API。
 
 ## Edit trigger / evidence
 
-修改 store/source/identity、Core↔CLI ownership、ordinary/raw projection、hard resource budget、EPUB/PDF source model、export ownership 或 cloud layering 时更新本文。当前实现证据来自 `Sources/AppleBooksCore/**`、`Sources/AppleBooksCLI/**` 与对应 executable tests；用户能力变化同时更新 [`capability-matrix.md`](capability-matrix.md)，mutation/restore 变化同时更新 [`write-safety.md`](write-safety.md)。
+store/source/identity ownership、Core↔CLI layering、ordinary-vs-archival projection、hard budget、EPUB/PDF trust boundary、export ownership 或 cloud bridge boundary 变化时更新本文。证据来自 `Sources/AppleBooksCore/**`、`Sources/AppleBooksCLI/**`、`Sources/AppleBooksCloudBridge/**` 与对应 contract/parity tests；用户可见能力变化同时更新 [`capability-matrix.md`](capability-matrix.md)。

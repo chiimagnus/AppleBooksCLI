@@ -193,6 +193,14 @@
       [
         "export",
         "--pdf"
+      ],
+      [
+        "export",
+        "--book"
+      ],
+      [
+        "export",
+        "--book-pk"
       ]
     ]
   },
@@ -291,23 +299,6 @@
         "pdf",
         "highlights",
         "--pdf"
-      ]
-    ]
-  },
-  "PDF library metadata": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFSource.swift",
-      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
-      "Sources/AppleBooksCore/Queries/BookQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "list"
       ]
     ]
   },
@@ -663,22 +654,6 @@
       [
         "content",
         "chapter"
-      ]
-    ]
-  },
-  "current-position fallback": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/AppleBooks.swift",
-      "Sources/AppleBooksCore/Models/ReadingPosition.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/ReadingPositionTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "reading",
-        "position"
       ]
     ]
   },
@@ -1294,21 +1269,6 @@
       ]
     ]
   },
-  "title search": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Queries/BookQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Queries/BookSearchTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "books",
-        "search"
-      ]
-    ]
-  },
   "title/author/genre 综合搜索": {
     "owner": "core",
     "implementationPaths": [
@@ -1456,42 +1416,6 @@
       [
         "export",
         "--format"
-      ]
-    ]
-  },
-  "细粒度 spine entry": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Content/BookContent.swift",
-      "Sources/AppleBooksCore/Content/EPUBNavigation.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/EPUBSpineTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "chapter"
-      ]
-    ]
-  },
-  "自选有 AEAnnotation highlights 的书": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportService.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--book"
-      ],
-      [
-        "export",
-        "--book-pk"
       ]
     ]
   },

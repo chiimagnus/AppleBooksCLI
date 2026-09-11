@@ -139,11 +139,8 @@ enum AppleBooksSchema {
 
 enum SchemaCapability: CaseIterable {
     case bookBase
-    case bookTitleSearch
-    case bookGenreSearch
     case bookAssetLookup
     case bookContentPathLookup
-    case bookPage
     case bookPDF
     case readingFinished
     case readingInProgress
@@ -157,27 +154,20 @@ enum SchemaCapability: CaseIterable {
     case annotationUserBase
     case annotationByUUID
     case annotationByAssetID
-    case annotationByStyle
-    case annotationByCreationDate
-    case annotationByModificationDate
-    case annotationHighlightedText
     case annotationNote
-    case annotationFullText
     case currentPosition
 
     var table: AppleBooksTable {
         switch self {
-        case .bookBase, .bookTitleSearch, .bookGenreSearch, .bookAssetLookup,
-             .bookContentPathLookup, .bookPage, .bookPDF, .readingFinished, .readingInProgress,
+        case .bookBase, .bookAssetLookup, .bookContentPathLookup, .bookPDF,
+             .readingFinished, .readingInProgress,
              .readingUnstarted, .readingRecentlyRead, .collectionMemberBooks:
             .books
         case .collectionBase, .collectionTitleSearch, .collectionIDLookup:
             .collections
         case .collectionMembers:
             .collectionMembers
-        case .annotationUserBase, .annotationByUUID, .annotationByAssetID, .annotationByStyle,
-             .annotationByCreationDate, .annotationByModificationDate, .annotationHighlightedText, .annotationNote,
-             .annotationFullText, .currentPosition:
+        case .annotationUserBase, .annotationByUUID, .annotationByAssetID, .annotationNote, .currentPosition:
             .annotations
         }
     }
@@ -186,15 +176,11 @@ enum SchemaCapability: CaseIterable {
         switch self {
         case .bookBase:
             [AppleBooksSchema.Book.localPK]
-        case .bookTitleSearch:
-            [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.title]
-        case .bookGenreSearch:
-            [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.genre]
         case .bookAssetLookup:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.assetID]
         case .bookContentPathLookup:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.path]
-        case .bookPage, .bookPDF:
+        case .bookPDF:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.contentType]
         case .readingFinished:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.isFinished]
@@ -218,22 +204,8 @@ enum SchemaCapability: CaseIterable {
             annotationUserRequired + [AppleBooksSchema.Annotation.uuid]
         case .annotationByAssetID:
             annotationUserRequired + [AppleBooksSchema.Annotation.assetID]
-        case .annotationByStyle:
-            annotationUserRequired + [AppleBooksSchema.Annotation.style]
-        case .annotationByCreationDate:
-            annotationUserRequired + [AppleBooksSchema.Annotation.creationDate]
-        case .annotationByModificationDate:
-            annotationUserRequired + [AppleBooksSchema.Annotation.modificationDate]
-        case .annotationHighlightedText:
-            annotationUserRequired + [AppleBooksSchema.Annotation.selectedText]
         case .annotationNote:
             annotationUserRequired + [AppleBooksSchema.Annotation.note]
-        case .annotationFullText:
-            annotationUserRequired + [
-                AppleBooksSchema.Annotation.selectedText,
-                AppleBooksSchema.Annotation.representativeText,
-                AppleBooksSchema.Annotation.note,
-            ]
         case .currentPosition:
             [
                 AppleBooksSchema.Annotation.localPK,

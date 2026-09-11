@@ -123,6 +123,36 @@ struct CollectionCloudSynchronizerTests {
         )
         #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
 
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=123 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS='fields' WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'' WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZCKSYSTEMFIELDS=X'01', ZDELETEDFLAG=2 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID) == false)
+
+        try executeSQL(
+            "UPDATE ZBCCOLLECTIONMEMBER SET ZDELETEDFLAG=1 WHERE ZCOLLECTIONMEMBERID='\(collectionID)|A9999'",
+            at: database
+        )
+        #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID))
+
         try executeSQL("DELETE FROM ZBCCOLLECTIONMEMBER", at: database)
         #expect(try CollectionCloudSynchronizer.readDeletedMembersSatisfied(database: database, collectionID: collectionID))
     }

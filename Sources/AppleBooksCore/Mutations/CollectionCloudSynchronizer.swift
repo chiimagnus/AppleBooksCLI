@@ -173,7 +173,10 @@ struct CollectionCloudSynchronizer {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
-            SELECT ZDELETEDFLAG, ZEDITGENERATION, ZSYNCGENERATION, length(ZCKSYSTEMFIELDS) AS ZSYSTEMFIELDSBYTES
+            SELECT ZDELETEDFLAG,
+                   ZEDITGENERATION,
+                   ZSYNCGENERATION,
+                   CASE WHEN typeof(ZCKSYSTEMFIELDS) = 'blob' THEN length(ZCKSYSTEMFIELDS) END AS ZSYSTEMFIELDSBYTES
             FROM \(table)
             WHERE \(identityColumn)=? COLLATE BINARY
             ORDER BY Z_PK
@@ -191,11 +194,11 @@ struct CollectionCloudSynchronizer {
         let statement = try connection.prepare("""
             SELECT COALESCE(SUM(
                 CASE
-                    WHEN typeof(ZDELETEDFLAG) != 'integer' OR ZDELETEDFLAG = 0
+                    WHEN typeof(ZDELETEDFLAG) != 'integer' OR ZDELETEDFLAG != 1
                       OR typeof(ZEDITGENERATION) != 'integer'
                       OR typeof(ZSYNCGENERATION) != 'integer'
                       OR ZSYNCGENERATION < ZEDITGENERATION
-                      OR ZCKSYSTEMFIELDS IS NULL
+                      OR typeof(ZCKSYSTEMFIELDS) != 'blob'
                       OR length(ZCKSYSTEMFIELDS) = 0
                     THEN 1 ELSE 0
                 END
@@ -237,6 +240,7 @@ struct CollectionCloudSynchronizer {
 
     private static func state(from row: SQLiteRow) throws -> CollectionCloudSyncState {
         guard let deleted = try row.int64("ZDELETEDFLAG"),
+              deleted == 0 || deleted == 1,
               let editGeneration = try row.int64("ZEDITGENERATION"),
               let syncGeneration = try row.int64("ZSYNCGENERATION") else {
             throw CollectionCloudSyncError.cloudRecordInvalid

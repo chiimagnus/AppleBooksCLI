@@ -360,15 +360,19 @@ struct OperationHistoryTests {
             _ = try malformed.store(at: time).listPage()
         }
 
-        let unknownSchema = try Fixture()
-        defer { unknownSchema.cleanup() }
-        _ = try unknownSchema.store(at: time).beginTestHistory(operation: "sync")
-        let unknownFile = try unknownSchema.onlyDateFile()
-        let original = try String(contentsOf: unknownFile, encoding: .utf8)
-        try original.replacingOccurrences(of: #""schemaVersion":2"#, with: #""schemaVersion":999"#)
-            .write(to: unknownFile, atomically: false, encoding: .utf8)
-        #expect(throws: OperationHistoryStoreError.unavailable) {
-            _ = try unknownSchema.store(at: time).listPage()
+        for unsupportedVersion in [1, 999] {
+            let unsupportedSchema = try Fixture()
+            defer { unsupportedSchema.cleanup() }
+            _ = try unsupportedSchema.store(at: time).beginTestHistory(operation: "sync")
+            let file = try unsupportedSchema.onlyDateFile()
+            let original = try String(contentsOf: file, encoding: .utf8)
+            try original.replacingOccurrences(
+                of: #""schemaVersion":2"#,
+                with: #""schemaVersion":\#(unsupportedVersion)"#
+            ).write(to: file, atomically: false, encoding: .utf8)
+            #expect(throws: OperationHistoryStoreError.unavailable) {
+                _ = try unsupportedSchema.store(at: time).listPage()
+            }
         }
 
         let duplicate = try Fixture()
@@ -379,29 +383,6 @@ struct OperationHistoryTests {
         try append(Data((String(firstLine) + "\n").utf8), to: duplicateFile)
         #expect(throws: OperationHistoryStoreError.unavailable) {
             _ = try duplicate.store(at: time).listPage()
-        }
-    }
-
-    @Test
-    func oversizedV1PayloadsMigrateWithBoundedLineBufferAndNoGuessedInverse() throws {
-        let startedAt = date("2026-09-04T10:00:00Z")
-        for payloadBytes in [1 * 1_024 * 1_024 + 17, 64 * 1_024 * 1_024 + 17] {
-            let fixture = try Fixture(createRoot: true)
-            defer { fixture.cleanup() }
-            let id = UUID().uuidString.lowercased()
-            try fixture.writeLegacyPair(payloadBytes: payloadBytes, id: id, startedAt: startedAt)
-            let peak = PeakBox()
-            let stored = try fixture.store(
-                at: startedAt.addingTimeInterval(1),
-                observeLineBufferedBytes: peak.observe
-            ).get(id: id)
-            let record = try #require(stored)
-
-            #expect(record.status == .success)
-            #expect(record.request == .unavailable)
-            #expect(record.result == .unavailable)
-            #expect(record.inverse == .unavailable)
-            #expect(peak.value <= 256 * 1_024)
         }
     }
 
@@ -449,26 +430,6 @@ struct OperationHistoryTests {
         #expect(record.result == outcome)
         #expect(record.inverse == .unavailable)
         #expect(record.status == .success)
-    }
-
-    @Test
-    func malformedV1EventAddsMigrationWarningWithoutPoisoningValidHistory() throws {
-        let fixture = try Fixture(createRoot: true)
-        defer { fixture.cleanup() }
-        let time = date("2026-09-04T10:00:00Z")
-        let file = fixture.root.appendingPathComponent("2026-09-04.jsonl")
-        try Data("{\"schemaVersion\":1,\"kind\":\"started\",\"id\":\"broken\"\n".utf8).write(to: file)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        let valid = try fixture.store(at: time).beginTestHistory(operation: "sync")
-        let warnings = CounterBox()
-
-        let page = try fixture.store(
-            at: time.addingTimeInterval(1),
-            observeMigrationWarning: warnings.increment
-        ).listPage(limit: 100)
-
-        #expect(page.items.map(\.id) == [valid.id])
-        #expect(warnings.value == 1)
     }
 
     @Test
@@ -729,41 +690,15 @@ struct OperationHistoryTests {
             at time: Date = Date(),
             timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
             observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in },
-            observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in },
-            observeMigrationWarning: @escaping @Sendable () -> Void = {}
+            observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in }
         ) -> OperationHistoryStore {
             OperationHistoryStore(
                 root: root,
                 now: { time },
                 timeZone: { timeZone },
                 observeListCandidateCount: observeListCandidateCount,
-                observeLineBufferedBytes: observeLineBufferedBytes,
-                observeMigrationWarning: observeMigrationWarning
+                observeLineBufferedBytes: observeLineBufferedBytes
             )
-        }
-
-        func writeLegacyPair(payloadBytes: Int, id: String, startedAt: Date) throws {
-            if FileManager.default.fileExists(atPath: root.path) == false {
-                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-            }
-            let file = root.appendingPathComponent("2026-09-04.jsonl")
-            FileManager.default.createFile(atPath: file.path, contents: nil)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-            let handle = try FileHandle(forWritingTo: file)
-            defer { try? handle.close() }
-            let timestamp = ISO8601DateFormatter().string(from: startedAt)
-            let started = "{\"arguments\":[\"sync\"],\"id\":\"\(id)\",\"kind\":\"started\",\"operation\":\"sync\",\"schemaVersion\":1,\"startedAt\":\"\(timestamp)\"}\n"
-            try handle.write(contentsOf: Data(started.utf8))
-            let completedPrefix = "{\"completedAt\":\"\(timestamp)\",\"exitCode\":0,\"id\":\"\(id)\",\"kind\":\"completed\",\"schemaVersion\":1,\"stderr\":\"\",\"stdout\":\""
-            try handle.write(contentsOf: Data(completedPrefix.utf8))
-            let chunk = Data(repeating: 0x78, count: 64 * 1_024)
-            var remaining = payloadBytes
-            while remaining > 0 {
-                let count = min(remaining, chunk.count)
-                try handle.write(contentsOf: chunk.prefix(count))
-                remaining -= count
-            }
-            try handle.write(contentsOf: Data("\"}\n".utf8))
         }
 
         func writeStartedEvents(count: Int, startedAt: Date) throws -> [String] {
@@ -781,7 +716,7 @@ struct OperationHistoryTests {
                     UInt64(index)
                 )
                 ids.append(id)
-                let line = "{\"arguments\":[\"sync\"],\"id\":\"\(id)\",\"kind\":\"started\",\"operation\":\"sync\",\"schemaVersion\":1,\"startedAt\":\"\(timestamp)\"}\n"
+                let line = "{\"id\":\"\(id)\",\"kind\":\"started\",\"operation\":\"sync\",\"request\":{\"available\":false},\"schemaVersion\":2,\"startedAt\":\"\(timestamp)\"}\n"
                 try handle.write(contentsOf: Data(line.utf8))
             }
             return ids

@@ -104,7 +104,7 @@ CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `start
 
 可能被 transport 自动重试的调用应为每个**逻辑写请求**设置一次 `APPLEBOOKSCLI_OPERATION_ID=<lowercase UUID>`，并在 transport retry 时原样复用该 UUID。该 UUID 直接作为 history record ID；history root lock 内先原子 claim，再允许 dispatch。同一 UUID + 同一 request 已经存在（无论 `incomplete` 还是已完成）时必须在 dispatch 前阻止 replay；同一 UUID 若对应不同 operation/request 则作为 caller conflict fail closed。没有设置该变量时保持普通本地 CLI 的现有随机 history ID 行为。`incomplete` 仍表示 outcome unknown：看到 replay-block 后只能先 `history get <operation-id>`，不能换新 UUID 猜测性重放。
 
-History inverse 仍受 identity/data-integrity 边界约束：annotation 自动 delete↔restore inverse 只使用 eligible stable UUID；只有 local PK 时不宣称自动可逆。prior Note/title 必须完整保存才可标记 inverse available，超过 history payload 边界时降级为 unavailable，不能截断后伪称可恢复。完整的 history JSON/read/migration/idempotency contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
+History inverse 仍受 identity/data-integrity 边界约束：annotation 自动 delete↔restore inverse 只使用 eligible stable UUID；只有 local PK 时不宣称自动可逆。prior Note/title 必须完整保存才可标记 inverse available，超过 history payload 边界时降级为 unavailable，不能截断后伪称可恢复。完整的 history JSON/read/idempotency contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
 
 ## Edit trigger / evidence
 

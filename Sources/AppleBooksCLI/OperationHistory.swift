@@ -324,7 +324,6 @@ struct OperationHistoryStore: Sendable {
     private static let fileMode = mode_t(S_IRUSR | S_IWUSR)
     private static let lineReadChunkSize = 8 * 1_024
     private static let eventByteCap = 256 * 1_024
-    private static let legacyBufferedLineByteCap = eventByteCap
     private static let processLock = NSLock()
 
     private let root: URL
@@ -332,15 +331,13 @@ struct OperationHistoryStore: Sendable {
     private let timeZone: @Sendable () -> TimeZone
     private let observeListCandidateCount: @Sendable (Int) -> Void
     private let observeLineBufferedBytes: @Sendable (Int) -> Void
-    private let observeMigrationWarning: @Sendable () -> Void
 
     init(
         root: URL = Self.defaultRoot(),
         now: @escaping @Sendable () -> Date = Date.init,
         timeZone: @escaping @Sendable () -> TimeZone = { .current },
         observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in },
-        observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in },
-        observeMigrationWarning: @escaping @Sendable () -> Void = {}
+        observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in }
     ) {
         let standardized = root.standardizedFileURL
         let canonicalParent = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
@@ -349,7 +346,6 @@ struct OperationHistoryStore: Sendable {
         self.timeZone = timeZone
         self.observeListCandidateCount = observeListCandidateCount
         self.observeLineBufferedBytes = observeLineBufferedBytes
-        self.observeMigrationWarning = observeMigrationWarning
     }
 
     static func defaultRoot() -> URL {
@@ -554,7 +550,7 @@ struct OperationHistoryStore: Sendable {
     private func pruneDateFile(_ fileName: String, cutoff: Date, rootFD: Int32) throws {
         var states: [String: PruneState] = [:]
         var hasExpired = false
-        try forEachStoredLine(fileName, rootFD: rootFD, reportMigrationWarnings: false) { line in
+        try forEachStoredLine(fileName, rootFD: rootFD) { line in
             let event = line.event
             switch event.kind {
             case .started:
@@ -582,9 +578,9 @@ struct OperationHistoryStore: Sendable {
             return
         }
         try replaceControlledFile(fileName, rootFD: rootFD) { temporaryFD in
-            try forEachStoredLine(fileName, rootFD: rootFD, reportMigrationWarnings: false) { line in
+            try forEachStoredLine(fileName, rootFD: rootFD) { line in
                 guard states[line.event.id]?.keep == true else { return }
-                var data = try Self.encoder().encode(line.event.v2Event)
+                var data = try Self.encoder().encode(line.event)
                 guard data.count <= Self.eventByteCap else { throw OperationHistoryStoreError.unavailable }
                 data.append(0x0A)
                 try Self.writeAll(data, to: temporaryFD)
@@ -675,7 +671,6 @@ struct OperationHistoryStore: Sendable {
     private func forEachStoredLine(
         _ fileName: String,
         rootFD: Int32,
-        reportMigrationWarnings: Bool = true,
         _ body: (StoredLine) throws -> Void
     ) throws {
         guard Self.isDateFileName(fileName) else { throw OperationHistoryStoreError.unavailable }
@@ -688,44 +683,20 @@ struct OperationHistoryStore: Sendable {
         var buffer = [UInt8](repeating: 0, count: Self.lineReadChunkSize)
         var line = [UInt8]()
         line.reserveCapacity(Self.lineReadChunkSize)
-        var bufferingLine = true
-        var legacyTokenizer = LegacyHistoryScalarTokenizer()
         var absoluteOffset: off_t = 0
         var lastCompleteOffset: off_t = 0
 
         func finishLine() throws {
-            let event: OperationHistoryEvent?
-            if bufferingLine {
-                do {
-                    let decoded = try Self.decoder().decode(OperationHistoryEvent.self, from: Data(line))
-                    try decoded.validate()
-                    event = decoded
-                } catch {
-                    switch legacyTokenizer.finish() {
-                    case let .event(legacy): event = legacy
-                    case .malformedLegacy:
-                        if reportMigrationWarnings { observeMigrationWarning() }
-                        event = nil
-                    case .notLegacy:
-                        throw OperationHistoryStoreError.unavailable
-                    }
-                }
-            } else {
-                switch legacyTokenizer.finish() {
-                case let .event(legacy): event = legacy
-                case .malformedLegacy:
-                    if reportMigrationWarnings { observeMigrationWarning() }
-                    event = nil
-                case .notLegacy:
-                    throw OperationHistoryStoreError.unavailable
-                }
+            guard line.isEmpty == false else { throw OperationHistoryStoreError.unavailable }
+            let event: OperationHistoryEvent
+            do {
+                event = try Self.decoder().decode(OperationHistoryEvent.self, from: Data(line))
+                try event.validate()
+            } catch {
+                throw OperationHistoryStoreError.unavailable
             }
-            if let event {
-                try body(StoredLine(fileName: fileName, event: event))
-            }
+            try body(StoredLine(fileName: fileName, event: event))
             line.removeAll(keepingCapacity: true)
-            bufferingLine = true
-            legacyTokenizer = LegacyHistoryScalarTokenizer()
         }
 
         while true {
@@ -736,27 +707,18 @@ struct OperationHistoryStore: Sendable {
                 for byte in buffer.prefix(count) {
                     absoluteOffset += 1
                     if byte == 0x0A {
-                        guard bufferingLine == false || line.isEmpty == false else {
-                            throw OperationHistoryStoreError.unavailable
-                        }
                         try finishLine()
                         lastCompleteOffset = absoluteOffset
                         continue
                     }
-
-                    legacyTokenizer.consume(byte)
-                    if bufferingLine {
-                        if line.count < Self.legacyBufferedLineByteCap {
-                            line.append(byte)
-                            observeLineBufferedBytes(line.count)
-                        } else {
-                            bufferingLine = false
-                            line.removeAll(keepingCapacity: false)
-                        }
+                    guard line.count < Self.eventByteCap else {
+                        throw OperationHistoryStoreError.unavailable
                     }
+                    line.append(byte)
+                    observeLineBufferedBytes(line.count)
                 }
             } else if count == 0 {
-                if bufferingLine == false || line.isEmpty == false {
+                if line.isEmpty == false {
                     guard ftruncate(fd, lastCompleteOffset) == 0,
                           fsync(fd) == 0 else {
                         throw OperationHistoryStoreError.unavailable
@@ -1032,7 +994,7 @@ struct OperationHistoryStore: Sendable {
         case .started:
             guard state == nil,
                   let operation = event.operation,
-                  let request = event.semanticRequest,
+                  let request = event.request,
                   let startedAt = event.startedAt else {
                 throw OperationHistoryStoreError.unavailable
             }
@@ -1049,8 +1011,8 @@ struct OperationHistoryStore: Sendable {
                   current.completed == nil,
                   let completedAt = event.completedAt,
                   let exitCode = event.exitCode,
-                  let result = event.semanticResult,
-                  let inverse = event.semanticInverse else {
+                  let result = event.result,
+                  let inverse = event.inverse else {
                 throw OperationHistoryStoreError.unavailable
             }
             current.completed = CompletedState(
@@ -1352,11 +1314,6 @@ private struct OperationHistoryEvent: Codable {
     let result: OperationHistoryResult?
     let inverse: OperationHistoryInverse?
 
-    // v1 read-only compatibility. New writes never populate these fields.
-    let arguments: [String]?
-    let stdout: String?
-    let stderr: String?
-
     static func started(id: String, operation: String, request: OperationHistoryRequest, startedAt: Date) -> Self {
         Self(
             schemaVersion: OperationHistoryStore.schemaVersion,
@@ -1368,10 +1325,7 @@ private struct OperationHistoryEvent: Codable {
             completedAt: nil,
             exitCode: nil,
             result: nil,
-            inverse: nil,
-            arguments: nil,
-            stdout: nil,
-            stderr: nil
+            inverse: nil
         )
     }
 
@@ -1392,487 +1346,38 @@ private struct OperationHistoryEvent: Codable {
             completedAt: completedAt,
             exitCode: exitCode,
             result: result,
-            inverse: inverse,
-            arguments: nil,
-            stdout: nil,
-            stderr: nil
+            inverse: inverse
         )
     }
 
     func validate() throws {
-        guard (schemaVersion == 1 || schemaVersion == OperationHistoryStore.schemaVersion),
+        guard schemaVersion == OperationHistoryStore.schemaVersion,
               let uuid = UUID(uuidString: id),
               id == uuid.uuidString.lowercased() else {
             throw OperationHistoryStoreError.unavailable
         }
-        switch (schemaVersion, kind) {
-        case (1, .started):
-            guard let operation, operation.isEmpty == false,
-                  arguments != nil,
-                  startedAt != nil,
-                  completedAt == nil,
-                  exitCode == nil else {
-                throw OperationHistoryStoreError.unavailable
-            }
-        case (1, .completed):
-            guard operation == nil,
-                  startedAt == nil,
-                  completedAt != nil,
-                  exitCode != nil else {
-                throw OperationHistoryStoreError.unavailable
-            }
-        case (OperationHistoryStore.schemaVersion, .started):
+        switch kind {
+        case .started:
             guard let operation, operation.isEmpty == false,
                   request != nil,
                   startedAt != nil,
                   completedAt == nil,
                   exitCode == nil,
                   result == nil,
-                  inverse == nil,
-                  arguments == nil,
-                  stdout == nil,
-                  stderr == nil else {
+                  inverse == nil else {
                 throw OperationHistoryStoreError.unavailable
             }
-        case (OperationHistoryStore.schemaVersion, .completed):
+        case .completed:
             guard operation == nil,
                   request == nil,
                   startedAt == nil,
                   completedAt != nil,
                   exitCode != nil,
                   result != nil,
-                  inverse != nil,
-                  arguments == nil,
-                  stdout == nil,
-                  stderr == nil else {
+                  inverse != nil else {
                 throw OperationHistoryStoreError.unavailable
             }
-        default:
-            throw OperationHistoryStoreError.unavailable
         }
-    }
-
-    var semanticRequest: OperationHistoryRequest? {
-        schemaVersion == 1 ? .unavailable : request
-    }
-
-    var semanticResult: OperationHistoryResult? {
-        schemaVersion == 1 ? .unavailable : result
-    }
-
-    var semanticInverse: OperationHistoryInverse? {
-        schemaVersion == 1 ? .unavailable : inverse
-    }
-
-    var v2Event: Self {
-        guard schemaVersion == 1 else { return self }
-        switch kind {
-        case .started:
-            return .started(
-                id: id,
-                operation: operation ?? "unknown",
-                request: .unavailable,
-                startedAt: startedAt ?? Date(timeIntervalSince1970: 0)
-            )
-        case .completed:
-            return .completed(
-                id: id,
-                completedAt: completedAt ?? Date(timeIntervalSince1970: 0),
-                exitCode: exitCode ?? CLIProcessExit.internal.rawValue,
-                result: .unavailable,
-                inverse: .unavailable
-            )
-        }
-    }
-}
-
-private struct LegacyHistoryScalarTokenizer {
-    enum FinishResult {
-        case event(OperationHistoryEvent)
-        case malformedLegacy
-        case notLegacy
-    }
-
-    private enum State {
-        case start
-        case keyOrEnd
-        case keyString
-        case colon
-        case value
-        case stringValue
-        case primitiveValue
-        case compositeValue
-        case commaOrEnd
-        case done
-        case invalid
-    }
-
-    private static let legacyMarker = Array(#"\"schemaVersion\":1"#.utf8)
-    private static let knownKeys: Set<String> = [
-        "schemaVersion", "kind", "id", "operation", "arguments", "startedAt",
-        "completedAt", "exitCode", "stdout", "stderr",
-    ]
-    private static let capturedStringByteCap = 4 * 1_024
-
-    private var state: State = .start
-    private var keyBytes: [UInt8] = []
-    private var valueBytes: [UInt8] = []
-    private var currentKey: String?
-    private var stringEscaped = false
-    private var compositeStack: [UInt8] = []
-    private var compositeInString = false
-    private var compositeEscaped = false
-    private var seenKnownKeys = Set<String>()
-    private var markerIndex = 0
-    private var sawLegacyMarker = false
-
-    private var schemaVersion: Int?
-    private var kind: String?
-    private var id: String?
-    private var operation: String?
-    private var startedAt: String?
-    private var completedAt: String?
-    private var exitCode: Int32?
-    private var sawArguments = false
-    private var sawStdout = false
-    private var sawStderr = false
-
-    mutating func consume(_ byte: UInt8) {
-        observeLegacyMarker(byte)
-        guard state != .invalid else { return }
-
-        switch state {
-        case .start:
-            if Self.isWhitespace(byte) { return }
-            state = byte == 0x7B ? .keyOrEnd : .invalid
-
-        case .keyOrEnd:
-            if Self.isWhitespace(byte) { return }
-            if byte == 0x7D {
-                state = .done
-            } else if byte == 0x22 {
-                keyBytes.removeAll(keepingCapacity: true)
-                state = .keyString
-            } else {
-                state = .invalid
-            }
-
-        case .keyString:
-            if byte == 0x22 {
-                guard let key = String(bytes: keyBytes, encoding: .utf8), key.isEmpty == false else {
-                    state = .invalid
-                    return
-                }
-                currentKey = key
-                if Self.knownKeys.contains(key) {
-                    guard seenKnownKeys.insert(key).inserted else {
-                        state = .invalid
-                        return
-                    }
-                    switch key {
-                    case "arguments": sawArguments = true
-                    case "stdout": sawStdout = true
-                    case "stderr": sawStderr = true
-                    default: break
-                    }
-                }
-                state = .colon
-            } else if byte == 0x5C || byte < 0x20 || keyBytes.count >= 64 {
-                state = .invalid
-            } else {
-                keyBytes.append(byte)
-            }
-
-        case .colon:
-            if Self.isWhitespace(byte) { return }
-            state = byte == 0x3A ? .value : .invalid
-
-        case .value:
-            if Self.isWhitespace(byte) { return }
-            if byte == 0x22 {
-                valueBytes.removeAll(keepingCapacity: true)
-                if capturesCurrentValue { valueBytes.append(byte) }
-                stringEscaped = false
-                state = .stringValue
-            } else if byte == 0x5B || byte == 0x7B {
-                guard capturesCurrentValue == false else {
-                    state = .invalid
-                    return
-                }
-                compositeStack = [byte]
-                compositeInString = false
-                compositeEscaped = false
-                state = .compositeValue
-            } else if Self.isPrimitiveStart(byte) {
-                valueBytes.removeAll(keepingCapacity: true)
-                if capturesCurrentValue { valueBytes.append(byte) }
-                state = .primitiveValue
-            } else {
-                state = .invalid
-            }
-
-        case .stringValue:
-            if capturesCurrentValue {
-                guard valueBytes.count < Self.capturedStringByteCap else {
-                    state = .invalid
-                    return
-                }
-                valueBytes.append(byte)
-            }
-            if stringEscaped {
-                stringEscaped = false
-            } else if byte == 0x5C {
-                stringEscaped = true
-            } else if byte == 0x22 {
-                finalizeStringValue()
-                if state != .invalid { state = .commaOrEnd }
-            } else if byte < 0x20 {
-                state = .invalid
-            }
-
-        case .primitiveValue:
-            if Self.isWhitespace(byte) {
-                finalizePrimitiveValue()
-                if state != .invalid { state = .commaOrEnd }
-            } else if byte == 0x2C {
-                finalizePrimitiveValue()
-                if state != .invalid { state = .keyOrEnd }
-            } else if byte == 0x7D {
-                finalizePrimitiveValue()
-                if state != .invalid { state = .done }
-            } else if Self.isPrimitiveBody(byte) {
-                if capturesCurrentValue {
-                    guard valueBytes.count < 64 else {
-                        state = .invalid
-                        return
-                    }
-                    valueBytes.append(byte)
-                }
-            } else {
-                state = .invalid
-            }
-
-        case .compositeValue:
-            consumeComposite(byte)
-
-        case .commaOrEnd:
-            if Self.isWhitespace(byte) { return }
-            if byte == 0x2C {
-                currentKey = nil
-                state = .keyOrEnd
-            } else if byte == 0x7D {
-                currentKey = nil
-                state = .done
-            } else {
-                state = .invalid
-            }
-
-        case .done:
-            if Self.isWhitespace(byte) == false { state = .invalid }
-
-        case .invalid:
-            break
-        }
-    }
-
-    func finish() -> FinishResult {
-        guard state == .done,
-              schemaVersion == 1,
-              let kind,
-              let id,
-              let uuid = UUID(uuidString: id),
-              id == uuid.uuidString.lowercased() else {
-            return (schemaVersion == 1 || sawLegacyMarker) ? .malformedLegacy : .notLegacy
-        }
-
-        let event: OperationHistoryEvent
-        switch kind {
-        case OperationHistoryEvent.Kind.started.rawValue:
-            guard let operation, operation.isEmpty == false,
-                  let startedAt = Self.date(startedAt),
-                  sawArguments,
-                  completedAt == nil,
-                  exitCode == nil,
-                  sawStdout == false,
-                  sawStderr == false else {
-                return .malformedLegacy
-            }
-            event = OperationHistoryEvent(
-                schemaVersion: 1,
-                kind: .started,
-                id: id,
-                operation: operation,
-                request: nil,
-                startedAt: startedAt,
-                completedAt: nil,
-                exitCode: nil,
-                result: nil,
-                inverse: nil,
-                arguments: [],
-                stdout: nil,
-                stderr: nil
-            )
-        case OperationHistoryEvent.Kind.completed.rawValue:
-            guard operation == nil,
-                  startedAt == nil,
-                  let completedAt = Self.date(completedAt),
-                  let exitCode,
-                  sawArguments == false,
-                  sawStdout,
-                  sawStderr else {
-                return .malformedLegacy
-            }
-            event = OperationHistoryEvent(
-                schemaVersion: 1,
-                kind: .completed,
-                id: id,
-                operation: nil,
-                request: nil,
-                startedAt: nil,
-                completedAt: completedAt,
-                exitCode: exitCode,
-                result: nil,
-                inverse: nil,
-                arguments: nil,
-                stdout: "",
-                stderr: ""
-            )
-        default:
-            return .malformedLegacy
-        }
-
-        do {
-            try event.validate()
-            return .event(event)
-        } catch {
-            return .malformedLegacy
-        }
-    }
-
-    private var capturesCurrentValue: Bool {
-        switch currentKey {
-        case "schemaVersion", "kind", "id", "operation", "startedAt", "completedAt", "exitCode": true
-        default: false
-        }
-    }
-
-    private mutating func finalizeStringValue() {
-        defer {
-            valueBytes.removeAll(keepingCapacity: true)
-            currentKey = nil
-        }
-        guard capturesCurrentValue,
-              let key = currentKey,
-              let value = try? JSONDecoder().decode(String.self, from: Data(valueBytes)) else {
-            if capturesCurrentValue { state = .invalid }
-            return
-        }
-        switch key {
-        case "kind": kind = value
-        case "id": id = value
-        case "operation": operation = value
-        case "startedAt": startedAt = value
-        case "completedAt": completedAt = value
-        default: state = .invalid
-        }
-    }
-
-    private mutating func finalizePrimitiveValue() {
-        defer {
-            valueBytes.removeAll(keepingCapacity: true)
-            currentKey = nil
-        }
-        guard capturesCurrentValue, let key = currentKey else { return }
-        guard let raw = String(bytes: valueBytes, encoding: .utf8) else {
-            state = .invalid
-            return
-        }
-        switch key {
-        case "schemaVersion":
-            schemaVersion = Int(raw)
-            if schemaVersion == nil { state = .invalid }
-        case "exitCode":
-            exitCode = Int32(raw)
-            if exitCode == nil { state = .invalid }
-        case "operation" where raw == "null",
-             "startedAt" where raw == "null",
-             "completedAt" where raw == "null":
-            break
-        default:
-            state = .invalid
-        }
-    }
-
-    private mutating func consumeComposite(_ byte: UInt8) {
-        if compositeInString {
-            if compositeEscaped {
-                compositeEscaped = false
-            } else if byte == 0x5C {
-                compositeEscaped = true
-            } else if byte == 0x22 {
-                compositeInString = false
-            } else if byte < 0x20 {
-                state = .invalid
-            }
-            return
-        }
-
-        if byte == 0x22 {
-            compositeInString = true
-            return
-        }
-        if byte == 0x5B || byte == 0x7B {
-            guard compositeStack.count < 64 else {
-                state = .invalid
-                return
-            }
-            compositeStack.append(byte)
-            return
-        }
-        if byte == 0x5D || byte == 0x7D {
-            guard let opening = compositeStack.last,
-                  (opening == 0x5B && byte == 0x5D) || (opening == 0x7B && byte == 0x7D) else {
-                state = .invalid
-                return
-            }
-            compositeStack.removeLast()
-            if compositeStack.isEmpty {
-                currentKey = nil
-                state = .commaOrEnd
-            }
-        }
-    }
-
-    private mutating func observeLegacyMarker(_ byte: UInt8) {
-        guard sawLegacyMarker == false else { return }
-        let marker = Self.legacyMarker
-        if byte == marker[markerIndex] {
-            markerIndex += 1
-            if markerIndex == marker.count {
-                sawLegacyMarker = true
-                markerIndex = 0
-            }
-        } else {
-            markerIndex = byte == marker[0] ? 1 : 0
-        }
-    }
-
-    private static func date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-        return ISO8601DateFormatter().date(from: value)
-    }
-
-    private static func isWhitespace(_ byte: UInt8) -> Bool {
-        byte == 0x20 || byte == 0x09 || byte == 0x0D
-    }
-
-    private static func isPrimitiveStart(_ byte: UInt8) -> Bool {
-        (0x30...0x39).contains(byte) || byte == 0x2D || byte == 0x6E || byte == 0x74 || byte == 0x66
-    }
-
-    private static func isPrimitiveBody(_ byte: UInt8) -> Bool {
-        (0x30...0x39).contains(byte) || byte == 0x2D || byte == 0x2B || byte == 0x2E
-            || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
     }
 }
 

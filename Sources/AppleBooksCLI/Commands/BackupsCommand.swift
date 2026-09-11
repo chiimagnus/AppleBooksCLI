@@ -42,7 +42,7 @@ struct BackupsRestoreCommand: ParsableCommand, CLIOutputRunnable, OperationHisto
         abstract: "Restore a library backup by its opaque backupID."
     )
 
-    @Argument(help: "Exact backupID returned by `backups list`.")
+    @Argument(help: "Exact opaque backupID for an existing library backup; it need not appear in the current newest-10 list.")
     var backupID: String
 
     @OptionGroup var global: GlobalOptions

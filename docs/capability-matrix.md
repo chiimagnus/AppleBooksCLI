@@ -121,13 +121,13 @@
 | soft-delete / restore annotation | 已实现（强化） | `delete` 只做 soft-delete；`restore` 只恢复仍存在的 user-annotation tombstone；两者幂等，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现（强化） | mutation 使用 guarded transaction；pre-COMMIT failure rollback，transaction revalidation 防止 quiet-state stale decision |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
-| backup list/retention | 已实现（强化） | `backups list` 固定只返回 newest 10 valid library recovery backups，不分页；ordinary CLI 只暴露 opaque `backupID`，annotation safety backup 不作为 public restore surface |
-| restore | 已实现 | restore 前 safety backup；apply 后 verification/Books state restore failure 不能冒充未发生 |
+| backup list/retention | 已实现（强化） | `backups list` 固定只返回 newest 10 valid library recovery backups，不分页；这是 discovery window，不限制已知且仍存在的合法 `backupID` restore；ordinary CLI 不暴露 backup filename/path |
+| restore | 已实现（强化） | restore 前创建 live-library safety backup；成功返回可再次消费的 opaque `safetyBackupID`；apply 后 verification/Books state restore failure 不能冒充未发生 |
 | Books.app lifecycle | 已实现（强化） | normal mutation 保留 closed/background/frontmost；explicit sync temporary launch 不夺取最终状态 ownership |
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |
 | sanitised errors | 已实现 | 默认 error 不回显用户正文、private path 或底层数据库 payload |
 | 输入边界校验 | 已实现 | selector/search/name/note 等在副作用前校验 |
-| iCloud acknowledgement 边界 | 已实现（当前 Mac acknowledgement） | mutation 始终 local commit/read-back + projection，`--sync` 只额外等待当前 Mac ack；root `sync` pending=0 不触碰 Books，有 pending 时恢复原 closed/background/frontmost 状态；ack 不证明第二设备已显示 |
+| iCloud acknowledgement 边界 | 已实现（强化） | mutation 始终 local commit/read-back + projection，`--sync` 只额外等待当前 Mac ack；root `sync` pending=0 不触碰 Books，有 pending 时恢复原 closed/background/frontmost 状态；ack 不证明第二设备已显示 |
 
 ## 配置与历史数据边界
 

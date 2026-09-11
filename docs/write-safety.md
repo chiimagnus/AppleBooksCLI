@@ -56,7 +56,7 @@ Writer/transaction failure 在 COMMIT 前 rollback。COMMIT 后本地事实不�
 
 Safety backup 使用 SQLite online backup，并对完成产物做 integrity verification；不能裸复制 active WAL store。Backup root 与祖先组件使用 no-follow directory boundary；create/list/retention/restore 只操作同一 held root descriptor 下的 owned regular artifact。Root/entry symlink、path identity replacement 或 malformed artifact 都 fail closed。
 
-Public library backup catalog 只展示 newest 10 valid recovery artifacts；`backupID` 是 public recovery identity，文件名/path 不是。Annotation safety backups 仍是内部 mutation recovery evidence，不形成第二套 public restore surface。
+Public library backup catalog 只是 newest 10 valid recovery artifacts 的 discovery window，不是 restore universe。`backupID` 是 public recovery identity，文件名/path 不是；只要对应 owned backup artifact 仍存在且通过 guarded validation，已知的合法 `backupID` 即使已不在当前 newest-10 list 中仍可 restore。Annotation safety backups 仍是内部 mutation recovery evidence，不形成第二套 public restore surface。
 
 BKLibrary restore：
 
@@ -70,7 +70,7 @@ validate/open selected backup
 → restore original Books state
 ```
 
-Restore source 在触碰 Books 前完成验证。Apply 成功后同样跨过不可逆边界：verification、retention 或 Books-state restore 失败必须表达为 applied-but-warning/unverified，不能自动执行第二次 restore。
+Restore source 在触碰 Books 前完成验证。Apply 前先为当前 live library 创建 safety backup；成功结果公开新的 opaque `safetyBackupID`，只要该 artifact 仍存在，它与其它 library `backupID` 一样可再次进入 guarded restore。Apply 成功后同样跨过不可逆边界：verification、retention 或 Books-state restore 失败必须表达为 applied-but-warning/unverified，不能自动执行第二次 restore。
 
 ## Cloud projection 与 acknowledgement
 

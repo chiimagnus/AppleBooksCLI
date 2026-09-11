@@ -20,7 +20,7 @@ Operational command 成功时 stdout 恰好输出一个 JSON value；没有 publ
 {"ok":false,"error":{"code":"usage_invalid","reason":null,"message":"Invalid command-line arguments.","recoveryHint":null}}
 ```
 
-`code` 的稳定集合是 `usage_invalid`、`not_found`、`unavailable`、`internal`、`write_safety`、`permission`。`reason` 用于更精确的机器分支；`recoveryHint` 只在存在可靠且不泄漏私有数据的恢复动作时提供。当前 reason tokens：
+Error envelope shape 固定：`error` 始终包含 `code`、`reason`、`message`、`recoveryHint`；没有 typed reason 或可靠 recovery action 时，`reason` / `recoveryHint` 编码为 JSON `null`，不省略 key。`code` 的稳定集合是 `usage_invalid`、`not_found`、`unavailable`、`internal`、`write_safety`、`permission`。`reason` 用于更精确的机器分支；`recoveryHint` 只在存在可靠且不泄漏私有数据的恢复动作时提供。当前 reason tokens：
 
 ```text
 ambiguous_identity            annotation_not_found          annotation_restore_unavailable
@@ -42,9 +42,11 @@ Unexpected/internal failure 只公开 `Internal error.`；parse failure 不回�
 
 普通 read DTO 可返回 `truncatedFields`；这表示 published presentation text 被 Core byte budget 或 CLI grapheme budget 缩短，但仍是合法 UTF-8 且结束在完整 `Character`。需要 archival fidelity 时使用显式 archival JSON export，而不是把 ordinary result 当 raw dump。
 
-Mutation 结果统一表达 `committed`、`changed`、`acknowledgementRequested`、nullable `acknowledged` 与 `warningCodes`，并使用领域 identity：annotation 为 `annotationUUID` / fallback `annotationLocalPK`；collection 为 `collectionID` / fallback `collectionLocalPK`；membership 另带 `bookAssetID` / fallback `bookLocalPK`。Library-backed collection/membership mutation 可返回 opaque `backupID`；annotation safety backup 不公开。Deterministic no-op 返回 `committed=false`、`changed=false`，不返回 `backupID`，也不实际等待 acknowledgement。
+Mutation 结果统一表达 `committed`、`changed`、`acknowledgementRequested`、nullable `acknowledged` 与 `warningCodes`，并使用领域 identity：annotation 为 `annotationUUID` / fallback `annotationLocalPK`；collection 为 `collectionID` / fallback `collectionLocalPK`；membership 另带 `bookAssetID` / fallback `bookLocalPK`。Library-backed collection/membership mutation 可返回 opaque `backupID`；annotation safety backup 不公开。成功 mutation 不因写入完成而回显用户 Note/正文、private SQLite payload、absolute path；annotation mutation 也不公开内部 safety backup 或 deeplink。Deterministic no-op 返回 `committed=false`、`changed=false`，不返回 `backupID`，也不实际等待 acknowledgement。
 
-`export` 必须显式 `--output`，默认 Markdown，`--format json` 才是 archival JSON。Artifact 只写入 guarded destination；stdout 只返回 compact write result（destination/disposition/documentCount/warningCount/complete/warnings），不输出完整 artifact 或逐文件路径。Relative output 基于 cwd，结果返回 canonical destination。Existing/unsafe target 分别使用稳定 `output_exists` / `unsafe_output` reason。
+`backups restore` 成功结果固定包含 `changed`、`status`、`verified`、`restoredFromBackupID`、`safetyBackupID`、`warningCodes`。`safetyBackupID` 是本次 apply 前 live-library safety backup 的 opaque public recovery identity；只要对应 backup artifact 仍存在，就可作为后续 `backups restore` 输入，而不要求仍出现在 newest-10 catalog 中。
+
+`export` 必须显式 `--output`，默认 Markdown，`--format json` 才是 archival JSON。Artifact 只写入 guarded destination；stdout 只返回 compact write result（`destination` / `disposition` / `documentCount` / `warningCount` / `complete` / `warnings` / `warningsTruncated`），不输出完整 artifact 或逐文件路径；`warningsTruncated` 表示 bounded warning summary 是否被截断。Relative output 基于 cwd，结果返回 canonical destination。Existing/unsafe target 分别使用稳定 `output_exists` / `unsafe_output` reason。Per-document replacement 的 atomic swap 一旦成功，新 artifact 就是已发布事实；随后 parent-directory sync 或旧树 cleanup 失败不能回滚新 artifact，只通过 `export_directory_sync_failed` / `old_export_cleanup_failed` warning 报告。
 
 ## Cursor continuation
 

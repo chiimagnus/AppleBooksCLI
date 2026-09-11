@@ -1,59 +1,59 @@
 ---
 name: applebookscli
-description: Use `applebookscli` to query, locate, export, or safely modify the user's Apple Books library, reading state, EPUB/PDF content, annotations, and collections
+description: Use `applebookscli` to query, read, export, diagnose, recover, sync, or safely modify Apple Books books, reading state, EPUB/PDF content, annotations, collections, backups, and operation history
 license: AGPL-3.0-only
 metadata:
-  cli_version: "0.3.1"
+  cli_version: "0.4.0"
   repository: "https://github.com/chiimagnus/AppleBooksCLI"
   language: "en"
 ---
 
 # AppleBooksCLI
 
-Use this Skill to choose and run `applebookscli` commands for Apple Books tasks.
+Use this Skill to choose and run `applebookscli` commands. Let the installed CLI's leaf `--help` own exact syntax and finite option values.
 
-## Use the CLI
+## Calling rules
 
-1. Choose the smallest command family that answers the request. If syntax is uncertain, read only that command's `--help`.
-2. Prefer stable identity for exact operations: book asset ID, annotation UUID, collection ID, or opaque `backupID`. Use a local PK only when it was explicitly supplied or no stable identity exists; never reinterpret a numeric-looking stable ID as a PK.
-3. Operational commands return JSON by default. Do not add `--json`.
-4. When a result returns `nextCursor`, continue the same query with `--cursor <nextCursor>` and pass the token unchanged. Growing book, reading-state, collection, PDF inventory/highlight, `annotations list`, and `content chapters` queries use this cursor contract (default 20, max 100); `content chapters` returns only `chapterOrder`, bounded title, and depth. Feed `chapterOrder` to `content chapter --book|--book-pk --chapter <order>`, whose text continuation is also opaque and never uses `--offset`.
-5. If `truncatedFields` is present, those fields are valid but incomplete presentation text. Use archival export when the user explicitly needs the original full text/CFI.
+1. Route the request to the smallest leaf command below. Inspect only that leaf command's `--help` when syntax is uncertain.
+2. If the request lacks an exact selector, use the relevant list/search command to obtain one before an exact read/write. Prefer book asset ID, annotation UUID, collection ID, opaque `pdfSourceID`, or `backupID`; use a local PK only when explicitly supplied or no stable identity exists. Never reinterpret a numeric-looking stable ID as a PK.
+3. Operational commands already return JSON. On failure, branch on `error.code`, `error.reason`, and `error.recoveryHint`; treat `message` as presentation text. Do not add `--json` or parse help text as data.
+4. Bounded queries are not implicit full scans. If more results are actually needed, repeat the same selectors/filters/order with `--cursor <nextCursor>` and pass the token unchanged. Stop when the user's request is satisfied; use `export` when the goal is a complete artifact.
+5. `truncatedFields` means ordinary presentation text is incomplete. Use archival JSON export when original full annotation/CFI fidelity is required.
 
-## Command routing
+## Intent routing
 
-| Goal | Command family |
+| Goal | Command |
 | --- | --- |
-| Books / search | `books` |
-| Reading state | `reading`, `stats` |
-| Annotations / notes / recent / search / context | Use `annotations list` for queries/search/recent filters, `annotations get` for exact detail, `annotations context` for bounded surrounding text, and mutation subcommands only for writes |
-| EPUB content | `content` |
-| PDF inventory / highlights | `pdf`; use inventory `bookAssetID` with `--book` or `pdfSourceID` with `--pdf`; highlights are paged summaries, so pass `nextCursor` unchanged and use archival export for raw geometry/full text |
-| Collections / membership | `collections` |
-| Full JSON / Markdown artifact | `export` |
-| Backup / restore | `backups` |
+| Find/list books; inspect one book | `books list`, `books search`, `books get` |
+| Reading queues; library statistics | `reading in-progress`, `reading finished`, `reading unstarted`, `reading recent`, `stats` |
+| Current bookmarked chapter text | `reading position` → `content chapter` |
+| Query/detail/context for annotations | `annotations list`, `annotations get`, `annotations context` |
+| Set/clear/delete/restore an annotation | `annotations update-note`, `annotations delete`, `annotations restore` |
+| EPUB metadata/cover/ToC/chapter text | `content metadata`, `content cover`, `content chapters`, `content chapter` |
+| PDF discovery and highlights | `pdf list` → `pdf highlights` |
+| Read collections and membership | `collections list`, `collections search`, `collections get`, `collections books` |
+| Modify collections and membership | `collections create`, `collections rename`, `collections delete`, `collections add-book`, `collections remove-book` |
+| Complete Markdown or archival JSON artifact | `export` |
+| Library recovery | `backups list`, `backups restore` |
 | Flush pending cloud changes | `sync` |
-| Recent CLI write/sync evidence | `history` |
-| Permission / database / capability diagnosis | `doctor` |
+| Recent write/sync outcome or inverse | `history list`, `history get` |
+| Permission/database/capability diagnosis | `doctor` |
 
-For annotation reads, repeat every selector/filter/order when continuing `annotations list` with its cursor. Reading order requires one exact book selector. `annotations get` may return a book-level `bookURL`, but it never carries the annotation CFI; use `annotations context <uuid>` (or explicit `--pk`) for bounded surrounding EPUB text, or archival export when raw CFI/full text is required. `reading position <asset-id>` (or explicit `--pk`) reports only a real type-3 bookmark that maps to the current ToC; it never guesses from a recent annotation, and its `chapterOrder` can be passed directly to `content chapter --chapter`. `content metadata` returns one bounded resolved metadata view. `content cover --output <path>` writes the image; `<path>` may be relative to the current directory, and JSON returns the canonical destination.
+For PDF reads, use the `bookAssetID` or `pdfSourceID` returned by `pdf list`; never substitute an absolute PDF path. `reading position` only succeeds for a real bookmark that maps to the current ToC; pass its `chapterOrder` to `content chapter`.
 
-## Writes and sync
+## Writes, sync, and retry
 
-- Run mutation or restore commands only when the user authorized that change. Use the CLI mutation commands; do not edit Apple Books SQLite directly.
-- `annotations update-note <uuid>` reads the complete replacement note from stdin; read the current note first when the user wants to append. Use `--clear` only to clear the note, and do not send a note body with `--clear`. `annotations delete` soft-deletes the annotation; `annotations restore` restores only that still-existing soft-deleted row and cannot recreate a purged annotation.
-- Collection create/rename trims leading and trailing whitespace from titles and rejects titles over 512 graphemes or 8 KiB UTF-8. Collection membership mutations use named selectors only: choose exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`; never pass collection/book identities as positional arguments.
-- Use `--sync` on a single mutation only when the user wants immediate current-Mac CloudKit acknowledgement; omitting it still performs the local commit/read-back and cloud projection. For several mutations that need acknowledgement, omit intermediate `--sync` and run root `applebookscli sync` once after the batch only if at least one result has `changed=true`. Do not root-sync an all-no-op batch. Root sync returns `status=no_pending_changes` with `acknowledged=null` when nothing is pending; otherwise it restores Books to its original closed/background/frontmost state after the acknowledgement attempt.
-- Mutation results return domain identities, not generic `stableID` / `localPK`: annotations use `annotationUUID` or fallback `annotationLocalPK`; collections use `collectionID` or fallback `collectionLocalPK`; membership results also use `bookAssetID` or fallback `bookLocalPK`. Annotation safety backups stay internal; collection/membership results may expose the library `backupID`.
-- When a mutation, restore, or root sync is sent through a transport that may retry automatically, generate one fresh lowercase UUID per logical write request and set `APPLEBOOKSCLI_OPERATION_ID=<uuid>`; transport retries must reuse that exact UUID. On `operation_replay_blocked`, inspect `history get <uuid>` before doing anything else, and never switch to a new UUID while an `incomplete` outcome is still unknown. `operation_id_conflict` means that UUID is already bound to a different request.
-- A deterministic no-op returns `committed=false`, `changed=false` and no `backupID`; if `--sync` was requested, `acknowledgementRequested=true` but `acknowledged=null` because no acknowledgement runs. A committed result with a later warning must not be replayed automatically. Sync acknowledgement only confirms the current Mac, not that another device already shows the change.
-- `backups list` is a fixed recovery catalog of the newest 10 valid library backups; do not paginate it or treat it as complete backup history. Feed the exact opaque `backupID` returned by the list or a previously saved valid `backupID` to `backups restore`; do not use backup filenames or paths as selectors.
+- Run mutation or restore commands only when the user authorized that change. Never edit Apple Books SQLite directly.
+- `annotations update-note` reads the complete replacement Note from stdin. Read the current note first when the user wants to append; use `--clear` only to clear it. `annotations delete` is soft-delete; `annotations restore` only restores the still-existing tombstone.
+- Collection membership writes use named selectors: exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`.
+- Read mutation results as state: `changed=false` is a successful no-op; `committed=true` means the local write crossed COMMIT. A post-commit `warningCodes` entry does not authorize replay.
+- Add `--sync` to one mutation only when immediate current-Mac acknowledgement is needed. For a batch, omit intermediate `--sync`; if at least one result has `changed=true`, run root `applebookscli sync` once at the end. Do not root-sync an all-no-op batch. Current-Mac acknowledgement does not prove another device already displays the change.
+- If the transport may retry automatically, generate one fresh lowercase UUID per logical mutation/restore/root-sync request and set `APPLEBOOKSCLI_OPERATION_ID=<uuid>`. Reuse that UUID on transport retry. On `operation_replay_blocked`, inspect `history get <uuid>` before any new attempt; an `incomplete` record is outcome-unknown and must not be retried under a new UUID.
+- `backups list` is only a newest-10 discovery window. Restore by an opaque `backupID` returned by the CLI or already known to remain valid; a successful restore returns a new `safetyBackupID` that can be used for recovery while its backup still exists.
 
-## Export and failures
+## Export and failure recovery
 
-- `export --output <path>` writes human-readable Markdown notes by default; request `--format json` for archival raw fidelity. In archival JSON, a non-finite Book raw numeric is `null`; inspect `numericAnomalies` to distinguish ±Infinity from an original null. Markdown keeps title/author, quote/Note, semantic location or PDF page, dates, and presentation attributes, not raw asset IDs/CFI or absolute PDF paths. Paths may be relative or absolute. Grouping chooses a file (`single`) or one atomically published managed directory (`per-document`), never the extension. Per-document filenames are stable for the same source identity. `--overwrite always` may replace only a valid prior AppleBooksCLI-managed per-document export; unexpected entries make the target `unsafe_output`. If old-tree cleanup fails after the atomic swap, keep the successful new artifact and report `old_export_cleanup_failed`. Stdout returns the canonical destination and document count, not every generated path.
-- Export an exact book with `--book <assetID>` (or explicit `--book-pk`), or a non-Book-identified PDF with `--pdf <pdfSourceID>` from `pdf list`; selectors are repeatable and media routing is automatic. Missing/ambiguous selectors fail, while a valid empty book is allowed. With no selectors, bulk export covers EPUB+PDF; only bulk accepts `--source epub|pdf|all`. Check `complete` and `warnings` before treating a bulk artifact as complete; exact PDF read failure writes no artifact.
-- Export records use reading order within each document by default; no order flag is needed.
-- Filter export with `--has-highlight true|false`, `--has-note true|false`, and `--underline true|false`; omitted properties are unrestricted, combined properties use AND. Highlight and Note can overlap. `--color` matches canonical EPUB colors, never approximate PDF colors. PDF highlights count as highlights even without extracted text.
-- Use `doctor` for permission, database-discovery, schema, or capability failures. Do not use it for a normal empty result.
-- Use `history` for recent write/sync evidence and safe inverse guidance. `history list` is cursor-paginated; pass `nextCursor` unchanged, then use the returned lowercase UUID with `history get`. The detail contains structured `request`, `result`, and `inverse`: only execute the indicated inverse when `inverse.available=true`, and never guess one for `incomplete` or unavailable records. An available inverse may include the prior Note/title required for reversal, so treat history detail as sensitive local data.
+- `export` requires `--output`, writes Markdown by default, and uses `--format json` for archival fidelity. Exact `--book`, `--book-pk`, and `--pdf` selectors route media automatically; without exact selectors, `--source epub|pdf|all` controls bulk scope.
+- Before treating a bulk export as complete, inspect `complete`, `warningCount`, `warnings`, and `warningsTruncated`. Use `--overwrite always` only when the user intends to replace an existing supported export destination.
+- Use `doctor` for permission, database, schema, worker, or capability failures—not for a normal empty result. Prefer an error's `recoveryHint` when present.
+- Use `history list` / `history get` for recent state-changing outcomes. Execute an indicated inverse only when `inverse.available=true`; never invent an inverse for `incomplete` or unavailable history.

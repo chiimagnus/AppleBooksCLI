@@ -1,59 +1,59 @@
 ---
 name: applebookscli-zh
-description: 使用 `applebookscli` 查询、定位、导出或安全修改用户的 Apple Books 书库、阅读状态、EPUB/PDF 内容、批注与藏书
+description: 使用 `applebookscli` 查询、读取、导出、诊断、恢复、同步或安全修改 Apple Books 的书籍、阅读状态、EPUB/PDF 内容、批注、藏书、备份与操作历史
 license: AGPL-3.0-only
 metadata:
-  cli_version: "0.3.1"
+  cli_version: "0.4.0"
   repository: "https://github.com/chiimagnus/AppleBooksCLI"
   language: "zh"
 ---
 
 # AppleBooksCLI
 
-本 Skill 只负责指导 AI 选择并调用 `applebookscli` 完成 Apple Books 任务。
+本 Skill 只负责指导 AI 选择并调用 `applebookscli`。精确语法与 finite option values 以当前安装 CLI 对应 leaf command 的 `--help` 为准。
 
-## 使用 CLI
+## 调用规则
 
-1. 选择能完成请求的最小命令族；语法不确定时，只读取对应命令的 `--help`。
-2. 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、opaque `backupID`。只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK；不能把数字形式的 stable ID 猜成 PK。
-3. Operational command 默认返回 JSON，不要添加 `--json`。
-4. 返回 `nextCursor` 时，用同一查询的 `--cursor <nextCursor>` 继续，并原样传递 token。可增长的书籍、阅读状态、藏书、PDF inventory/highlight、`annotations list` 与 `content chapters` 统一使用该游标契约（默认 20、最大 100）；`content chapters` 只返回 `chapterOrder`、bounded title 与 depth。把 `chapterOrder` 交给 `content chapter --book|--book-pk --chapter <order>`；正文 continuation 同样只用 opaque cursor，不使用 `--offset`。
-5. 出现 `truncatedFields` 时，对应字段是合法但不完整的展示文本。用户明确需要原始完整正文/CFI 时改用 archival export。
+1. 按下面的意图路由选择最小 leaf command；语法不确定时，只读取该 leaf command 的 `--help`。
+2. 用户没有 exact selector 时，先用对应 list/search 命令取得 selector，再做 exact read/write。优先使用 book asset ID、annotation UUID、collection ID、opaque `pdfSourceID` 或 `backupID`；只有用户明确提供 local PK，或确实没有 stable identity 时才使用 PK。不能把数字形式的 stable ID 猜成 PK。
+3. Operational command 已直接返回 JSON。失败时按 `error.code`、`error.reason`、`error.recoveryHint` 做机器分支；`message` 只作展示。不要添加 `--json`，也不要把 help 文本当数据解析。
+4. Bounded query 不是隐式全库扫描。只有确实还需要更多结果时，才用相同 selector/filter/order 加 `--cursor <nextCursor>` 继续，并原样传递 token。满足用户请求就停止；需要完整 artifact 时使用 `export`。
+5. `truncatedFields` 表示 ordinary presentation text 不完整。需要原始完整批注正文/CFI fidelity 时使用 archival JSON export。
 
-## 命令路由
+## 意图路由
 
-| 目标 | 命令族 |
+| 目标 | 命令 |
 | --- | --- |
-| 书籍 / 搜索 | `books` |
-| 阅读状态 | `reading`、`stats` |
-| 批注 / 笔记 / 最近记录 / 搜索 / 上下文 | 查询、搜索、最近记录统一用 `annotations list`，exact detail 用 `annotations get`，bounded 周边正文用 `annotations context`，写入才使用 mutation subcommand |
-| EPUB 内容 | `content` |
-| PDF inventory / highlights | `pdf`；使用 inventory 返回的 `bookAssetID` 搭配 `--book`，或 `pdfSourceID` 搭配 `--pdf`；highlight 是分页 summary，原样续传 `nextCursor`，raw geometry/完整正文改用 archival export |
-| 藏书 / membership | `collections` |
-| 完整 JSON / Markdown artifact | `export` |
-| 备份 / 恢复 | `backups` |
+| 查找/列出书籍；查看一本书 | `books list`、`books search`、`books get` |
+| 阅读队列；书库统计 | `reading in-progress`、`reading finished`、`reading unstarted`、`reading recent`、`stats` |
+| 当前 bookmarked chapter 正文 | `reading position` → `content chapter` |
+| 查询/详情/上下文批注 | `annotations list`、`annotations get`、`annotations context` |
+| 设置/清空/删除/恢复批注 | `annotations update-note`、`annotations delete`、`annotations restore` |
+| EPUB metadata/cover/ToC/chapter text | `content metadata`、`content cover`、`content chapters`、`content chapter` |
+| PDF 发现与 highlights | `pdf list` → `pdf highlights` |
+| 读取藏书与 membership | `collections list`、`collections search`、`collections get`、`collections books` |
+| 修改藏书与 membership | `collections create`、`collections rename`、`collections delete`、`collections add-book`、`collections remove-book` |
+| 完整 Markdown 或 archival JSON artifact | `export` |
+| library recovery | `backups list`、`backups restore` |
 | flush pending cloud changes | `sync` |
-| 最近 CLI 写入/同步证据 | `history` |
-| 权限 / 数据库 / capability 诊断 | `doctor` |
+| 最近写入/同步 outcome 或 inverse | `history list`、`history get` |
+| 权限/数据库/capability 诊断 | `doctor` |
 
-批注查询续页时，`annotations list` 的 selector/filter/order 都要与首请求保持一致，只原样增加返回的 cursor。reading order 必须指定一本 exact book。`annotations get` 若返回 `bookURL`，它只是无 CFI fragment 的书级链接；要读 bounded 周边 EPUB 正文用 `annotations context <uuid>`（或显式 `--pk`），要原始 CFI/完整正文用 archival export。`reading position <asset-id>`（或显式 `--pk`）只报告能映射到当前 ToC 的真实 type-3 bookmark，不会用最近批注猜测；返回的 `chapterOrder` 可直接交给 `content chapter --chapter`。`content metadata` 返回单一 bounded resolved metadata；`content cover --output <path>` 把图片写入文件，`<path>` 可相对当前目录，JSON 返回 canonical destination。
+PDF 后续读取使用 `pdf list` 返回的 `bookAssetID` 或 `pdfSourceID`，不要拿绝对 PDF path 代替 selector。`reading position` 只在真实 bookmark 能映射当前 ToC 时成功；把返回的 `chapterOrder` 交给 `content chapter`。
 
-## 写入与同步
+## 写入、同步与重试
 
-- 只有用户授权修改时才执行 mutation/restore。使用 CLI 的 mutation 命令，不要直接修改 Apple Books SQLite。
-- `annotations update-note <uuid>` 从 stdin 读取完整替换 note；用户要追加时先读取当前 note。只有清空 note 时使用 `--clear`，且 `--clear` 不要再传 note body。`annotations delete` 只 soft-delete；`annotations restore` 只恢复仍存在的 soft-deleted row，无法重建已被物理清除的批注。
-- collection create/rename 会 trim title 首尾空白；title 超过 512 grapheme 或 8 KiB UTF-8 会被拒绝。collection membership mutation 只使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个；collection/book identity 不再作为 positional argument。
-- 单条 mutation 只有在用户需要立即等待当前 Mac CloudKit acknowledgement 时才加 `--sync`；省略它仍会完成 local commit/read-back 与 cloud projection。多条 mutation 需要 acknowledgement 时，中间不加 `--sync`；只有至少一条结果为 `changed=true` 时，批次结束后才运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。root sync 没有 pending 时返回 `status=no_pending_changes`、`acknowledged=null`；有 pending 时在 acknowledgement 尝试后恢复 Books 原来的 closed/background/frontmost 状态。
-- mutation result 返回领域 identity，不再使用通用 `stableID` / `localPK`：批注使用 `annotationUUID` 或 fallback `annotationLocalPK`；collection 使用 `collectionID` 或 fallback `collectionLocalPK`；membership 还返回 `bookAssetID` 或 fallback `bookLocalPK`。annotation safety backup 只在内部使用；collection/membership result 才可能公开 library `backupID`。
-- 通过可能自动重试的 transport 执行 mutation/restore/root sync 时，为每个逻辑写请求生成一个新的 lowercase UUID，并以 `APPLEBOOKSCLI_OPERATION_ID=<uuid>` 传给 CLI；transport retry 必须原样复用同一个 UUID。若返回 `operation_replay_blocked`，先执行 `history get <uuid>` 检查原请求，尤其 `incomplete` 时不要换新 UUID 猜测性重试；`operation_id_conflict` 表示该 UUID 已用于不同请求。
-- deterministic no-op 返回 `committed=false`、`changed=false` 且没有 `backupID`；即使请求了 `--sync`，也只会有 `acknowledgementRequested=true`、`acknowledged=null`，不会真的等待 acknowledgement。已 commit 后出现 warning 不能触发自动重放。sync acknowledgement 只确认当前 Mac，不代表另一台设备已经显示。
-- `backups list` 是固定恢复目录，只展示最新 10 个有效 library backup；不要分页，也不要把它当作完整备份历史。把列表返回或之前保存的有效 opaque `backupID` 原样交给 `backups restore`；不要使用 backup filename 或 path 作为 selector。
+- 只有用户授权修改时才执行 mutation/restore。不要直接修改 Apple Books SQLite。
+- `annotations update-note` 从 stdin 读取完整 replacement Note。用户要追加时先读取当前 note；只有清空时使用 `--clear`。`annotations delete` 只 soft-delete；`annotations restore` 只恢复仍存在的 tombstone。
+- Collection membership 写入使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个。
+- 把 mutation result 当状态读取：`changed=false` 是成功 no-op；`committed=true` 表示本地写入已经跨过 COMMIT。出现 post-commit `warningCodes` 不授权 replay。
+- 单条 mutation 只有在需要立即等待当前 Mac acknowledgement 时才加 `--sync`。批量写入不在中间加 `--sync`；只要至少一条结果 `changed=true`，批次结束后再运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。当前 Mac acknowledgement 不代表另一台设备已经显示变更。
+- 如果 transport 可能自动 retry，为每个逻辑 mutation/restore/root-sync 请求生成一次 fresh lowercase UUID，并设置 `APPLEBOOKSCLI_OPERATION_ID=<uuid>`；transport retry 原样复用该 UUID。遇到 `operation_replay_blocked` 先执行 `history get <uuid>`；`incomplete` 表示 outcome unknown，不能换新 UUID 猜测性重试。
+- `backups list` 只是 newest-10 discovery window。Restore 使用 CLI 返回或已知仍有效的 opaque `backupID`；成功 restore 会返回新的 `safetyBackupID`，只要对应 backup 仍存在，就可继续用于 recovery。
 
-## 导出与失败处理
+## 导出与失败恢复
 
-- `export --output <path>` 默认写 human-readable Markdown notes，archival raw fidelity 显式指定 `--format json`；archival JSON 中不可编码的 Book non-finite raw numeric 主字段为 `null`，用 `numericAnomalies` 区分 ±Infinity 与原始 null。Markdown 只保留 title/author、quote/Note、可理解位置或 PDF page、日期与 presentation 属性，不输出 raw asset ID/CFI 或 PDF absolute path。路径可相对当前目录或为绝对路径。grouping 决定单文件（`single`）或一次性原子发布的 managed directory（`per-document`）；同一 source identity 的文件名稳定。`--overwrite always` 只允许替换已验证的旧 AppleBooksCLI per-document 导出，出现额外 entry 就 `unsafe_output`；原子 swap 后旧目录清理失败时保留新 artifact，并报告 `old_export_cleanup_failed`。stdout 只返回 canonical destination 和文档数量，不枚举所有路径。
-- 精确导出用 `--book <assetID>`（或显式 `--book-pk`）；没有唯一 Book identity 的 PDF 用 `pdf list` 返回的 `--pdf <pdfSourceID>`，不要传路径。selector 可重复，媒体自动路由；missing/ambiguous 失败，有效但无批注的书允许空结果。无 selector 时 bulk 默认覆盖 EPUB+PDF，只有 bulk 可用 `--source epub|pdf|all`；检查 `complete` 与 `warnings` 后再判断 artifact 是否完整，exact PDF 读取失败不写 artifact。
-- 导出默认按各文档内的阅读顺序排列，无需指定 order。
-- 导出属性过滤使用 `--has-highlight true|false`、`--has-note true|false`、`--underline true|false`；省略不筛，多条件按 AND 组合，Highlight 与 Note 可以同时存在。`--color` 只匹配 EPUB canonical color，不匹配 PDF 近似色；PDF highlight 即使未提取到文字仍算 highlight。
-- 权限、DB discovery、schema 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。
-- 需要确认近期写入/同步 outcome 或取得安全反操作指引时使用 `history`。`history list` 使用 cursor 分页，`nextCursor` 原样回传；再把返回的 lowercase UUID 交给 `history get`。详情包含结构化 `request`、`result`、`inverse`：只有 `inverse.available=true` 才执行其中给出的反操作；`incomplete` 或 unavailable 时不要自行猜。可用 inverse 可能包含恢复所需的旧 Note/title，因此把 history detail 视为本地敏感数据。
+- `export` 必须提供 `--output`，默认 Markdown；需要 archival fidelity 时用 `--format json`。Exact `--book`、`--book-pk`、`--pdf` 会自动路由媒体；没有 exact selector 时才用 `--source epub|pdf|all` 控制 bulk scope。
+- 把 bulk export 当完整结果前，检查 `complete`、`warningCount`、`warnings` 与 `warningsTruncated`。只有用户明确要替换现有受支持 export destination 时才使用 `--overwrite always`。
+- 权限、数据库、schema、worker 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。存在 `recoveryHint` 时优先按它恢复。
+- 用 `history list` / `history get` 检查近期 state-changing outcome。只有 `inverse.available=true` 才执行 history 指示的反操作；`incomplete` 或 unavailable 时不要自行猜 inverse。

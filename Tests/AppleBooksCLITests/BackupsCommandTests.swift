@@ -22,6 +22,8 @@ struct BackupsCommandTests {
         #expect(restoreCode == CLIProcessExit.success.rawValue)
         #expect(restoreCapture.stderr.isEmpty)
         #expect(restoreCapture.stdout.contains("backupID"))
+        let normalizedRestoreHelp = restoreCapture.stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(normalizedRestoreHelp.contains("need not appear in the current newest-10 list"))
         #expect(restoreCapture.stdout.lowercased().contains("handle") == false)
         #expect(restoreCapture.stdout.contains(".sqlite") == false)
     }
@@ -94,6 +96,37 @@ struct BackupsCommandTests {
             #expect(capture.stdout.isEmpty)
             #expect(capture.stderr.contains("Database override") == false)
         }
+    }
+
+    @Test
+    func restoreAcceptsKnownBackupIDOutsideNewestTenCatalog() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.backupRoot, withIntermediateDirectories: true)
+
+        var metadata: [BackupMetadata] = []
+        for index in 0..<11 {
+            let item = BackupMetadata.fresh(
+                sourceStem: "library",
+                now: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
+                uuid: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012x", index + 1))!
+            )
+            metadata.append(item)
+            try FileManager.default.copyItem(
+                at: fixture.library,
+                to: fixture.backupRoot.appendingPathComponent(item.filename)
+            )
+        }
+
+        let books = try fixture.books()
+        let listed = try BackupsListCommand.parse([]).execute(using: books)
+        #expect(listed.items.count == SQLiteBackup.retentionCount)
+        #expect(listed.items.contains { $0.backupID == metadata[0].backupID } == false)
+
+        try fixture.setValue("after-backup")
+        let result = try BackupsRestoreCommand.parse([metadata[0].backupID]).execute(using: books)
+        #expect(result.restoredFromBackupID == metadata[0].backupID)
+        #expect(try fixture.value() == "before-backup")
     }
 
     @Test

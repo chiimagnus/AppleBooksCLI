@@ -32,12 +32,6 @@ enum ExportColorArgument: String, ExpressibleByArgument, Sendable {
     var coreValue: ExportPresentationColor { ExportPresentationColor(rawValue: rawValue)! }
 }
 
-enum ExportOrderArgument: String, ExpressibleByArgument, Sendable {
-    case reading
-
-    var coreValue: ExportOrder { ExportOrder(rawValue: rawValue)! }
-}
-
 enum ExportGroupingArgument: String, ExpressibleByArgument, Sendable {
     case single
     case perDocument = "per-document"
@@ -230,9 +224,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Filter underline state: true or false.")
     var underline: AnnotationBooleanArgument?
 
-    @Option(name: .long, help: "Document ordering: reading (default).")
-    var order: ExportOrderArgument?
-
     @Option(name: .long, help: "File grouping: single or per-document.")
     var grouping: ExportGroupingArgument?
 
@@ -240,7 +231,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     var overwrite: ExportOverwriteArgument?
 
     @Option(name: .long, help: "Write the export artifact to this file or directory.")
-    var output: String?
+    var output: String
 
     @OptionGroup var global: GlobalOptions
 
@@ -264,7 +255,6 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
         }
         let colors: Set<ExportPresentationColor>? = color.isEmpty ? defaults.colors : Set(color.map(\.coreValue))
         let resolvedSource = source?.coreValue ?? defaults.source
-        let resolvedOrder = order?.coreValue ?? defaults.order
         let resolvedGrouping = grouping?.coreValue ?? defaults.grouping
 
         let options = try CLIOperation.run {
@@ -275,15 +265,11 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
                 hasNote: hasNote?.value,
                 colors: colors,
                 underline: underline?.value,
-                order: resolvedOrder,
                 grouping: resolvedGrouping
             )
         }
 
         let overwritePolicy = overwrite?.coreValue ?? .never
-        guard let output else {
-            throw ValidationError("Export requires --output.")
-        }
         let outputURL = try CLIOperation.run {
             try ExportFileWriter.destination(path: output, currentDirectory: currentDirectory)
         }

@@ -150,7 +150,7 @@ private func validateReadingPageInput(limit: Int?, cursor: String?) throws {
 
 struct ReadingBooksResult: Codable, Equatable, Sendable {
     let items: [BookSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 }
 

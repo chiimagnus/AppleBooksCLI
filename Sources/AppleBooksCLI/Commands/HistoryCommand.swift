@@ -73,7 +73,7 @@ struct HistoryGetCommand: ParsableCommand, CLIOutputRunnable {
 
 struct HistoryListResult: Codable, Equatable, Sendable {
     let items: [HistorySummary]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 
     init(page: CursorPage<OperationHistorySummaryRecord>) {

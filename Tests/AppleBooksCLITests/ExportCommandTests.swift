@@ -19,8 +19,19 @@ struct ExportCommandTests {
         #expect(request.outputURL.path == output.standardizedFileURL.path)
         #expect(request.producesMultipleFiles == false)
 
-        let missing = try ExportCommand.parse(["--format", "json"])
-        #expect(throws: ValidationError.self) { _ = try missing.makeRequest() }
+        #expect(throws: (any Error).self) {
+            _ = try ExportCommand.parse(["--format", "json"])
+        }
+    }
+
+    @Test
+    func helpMarksOutputAsRequired() {
+        let capture = Capture()
+        let code = CLIEntrypoint.run(arguments: ["export", "--help"], output: capture.output)
+
+        #expect(code == CLIProcessExit.success.rawValue)
+        #expect(capture.stderr.isEmpty)
+        #expect(capture.stdout.contains("USAGE: applebookscli export [<options>] --output <output>"))
     }
 
     @Test
@@ -37,7 +48,6 @@ struct ExportCommandTests {
             "--color", "yellow",
             "--color", "blue",
             "--underline", "true",
-            "--order", "reading",
             "--grouping", "per-document",
             "--overwrite", "always",
             "--output", output.path,
@@ -55,7 +65,6 @@ struct ExportCommandTests {
         #expect(request.options.hasNote == true)
         #expect(request.options.colors == [.yellow, .blue])
         #expect(request.options.underline == true)
-        #expect(request.options.order == .reading)
         #expect(request.options.grouping == .perDocument)
         #expect(request.overwrite == .always)
         #expect(request.outputURL.path == output.standardizedFileURL.path)
@@ -79,7 +88,7 @@ struct ExportCommandTests {
                 }
             }
         }
-        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
+        for arguments in [["--kind", "highlight"], ["--underline"], ["--order", "reading"], ["--order", "source"], ["--skip-first", "1"], ["--overwrite", "smart"], ["--include-epub-metadata"], ["--cover", "inline"], ["--cover", "file"], ["--grouping", "per-book"]] {
             #expect(throws: (any Error).self) {
                 _ = try ExportCommand.parse(["--format", "json"] + arguments)
             }
@@ -102,8 +111,15 @@ struct ExportCommandTests {
             _ = try invalidPK.makeRequest()
         }
 
-        let noOutput = try ExportCommand.parse(["--format", "json"] + global)
-        #expect(throws: ValidationError.self) { _ = try noOutput.makeRequest() }
+        let capture = Capture()
+        let code = CLIEntrypoint.run(
+            arguments: ["export", "--format", "json"] + global,
+            output: capture.output
+        )
+        #expect(code == CLIProcessExit.usageInvalid.rawValue)
+        #expect(capture.stdout.isEmpty)
+        #expect(capture.stderr.contains("Database override") == false)
+        #expect(capture.stderr.contains(missing) == false)
     }
 
     @Test
@@ -421,7 +437,7 @@ struct ExportCommandTests {
         #expect(names.filter { $0 != ManagedExportManifestWriter.fileName }.allSatisfy { $0.hasSuffix(".md") })
         let relative = try ExportCommand.parse(["--output", "relative"]).makeRequest(currentDirectory: fixture.root)
         #expect(relative.outputURL == fixture.root.appendingPathComponent("relative").standardizedFileURL)
-        #expect(throws: ValidationError.self) { _ = try ExportCommand.parse([]).makeRequest() }
+        #expect(throws: (any Error).self) { _ = try ExportCommand.parse([]) }
     }
 
     @Test

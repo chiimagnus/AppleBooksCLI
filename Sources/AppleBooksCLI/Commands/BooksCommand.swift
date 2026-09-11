@@ -184,7 +184,7 @@ private func validateBookSearchQuery(_ query: String) throws {
 
 struct BookSummaryPageResult: Codable, Equatable, Sendable {
     let items: [BookSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
     let total: Int?
 }

@@ -20,10 +20,6 @@ public enum ExportPresentationColor: String, Equatable, Hashable, Sendable {
     case purple
 }
 
-public enum ExportOrder: String, Equatable, Sendable {
-    case reading
-}
-
 public enum ExportFileGrouping: String, Equatable, Sendable {
     case single
     case perDocument = "per-document"
@@ -42,7 +38,6 @@ public struct ExportOptions: Equatable, Sendable {
     public let hasNote: Bool?
     public let colors: Set<ExportPresentationColor>?
     public let underline: Bool?
-    public let order: ExportOrder
     public let grouping: ExportFileGrouping
 
     public init(
@@ -52,7 +47,6 @@ public struct ExportOptions: Equatable, Sendable {
         hasNote: Bool? = nil,
         colors: Set<ExportPresentationColor>? = nil,
         underline: Bool? = nil,
-        order: ExportOrder = .reading,
         grouping: ExportFileGrouping = .single
     ) throws {
         if let colors {
@@ -79,7 +73,6 @@ public struct ExportOptions: Equatable, Sendable {
         self.hasNote = hasNote
         self.colors = colors
         self.underline = underline
-        self.order = order
         self.grouping = grouping
     }
 }

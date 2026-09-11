@@ -78,7 +78,7 @@ struct JSONExporterTests {
         let data = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 9)
+        #expect(root["schemaVersion"] as? Int == 10)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
@@ -87,7 +87,7 @@ struct JSONExporterTests {
         #expect(options["hasHighlight"] as? Bool == true)
         #expect(options["hasNote"] as? Bool == false)
         #expect(options["colors"] as? [String] == ["blue", "yellow"])
-        #expect(options["order"] as? String == "reading")
+        #expect(options["order"] == nil)
         #expect(options["skipFirstPerBook"] == nil)
         #expect(options["grouping"] as? String == "per-document")
         #expect(options["includeEPUBMetadata"] == nil)
@@ -209,7 +209,7 @@ struct JSONExporterTests {
         ]
         let bundle = try bundle(books: books)
         let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
-        #expect(root["schemaVersion"] as? Int == 9)
+        #expect(root["schemaVersion"] as? Int == 10)
         let groups = try array(root["groups"])
 
         let nilSource = try dictionary(try dictionary(groups[0])["source"])
@@ -243,7 +243,7 @@ struct JSONExporterTests {
         let document = try object(renderDocumentJSON(
             bundle.groups[2], from: bundle, exportedAt: Date(timeIntervalSince1970: 0)
         ))
-        #expect(document["schemaVersion"] as? Int == 9)
+        #expect(document["schemaVersion"] as? Int == 10)
         let documentSource = try dictionary(try dictionary(document["group"])["source"])
         let documentBook = try dictionary(documentSource["book"])
         #expect(try array(documentBook["numericAnomalies"]).count == 3)
@@ -500,7 +500,7 @@ struct JSONExporterTests {
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 9)
+        #expect(document["schemaVersion"] as? Int == 10)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
@@ -722,7 +722,6 @@ struct JSONExporterTests {
                 hasHighlight: true,
                 hasNote: false,
                 colors: [.yellow, .blue],
-                order: .reading,
                 grouping: .perDocument
             )
             bundle = ExportBundle(

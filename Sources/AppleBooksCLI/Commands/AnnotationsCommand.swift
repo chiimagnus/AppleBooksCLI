@@ -419,7 +419,7 @@ private func parseCanonicalAnnotationInstant(_ raw: String?, optionName: String)
 
 struct AnnotationListResult: Codable, Equatable, Sendable {
     let items: [AnnotationSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 
     init(_ page: CursorPage<SemanticAnnotation>) {

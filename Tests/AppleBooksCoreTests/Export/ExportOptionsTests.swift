@@ -14,7 +14,6 @@ struct ExportOptionsTests {
         #expect(options.hasNote == nil)
         #expect(options.colors == nil)
         #expect(options.underline == nil)
-        #expect(options.order == .reading)
         #expect(options.grouping == .single)
 
         #expect(throws: ExportOptionsError.emptyColors) {
@@ -235,7 +234,7 @@ struct ExportOptionsTests {
         ]
 
         let ordered = try ExportSelection.apply(
-            options: try ExportOptions(hasHighlight: true, order: .reading),
+            options: try ExportOptions(hasHighlight: true),
             to: records
         )
         #expect(ordered.compactMap(\.epubPK) == [3, 5, 2, 1, 4, 6, 7])
@@ -253,7 +252,7 @@ struct ExportOptionsTests {
         ]
 
         let ordered = try ExportSelection.apply(
-            options: try ExportOptions(source: .pdf, hasHighlight: true, order: .reading),
+            options: try ExportOptions(source: .pdf, hasHighlight: true),
             to: records
         )
         #expect(ordered.compactMap(\.pdfTraversal) == [2, 1, 3, 4, 0])
@@ -272,10 +271,7 @@ struct ExportOptionsTests {
         ]
 
         let ordered = try ExportSelection.apply(
-            options: try ExportOptions(
-                hasHighlight: true,
-                order: .reading
-            ),
+            options: try ExportOptions(hasHighlight: true),
             to: firstDocument + secondDocument
         )
         #expect(ordered.compactMap(\.epubPK) == [3, 2, 1, 5, 4])

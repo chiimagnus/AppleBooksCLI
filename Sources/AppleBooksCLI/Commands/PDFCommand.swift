@@ -137,7 +137,7 @@ private enum PDFCLISelection {
 
 struct PDFSourceListResult: Codable, Equatable, Sendable {
     let items: [PDFInventoryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 }
 
@@ -169,7 +169,7 @@ struct PDFHighlightPageResult: Codable, Equatable, Sendable {
     let bookAssetID: String?
     let pdfSourceID: String?
     let items: [PDFHighlightSummaryResult]
-    let nextCursor: String?
+    @ExplicitNullString var nextCursor: String?
     let hasMore: Bool
 
     init(_ page: SemanticPDFHighlightPage) {

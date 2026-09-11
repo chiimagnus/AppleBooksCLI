@@ -463,8 +463,7 @@
     ],
     "cliHelpArgs": [
       [
-        "export",
-        "--order"
+        "export"
       ]
     ]
   },

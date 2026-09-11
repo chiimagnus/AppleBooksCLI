@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 package enum JSONExporter {
-    static let schemaVersion = 9
+    static let schemaVersion = 10
 
     package static func stream(
         _ bundle: ExportBundle,
@@ -152,7 +152,6 @@ private final class StreamingJSONWriter {
                 try field("colors", first: &first) { try array(colors.map(\.rawValue).sorted(), string) }
             }
             try optionalField("underline", value: value.underline, first: &first, write: boolean)
-            try field("order", first: &first) { try string(value.order.rawValue) }
             try field("grouping", first: &first) { try string(value.grouping.rawValue) }
         }
     }

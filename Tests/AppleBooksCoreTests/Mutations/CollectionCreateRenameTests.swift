@@ -161,6 +161,66 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
+    func identicalCanonicalRenameIsQuietNoOpWithoutBackupProjectionOrAcknowledgement() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let before = try collectionRow(fixture.database, pk: 10)
+        var running = true
+        var terminateCount = 0
+        var launchCount = 0
+        var projectionCount = 0
+        var acknowledgementCount = 0
+        let booksApp = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                terminateCount += 1
+                running = false
+                return true
+            },
+            launch: {
+                launchCount += 1
+                running = true
+            }
+        )
+        let synchronizer = CollectionCloudSynchronizer(
+            booksApp: booksApp,
+            detailState: { _ in
+                acknowledgementCount += 1
+                return .init(deleted: false, editGeneration: 1, syncGeneration: 1, systemFieldsBytes: 1)
+            },
+            memberState: { _, _ in nil },
+            deletedMemberStates: { _ in [] },
+            recycleAction: {}
+        )
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: booksApp,
+            cloudProjector: CollectionCloudProjector { _ in projectionCount += 1 },
+            cloudSynchronizer: synchronizer
+        )
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "  Old\n", syncCloud: true)
+
+        let after = try collectionRow(fixture.database, pk: 10)
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.acknowledgementRequested)
+        #expect(result.acknowledged == nil)
+        #expect(result.warnings.isEmpty)
+        #expect(before.opt == after.opt)
+        #expect(before.lastModification == after.lastModification)
+        #expect(before.localModification == after.localModification)
+        #expect(try completedBackups(fixture.backupRoot).isEmpty)
+        #expect(projectionCount == 0)
+        #expect(acknowledgementCount == 0)
+        #expect(terminateCount == 1)
+        #expect(launchCount == 1)
+        #expect(running)
+    }
+
+    @Test
     func emptyTitlesFailBeforeBackupAndSystemRenameFailsInPreflight() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

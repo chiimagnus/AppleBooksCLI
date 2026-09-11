@@ -201,6 +201,15 @@ struct CollectionWriter {
                 guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
                 _ = try Self.resolveCollection(selector, scope: .collection, on: handle)
             },
+            quietDecision: { connection in
+                try Self.validateRenameSchema(on: connection)
+                guard let handle = connection.handle else { throw CollectionWriteError.collectionMissing }
+                let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                guard try Self.currentTitle(localPK: target.localPK, on: handle) == normalizedTitle else {
+                    return .needsMutation
+                }
+                return .noChange(MutationDomainData(localPK: target.localPK, stableID: target.stableID, changed: false))
+            },
             revalidate: { handle in
                 try Self.validateRenameSchema(on: handle)
                 let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
@@ -214,30 +223,37 @@ struct CollectionWriter {
             },
             mutation: { handle in
                 let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
+                if try Self.currentTitle(localPK: target.localPK, on: handle) == normalizedTitle {
+                    return RenameMutationResult(changed: false, target: target)
+                }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.updateTitle(localPK: target.localPK, title: normalizedTitle, timestamp: timestamp, on: handle)
-                return target
+                return RenameMutationResult(changed: true, target: target)
             },
-            invariant: { handle, target in
-                _ = try Self.editableTarget(localPK: target.localPK, scope: .collection, on: handle)
+            invariant: { handle, payload in
+                _ = try Self.editableTarget(localPK: payload.target.localPK, scope: .collection, on: handle)
             },
-            domainData: {
-                MutationDomainData(localPK: $0.localPK, stableID: $0.stableID, changed: true)
+            domainData: { payload in
+                MutationDomainData(
+                    localPK: payload.target.localPK,
+                    stableID: payload.target.stableID,
+                    changed: payload.changed
+                )
             },
             cloudProjection: cloudProjector.map { projector in
-                { target in try projector.project(.collection(localPK: target.localPK)) }
+                { payload in try projector.project(.collection(localPK: payload.target.localPK)) }
             },
             acknowledgementRequested: syncCloud,
             acknowledgement: cloudSynchronizer.map { synchronizer in
-                { target, onTemporaryBooksLaunch in
+                { payload, onTemporaryBooksLaunch in
                     try synchronizer.syncCollection(
-                        localPK: target.localPK,
+                        localPK: payload.target.localPK,
                         onTemporaryBooksLaunch: onTemporaryBooksLaunch
                     )
                 }
             },
-            readBack: { connection, target in
-                guard let collection = try Self.readBackCollection(localPK: target.localPK, on: connection),
+            readBack: { connection, payload in
+                guard let collection = try Self.readBackCollection(localPK: payload.target.localPK, on: connection),
                       collection.title == normalizedTitle else {
                     throw CollectionWriteError.writeFailed
                 }
@@ -1069,6 +1085,34 @@ struct CollectionWriter {
         return sqlite3_column_int64(statement, 0) == 1
     }
 
+    private static func currentTitle(localPK: Int64, on handle: OpaquePointer) throws -> String? {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, "SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=? LIMIT 1", -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw CollectionWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW else {
+            throw CollectionWriteError.writeFailed
+        }
+        let title: String?
+        switch sqlite3_column_type(statement, 0) {
+        case SQLITE_NULL:
+            title = nil
+        case SQLITE_TEXT:
+            do {
+                title = try decodeSQLiteText(statement, at: 0)
+            } catch {
+                throw CollectionWriteError.writeFailed
+            }
+        default:
+            throw CollectionWriteError.writeFailed
+        }
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw CollectionWriteError.writeFailed }
+        return title
+    }
+
     private static func updateTitle(localPK: Int64, title: String, timestamp: Double, on handle: OpaquePointer) throws {
         var statement: OpaquePointer?
         let sql = """
@@ -1116,6 +1160,11 @@ struct CollectionWriter {
         let title: String
         let sortKey: Int64
         let timestamp: Double
+    }
+
+    private struct RenameMutationResult {
+        let changed: Bool
+        let target: CollectionWriteTarget
     }
 
     private struct MembershipMutationResult {

@@ -125,8 +125,7 @@
       "Sources/AppleBooksCore/Content/EPUBEncryption.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift",
-      "Tests/AppleBooksCLITests/ContentInspectCommandTests.swift"
+      "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift"
     ],
     "cliHelpArgs": [
       [

@@ -98,7 +98,9 @@ ack criterion 由 synchronizer/tests 拥有。成功只证明当前 Mac 的 clou
 
 ## Operation history 交叉边界
 
-CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `started` 才能 dispatch；completion 写入发生在 command outcome 之后，失败只能追加 warning。完整 stdout/stderr/JSON、history persistence/read 与隐私 contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
+CLI 对目标 mutation、restore 与 root sync 必须先持久化 history `started` 才能 dispatch。需要反操作旧值的 mutation（当前为 annotation Note 与 collection title）只能从 guarded transaction 内、COMMIT 前读取真实 prior state，并随 committed mutation result 带回 CLI；CLI 不得在 mutation 前预读再猜。命令在 presentation 前把 committed result/inverse 写入 in-memory completion sink，因此后续 JSON/output 失败也不能抹掉已经发生的 mutation 证据。completion 持久化失败只能追加 warning，绝不能改变或重放已 commit mutation。
+
+History inverse 仍受 identity/data-integrity 边界约束：annotation 自动 delete↔restore inverse 只使用 eligible stable UUID；只有 local PK 时不宣称自动可逆。prior Note/title 必须完整保存才可标记 inverse available，超过 history payload 边界时降级为 unavailable，不能截断后伪称可恢复。完整的 history JSON/read/migration contract 由 [`cli-contract.md`](cli-contract.md) 拥有。
 
 ## Edit trigger / evidence
 

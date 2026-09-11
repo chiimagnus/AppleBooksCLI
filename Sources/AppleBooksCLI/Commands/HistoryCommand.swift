@@ -110,9 +110,9 @@ struct HistoryDetailResult: Codable, Equatable, Sendable {
     let operation: String
     let status: OperationHistoryStatus
     let exitCode: Int32?
-    let arguments: [String]
-    let stdout: String?
-    let stderr: String?
+    let request: OperationHistoryRequest
+    let result: OperationHistoryResult?
+    let inverse: OperationHistoryInverse
 
     init(record: OperationHistoryRecord) {
         id = record.id
@@ -121,9 +121,9 @@ struct HistoryDetailResult: Codable, Equatable, Sendable {
         operation = record.operation
         status = record.status
         exitCode = record.exitCode
-        arguments = record.arguments
-        stdout = record.stdout
-        stderr = record.stderr
+        request = record.request
+        result = record.result
+        inverse = record.inverse
     }
 
 }

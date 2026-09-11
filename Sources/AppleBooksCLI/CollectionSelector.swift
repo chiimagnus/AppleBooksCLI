@@ -5,6 +5,13 @@ enum CollectionSelector: Equatable, Sendable {
     case collectionID(String)
     case localPK(Int64)
 
+    var historySelector: OperationHistorySelector {
+        switch self {
+        case let .collectionID(collectionID): OperationHistorySelector(collectionID: collectionID)
+        case let .localPK(localPK): OperationHistorySelector(collectionLocalPK: localPK)
+        }
+    }
+
     func resolveSemantic(in books: AppleBooks) throws -> SemanticCollection? {
         switch self {
         case let .collectionID(collectionID):

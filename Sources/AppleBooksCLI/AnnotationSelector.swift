@@ -5,6 +5,13 @@ enum AnnotationSelector: Equatable, Sendable {
     case uuid(String)
     case localPK(Int64)
 
+    var historySelector: OperationHistorySelector {
+        switch self {
+        case let .uuid(uuid): OperationHistorySelector(annotationUUID: uuid)
+        case let .localPK(localPK): OperationHistorySelector(annotationLocalPK: localPK)
+        }
+    }
+
     func resolveSemantic(in books: AppleBooks) throws -> SemanticAnnotation? {
         switch self {
         case let .uuid(uuid):

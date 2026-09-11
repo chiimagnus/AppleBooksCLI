@@ -55,4 +55,4 @@ metadata:
 - 导出默认按各文档内的阅读顺序排列，无需指定 order。
 - 导出属性过滤使用 `--has-highlight true|false`、`--has-note true|false`、`--underline true|false`；省略不筛，多条件按 AND 组合，Highlight 与 Note 可以同时存在。`--color` 只匹配 EPUB canonical color，不匹配 PDF 近似色；PDF highlight 即使未提取到文字仍算 highlight。
 - 权限、DB discovery、schema 或 capability 失败时使用 `doctor`；正常 empty result 不需要诊断。
-- 需要确认近期 CLI 写入/同步 outcome 时使用 `history`；它不是 undo。`history list` 使用 cursor 分页，返回 `nextCursor` 时原样传给 `history list --cursor <nextCursor>`；需要完整详情时把 list 返回的 lowercase UUID 交给 `history get`。
+- 需要确认近期写入/同步 outcome 或取得安全反操作指引时使用 `history`。`history list` 使用 cursor 分页，`nextCursor` 原样回传；再把返回的 lowercase UUID 交给 `history get`。详情包含结构化 `request`、`result`、`inverse`：只有 `inverse.available=true` 才执行其中给出的反操作；`incomplete` 或 unavailable 时不要自行猜。可用 inverse 可能包含恢复所需的旧 Note/title，因此把 history detail 视为本地敏感数据。

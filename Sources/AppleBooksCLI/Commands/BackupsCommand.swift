@@ -49,6 +49,13 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 
     var historyOperation: String { "backups.restore" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        guard LibraryBackup.isValidBackupID(backupID) else {
+            throw CLIError.usageInvalid("Invalid backupID.")
+        }
+        return OperationHistoryRequest(selector: OperationHistorySelector(backupID: backupID))
+    }
+
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
@@ -56,13 +63,23 @@ struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> RestoreCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> RestoreCommandResult {
         guard LibraryBackup.isValidBackupID(backupID) else {
             throw CLIError.usageInvalid("Invalid backupID.")
         }
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .libraryBackup)
-            return try RestoreCommandResult(try books.restoreLibraryBackup(backupID: backupID))
+            let restore = try books.restoreLibraryBackup(backupID: backupID)
+            historySink?.record(.restore(restore))
+            return try RestoreCommandResult(restore)
         }
     }
 }

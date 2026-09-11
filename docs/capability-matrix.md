@@ -15,7 +15,7 @@
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |
 | operational JSON output | 已实现（强化） | operational success固定stdout单个JSON；fatal error固定stderr JSON；help/version保持plain text；无public `--json`/`--verbose`双轨 |
-| operation history | 已实现（强化） | 最近 24h 记录目标写入/sync；list 默认20/最大100并用opaque cursor续页，summary不含argv/stdout/stderr；get按exact lowercase UUID读取完整本地记录；不是 undo |
+| operation history | 已实现（强化） | 最近 24h 记录目标 mutation/restore/sync 的结构化 request/result；list 默认20/最大100并用opaque cursor续页；get按exact lowercase UUID返回detail与可用时的安全 inverse，prior Note/title仅在反操作需要时保存；不持久化raw argv或stdout/stderr |
 
 ## Books
 

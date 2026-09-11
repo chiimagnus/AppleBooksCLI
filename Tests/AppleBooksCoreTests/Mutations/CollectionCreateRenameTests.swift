@@ -221,6 +221,39 @@ struct CollectionCreateRenameTests {
     }
 
     @Test
+    func renameHistoryEffectUsesTransactionTitleAfterBooksQuit() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let earlierRead = try collectionRow(fixture.database, pk: 10).title
+        #expect(earlierRead == "Old")
+        var running = true
+        let booksApp = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                do {
+                    try execute(fixture.database, "UPDATE ZBKCOLLECTION SET ZTITLE='Concurrent' WHERE Z_PK=10")
+                    running = false
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            launch: { running = true },
+            sleep: { _ in }
+        )
+        let writer = CollectionWriter(
+            database: fixture.database,
+            backupRoot: fixture.backupRoot,
+            booksApp: booksApp
+        )
+
+        let result = try writer.renameCollection(localPK: 10, newTitle: "Final")
+
+        #expect(result.historyEffect == .collectionTitle(previous: "Concurrent"))
+        #expect(try collectionRow(fixture.database, pk: 10).title == "Final")
+    }
+
+    @Test
     func emptyTitlesFailBeforeBackupAndSystemRenameFailsInPreflight() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

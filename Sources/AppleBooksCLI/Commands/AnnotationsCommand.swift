@@ -269,6 +269,15 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
 
     var historyOperation: String { "annotations.update-note" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(
+            selector: selector.historySelector,
+            noteAction: clear ? .clear : .set(),
+            syncRequested: sync
+        )
+    }
+
     mutating func run() throws {
         try run(output: .standard)
     }
@@ -278,18 +287,23 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
         try output.writeJSON(result)
     }
 
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(input: .standardInput, historySink: sink)
+        try output.writeJSON(result)
+    }
+
     func execute(
         using injectedBooks: AppleBooks? = nil,
-        input: FileHandle = .standardInput
+        input: FileHandle = .standardInput,
+        historySink: OperationHistoryCompletionSink? = nil
     ) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         let note = try AnnotationNoteInput.resolve(clear: clear, from: input)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return AnnotationMutationCommandResult(
-                try selector.updateNote(note, in: books, syncCloud: sync),
-                selector: selector
-            )
+            let mutation = try selector.updateNote(note, in: books, syncCloud: sync)
+            historySink?.record(.mutation(mutation, inverse: .annotationNote(mutation)))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
         }
     }
 }
@@ -313,6 +327,11 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 
     var historyOperation: String { "annotations.delete" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(selector: selector.historySelector, syncRequested: sync)
+    }
+
     mutating func run() throws {
         try run(output: .standard)
     }
@@ -322,14 +341,24 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> AnnotationMutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return AnnotationMutationCommandResult(
-                try selector.delete(in: books, syncCloud: sync),
-                selector: selector
-            )
+            let mutation = try selector.delete(in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .annotationState(mutation, operation: "annotations.restore")
+            ))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
         }
     }
 }
@@ -353,6 +382,11 @@ struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 
     var historyOperation: String { "annotations.restore" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return OperationHistoryRequest(selector: selector.historySelector, syncRequested: sync)
+    }
+
     mutating func run() throws {
         try run(output: .standard)
     }
@@ -361,14 +395,23 @@ struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
         try output.writeJSON(try execute())
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> AnnotationMutationCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        try output.writeJSON(try execute(historySink: sink))
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
         let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
-            return AnnotationMutationCommandResult(
-                try selector.restore(in: books, syncCloud: sync),
-                selector: selector
-            )
+            let mutation = try selector.restore(in: books, syncCloud: sync)
+            historySink?.record(.mutation(
+                mutation,
+                inverse: .annotationState(mutation, operation: "annotations.delete")
+            ))
+            return AnnotationMutationCommandResult(mutation, selector: selector)
         }
     }
 }

@@ -10,14 +10,14 @@ struct HistoryCommandTests {
         defer { fixture.remove() }
         let fixed = fixture.date("2026-09-04T10:00:00Z")
         let olderStore = fixture.store(now: fixed.addingTimeInterval(-60))
-        let older = try olderStore.begin(operation: "sync", arguments: ["sync"])
-        try olderStore.complete(older, exitCode: 0, stdout: "older", stderr: "")
+        let older = try olderStore.beginTestHistory(operation: "sync")
+        try olderStore.completeTestHistory(older, exitCode: 0)
 
         let store = fixture.store(now: fixed)
-        let first = try store.begin(operation: "collections.create", arguments: ["collections", "create", "private title"])
-        try store.complete(first, exitCode: 0, stdout: "first", stderr: "")
-        let second = try store.begin(operation: "annotations.update-note", arguments: ["annotations", "update-note", "--note", "private note"])
-        try store.complete(second, exitCode: 1, stdout: "", stderr: "private-error-secret")
+        let first = try store.beginTestHistory(operation: "collections.create")
+        try store.completeTestHistory(first, exitCode: 0)
+        let second = try store.beginTestHistory(operation: "annotations.update-note")
+        try store.completeTestHistory(second, exitCode: 1)
 
         let command = try HistoryListCommand.parse([])
         let capture = Capture()
@@ -31,25 +31,27 @@ struct HistoryCommandTests {
     }
 
     @Test
-    func getDistinguishesCompletedEmptyStreamsFromIncompleteNil() throws {
+    func getDistinguishesCompletedFromIncompleteRecords() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = fixture.store()
-        let completed = try store.begin(operation: "sync", arguments: ["sync"])
-        try store.complete(completed, exitCode: 0, stdout: "", stderr: "")
-        let incomplete = try store.begin(operation: "collections.rename", arguments: ["collections", "rename", "id"])
+        let completed = try store.beginTestHistory(operation: "sync")
+        try store.completeTestHistory(completed, exitCode: 0)
+        let incomplete = try store.beginTestHistory(operation: "collections.rename")
 
         let completedResult = try runJSONGet(completed.id, store: store)
         #expect(completedResult.status == .success)
-        #expect(completedResult.stdout == "")
-        #expect(completedResult.stderr == "")
+        #expect(completedResult.request == .unavailable)
+        #expect(completedResult.result == .unavailable)
+        #expect(completedResult.inverse == .unavailable)
         #expect(completedResult.completedAt != nil)
         #expect(completedResult.exitCode == 0)
 
         let incompleteResult = try runJSONGet(incomplete.id, store: store)
         #expect(incompleteResult.status == .incomplete)
-        #expect(incompleteResult.stdout == nil)
-        #expect(incompleteResult.stderr == nil)
+        #expect(incompleteResult.request == .unavailable)
+        #expect(incompleteResult.result == nil)
+        #expect(incompleteResult.inverse == .unavailable)
         #expect(incompleteResult.completedAt == nil)
         #expect(incompleteResult.exitCode == nil)
     }
@@ -59,19 +61,34 @@ struct HistoryCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = fixture.store()
+        let privateTitle = "line1\nline2\u{001B}[31m"
         let token = try store.begin(
-            operation: "annotations.update-note",
-            arguments: ["annotations", "update-note", "--note", "line1\nline2\u{001B}[31m"]
+            operation: "collections.rename",
+            request: OperationHistoryRequest(
+                selector: OperationHistorySelector(collectionID: "collection-id"),
+                title: privateTitle
+            )
         )
-        try store.complete(token, exitCode: 0, stdout: "out\nnext\u{001B}[2J", stderr: "err\tvalue")
+        try store.complete(
+            token,
+            exitCode: 0,
+            completion: OperationHistoryCompletion(
+                result: .unavailable,
+                inverse: OperationHistoryInverse(
+                    available: true,
+                    operation: "collections.rename",
+                    selector: OperationHistorySelector(collectionID: "collection-id"),
+                    noteAction: nil,
+                    title: privateTitle
+                )
+            )
+        )
 
         let command = try HistoryGetCommand.parse([token.id])
         let capture = Capture()
         try command.run(output: capture.output, store: store)
         #expect(capture.stdout.contains("line1\\nline2"))
         #expect(capture.stdout.contains("\\u001b"))
-        #expect(capture.stdout.contains("out\\nnext"))
-        #expect(capture.stdout.contains("err\\tvalue"))
         #expect(capture.stdout.unicodeScalars.contains { $0.value == 0x1B } == false)
         #expect(capture.stderr.isEmpty)
     }
@@ -155,8 +172,8 @@ struct HistoryCommandTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = fixture.store()
-        let token = try store.begin(operation: "sync", arguments: ["sync"])
-        try store.complete(token, exitCode: 0, stdout: "ok", stderr: "")
+        let token = try store.beginTestHistory(operation: "sync")
+        try store.completeTestHistory(token, exitCode: 0)
         let before = try store.listPage(limit: 100).items.count
 
         let list = try HistoryListCommand.parse([])

@@ -53,6 +53,7 @@ struct AnnotationWriter {
     private struct NoteMutation {
         let target: Target
         let changed: Bool
+        let historyEffect: MutationHistoryEffect?
     }
 
     private struct StateMutation {
@@ -154,11 +155,16 @@ struct AnnotationWriter {
             },
             mutation: { handle in
                 let target = try Self.resolve(selector, on: handle)
-                if try Self.currentNote(localPK: target.localPK, on: handle) == note {
-                    return NoteMutation(target: target, changed: false)
+                let previousNote = try Self.currentNote(localPK: target.localPK, on: handle)
+                if previousNote == note {
+                    return NoteMutation(target: target, changed: false, historyEffect: nil)
                 }
                 try Self.applyNote(note, to: target.localPK, on: handle)
-                return NoteMutation(target: target, changed: true)
+                return NoteMutation(
+                    target: target,
+                    changed: true,
+                    historyEffect: Self.noteHistoryEffect(previousNote)
+                )
             },
             invariant: { handle, payload in
                 try Self.verifyNote(
@@ -171,6 +177,7 @@ struct AnnotationWriter {
             domainData: { payload in
                 Self.domainData(target: payload.target, changed: payload.changed)
             },
+            historyEffect: { $0.historyEffect },
             cloudProjection: cloudProjector.map { projector in
                 { payload in try projector.project(localPK: payload.target.localPK) }
             },
@@ -463,6 +470,16 @@ struct AnnotationWriter {
               note.utf8.count <= 64 * 1_024 else {
             throw AnnotationWriteError.invalidNoteLength
         }
+    }
+
+    private static func noteHistoryEffect(_ previousNote: String?) -> MutationHistoryEffect? {
+        guard let previousNote else { return .annotationNote(previous: nil) }
+        guard AnnotationContentSemantics.hasContent(previousNote),
+              previousNote.count <= 10_000,
+              previousNote.utf8.count <= 64 * 1_024 else {
+            return nil
+        }
+        return .annotationNote(previous: previousNote)
     }
 
     private static func currentNote(localPK: Int64, on handle: OpaquePointer) throws -> String? {

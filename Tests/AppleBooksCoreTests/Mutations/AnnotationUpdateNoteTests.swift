@@ -296,6 +296,55 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func historyEffectUsesTransactionStateAfterBooksQuitInsteadOfEarlierRead() throws {
+        let root = try baseFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("annotations.sqlite")
+        try createSchema(at: database, deleted: 0, entityID: 17, duplicateUUID: false)
+        let backupRoot = root.appendingPathComponent("backups")
+        let earlierRead = try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1")
+        #expect(earlierRead == "old-note")
+        var running = true
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                let changed = executeNoThrow(
+                    database,
+                    "UPDATE ZAEANNOTATION SET ZANNOTATIONNOTE='transaction-note' WHERE Z_PK=1"
+                )
+                running = false
+                return changed
+            },
+            launch: { running = true },
+            sleep: { _ in }
+        )
+        let writer = AnnotationWriter(database: database, backupRoot: backupRoot, booksApp: controller)
+
+        let result = try writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.historyEffect == .annotationNote(previous: "transaction-note"))
+        #expect(try text(database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+    }
+
+    @Test
+    func oversizedPriorNoteCommitsButDoesNotClaimAutomaticInverse() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        let oversized = String(repeating: "x", count: 64 * 1_024 + 1)
+        try execute(
+            fixture.database,
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONNOTE='\(oversized)' WHERE Z_PK=1"
+        )
+
+        let result = try fixture.writer.updateNote(localPK: 1, note: "replacement")
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.historyEffect == nil)
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "replacement")
+    }
+
+    @Test
     func facadeRoutesBothExplicitSelectorsToAnnotationWriter() throws {
         let fixture = try fixture()
         defer { fixture.remove() }

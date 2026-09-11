@@ -115,9 +115,25 @@ struct CLIContractTests {
         let privateArgument = "process-private-note"
         let token = try store.begin(
             operation: "annotations.update-note",
-            arguments: ["annotations", "update-note", "uuid", "--note", privateArgument]
+            request: OperationHistoryRequest(
+                selector: OperationHistorySelector(annotationUUID: "uuid"),
+                noteAction: .set()
+            )
         )
-        try store.complete(token, exitCode: 0, stdout: "{\"committed\":true}\n", stderr: "")
+        try store.complete(
+            token,
+            exitCode: 0,
+            completion: OperationHistoryCompletion(
+                result: .unavailable,
+                inverse: OperationHistoryInverse(
+                    available: true,
+                    operation: "annotations.update-note",
+                    selector: OperationHistorySelector(annotationUUID: "uuid"),
+                    noteAction: .set(privateArgument),
+                    title: nil
+                )
+            )
+        )
 
         let list = try harness.run(["history", "list"])
         #expect(list.status == 0)
@@ -134,8 +150,9 @@ struct CLIContractTests {
         #expect(get.stderr.isEmpty)
         let detail = try decoder.decode(HistoryDetailResult.self, from: Data(get.stdout.utf8))
         #expect(detail.id == token.id)
-        #expect(detail.arguments.contains(privateArgument))
-        #expect(detail.stdout == "{\"committed\":true}\n")
+        #expect(detail.request.selector?.annotationUUID == "uuid")
+        #expect(detail.inverse.noteAction?.text == privateArgument)
+        #expect(detail.result == .unavailable)
         #expect(try store.listPage(limit: 100).items.count == 1)
     }
 
@@ -342,6 +359,152 @@ struct CLIContractTests {
         let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(missing.stderr.utf8))
         #expect(envelope.error.code == .notFound)
         #expect(envelope.error.reason == "annotation_restore_unavailable")
+
+        let history = try fixture.harness.historyRecords()
+        let deleteRecord = try #require(history.first { $0.operation == "annotations.delete" })
+        #expect(deleteRecord.inverse.available)
+        #expect(deleteRecord.inverse.operation == "annotations.restore")
+        #expect(deleteRecord.inverse.selector?.annotationUUID == "uuid-update")
+        let restoreRecords = history.filter { $0.operation == "annotations.restore" }
+        let restoreRecord = try #require(restoreRecords.first { $0.status == .success })
+        #expect(restoreRecord.inverse.available)
+        #expect(restoreRecord.inverse.operation == "annotations.delete")
+        #expect(restoreRecord.inverse.selector?.annotationUUID == "uuid-update")
+        let missingRecord = try #require(restoreRecords.first { $0.status == .failure })
+        #expect(missingRecord.result == .unavailable)
+        #expect(missingRecord.inverse == .unavailable)
+    }
+
+    @Test
+    func processPKOnlyAnnotationHistoryDoesNotClaimAutomaticInverseButExplicitRestoreStillWorks() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        try fixture.executeSQL(
+            "UPDATE ZAEANNOTATION SET ZANNOTATIONUUID=NULL WHERE Z_PK=4",
+            database: fixture.annotations
+        )
+
+        let deleted = try fixture.run(["annotations", "delete", "--pk", "4"] + fixture.globals)
+        #expect(deleted.status == 0)
+        #expect(try fixture.scalarInt(
+            "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=4",
+            database: fixture.annotations
+        ) == 1)
+
+        let deleteRecord = try #require(try fixture.harness.historyRecords().first {
+            $0.operation == "annotations.delete" && $0.result?.changed == true
+        })
+        #expect(deleteRecord.request.selector?.annotationLocalPK == 4)
+        #expect(deleteRecord.inverse.available == false)
+        #expect(deleteRecord.inverse.operation == nil)
+        #expect(deleteRecord.inverse.selector == nil)
+
+        let restored = try fixture.run(["annotations", "restore", "--pk", "4"] + fixture.globals)
+        #expect(restored.status == 0)
+        #expect(try fixture.scalarInt(
+            "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=4",
+            database: fixture.annotations
+        ) == 0)
+    }
+
+    @Test
+    func processUpdateNoteHistoryCarriesTypedTransactionInverseAcrossSetClearAndNull() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let originalValue = try fixture.scalarText(
+            "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'",
+            database: fixture.annotations
+        )
+        let original = try #require(originalValue)
+
+        let replacement = "history replacement"
+        let first = try fixture.run(
+            ["annotations", "update-note", "uuid-update"] + fixture.globals,
+            stdin: Data(replacement.utf8)
+        )
+        #expect(first.status == 0)
+        let afterFirst = try fixture.harness.historyRecords()
+        let firstRecord = try #require(afterFirst.first {
+            $0.operation == "annotations.update-note"
+        })
+        #expect(firstRecord.request.noteAction?.kind == .set)
+        #expect(firstRecord.request.noteAction?.text == nil)
+        #expect(firstRecord.inverse.noteAction == .set(original))
+
+        let clear = try fixture.run(
+            ["annotations", "update-note", "uuid-update", "--clear"] + fixture.globals
+        )
+        #expect(clear.status == 0)
+        let afterClear = try fixture.harness.historyRecords()
+        let clearRecord = try #require(afterClear.first {
+            $0.operation == "annotations.update-note" && $0.id != firstRecord.id
+        })
+        #expect(clearRecord.request.noteAction == .clear)
+        #expect(clearRecord.inverse.noteAction == .set(replacement))
+
+        let afterNull = "after null"
+        let third = try fixture.run(
+            ["annotations", "update-note", "uuid-update"] + fixture.globals,
+            stdin: Data(afterNull.utf8)
+        )
+        #expect(third.status == 0)
+        let afterThird = try fixture.harness.historyRecords()
+        let thirdRecord = try #require(afterThird.first {
+            $0.operation == "annotations.update-note"
+                && $0.id != firstRecord.id
+                && $0.id != clearRecord.id
+        })
+        #expect(thirdRecord.inverse.noteAction == .clear)
+    }
+
+    @Test
+    func processCollectionHistoryCarriesRenameAndMembershipInverses() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let previousTitleValue = try fixture.scalarText(
+            "SELECT ZTITLE FROM ZBKCOLLECTION WHERE ZCOLLECTIONID='\(ProcessFixture.shelfID)'",
+            database: fixture.library
+        )
+        let previousTitle = try #require(previousTitleValue)
+
+        let renamed = try fixture.run([
+            "collections", "rename", ProcessFixture.shelfID, "--title", "History Renamed",
+        ] + fixture.globals)
+        #expect(renamed.status == 0)
+        let afterRename = try fixture.harness.historyRecords()
+        let renameRecord = try #require(afterRename.first {
+            $0.operation == "collections.rename" && $0.status == .success
+        })
+        #expect(renameRecord.inverse.available)
+        #expect(renameRecord.inverse.operation == "collections.rename")
+        #expect(renameRecord.inverse.selector?.collectionID == ProcessFixture.shelfID)
+        #expect(renameRecord.inverse.title == previousTitle)
+
+        let removed = try fixture.run([
+            "collections", "remove-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a",
+        ] + fixture.globals)
+        #expect(removed.status == 0)
+        let afterRemove = try fixture.harness.historyRecords()
+        let removeRecord = try #require(afterRemove.first {
+            $0.operation == "collections.remove-book"
+        })
+        #expect(removeRecord.result?.changed == true)
+        #expect(removeRecord.inverse.operation == "collections.add-book")
+        #expect(removeRecord.inverse.selector?.collectionID == ProcessFixture.shelfID)
+        #expect(removeRecord.inverse.selector?.bookAssetID == "asset-a")
+
+        let added = try fixture.run([
+            "collections", "add-book", "--collection", ProcessFixture.shelfID, "--book", "asset-a",
+        ] + fixture.globals)
+        #expect(added.status == 0)
+        let afterAdd = try fixture.harness.historyRecords()
+        let addRecord = try #require(afterAdd.first {
+            $0.operation == "collections.add-book"
+        })
+        #expect(addRecord.result?.changed == true)
+        #expect(addRecord.inverse.operation == "collections.remove-book")
+        #expect(addRecord.inverse.selector?.collectionID == ProcessFixture.shelfID)
+        #expect(addRecord.inverse.selector?.bookAssetID == "asset-a")
     }
 
     @Test
@@ -449,7 +612,7 @@ struct CLIContractTests {
     }
 
     @Test
-    func processRecordableCommandsPersistArgumentsAndPresentedResults() throws {
+    func processRecordableCommandsPersistStructuredRequestsResultsAndInverses() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
@@ -502,32 +665,45 @@ struct CLIContractTests {
 
         let createRecord = try #require(history.first { $0.operation == "collections.create" })
         #expect(createRecord.status == .success)
-        #expect(createRecord.arguments == createArguments)
-        #expect(createRecord.stdout == create.stdout)
-        #expect(createRecord.stderr == create.stderr)
+        #expect(createRecord.request.title == "History Shelf")
+        #expect(createRecord.result?.kind == .mutation)
+        #expect(createRecord.result?.committed == true)
+        #expect(createRecord.result?.changed == true)
+        #expect(createRecord.inverse == .unavailable)
 
         let updateRecord = try #require(history.first { $0.operation == "annotations.update-note" })
         #expect(updateRecord.status == .success)
-        #expect(updateRecord.arguments == updateArguments)
-        #expect(updateRecord.arguments.contains(privateNote) == false)
-        #expect(updateRecord.stdout == update.stdout)
+        #expect(updateRecord.request.selector?.annotationUUID == "uuid-update")
+        #expect(updateRecord.request.noteAction?.kind == .set)
+        #expect(updateRecord.request.noteAction?.text == nil)
+        #expect(updateRecord.result?.kind == .mutation)
+        #expect(updateRecord.inverse.available)
+        #expect(updateRecord.inverse.operation == "annotations.update-note")
+        #expect(updateRecord.inverse.selector?.annotationUUID == "uuid-update")
+        #expect(updateRecord.inverse.noteAction != nil)
 
         let noOpRecord = try #require(history.first { $0.operation == "collections.add-book" })
         #expect(noOpRecord.status == .success)
-        #expect(noOpRecord.arguments == noOpArguments)
-        #expect(noOpRecord.stdout == noOp.stdout)
+        #expect(noOpRecord.request.selector?.collectionID == ProcessFixture.shelfID)
+        #expect(noOpRecord.request.selector?.bookAssetID == "asset-a")
+        #expect(noOpRecord.result?.committed == false)
+        #expect(noOpRecord.result?.changed == false)
+        #expect(noOpRecord.inverse == .unavailable)
 
         let renameFailureRecord = try #require(history.first { $0.operation == "collections.rename" })
         #expect(renameFailureRecord.status == .failure)
         #expect(renameFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
-        #expect(renameFailureRecord.stdout == "")
-        #expect(renameFailureRecord.stderr == renameFailure.stderr)
+        #expect(renameFailureRecord.request.selector?.collectionID == "missing-collection")
+        #expect(renameFailureRecord.request.title == "Nope")
+        #expect(renameFailureRecord.result == .unavailable)
+        #expect(renameFailureRecord.inverse == .unavailable)
 
         let deleteFailureRecord = try #require(history.first { $0.operation == "collections.delete" })
         #expect(deleteFailureRecord.status == .failure)
         #expect(deleteFailureRecord.exitCode == CLIProcessExit.notFound.rawValue)
-        #expect(deleteFailureRecord.stdout == "")
-        #expect(deleteFailureRecord.stderr == deleteFailure.stderr)
+        #expect(deleteFailureRecord.request.selector?.collectionID == "missing-collection")
+        #expect(deleteFailureRecord.result == .unavailable)
+        #expect(deleteFailureRecord.inverse == .unavailable)
     }
 
     @Test
@@ -603,6 +779,40 @@ struct CLIContractTests {
         #expect(records.count == 1)
         #expect(records[0].operation == "test.success")
         #expect(records[0].status == .incomplete)
+    }
+
+    @Test
+    func committedHistoryEffectSurvivesPresentationFailure() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("applebookscli-history-presentation-\(UUID().uuidString)", isDirectory: true)
+            .resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("history", isDirectory: true)
+        let fixed = try #require(ISO8601DateFormatter().date(from: "2026-09-04T10:00:00Z"))
+        let store = OperationHistoryStore(
+            root: root,
+            now: { fixed },
+            timeZone: { TimeZone(secondsFromGMT: 0)! }
+        )
+        let capture = Capture()
+
+        let code = CLIEntrypoint.runParsed(
+            HistoryCommittedPresentationFailureCommand(),
+            arguments: ["history-presentation-failure-test"],
+            output: capture.output,
+            historyStore: store
+        )
+
+        #expect(code == CLIProcessExit.internal.rawValue)
+        let record = try #require(try store.listPage(limit: 10).items.first)
+        let detail = try #require(try store.get(id: record.id))
+        #expect(detail.status == .failure)
+        #expect(detail.result?.kind == .mutation)
+        #expect(detail.result?.committed == true)
+        #expect(detail.result?.changed == true)
+        #expect(detail.inverse.available)
+        #expect(detail.inverse.operation == "annotations.restore")
+        #expect(detail.inverse.selector?.annotationUUID == "synthetic-history-uuid")
     }
 
     @Test
@@ -721,10 +931,67 @@ private struct HistorySuccessCommand: ParsableCommand, CLIOutputRunnable, Operat
 
     var historyOperation: String { "test.success" }
 
+    func historyRequest() throws -> OperationHistoryRequest { .unavailable }
+
     mutating func run() throws {}
 
     func run(output: CLIOutput) throws {
         try output.writeJSON(HistorySuccessResult(ok: true))
+    }
+
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        sink.record(OperationHistoryCompletion(result: .unavailable, inverse: .unavailable))
+        try output.writeJSON(HistorySuccessResult(ok: true))
+    }
+}
+
+private enum HistoryPresentationFailure: Error {
+    case expected
+}
+
+private struct ThrowingHistoryPresentation: Encodable {
+    func encode(to encoder: Encoder) throws {
+        throw HistoryPresentationFailure.expected
+    }
+}
+
+private struct HistoryCommittedPresentationFailureCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(commandName: "history-presentation-failure-test")
+
+    var historyOperation: String { "annotations.delete" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        OperationHistoryRequest(selector: OperationHistorySelector(annotationUUID: "synthetic-history-uuid"))
+    }
+
+    mutating func run() throws {}
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(ThrowingHistoryPresentation())
+    }
+
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        sink.record(OperationHistoryCompletion(
+            result: OperationHistoryResult(
+                kind: .mutation,
+                committed: true,
+                changed: true,
+                acknowledgementRequested: false,
+                acknowledged: nil,
+                verified: nil,
+                collectionPendingBefore: nil,
+                annotationPendingBefore: nil,
+                warningCodes: []
+            ),
+            inverse: OperationHistoryInverse(
+                available: true,
+                operation: "annotations.restore",
+                selector: OperationHistorySelector(annotationUUID: "synthetic-history-uuid"),
+                noteAction: nil,
+                title: nil
+            )
+        ))
+        try output.writeJSON(ThrowingHistoryPresentation())
     }
 }
 
@@ -906,6 +1173,10 @@ private final class ProcessFixture {
         #expect(invocation.status == 0)
         #expect(invocation.stderr.isEmpty)
         return try dictionary(invocation.stdout)
+    }
+
+    func executeSQL(_ sql: String, database: URL) throws {
+        try Self.execute(database, sql: sql)
     }
 
     func scalarInt(_ sql: String, database: URL) throws -> Int64 {

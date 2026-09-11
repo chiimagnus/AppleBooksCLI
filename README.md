@@ -115,7 +115,7 @@ applebookscli history list   # continue with --cursor <nextCursor> when present
 applebookscli history get <history-id>
 ```
 
-History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls, not an undo engine. `history list` is bounded (default 20, maximum 100); `history get` is the explicit full-detail read and can contain original arguments and captured output. See [`docs/cli-contract.md`](docs/cli-contract.md).
+History is private local evidence of recent AppleBooksCLI mutation/restore/sync calls plus structured inverse guidance when a committed change can be reversed safely. `history list` is bounded (default 20, maximum 100); `history get` returns structured `request`, `result`, and `inverse` detail. Execute an inverse only when `inverse.available=true`; `incomplete` means the outcome is unknown. History does not persist raw argv or captured stdout/stderr, but an available inverse may include the prior Note or collection title required to reverse that exact change. See [`docs/cli-contract.md`](docs/cli-contract.md).
 
 ## Optional configuration
 

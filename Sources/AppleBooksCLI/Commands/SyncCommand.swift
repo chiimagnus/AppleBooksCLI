@@ -11,6 +11,10 @@ struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, 
 
     var historyOperation: String { "sync" }
 
+    func historyRequest() throws -> OperationHistoryRequest {
+        OperationHistoryRequest()
+    }
+
     mutating func run() throws { try run(output: .standard) }
 
     func run(output: CLIOutput) throws {
@@ -18,10 +22,20 @@ struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, 
         try output.writeJSON(result)
     }
 
-    func execute(using injectedBooks: AppleBooks? = nil) throws -> CloudSyncCommandResult {
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        let result = try execute(historySink: sink)
+        try output.writeJSON(result)
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> CloudSyncCommandResult {
         try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: [.collectionWrite, .annotationWrite])
-            return CloudSyncCommandResult(try books.syncPendingCloudChanges())
+            let summary = try books.syncPendingCloudChanges()
+            historySink?.record(.sync(summary))
+            return CloudSyncCommandResult(summary)
         }
     }
 }

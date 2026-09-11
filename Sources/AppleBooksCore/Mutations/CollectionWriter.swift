@@ -223,12 +223,17 @@ struct CollectionWriter {
             },
             mutation: { handle in
                 let target = try Self.resolveCollection(selector, scope: .collection, on: handle)
-                if try Self.currentTitle(localPK: target.localPK, on: handle) == normalizedTitle {
-                    return RenameMutationResult(changed: false, target: target)
+                let previousTitle = try Self.currentTitle(localPK: target.localPK, on: handle)
+                if previousTitle == normalizedTitle {
+                    return RenameMutationResult(changed: false, target: target, historyEffect: nil)
                 }
                 let timestamp = CoreDataTime.seconds(from: Date())!
                 try Self.updateTitle(localPK: target.localPK, title: normalizedTitle, timestamp: timestamp, on: handle)
-                return RenameMutationResult(changed: true, target: target)
+                return RenameMutationResult(
+                    changed: true,
+                    target: target,
+                    historyEffect: Self.titleHistoryEffect(previousTitle)
+                )
             },
             invariant: { handle, payload in
                 _ = try Self.editableTarget(localPK: payload.target.localPK, scope: .collection, on: handle)
@@ -240,6 +245,7 @@ struct CollectionWriter {
                     changed: payload.changed
                 )
             },
+            historyEffect: { $0.historyEffect },
             cloudProjection: cloudProjector.map { projector in
                 { payload in try projector.project(.collection(localPK: payload.target.localPK)) }
             },
@@ -1161,6 +1167,17 @@ struct CollectionWriter {
         return title
     }
 
+    private static func titleHistoryEffect(_ previousTitle: String?) -> MutationHistoryEffect? {
+        guard let previousTitle,
+              previousTitle.isEmpty == false,
+              previousTitle.trimmingCharacters(in: .whitespacesAndNewlines) == previousTitle,
+              previousTitle.count <= 512,
+              previousTitle.utf8.count <= 8 * 1_024 else {
+            return nil
+        }
+        return .collectionTitle(previous: previousTitle)
+    }
+
     private static func updateTitle(localPK: Int64, title: String, timestamp: Double, on handle: OpaquePointer) throws {
         var statement: OpaquePointer?
         let sql = """
@@ -1228,6 +1245,7 @@ struct CollectionWriter {
     private struct RenameMutationResult {
         let changed: Bool
         let target: CollectionWriteTarget
+        let historyEffect: MutationHistoryEffect?
     }
 
     private struct MembershipMutationResult {

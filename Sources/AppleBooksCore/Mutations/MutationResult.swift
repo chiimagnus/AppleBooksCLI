@@ -97,6 +97,11 @@ public struct RestoreFailure: Error, CustomStringConvertible, CustomDebugStringC
     public var errorDescription: String? { description }
 }
 
+package enum MutationHistoryEffect: Equatable, Sendable {
+    case annotationNote(previous: String?)
+    case collectionTitle(previous: String)
+}
+
 public struct MutationResult: Equatable, Sendable {
     public let committed: Bool
     let backupHandle: String?
@@ -104,6 +109,7 @@ public struct MutationResult: Equatable, Sendable {
     public let stableID: String?
     package let relatedLocalPK: Int64?
     package let relatedStableID: String?
+    package let historyEffect: MutationHistoryEffect?
     public let changed: Bool
     public let acknowledgementRequested: Bool
     public let acknowledged: Bool?
@@ -121,6 +127,7 @@ public struct MutationResult: Equatable, Sendable {
         stableID: String?,
         relatedLocalPK: Int64? = nil,
         relatedStableID: String? = nil,
+        historyEffect: MutationHistoryEffect? = nil,
         changed: Bool,
         acknowledgementRequested: Bool,
         acknowledged: Bool?,
@@ -133,6 +140,7 @@ public struct MutationResult: Equatable, Sendable {
         self.stableID = stableID
         self.relatedLocalPK = relatedLocalPK
         self.relatedStableID = relatedStableID
+        self.historyEffect = historyEffect
         self.changed = changed
         self.acknowledgementRequested = acknowledgementRequested
         self.acknowledged = acknowledged

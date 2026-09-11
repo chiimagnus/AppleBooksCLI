@@ -5,6 +5,16 @@ import Testing
 @testable import AppleBooksCore
 @testable import AppleBooksCLI
 
+extension OperationHistoryStore {
+    func beginTestHistory(operation: String) throws -> OperationHistoryToken {
+        try begin(operation: operation, request: .unavailable)
+    }
+
+    func completeTestHistory(_ token: OperationHistoryToken, exitCode: Int32) throws {
+        try complete(token, exitCode: exitCode, completion: nil)
+    }
+}
+
 @Suite("OperationHistoryTests")
 struct OperationHistoryTests {
     @Test
@@ -14,21 +24,15 @@ struct OperationHistoryTests {
         let start = date("2026-09-04T10:00:00Z")
         let store = fixture.store(at: start)
 
-        let success = try store.begin(operation: "collections.create", arguments: ["collections", "create", "Shelf"])
-        try fixture.store(at: start.addingTimeInterval(1)).complete(
+        let success = try store.beginTestHistory(operation: "collections.create")
+        try fixture.store(at: start.addingTimeInterval(1)).completeTestHistory(
             success,
-            exitCode: 0,
-            stdout: #"{"committed":true}"# + "\n",
-            stderr: ""
-        )
-        let failure = try store.begin(operation: "annotations.update-note", arguments: ["annotations", "update-note", "uuid", "--note", "private"])
-        try fixture.store(at: start.addingTimeInterval(2)).complete(
+            exitCode: 0)
+        let failure = try store.beginTestHistory(operation: "annotations.update-note")
+        try fixture.store(at: start.addingTimeInterval(2)).completeTestHistory(
             failure,
-            exitCode: 64,
-            stdout: "",
-            stderr: "Error: rejected\n"
-        )
-        let incomplete = try store.begin(operation: "sync", arguments: ["sync"])
+            exitCode: 64)
+        let incomplete = try store.beginTestHistory(operation: "sync")
 
         let finalStore = fixture.store(at: start.addingTimeInterval(3))
         let page = try finalStore.listPage(limit: 100)
@@ -36,9 +40,10 @@ struct OperationHistoryTests {
         #expect(page.items.first(where: { $0.id == success.id })?.status == .success)
         #expect(page.items.first(where: { $0.id == failure.id })?.status == .failure)
         #expect(page.items.first(where: { $0.id == incomplete.id })?.status == .incomplete)
-        #expect(try finalStore.get(id: failure.id)?.arguments.last == "private")
-        #expect(try finalStore.get(id: success.id)?.stdout == #"{"committed":true}"# + "\n")
-        #expect(try finalStore.get(id: incomplete.id)?.stdout == nil)
+        #expect(try finalStore.get(id: failure.id)?.request == .unavailable)
+        #expect(try finalStore.get(id: success.id)?.result == .unavailable)
+        #expect(try finalStore.get(id: success.id)?.inverse == .unavailable)
+        #expect(try finalStore.get(id: incomplete.id)?.result == nil)
         #expect(try finalStore.get(id: "00000000-0000-4000-8000-000000000000") == nil)
     }
 
@@ -58,8 +63,8 @@ struct OperationHistoryTests {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let startedAt = date("2026-09-04T23:59:30Z")
-        let token = try fixture.store(at: startedAt).begin(operation: "collections.rename", arguments: ["collections", "rename"])
-        try fixture.store(at: date("2026-09-05T00:01:00Z")).complete(token, exitCode: 0, stdout: "ok\n", stderr: "")
+        let token = try fixture.store(at: startedAt).beginTestHistory(operation: "collections.rename")
+        try fixture.store(at: date("2026-09-05T00:01:00Z")).completeTestHistory(token, exitCode: 0)
 
         #expect(try fixture.dateFileNames() == ["2026-09-04.jsonl"])
         #expect(try fixture.store(at: date("2026-09-05T00:01:01Z")).get(id: token.id)?.status == .success)
@@ -67,8 +72,8 @@ struct OperationHistoryTests {
         let oldFixture = try Fixture()
         defer { oldFixture.cleanup() }
         let oldStart = date("2026-09-01T00:00:00Z")
-        let old = try oldFixture.store(at: oldStart).begin(operation: "sync", arguments: ["sync"])
-        try oldFixture.store(at: oldStart.addingTimeInterval(25 * 60 * 60)).complete(old, exitCode: 0, stdout: "", stderr: "")
+        let old = try oldFixture.store(at: oldStart).beginTestHistory(operation: "sync")
+        try oldFixture.store(at: oldStart.addingTimeInterval(25 * 60 * 60)).completeTestHistory(old, exitCode: 0)
         #expect(try oldFixture.store(at: oldStart.addingTimeInterval(25 * 60 * 60)).listPage().items.isEmpty)
         #expect(try oldFixture.dateFileNames().isEmpty)
     }
@@ -81,10 +86,10 @@ struct OperationHistoryTests {
         let expiredAt = reference.addingTimeInterval(-25 * 60 * 60)
         let retainedAt = reference.addingTimeInterval(-23 * 60 * 60)
 
-        let expired = try fixture.store(at: expiredAt).begin(operation: "collections.create", arguments: ["expired"])
-        try fixture.store(at: expiredAt.addingTimeInterval(1)).complete(expired, exitCode: 0, stdout: "expired\n", stderr: "")
-        let retained = try fixture.store(at: retainedAt).begin(operation: "collections.create", arguments: ["retained"])
-        try fixture.store(at: retainedAt.addingTimeInterval(1)).complete(retained, exitCode: 0, stdout: "retained\n", stderr: "")
+        let expired = try fixture.store(at: expiredAt).beginTestHistory(operation: "collections.create")
+        try fixture.store(at: expiredAt.addingTimeInterval(1)).completeTestHistory(expired, exitCode: 0)
+        let retained = try fixture.store(at: retainedAt).beginTestHistory(operation: "collections.create")
+        try fixture.store(at: retainedAt.addingTimeInterval(1)).completeTestHistory(retained, exitCode: 0)
 
         let unknown = fixture.root.appendingPathComponent("keep-me.txt")
         try Data("user file".utf8).write(to: unknown)
@@ -117,10 +122,10 @@ struct OperationHistoryTests {
         let plus14 = TimeZone(secondsFromGMT: 14 * 60 * 60)!
         let minus12 = TimeZone(secondsFromGMT: -12 * 60 * 60)!
 
-        let retained = try fixture.store(at: retainedAt, timeZone: plus14).begin(operation: "sync", arguments: ["retained"])
-        try fixture.store(at: retainedAt.addingTimeInterval(1), timeZone: plus14).complete(retained, exitCode: 0, stdout: "", stderr: "")
-        let expired = try fixture.store(at: expiredAt, timeZone: minus12).begin(operation: "sync", arguments: ["expired"])
-        try fixture.store(at: expiredAt.addingTimeInterval(1), timeZone: minus12).complete(expired, exitCode: 0, stdout: "", stderr: "")
+        let retained = try fixture.store(at: retainedAt, timeZone: plus14).beginTestHistory(operation: "sync")
+        try fixture.store(at: retainedAt.addingTimeInterval(1), timeZone: plus14).completeTestHistory(retained, exitCode: 0)
+        let expired = try fixture.store(at: expiredAt, timeZone: minus12).beginTestHistory(operation: "sync")
+        try fixture.store(at: expiredAt.addingTimeInterval(1), timeZone: minus12).completeTestHistory(expired, exitCode: 0)
 
         let records = try fixture.store(at: reference).listPage(limit: 100).items
         #expect(records.map(\.id) == [retained.id])
@@ -136,7 +141,7 @@ struct OperationHistoryTests {
             try Data("{malformed expired history}\n".utf8).write(to: fixture.root.appendingPathComponent(name))
         }
 
-        _ = try fixture.store(at: date("2026-09-04T12:00:00Z")).begin(operation: "sync", arguments: ["sync"])
+        _ = try fixture.store(at: date("2026-09-04T12:00:00Z")).beginTestHistory(operation: "sync")
         #expect(try fixture.dateFileNames() == ["2026-09-04.jsonl"])
     }
 
@@ -154,7 +159,7 @@ struct OperationHistoryTests {
         )
 
         #expect(throws: OperationHistoryStoreError.unavailable) {
-            _ = try store.begin(operation: "sync", arguments: ["sync"])
+            _ = try store.beginTestHistory(operation: "sync")
         }
         #expect(replacer.failure == nil)
         #expect(FileManager.default.fileExists(atPath: moved.path))
@@ -166,8 +171,8 @@ struct OperationHistoryTests {
         let fixture = try Fixture(createRoot: true)
         defer { fixture.cleanup() }
         try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: fixture.root.path)
-        let token = try fixture.store(at: date("2026-09-04T10:00:00Z")).begin(operation: "sync", arguments: ["sync"])
-        try fixture.store(at: date("2026-09-04T10:00:01Z")).complete(token, exitCode: 0, stdout: "", stderr: "")
+        let token = try fixture.store(at: date("2026-09-04T10:00:00Z")).beginTestHistory(operation: "sync")
+        try fixture.store(at: date("2026-09-04T10:00:01Z")).completeTestHistory(token, exitCode: 0)
 
         #expect(try mode(at: fixture.root) == 0o700)
         #expect(try mode(at: fixture.root.appendingPathComponent(".lock")) == 0o600)
@@ -211,13 +216,13 @@ struct OperationHistoryTests {
         DispatchQueue.concurrentPerform(iterations: 16) { index in
             let token: OperationHistoryToken
             do {
-                token = try store.begin(operation: "collections.create", arguments: ["Shelf-\(index)"])
+                token = try store.beginTestHistory(operation: "collections.create")
             } catch {
                 failures.append("begin[\(index)]: \(error)")
                 return
             }
             do {
-                try store.complete(token, exitCode: 0, stdout: "ok-\(index)\n", stderr: "")
+                try store.completeTestHistory(token, exitCode: 0)
             } catch {
                 failures.append("complete[\(index)]: \(error)")
             }
@@ -238,12 +243,12 @@ struct OperationHistoryTests {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
-        let first = try fixture.store(at: time).begin(operation: "sync", arguments: ["first"])
-        try fixture.store(at: time.addingTimeInterval(1)).complete(first, exitCode: 0, stdout: "", stderr: "")
+        let first = try fixture.store(at: time).beginTestHistory(operation: "sync")
+        try fixture.store(at: time.addingTimeInterval(1)).completeTestHistory(first, exitCode: 0)
         let file = try fixture.onlyDateFile()
         try append(Data(#"{"partial""#.utf8), to: file)
 
-        let second = try fixture.store(at: time.addingTimeInterval(2)).begin(operation: "sync", arguments: ["second"])
+        let second = try fixture.store(at: time.addingTimeInterval(2)).beginTestHistory(operation: "sync")
         let text = try String(contentsOf: file, encoding: .utf8)
         #expect(text.contains("partial") == false)
         let records = try fixture.store(at: time.addingTimeInterval(3)).listPage(limit: 100).items
@@ -256,7 +261,7 @@ struct OperationHistoryTests {
         let malformed = try Fixture()
         defer { malformed.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
-        _ = try malformed.store(at: time).begin(operation: "sync", arguments: ["sync"])
+        _ = try malformed.store(at: time).beginTestHistory(operation: "sync")
         try append(Data("{bad json}\n".utf8), to: malformed.onlyDateFile())
         #expect(throws: OperationHistoryStoreError.unavailable) {
             _ = try malformed.store(at: time).listPage()
@@ -264,10 +269,10 @@ struct OperationHistoryTests {
 
         let unknownSchema = try Fixture()
         defer { unknownSchema.cleanup() }
-        _ = try unknownSchema.store(at: time).begin(operation: "sync", arguments: ["sync"])
+        _ = try unknownSchema.store(at: time).beginTestHistory(operation: "sync")
         let unknownFile = try unknownSchema.onlyDateFile()
         let original = try String(contentsOf: unknownFile, encoding: .utf8)
-        try original.replacingOccurrences(of: #""schemaVersion":1"#, with: #""schemaVersion":2"#)
+        try original.replacingOccurrences(of: #""schemaVersion":2"#, with: #""schemaVersion":999"#)
             .write(to: unknownFile, atomically: false, encoding: .utf8)
         #expect(throws: OperationHistoryStoreError.unavailable) {
             _ = try unknownSchema.store(at: time).listPage()
@@ -275,7 +280,7 @@ struct OperationHistoryTests {
 
         let duplicate = try Fixture()
         defer { duplicate.cleanup() }
-        _ = try duplicate.store(at: time).begin(operation: "sync", arguments: ["sync"])
+        _ = try duplicate.store(at: time).beginTestHistory(operation: "sync")
         let duplicateFile = try duplicate.onlyDateFile()
         let firstLine = try #require(String(contentsOf: duplicateFile, encoding: .utf8).split(separator: "\n").first)
         try append(Data((String(firstLine) + "\n").utf8), to: duplicateFile)
@@ -285,12 +290,101 @@ struct OperationHistoryTests {
     }
 
     @Test
+    func oversizedV1PayloadsMigrateWithBoundedLineBufferAndNoGuessedInverse() throws {
+        let startedAt = date("2026-09-04T10:00:00Z")
+        for payloadBytes in [1 * 1_024 * 1_024 + 17, 64 * 1_024 * 1_024 + 17] {
+            let fixture = try Fixture(createRoot: true)
+            defer { fixture.cleanup() }
+            let id = UUID().uuidString.lowercased()
+            try fixture.writeLegacyPair(payloadBytes: payloadBytes, id: id, startedAt: startedAt)
+            let peak = PeakBox()
+            let stored = try fixture.store(
+                at: startedAt.addingTimeInterval(1),
+                observeLineBufferedBytes: peak.observe
+            ).get(id: id)
+            let record = try #require(stored)
+
+            #expect(record.status == .success)
+            #expect(record.request == .unavailable)
+            #expect(record.result == .unavailable)
+            #expect(record.inverse == .unavailable)
+            #expect(peak.value <= 256 * 1_024)
+        }
+    }
+
+    @Test
+    func oversizedInverseFallsBackToUnavailableWithoutLosingOutcome() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let time = date("2026-09-04T10:00:00Z")
+        let store = fixture.store(at: time)
+        let token = try store.begin(
+            operation: "collections.rename",
+            request: OperationHistoryRequest(
+                selector: OperationHistorySelector(collectionID: "collection-id"),
+                title: "new-title"
+            )
+        )
+        let outcome = OperationHistoryResult(
+            kind: .mutation,
+            committed: true,
+            changed: true,
+            acknowledgementRequested: false,
+            acknowledged: nil,
+            verified: nil,
+            collectionPendingBefore: nil,
+            annotationPendingBefore: nil,
+            warningCodes: []
+        )
+        try fixture.store(at: time.addingTimeInterval(1)).complete(
+            token,
+            exitCode: 0,
+            completion: OperationHistoryCompletion(
+                result: outcome,
+                inverse: OperationHistoryInverse(
+                    available: true,
+                    operation: "collections.rename",
+                    selector: OperationHistorySelector(collectionID: "collection-id"),
+                    noteAction: nil,
+                    title: String(repeating: "x", count: 300 * 1_024)
+                )
+            )
+        )
+
+        let stored = try fixture.store(at: time.addingTimeInterval(2)).get(id: token.id)
+        let record = try #require(stored)
+        #expect(record.result == outcome)
+        #expect(record.inverse == .unavailable)
+        #expect(record.status == .success)
+    }
+
+    @Test
+    func malformedV1EventAddsMigrationWarningWithoutPoisoningValidHistory() throws {
+        let fixture = try Fixture(createRoot: true)
+        defer { fixture.cleanup() }
+        let time = date("2026-09-04T10:00:00Z")
+        let file = fixture.root.appendingPathComponent("2026-09-04.jsonl")
+        try Data("{\"schemaVersion\":1,\"kind\":\"started\",\"id\":\"broken\"\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        let valid = try fixture.store(at: time).begin(operation: "sync", request: .unavailable)
+        let warnings = CounterBox()
+
+        let page = try fixture.store(
+            at: time.addingTimeInterval(1),
+            observeMigrationWarning: warnings.increment
+        ).listPage(limit: 100)
+
+        #expect(page.items.map(\.id) == [valid.id])
+        #expect(warnings.value == 1)
+    }
+
+    @Test
     func orphanCompletedEventFailsClosed() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
-        let token = try fixture.store(at: time).begin(operation: "sync", arguments: ["sync"])
-        try fixture.store(at: time.addingTimeInterval(1)).complete(token, exitCode: 0, stdout: "", stderr: "")
+        let token = try fixture.store(at: time).beginTestHistory(operation: "sync")
+        try fixture.store(at: time.addingTimeInterval(1)).completeTestHistory(token, exitCode: 0)
         let file = try fixture.onlyDateFile()
         let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
         #expect(lines.count == 2)
@@ -336,12 +430,12 @@ struct OperationHistoryTests {
         defer { fixture.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
         let store = fixture.store(at: time)
-        for index in 0..<25 {
-            _ = try store.begin(operation: "sync", arguments: ["sync", "\(index)"])
+        for _ in 0..<25 {
+            _ = try store.beginTestHistory(operation: "sync")
         }
         let first = try store.listPage(limit: 20)
         let cursor = try #require(first.nextCursor)
-        _ = try store.begin(operation: "sync", arguments: ["sync", "new"])
+        _ = try store.beginTestHistory(operation: "sync")
         #expect(throws: CursorPaginationError.staleCursor) {
             _ = try store.listPage(limit: 20, cursor: cursor)
         }
@@ -373,10 +467,10 @@ struct OperationHistoryTests {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let oldTime = date("2026-09-04T10:00:00Z")
-        _ = try fixture.store(at: oldTime).begin(operation: "sync", arguments: ["old"])
+        _ = try fixture.store(at: oldTime).beginTestHistory(operation: "sync")
         let retainedTime = date("2026-09-04T12:00:00Z")
-        for index in 0..<25 {
-            _ = try fixture.store(at: retainedTime).begin(operation: "sync", arguments: ["retained", "\(index)"])
+        for _ in 0..<25 {
+            _ = try fixture.store(at: retainedTime).beginTestHistory(operation: "sync")
         }
         let firstStore = fixture.store(at: date("2026-09-05T09:00:00Z"))
         let first = try firstStore.listPage()
@@ -417,12 +511,12 @@ struct OperationHistoryTests {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
-        let token = try fixture.store(at: time).begin(operation: "sync", arguments: ["sync"])
+        let token = try fixture.store(at: time).beginTestHistory(operation: "sync")
         try Data("{bad unrelated history}\n".utf8).write(
             to: fixture.root.appendingPathComponent("2026-09-03.jsonl")
         )
 
-        try fixture.store(at: time.addingTimeInterval(1)).complete(token, exitCode: 0, stdout: "ok", stderr: "")
+        try fixture.store(at: time.addingTimeInterval(1)).completeTestHistory(token, exitCode: 0)
         let target = fixture.root.appendingPathComponent("2026-09-04.jsonl")
         let lines = try String(contentsOf: target, encoding: .utf8).split(separator: "\n")
         #expect(lines.count == 2)
@@ -489,6 +583,23 @@ struct OperationHistoryTests {
         }
     }
 
+    private final class CounterBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+
+        var value: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return count
+        }
+
+        func increment() {
+            lock.lock()
+            count += 1
+            lock.unlock()
+        }
+    }
+
     private final class FailureBox: @unchecked Sendable {
         private let lock = NSLock()
         private var failures: [String] = []
@@ -524,14 +635,42 @@ struct OperationHistoryTests {
         func store(
             at time: Date = Date(),
             timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
-            observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in }
+            observeListCandidateCount: @escaping @Sendable (Int) -> Void = { _ in },
+            observeLineBufferedBytes: @escaping @Sendable (Int) -> Void = { _ in },
+            observeMigrationWarning: @escaping @Sendable () -> Void = {}
         ) -> OperationHistoryStore {
             OperationHistoryStore(
                 root: root,
                 now: { time },
                 timeZone: { timeZone },
-                observeListCandidateCount: observeListCandidateCount
+                observeListCandidateCount: observeListCandidateCount,
+                observeLineBufferedBytes: observeLineBufferedBytes,
+                observeMigrationWarning: observeMigrationWarning
             )
+        }
+
+        func writeLegacyPair(payloadBytes: Int, id: String, startedAt: Date) throws {
+            if FileManager.default.fileExists(atPath: root.path) == false {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            }
+            let file = root.appendingPathComponent("2026-09-04.jsonl")
+            FileManager.default.createFile(atPath: file.path, contents: nil)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            let timestamp = ISO8601DateFormatter().string(from: startedAt)
+            let started = "{\"arguments\":[\"sync\"],\"id\":\"\(id)\",\"kind\":\"started\",\"operation\":\"sync\",\"schemaVersion\":1,\"startedAt\":\"\(timestamp)\"}\n"
+            try handle.write(contentsOf: Data(started.utf8))
+            let completedPrefix = "{\"completedAt\":\"\(timestamp)\",\"exitCode\":0,\"id\":\"\(id)\",\"kind\":\"completed\",\"schemaVersion\":1,\"stderr\":\"\",\"stdout\":\""
+            try handle.write(contentsOf: Data(completedPrefix.utf8))
+            let chunk = Data(repeating: 0x78, count: 64 * 1_024)
+            var remaining = payloadBytes
+            while remaining > 0 {
+                let count = min(remaining, chunk.count)
+                try handle.write(contentsOf: chunk.prefix(count))
+                remaining -= count
+            }
+            try handle.write(contentsOf: Data("\"}\n".utf8))
         }
 
         func writeStartedEvents(count: Int, startedAt: Date) throws -> [String] {

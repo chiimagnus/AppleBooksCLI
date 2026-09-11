@@ -654,7 +654,7 @@ struct CollectionWriter {
     }
 
     private static func localPK(forCollectionID collectionID: String, on handle: OpaquePointer) throws -> Int64 {
-        guard PublicStableIdentityPolicy.isEligible(collectionID) else {
+        guard CloudProjectionResourcePolicy.acceptsStableIdentityResource(collectionID) else {
             throw CollectionWriteError.collectionIdentityUnavailable
         }
         var statement: OpaquePointer?
@@ -765,7 +765,7 @@ struct CollectionWriter {
             if requireAssetID, assetID == nil { throw CollectionWriteError.bookAssetIDUnavailable }
             return BookWriteTarget(localPK: localPK, assetID: assetID)
         case let .assetID(assetID):
-            guard PublicStableIdentityPolicy.isEligible(assetID) else {
+            guard CloudProjectionResourcePolicy.acceptsStableIdentityResource(assetID) else {
                 throw CollectionWriteError.bookAssetIDUnavailable
             }
             var statement: OpaquePointer?

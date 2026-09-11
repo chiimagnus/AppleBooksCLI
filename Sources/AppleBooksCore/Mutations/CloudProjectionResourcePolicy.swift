@@ -10,6 +10,10 @@ enum CloudProjectionResourcePolicy {
     static let fixedMetadataBytes = Int(ABCloudProjectionMaximumFixedMetadataBytes)
     static let bookAnnotationsBytes = Int(ABCloudProjectionMaximumBookAnnotationsBytes)
 
+    static func acceptsStableIdentityResource(_ value: String) -> Bool {
+        value.isEmpty == false && value.utf8.count <= stableIdentityBytes
+    }
+
     static func exactTextProjection(_ expression: String, maximumUTF8Bytes: Int = stableIdentityBytes) -> String {
         precondition(maximumUTF8Bytes > 0)
         let type = "typeof(\(expression))"

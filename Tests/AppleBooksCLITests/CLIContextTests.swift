@@ -177,8 +177,11 @@ struct CLIContextTests {
     }
 
     @Test
-    func pdfWorkerDependencyFailureUsesCanonicalUnavailableError() throws {
-        #expect(throws: CLIError.unavailable("PDF worker is unavailable.")) {
+    func pdfWorkerDependencyFailureUsesTypedUnavailableError() throws {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             try CLIOperation.run {
                 throw AppleBooksDependencyError.unavailable(.pdfWorker)
             }

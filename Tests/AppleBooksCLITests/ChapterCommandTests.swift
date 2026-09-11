@@ -309,6 +309,8 @@ struct ChapterCommandTests {
         #expect(missingChapter.stdout.isEmpty)
         let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missingChapter.stderr)
         #expect(missingEnvelope.error.message == "Chapter not found.")
+        #expect(missingEnvelope.error.reason == CLIErrorReason.chapterNotFound.rawValue)
+        #expect(missingEnvelope.error.recoveryHint?.contains("content chapters") == true)
     }
 
     @Test

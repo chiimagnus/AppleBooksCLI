@@ -23,7 +23,9 @@ enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
     case ambiguousIdentity = "ambiguous_identity"
     case annotationNotFound = "annotation_not_found"
     case annotationRestoreUnavailable = "annotation_restore_unavailable"
+    case backupNotFound = "backup_not_found"
     case bookNotFound = "book_not_found"
+    case chapterNotFound = "chapter_not_found"
     case collectionNotFound = "collection_not_found"
     case configurationInvalid = "configuration_invalid"
     case contentUnavailable = "content_unavailable"
@@ -107,8 +109,12 @@ enum CLIError: Error, Equatable, Sendable {
             "Run `applebookscli annotations list` and retry with a returned selector."
         case .annotationRestoreUnavailable, .readingPositionUnavailable, nil:
             nil
+        case .backupNotFound:
+            "Run `applebookscli backups list` and retry with a returned backupID."
         case .bookNotFound:
             "Run `applebookscli books list` or `applebookscli books search` and retry with a returned selector."
+        case .chapterNotFound:
+            "Run `applebookscli content chapters` for the same book and retry with a returned chapter order."
         case .collectionNotFound:
             "Run `applebookscli collections list` or `applebookscli collections search` and retry with a returned selector."
         case .configurationInvalid:
@@ -261,7 +267,10 @@ enum CLIOperation {
         if let restoreFailure = error as? RestoreFailure {
             switch restoreFailure.code {
             case .sourceRejected:
-                return .notFound("backupID is unavailable or invalid.")
+                return .notFoundWithReason(
+                    message: "backupID is unavailable or invalid.",
+                    reason: .backupNotFound
+                )
             case .quitFailed, .safetyBackupFailed, .restoreFailed:
                 return .writeSafety("Library restore failed safely (\(restoreFailure.code.rawValue)).")
             }
@@ -350,7 +359,7 @@ enum CLIOperation {
         if let contentError = error as? BookContentError {
             switch contentError {
             case .chapterNotFound:
-                return .notFound("Chapter not found.")
+                return .notFoundWithReason(message: "Chapter not found.", reason: .chapterNotFound)
             case .invalidMaximumCharacters:
                 return .usageInvalid("Invalid chapter pagination parameters.")
             }

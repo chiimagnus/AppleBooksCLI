@@ -152,7 +152,10 @@ struct BackupsCommandTests {
 
         for backupID in [missingMetadata.backupID, corruptMetadata.backupID] {
             let command = try BackupsRestoreCommand.parse([backupID])
-            #expect(throws: CLIError.notFound("backupID is unavailable or invalid.")) {
+            #expect(throws: CLIError.notFoundWithReason(
+                message: "backupID is unavailable or invalid.",
+                reason: .backupNotFound
+            )) {
                 _ = try command.execute(using: books)
             }
         }

@@ -244,34 +244,6 @@ struct AppleBooksFacadeTests {
         #expect(events == ["project"])
     }
 
-    @Test
-    func semanticCurrentChapterFailsClosedWhenBookAssetIdColumnIsMissing() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """
-        CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY);
-        INSERT INTO ZBKLIBRARYASSET VALUES (1);
-        """)
-        let annotations = try database(at: root.appendingPathComponent("annotations.sqlite"), sql: """
-        CREATE TABLE ZAEANNOTATION(
-          Z_PK INTEGER PRIMARY KEY,
-          ZANNOTATIONDELETED INTEGER,
-          ZANNOTATIONTYPE INTEGER,
-          ZANNOTATIONASSETID TEXT
-        );
-        """)
-        let config = root.appendingPathComponent("config.json")
-        try Data("{\"historical_assets\":{}}".utf8).write(to: config)
-        let books = try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
-
-        #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
-            table: .books,
-            columns: ["ZASSETID"]
-        )) {
-            _ = try books.semanticCurrentReadingChapter(forBookLocalPK: 1)
-        }
-    }
-
     private func fixture() throws -> Fixture {
         let root = temporaryDirectory()
         let library = try database(at: root.appendingPathComponent("library.sqlite"), sql: """

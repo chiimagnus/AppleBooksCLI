@@ -44,6 +44,31 @@ struct AppleBooksDiagnosticsTests {
     }
 
     @Test
+    func removedSearchCapabilitiesDoNotMakeOptionalBookColumnsFatal() throws {
+        let fixture = try Fixture(
+            librarySQL: Self.librarySQL
+                .replacingOccurrences(of: "  ZTITLE TEXT,\n", with: "")
+                .replacingOccurrences(of: "  ZGENRE TEXT,\n", with: "")
+        )
+        defer { fixture.remove() }
+
+        let report = AppleBooksDiagnostics.inspect(
+            libraryOverride: fixture.library,
+            annotationsOverride: fixture.annotations,
+            configurationFile: fixture.emptyConfig,
+            databaseDiscovery: fixture.discovery,
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
+        )
+
+        #expect(report.state == .ready)
+        #expect(report.libraryReadReady)
+        #expect(report.libraryOptionalSchemaComplete == false)
+        #expect(report.issues.contains(.init(code: .libraryReadSchemaIncompatible, state: .fatal)) == false)
+    }
+
+    @Test
     func missingReadCapabilityIsFatalWithoutLeakingSchemaDetails() throws {
         let fixture = try Fixture(librarySQL: Self.librarySQL.replacingOccurrences(of: "  ZPATH TEXT,\n", with: ""))
         defer { fixture.remove() }

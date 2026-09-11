@@ -18,7 +18,7 @@ struct AnnotationsCommand: ParsableCommand {
     )
 }
 
-enum AnnotationCLIOrder: String, ExpressibleByArgument, Sendable {
+enum AnnotationCLIOrder: String, ExpressibleByArgument, CaseIterable, Sendable {
     case created
     case modified
     case reading
@@ -32,7 +32,7 @@ enum AnnotationCLIOrder: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum AnnotationSearchField: String, ExpressibleByArgument, Sendable {
+enum AnnotationSearchField: String, ExpressibleByArgument, CaseIterable, Sendable {
     case all
     case highlight
     case note
@@ -46,7 +46,7 @@ enum AnnotationSearchField: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum AnnotationColorArgument: String, ExpressibleByArgument, Sendable {
+enum AnnotationColorArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case green
     case blue
     case yellow
@@ -64,14 +64,14 @@ enum AnnotationColorArgument: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum AnnotationBooleanArgument: String, ExpressibleByArgument, Sendable {
+enum AnnotationBooleanArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case trueValue = "true"
     case falseValue = "false"
 
     var value: Bool { self == .trueValue }
 }
 
-struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "Query user annotations with bounded semantic summaries and opaque cursor pagination."
@@ -163,7 +163,7 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 }
 
-struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsGetCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "get",
         abstract: "Get one annotation by exact UUID or explicit local primary key."
@@ -191,14 +191,14 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
             guard let row = try selector.resolveSemantic(in: books) else {
-                throw CLIError.notFound("Annotation not found.")
+                throw CLIError.notFoundWithReason(message: "Annotation not found.", reason: .annotationNotFound)
             }
             return AnnotationDetailResult(row)
         }
     }
 }
 
-struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsContextCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "context",
         abstract: "Resolve bounded context around one annotation."
@@ -240,14 +240,14 @@ struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
                 charsBefore: before,
                 charsAfter: after
             ) else {
-                throw CLIError.notFound("Annotation not found.")
+                throw CLIError.notFoundWithReason(message: "Annotation not found.", reason: .annotationNotFound)
             }
             return AnnotationContextResult(result, requestedBefore: before, requestedAfter: after)
         }
     }
 }
 
-struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsUpdateNoteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "update-note",
         abstract: "Set an annotation note from stdin, or clear it explicitly."
@@ -262,7 +262,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Flag(name: .long, help: "Clear the note to NULL. Do not provide stdin with this flag.")
     var clear = false
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -308,10 +308,10 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     }
 }
 
-struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsDeleteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
-        abstract: "Soft-delete one annotation through the guarded mutation rail."
+        abstract: "Soft-delete one annotation so it can be restored later."
     )
 
     @Argument(help: "Exact annotation UUID.")
@@ -320,7 +320,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -363,7 +363,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsRestoreCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "restore",
         abstract: "Restore one existing soft-deleted user annotation."
@@ -375,7 +375,7 @@ struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; projection still occurs.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -512,8 +512,22 @@ private func makeAnnotationQueryRequest(
             limit: limit,
             cursor: cursor
         )
-    } catch is AnnotationQueryRequestError {
-        throw ValidationError("Invalid annotation query.")
+    } catch let error as AnnotationQueryRequestError {
+        switch error {
+        case .invalidBookSelector:
+            throw CLIError.usageInvalid("Annotation book selector is invalid.")
+        case .invalidText:
+            throw CLIError.usageInvalid("Annotation text filter is invalid.")
+        case .textFieldRequiresText:
+            throw CLIError.usageInvalid("--text-field requires --text.")
+        case .invalidDateRange:
+            throw CLIError.usageInvalid("Annotation date range is invalid.")
+        case .readingOrderRequiresBook:
+            throw CLIError.usageInvalidWithReason(
+                message: "Reading order requires one exact book selector.",
+                reason: .readingOrderRequiresBook
+            )
+        }
     }
 }
 

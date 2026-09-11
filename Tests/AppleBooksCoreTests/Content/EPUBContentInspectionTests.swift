@@ -7,65 +7,7 @@ import ZIPFoundation
 @Suite("EPUBContentInspectionTests")
 struct EPUBContentInspectionTests {
     @Test
-    func statusInspectsPackageAndEncryptionWithoutReadingChapterBody() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let epub = fixture.root.appendingPathComponent("current.epub", isDirectory: true)
-        try fixture.makeDirectoryEPUB(at: epub, includeChapterBody: false)
-        let books = try fixture.makeBooks(path: epub.path)
-
-        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
-        #expect(status.currentAvailability == .available)
-        #expect(status.supplementalAvailability == nil)
-        #expect(status.selectedSource == .current)
-        #expect(status.materialization == .available)
-        #expect(status.encryption == EPUBEncryption.none)
-        #expect(status.unavailableReason == nil)
-        #expect(status.isReady)
-    }
-
-    @Test
-    func missingBookPathPreservesItsPreciseUnavailableReason() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let books = try fixture.makeBooks(path: nil)
-
-        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
-        #expect(status.currentAvailability == nil)
-        #expect(status.supplementalAvailability == nil)
-        #expect(status.selectedSource == nil)
-        #expect(status.materialization == .missing)
-        #expect(status.encryption == nil)
-        #expect(status.unavailableReason == .bookPathUnavailable)
-        #expect(status.isReady == false)
-    }
-
-    @Test
-    func statusReportsUnsupportedContentEncryptionWithoutPretendingContentIsReady() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let epub = fixture.root.appendingPathComponent("encrypted.epub", isDirectory: true)
-        try fixture.makeDirectoryEPUB(at: epub, includeChapterBody: false)
-        try Data("""
-        <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
-          <enc:EncryptedData>
-            <enc:EncryptionMethod Algorithm="urn:synthetic:unsupported"/>
-            <enc:CipherData><enc:CipherReference URI="OPS/chapter.xhtml"/></enc:CipherData>
-          </enc:EncryptedData>
-        </encryption>
-        """.utf8).write(to: epub.appendingPathComponent("META-INF/encryption.xml"))
-        let books = try fixture.makeBooks(path: epub.path)
-
-        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
-        #expect(status.selectedSource == .current)
-        #expect(status.materialization == .available)
-        #expect(status.encryption == .contentEncryptionUnsupported)
-        #expect(status.unavailableReason == .contentEncryptionUnsupported)
-        #expect(status.isReady == false)
-    }
-
-    @Test
-    func supplementalPackedFallbackOwnsStatusMetadataAndLocateProvenance() throws {
+    func supplementalPackedFallbackOwnsMetadataProvenance() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let supplementalRoot = fixture.root.appendingPathComponent("supplemental", isDirectory: true)
@@ -75,13 +17,6 @@ struct EPUBContentInspectionTests {
         let missingCurrent = fixture.root.appendingPathComponent("missing/book.epub", isDirectory: true)
         let books = try fixture.makeBooks(path: missingCurrent.path, supplementalRoot: supplementalRoot)
 
-        let status = try #require(try books.semanticContentStatus(forBookLocalPK: 1))
-        #expect(status.currentAvailability == .missing)
-        #expect(status.supplementalAvailability == .available)
-        #expect(status.selectedSource == .supplemental)
-        #expect(status.encryption == EPUBEncryption.none)
-        #expect(status.isReady)
-
         let metadata = try #require(try books.semanticContentMetadata(bookLocalPK: 1))
         #expect(metadata.source == .supplemental)
         #expect(metadata.databaseFallback.title == "DB Title")
@@ -89,16 +24,6 @@ struct EPUBContentInspectionTests {
         #expect(metadata.metadata.title == "EPUB Title")
         #expect(metadata.metadata.creator == "EPUB Author")
         #expect(metadata.metadata.publisher == "EPUB Publisher")
-
-        let located = try #require(try books.semanticLocate(
-            rawCFI: "epubcfi(/6/2[chapter]!/4/2,:4,:8)",
-            forBookLocalPK: 1
-        ))
-        #expect(located.source == .supplemental)
-        #expect(located.location.rawCFI == "epubcfi(/6/2[chapter]!/4/2,:4,:8)")
-        #expect(located.location.chapterID == "chapter")
-        #expect(located.location.characterRange == .init(start: 4, end: 8))
-        #expect(located.chapter?.id == "chapter")
     }
 
     private final class Fixture {
@@ -133,16 +58,6 @@ struct EPUBContentInspectionTests {
             let rootJSON = supplementalRoot.map { ",\"epub_root\":\"\(json($0.path))\"" } ?? ""
             try Data("{\"historical_assets\":{}\(rootJSON)}".utf8).write(to: config)
             return try AppleBooks(libraryDB: library, annotationsDB: annotations, configurationFile: config)
-        }
-
-        func makeDirectoryEPUB(at epub: URL, includeChapterBody: Bool) throws {
-            try FileManager.default.createDirectory(at: epub.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(at: epub.appendingPathComponent("OPS"), withIntermediateDirectories: true)
-            try containerData().write(to: epub.appendingPathComponent("META-INF/container.xml"))
-            try packageData().write(to: epub.appendingPathComponent("OPS/package.opf"))
-            if includeChapterBody {
-                try Data("<html><body>chapter</body></html>".utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
-            }
         }
 
         func makePackedEPUB(at url: URL) throws {

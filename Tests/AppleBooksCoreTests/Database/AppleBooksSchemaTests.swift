@@ -9,7 +9,7 @@ struct AppleBooksSchemaTests {
     func capabilityMatrixKeepsRequiredAndOptionalColumnsSeparate() {
         #expect(SchemaCapability.bookBase.required == [AppleBooksSchema.Book.localPK])
         #expect(SchemaCapability.bookBase.optional.contains(AppleBooksSchema.Book.title))
-        #expect(SchemaCapability.bookTitleSearch.required.contains(AppleBooksSchema.Book.title))
+        #expect(SchemaCapability.bookAssetLookup.required.contains(AppleBooksSchema.Book.assetID))
         #expect(SchemaCapability.readingRecentlyRead.required.contains(AppleBooksSchema.Book.lastOpenDate))
         #expect(SchemaCapability.collectionBase.required.contains(AppleBooksSchema.Collection.isDeleted))
         #expect(Set(SchemaCapability.collectionMembers.required) == Set([
@@ -22,7 +22,7 @@ struct AppleBooksSchemaTests {
             AppleBooksSchema.Annotation.isDeleted,
             AppleBooksSchema.Annotation.type,
         ]))
-        #expect(SchemaCapability.annotationByCreationDate.required.contains(AppleBooksSchema.Annotation.creationDate))
+        #expect(SchemaCapability.annotationByUUID.required.contains(AppleBooksSchema.Annotation.uuid))
         #expect(SchemaCapability.currentPosition.required.contains(AppleBooksSchema.Annotation.assetID))
     }
 
@@ -39,9 +39,9 @@ struct AppleBooksSchemaTests {
 
         #expect(throws: SchemaCompatibilityError.missingRequiredColumns(
             table: .books,
-            columns: [AppleBooksSchema.Book.title]
+            columns: [AppleBooksSchema.Book.assetID]
         )) {
-            _ = try AppleBooksSchema.inspect(.bookTitleSearch, on: connection)
+            _ = try AppleBooksSchema.inspect(.bookAssetLookup, on: connection)
         }
     }
 

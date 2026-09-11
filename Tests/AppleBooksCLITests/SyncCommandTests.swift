@@ -104,7 +104,7 @@ struct SyncCommandTests {
             Issue.record("Expected sync acknowledgement failure")
         } catch let error as CLIError {
             #expect(error.code == .unavailable)
-            #expect(error.reason == "cloud_sync_failed")
+            #expect(error.reason == CLIErrorReason.syncAckFailed.rawValue)
             #expect(error.recoveryHint == "It is safe to rerun `applebookscli sync`.")
             #expect(error.message == "Apple Books cloud sync did not reach acknowledgement.")
         }
@@ -150,7 +150,7 @@ struct SyncCommandTests {
             _ = try command.execute(using: try fixture.books(harness: harness))
             Issue.record("Expected sync acknowledgement failure")
         } catch let error as CLIError {
-            #expect(error.reason == "cloud_sync_failed")
+            #expect(error.reason == CLIErrorReason.syncAckFailed.rawValue)
             #expect(error.recoveryHint == "It is safe to rerun `applebookscli sync`.")
             #expect(error.message.contains("original Books app state could not be restored"))
         }

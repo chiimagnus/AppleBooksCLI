@@ -2,7 +2,7 @@ import AppleBooksCore
 import ArgumentParser
 import Foundation
 
-struct DoctorCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct DoctorCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "doctor",
         abstract: "Check Apple Books access and capability readiness without modifying data."

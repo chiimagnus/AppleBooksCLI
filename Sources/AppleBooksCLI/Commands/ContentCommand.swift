@@ -7,55 +7,24 @@ struct ContentCommand: ParsableCommand {
         commandName: "content",
         abstract: "Inspect EPUB content.",
         subcommands: [
-            ContentStatusCommand.self,
             ContentMetadataCommand.self,
             ContentCoverCommand.self,
-            ContentLocateCommand.self,
             ContentChaptersCommand.self,
             ContentChapterCommand.self,
-            ContentCurrentChapterCommand.self,
         ]
     )
 }
 
-struct ContentStatusCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "status")
+struct ContentMetadataCommand: ParsableCommand, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "metadata",
+        abstract: "Read metadata for one EPUB book."
+    )
 
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
-    var pk: Int64?
-
-    @OptionGroup var global: GlobalOptions
-
-    mutating func run() throws { try run(output: .standard) }
-
-    func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
-    }
-
-    func execute() throws -> ContentStatusResult {
-        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(selector, in: books)
-            guard let status = try books.semanticContentStatus(forBookLocalPK: book.localPK) else {
-                throw CLIError.notFound("Book not found.")
-            }
-            return ContentStatusResult(status)
-        }
-    }
-}
-
-struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "metadata")
-
-    @Argument(help: "Exact Apple Books asset ID.")
-    var assetID: String?
-
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    @Option(name: .long, help: "Use an explicit local book primary key.")
     var pk: Int64?
 
     @OptionGroup var global: GlobalOptions
@@ -78,19 +47,24 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             case let .localPK(localPK):
                 inspection = try books.semanticContentMetadata(bookLocalPK: localPK)
             }
-            guard let inspection else { throw CLIError.notFound("Book not found.") }
+            guard let inspection else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentMetadataResult(inspection)
         }
     }
 }
 
-struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "cover")
+struct ContentCoverCommand: ParsableCommand, CLIOutputRunnable {
+    static let configuration = CommandConfiguration(
+        commandName: "cover",
+        abstract: "Write the cover image for one EPUB book."
+    )
 
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    @Option(name: .long, help: "Use an explicit local book primary key.")
     var pk: Int64?
 
     @Option(name: .customLong("output"), help: "Destination file path, relative to the current directory or absolute. Existing files are never replaced.")
@@ -136,41 +110,10 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
     }
 }
 
-struct ContentLocateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "locate")
-
-    @Argument(help: "With asset ID: <asset-id> <cfi>. With --pk: <cfi>.")
-    var values: [String] = []
-
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
-    var pk: Int64?
-
-    @OptionGroup var global: GlobalOptions
-
-    mutating func run() throws { try run(output: .standard) }
-
-    func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
-    }
-
-    func execute() throws -> ContentLocationResult {
-        let parsed = try parseBookSelectorAndValue(values: values, localPK: pk, valueName: "CFI")
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .configuration])
-            let book = try requireSemanticBook(parsed.selector, in: books)
-            guard let inspection = try books.semanticLocate(rawCFI: parsed.value, forBookLocalPK: book.localPK) else {
-                throw CLIError.notFound("Book not found.")
-            }
-            return ContentLocationResult(inspection)
-        }
-    }
-}
-
-struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentChaptersCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapters",
-        abstract: "List the canonical EPUB table of contents with opaque cursor pagination."
+        abstract: "List an EPUB table of contents with opaque cursor pagination."
     )
 
     @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID.")
@@ -216,13 +159,15 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             case let .localPK(localPK):
                 page = try books.semanticChapterListPage(bookLocalPK: localPK, limit: limit, cursor: cursor)
             }
-            guard let page else { throw CLIError.notFound("Book not found.") }
+            guard let page else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentChaptersPageResult(page)
         }
     }
 }
 
-struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentChapterCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapter",
         abstract: "Read one EPUB chapter by table-of-contents order with opaque continuation."
@@ -290,93 +235,12 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
                     cursor: cursor
                 )
             }
-            guard let page else { throw CLIError.notFound("Book not found.") }
+            guard let page else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentChapterPageResult(page)
         }
     }
-}
-
-struct ContentCurrentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(
-        commandName: "current-chapter",
-        abstract: "Resolve the current type-3 bookmark chapter without annotation fallback."
-    )
-
-    @Argument(help: "Exact Apple Books asset ID.")
-    var assetID: String?
-
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
-    var pk: Int64?
-
-    @OptionGroup var global: GlobalOptions
-
-    mutating func run() throws { try run(output: .standard) }
-
-    func run(output: CLIOutput) throws {
-        let result = try execute()
-        try output.writeJSON(result)
-    }
-
-    func execute() throws -> ContentCurrentChapterResult {
-        let selector = try parseBookSelector(assetID: assetID, localPK: pk)
-        return try CLIOperation.run {
-            let books = try CLIContext(global: global).makeAppleBooks(dependencies: [.libraryRead, .annotationsRead, .configuration])
-            let book = try requireSemanticBook(selector, in: books)
-            guard let chapter = try books.semanticCurrentReadingChapter(forBookLocalPK: book.localPK) else {
-                throw CLIError.unavailable("Current reading chapter is unavailable.")
-            }
-            return ContentCurrentChapterResult(book: book, chapter: chapter)
-        }
-    }
-}
-
-private func parseBookSelectorAndValue(
-    values: [String],
-    localPK: Int64?,
-    valueName: String
-) throws -> (selector: BookSelector, value: String) {
-    if let localPK {
-        guard values.count == 1 else {
-            throw ValidationError("With --pk, provide exactly one \(valueName).")
-        }
-        return (try parseBookSelector(assetID: nil, localPK: localPK), values[0])
-    }
-    guard values.count == 2 else {
-        throw ValidationError("Provide an asset ID followed by a \(valueName), or use --pk with one \(valueName).")
-    }
-    return (try parseBookSelector(assetID: values[0], localPK: nil), values[1])
-}
-
-private func requireSemanticBook(_ selector: BookSelector, in books: AppleBooks) throws -> SemanticBookDetail {
-    guard let book = try selector.resolveSemanticDetail(in: books) else {
-        throw CLIError.notFound("Book not found.")
-    }
-    return book
-}
-
-struct ContentStatusResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
-    let bookAssetID: String?
-    let currentAvailability: BookContentAvailability?
-    let supplementalAvailability: BookContentAvailability?
-    let selectedSource: EPUBContentSource?
-    let materialization: BookContentAvailability
-    let encryption: EPUBEncryption?
-    let unavailableReason: EPUBContentUnavailableReason?
-    let ready: Bool
-
-    init(_ status: EPUBContentStatus) {
-        bookLocalPK = status.bookLocalPK
-        bookAssetID = status.bookAssetID
-        currentAvailability = status.currentAvailability
-        supplementalAvailability = status.supplementalAvailability
-        selectedSource = status.selectedSource
-        materialization = status.materialization
-        encryption = status.encryption
-        unavailableReason = status.unavailableReason
-        ready = status.isReady
-    }
-
 }
 
 struct ContentMetadataResult: Codable, Equatable, Sendable {
@@ -476,25 +340,6 @@ private func resolveContentCoverDestination(_ path: String, currentDirectory: UR
     return destination
 }
 
-struct ContentChapterResult: Codable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let href: String
-    let fragment: String
-    let order: Int
-    let depth: Int
-
-    init(_ chapter: Chapter) {
-        id = chapter.id
-        title = chapter.title
-        href = chapter.href
-        fragment = chapter.fragment
-        order = chapter.order
-        depth = chapter.depth
-    }
-
-}
-
 struct ContentChapterSummaryResult: Codable, Equatable, Sendable {
     let chapterOrder: Int
     let title: String
@@ -545,45 +390,4 @@ struct ContentChapterPageResult: Codable, Equatable, Sendable {
         hasMore = page.hasMore
         nextCursor = page.nextCursor
     }
-}
-
-struct ContentCurrentChapterResult: Codable, Equatable, Sendable {
-    let bookLocalPK: Int64
-    let bookAssetID: String?
-    let chapter: ContentChapterResult
-
-    init(book: SemanticBookDetail, chapter: Chapter) {
-        bookLocalPK = book.localPK
-        bookAssetID = book.assetID
-        self.chapter = ContentChapterResult(chapter)
-    }
-
-}
-
-struct ContentLocationResult: Codable, Equatable, Sendable {
-    struct CharacterRangeResult: Codable, Equatable, Sendable {
-        let start: Int
-        let end: Int
-    }
-
-    let bookLocalPK: Int64
-    let bookAssetID: String?
-    let rawCFI: String
-    let chapterID: String?
-    let characterRange: CharacterRangeResult?
-    let source: EPUBContentSource?
-    let resolvedChapter: ContentChapterResult?
-
-    init(_ inspection: EPUBLocationInspection) {
-        bookLocalPK = inspection.bookLocalPK
-        bookAssetID = inspection.bookAssetID
-        rawCFI = inspection.location.rawCFI
-        chapterID = inspection.location.chapterID
-        characterRange = inspection.location.characterRange.map {
-            CharacterRangeResult(start: $0.start, end: $0.end)
-        }
-        source = inspection.source
-        resolvedChapter = inspection.chapter.map(ContentChapterResult.init)
-    }
-
 }

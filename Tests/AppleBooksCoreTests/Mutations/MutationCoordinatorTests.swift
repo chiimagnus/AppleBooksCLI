@@ -101,6 +101,36 @@ struct MutationCoordinatorTests {
     }
 
     @Test
+    func transactionNoChangeNeverCommitsAndRollsBackDefensiveWrites() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let result = try fixture.coordinator.perform(
+            preflight: { _ in },
+            quietDecision: { _ in .needsMutation },
+            revalidate: { _ in },
+            mutation: { handle in
+                try self.setValue(handle, "must-rollback")
+                return Int64(42)
+            },
+            invariant: { handle, _ in
+                #expect(self.rawValue(handle) == "must-rollback")
+            },
+            domainData: { MutationDomainData(localPK: $0, stableID: "sample", changed: false) },
+            readBack: { _, _ in Issue.record("read-back must not run for transaction no-change") }
+        )
+
+        #expect(result.committed == false)
+        #expect(result.changed == false)
+        #expect(result.backupHandle == nil)
+        #expect(result.backupID == nil)
+        #expect(result.localPK == 42)
+        #expect(result.stableID == "sample")
+        #expect(try readValue(at: fixture.database) == "before")
+        #expect(try completedBackups(in: fixture.backupRoot).count == 1)
+    }
+
+    @Test
     func quietDecisionNeedsMutationKeepsBackupBeforeTransactionRevalidation() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

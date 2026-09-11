@@ -1,10 +1,10 @@
 import AppleBooksCore
 import ArgumentParser
 
-struct SyncCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct SyncCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "sync",
-        abstract: "Flush all pending Apple Books cloud changes and wait for CloudKit acknowledgement."
+        abstract: "Send pending Apple Books changes and wait for acknowledgement on this Mac."
     )
 
     @OptionGroup var global: GlobalOptions

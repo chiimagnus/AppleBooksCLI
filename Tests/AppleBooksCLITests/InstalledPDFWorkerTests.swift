@@ -48,20 +48,29 @@ struct InstalledPDFWorkerTests {
         let worker = root.appendingPathComponent("applebookscli-pdf-worker")
         try Data().write(to: executable)
 
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
 
         try Data().write(to: worker)
         #expect(chmod(worker.path, 0o600) == 0)
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
         try FileManager.default.removeItem(at: worker)
 
         try FileManager.default.createDirectory(at: worker, withIntermediateDirectories: false)
         #expect(chmod(worker.path, 0o700) == 0)
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
         try FileManager.default.removeItem(at: worker)
@@ -70,7 +79,10 @@ struct InstalledPDFWorkerTests {
         try Data().write(to: target)
         #expect(chmod(target.path, 0o700) == 0)
         try FileManager.default.createSymbolicLink(at: worker, withDestinationURL: target)
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
     }
@@ -87,7 +99,10 @@ struct InstalledPDFWorkerTests {
         try Data().write(to: sibling)
         #expect(chmod(sibling.path, 0o700) == 0)
 
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
     }
@@ -98,7 +113,10 @@ struct InstalledPDFWorkerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("applebookscli")
         try Data().write(to: executable)
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: executable)
         }
 
@@ -107,7 +125,10 @@ struct InstalledPDFWorkerTests {
         try Data().write(to: wrongName)
         try Data().write(to: worker)
         #expect(chmod(worker.path, 0o700) == 0)
-        #expect(throws: CLIError.unavailable("Installed PDF worker is unavailable.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )) {
             _ = try installedPDFWorkerURL(executableURL: wrongName)
         }
     }

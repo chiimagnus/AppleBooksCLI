@@ -31,7 +31,9 @@ struct ExportCommandTests {
 
         #expect(code == CLIProcessExit.success.rawValue)
         #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("USAGE: applebookscli export [<options>] --output <output>"))
+        let normalized = capture.stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(normalized.contains("USAGE: applebookscli export"))
+        #expect(normalized.contains("--output <output>"))
     }
 
     @Test
@@ -327,7 +329,10 @@ struct ExportCommandTests {
             "--book", "pdf-book", "--output", failedDestination.path,
             "--annotations-db", missing, "--config", missing,
         ])
-        #expect(throws: CLIError.unavailable("Selected PDF could not be read. Check its local availability.")) {
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "Selected PDF could not be read.",
+            reason: .contentUnavailable
+        )) {
             _ = try failing.execute(workerURLProvider: { worker })
         }
         #expect(!FileManager.default.fileExists(atPath: failedDestination.path))

@@ -247,12 +247,6 @@ struct BookQueries {
         }
     }
 
-    func pdfResourceTarget(localPK: Int64) throws -> BookResourceTarget? {
-        _ = try AppleBooksSchema.inspect(.bookPDF, on: connection)
-        guard let target = try resourceTarget(localPK: localPK), target.contentType == 3 else { return nil }
-        return target
-    }
-
     func getByLocalPK(_ localPK: Int64) throws -> Book? {
         try query(.localPK(localPK), capability: .bookBase).first
     }
@@ -281,10 +275,6 @@ struct BookQueries {
             throw StableIdentityError.ambiguousBookAssetID
         }
         return try getByLocalPK(localPK)
-    }
-
-    func getForCurrentReadingLocation(_ localPK: Int64) throws -> Book? {
-        try query(.localPK(localPK), capability: .bookCurrentReadingAssetLookup).first
     }
 
     func semanticDetail(localPK: Int64) throws -> SemanticBookDetail? {
@@ -520,7 +510,7 @@ struct BookQueries {
     }
 
     func annotationAssetID(localPK: Int64) throws -> String? {
-        let schema = try AppleBooksSchema.inspect(.bookCurrentReadingAssetLookup, on: connection)
+        let schema = try AppleBooksSchema.inspect(.bookAssetLookup, on: connection)
         guard schema.contains(AppleBooksSchema.Book.assetID) else { return nil }
         let projection = SQLiteTextProjection.exact(
             AppleBooksSchema.Book.assetID,
@@ -543,33 +533,6 @@ struct BookQueries {
         ) {
         case let .value(value): return value
         case .null, .oversized: return nil
-        }
-    }
-
-    func semanticAssetID(localPK: Int64) throws -> String? {
-        let schema = try AppleBooksSchema.inspect(.bookCurrentReadingAssetLookup, on: connection)
-        guard schema.contains(AppleBooksSchema.Book.assetID) else { return nil }
-        let projection = SQLiteTextProjection.exact(
-            AppleBooksSchema.Book.assetID,
-            alias: "readingAssetID",
-            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
-        )
-        let statement = try connection.prepare("""
-        SELECT \(projection.joined(separator: ", "))
-        FROM \(AppleBooksTable.books.rawValue)
-        WHERE \(AppleBooksSchema.Book.localPK) = ?
-        LIMIT 1
-        """)
-        try statement.bind(localPK, at: 1)
-        guard try statement.step() else { return nil }
-        switch try SQLiteTextProjection.decodeExact(
-            SQLiteRow(statement: statement),
-            alias: "readingAssetID",
-            column: AppleBooksSchema.Book.assetID,
-            maximumUTF8Bytes: SQLiteSemanticTextBudget.stableIdentity
-        ) {
-        case let .value(value) where PublicStableIdentityPolicy.isEligible(value): return value
-        case .value, .null, .oversized: return nil
         }
     }
 

@@ -852,11 +852,6 @@ public final class AppleBooks {
         ).makeBundle(options: options)
     }
 
-    package func semanticContentStatus(forBookLocalPK localPK: Int64) throws -> EPUBContentStatus? {
-        guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
-        return EPUBContentInspector.status(target: target, configuration: try requiredConfiguration())
-    }
-
     package func semanticContentMetadata(bookAssetID assetID: String) throws -> SemanticEPUBMetadataInspection? {
         let queries = try requiredBookQueries()
         guard let target = try queries.uniqueResourceTarget(assetID: assetID) else { return nil }
@@ -896,15 +891,6 @@ public final class AppleBooks {
     private func semanticContentCover(target: BookResourceTarget) throws -> EPUBCoverInspection? {
         guard target.path != nil else { throw ContentError.bookPathUnavailable }
         return try EPUBContentInspector.cover(target: target, configuration: try requiredConfiguration())
-    }
-
-    package func semanticLocate(rawCFI: String, forBookLocalPK localPK: Int64) throws -> EPUBLocationInspection? {
-        guard let target = try requiredBookQueries().resourceTarget(localPK: localPK) else { return nil }
-        return try EPUBContentInspector.locate(
-            rawCFI: rawCFI,
-            target: target,
-            configuration: try requiredConfiguration()
-        )
     }
 
     package func semanticChapterListPage(
@@ -1151,15 +1137,6 @@ public final class AppleBooks {
             throw CursorPaginationError.invalidCursor
         }
         return Int(locator.words[0])
-    }
-
-    package func semanticBookContent(forBookLocalPK localPK: Int64) throws -> BookContent {
-        guard let target = try requiredBookQueries().resourceTarget(localPK: localPK), target.path != nil else {
-            throw ContentError.bookPathUnavailable
-        }
-        return try BookContent(
-            reader: EPUBSourceResolver.reader(for: target, configuration: try requiredConfiguration())
-        )
     }
 
     package func semanticAnnotationPage(
@@ -1431,18 +1408,6 @@ public final class AppleBooks {
         }
         try flushBatch()
         return top.map(\.summary)
-    }
-
-    package func semanticCurrentReadingChapter(forBookLocalPK localPK: Int64) throws -> Chapter? {
-        guard let assetID = try requiredBookQueries().semanticAssetID(localPK: localPK),
-              let bookmark = try requiredReadingQueries().semanticCurrentLocation(rawAssetID: assetID),
-              let chapterID = bookmark.chapterID else {
-            return nil
-        }
-        return try CurrentReadingChapter.resolve(
-            chapterID: chapterID,
-            in: semanticBookContent(forBookLocalPK: localPK)
-        )
     }
 
     package func semanticBookmarkedReadingPosition(

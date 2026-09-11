@@ -22,9 +22,6 @@ struct ContentParityRegressionTests {
         #expect(try content.getChapter("3") == "Context anchor line\n\nSecond paragraph 😀")
         #expect(try content.getChapter("raw") == "Raw spine only\n\nCJK你好😀")
 
-        let current = try CurrentReadingChapter.resolve(chapterID: "chapter-two", in: content)
-        #expect(current?.order == 3)
-
         let location = Location(rawCFI: "epubcfi(/6/8[chapter-two]!/4/2[text],:3,:9)")
         #expect(location.chapterID == "chapter-two")
         #expect(location.characterRange == .init(start: 3, end: 9))

@@ -1,10 +1,10 @@
 import AppleBooksCore
 import ArgumentParser
 
-struct StatsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct StatsCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "stats",
-        abstract: "Show canonical Apple Books library and annotation statistics."
+        abstract: "Show Apple Books library and annotation statistics."
     )
 
     @OptionGroup var global: GlobalOptions

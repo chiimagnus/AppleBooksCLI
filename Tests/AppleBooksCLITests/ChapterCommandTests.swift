@@ -96,7 +96,10 @@ struct ChapterCommandTests {
         )
         #expect(staleCode == CLIProcessExit.unavailable.rawValue)
         #expect(stale.stdout.isEmpty)
-        #expect(try fixture.decode(CLIErrorEnvelope.self, stale.stderr).error.message == "Pagination cursor is stale. Restart from the first page.")
+        let error = try fixture.decode(CLIErrorEnvelope.self, stale.stderr).error
+        #expect(error.message == "Pagination cursor is stale.")
+        #expect(error.reason == CLIErrorReason.cursorStale.rawValue)
+        #expect(error.recoveryHint?.contains("Restart from the first page") == true)
 
         let restarted = try fixture.runJSON(
             ContentChaptersPageResult.self,
@@ -211,7 +214,9 @@ struct ChapterCommandTests {
         #expect(staleCode == CLIProcessExit.unavailable.rawValue)
         #expect(stale.stdout.isEmpty)
         let envelope = try fixture.decode(CLIErrorEnvelope.self, stale.stderr)
-        #expect(envelope.error.message == "Pagination cursor is stale. Restart from the first page.")
+        #expect(envelope.error.message == "Pagination cursor is stale.")
+        #expect(envelope.error.reason == CLIErrorReason.cursorStale.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("Restart from the first page") == true)
     }
 
     @Test
@@ -304,43 +309,8 @@ struct ChapterCommandTests {
         #expect(missingChapter.stdout.isEmpty)
         let missingEnvelope = try fixture.decode(CLIErrorEnvelope.self, missingChapter.stderr)
         #expect(missingEnvelope.error.message == "Chapter not found.")
-    }
-
-    @Test
-    func currentChapterUsesOnlyTypeThreeBookmarkWithoutRecentAnnotationFallback() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let current = try fixture.runJSON(
-            ContentCurrentChapterResult.self,
-            arguments: ["content", "current-chapter", "12"]
-        )
-        #expect(current.bookLocalPK == 1)
-        #expect(current.bookAssetID == "12")
-        #expect(current.chapter.id == "1")
-        #expect(current.chapter.title == "One")
-        #expect(current.chapter.fragment == "one")
-
-        let inferredPosition = Capture()
-        let inferredPositionCode = CLIEntrypoint.run(
-            arguments: ["reading", "position", "fallback-only"] + fixture.globalArguments,
-            output: inferredPosition.output
-        )
-        #expect(inferredPositionCode == CLIProcessExit.unavailable.rawValue)
-        #expect(inferredPosition.stdout.isEmpty)
-        let inferredEnvelope = try fixture.decode(CLIErrorEnvelope.self, inferredPosition.stderr)
-        #expect(inferredEnvelope.error.message == "Reading position is unavailable for this book.")
-
-        let fallbackCapture = Capture()
-        let fallbackCode = CLIEntrypoint.run(
-            arguments: ["content", "current-chapter", "fallback-only"] + fixture.globalArguments,
-            output: fallbackCapture.output
-        )
-        #expect(fallbackCode == CLIProcessExit.unavailable.rawValue)
-        #expect(fallbackCapture.stdout.isEmpty)
-        let envelope = try fixture.decode(CLIErrorEnvelope.self, fallbackCapture.stderr)
-        #expect(envelope.error.code == .unavailable)
-        #expect(envelope.error.message == "Current reading chapter is unavailable.")
+        #expect(missingEnvelope.error.reason == CLIErrorReason.chapterNotFound.rawValue)
+        #expect(missingEnvelope.error.recoveryHint?.contains("content chapters") == true)
     }
 
     @Test

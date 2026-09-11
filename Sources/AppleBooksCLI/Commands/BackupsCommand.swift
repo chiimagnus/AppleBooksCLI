@@ -13,7 +13,7 @@ struct BackupsCommand: ParsableCommand {
     )
 }
 
-struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct BackupsListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List the newest 10 safe library recovery backups."
@@ -36,7 +36,7 @@ struct BackupsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRun
     }
 }
 
-struct BackupsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct BackupsRestoreCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "restore",
         abstract: "Restore a library backup by its opaque backupID."

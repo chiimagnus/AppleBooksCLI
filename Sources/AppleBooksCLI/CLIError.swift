@@ -19,20 +19,51 @@ enum CLIErrorCode: String, Codable, Equatable, Sendable {
     case permission
 }
 
+enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
+    case ambiguousIdentity = "ambiguous_identity"
+    case annotationNotFound = "annotation_not_found"
+    case annotationRestoreUnavailable = "annotation_restore_unavailable"
+    case backupNotFound = "backup_not_found"
+    case bookNotFound = "book_not_found"
+    case chapterNotFound = "chapter_not_found"
+    case collectionNotFound = "collection_not_found"
+    case configurationInvalid = "configuration_invalid"
+    case contentUnavailable = "content_unavailable"
+    case contextUnavailable = "context_unavailable"
+    case cursorStale = "cursor_stale"
+    case databaseUnavailable = "database_unavailable"
+    case historyEntryNotFound = "history_entry_not_found"
+    case historyUnavailable = "history_unavailable"
+    case operationIDConflict = "operation_id_conflict"
+    case operationIDInvalid = "operation_id_invalid"
+    case operationReplayBlocked = "operation_replay_blocked"
+    case outputExists = "output_exists"
+    case pdfSourceNotFound = "pdf_source_not_found"
+    case pdfWorkerUnavailable = "pdf_worker_unavailable"
+    case readingOrderRequiresBook = "reading_order_requires_book"
+    case readingPositionUnavailable = "reading_position_unavailable"
+    case schemaUnavailable = "schema_unavailable"
+    case selectorNotFound = "selector_not_found"
+    case syncAckFailed = "sync_ack_failed"
+    case syncUnavailable = "sync_unavailable"
+    case unsafeOutput = "unsafe_output"
+}
+
 enum CLIError: Error, Equatable, Sendable {
     case usageInvalid(String)
+    case usageInvalidWithReason(message: String, reason: CLIErrorReason)
     case notFound(String)
-    case notFoundWithReason(message: String, reason: String)
+    case notFoundWithReason(message: String, reason: CLIErrorReason)
     case unavailable(String)
-    case unavailableWithReason(message: String, reason: String)
+    case unavailableWithReason(message: String, reason: CLIErrorReason)
     case internalFailure
     case writeSafety(String)
-    case writeSafetyWithReason(message: String, reason: String)
+    case writeSafetyWithReason(message: String, reason: CLIErrorReason)
     case permission(String)
 
     var code: CLIErrorCode {
         switch self {
-        case .usageInvalid: .usageInvalid
+        case .usageInvalid, .usageInvalidWithReason: .usageInvalid
         case .notFound, .notFoundWithReason: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
@@ -47,30 +78,90 @@ enum CLIError: Error, Equatable, Sendable {
              let .notFound(message),
              let .unavailable(message),
              let .writeSafety(message),
-             let .writeSafetyWithReason(message, _),
              let .permission(message):
             message
-        case let .notFoundWithReason(message, _), let .unavailableWithReason(message, _):
+        case let .usageInvalidWithReason(message, _),
+             let .notFoundWithReason(message, _),
+             let .unavailableWithReason(message, _),
+             let .writeSafetyWithReason(message, _):
             message
         case .internalFailure:
             "Internal error."
         }
     }
 
-    var reason: String? {
+    private var typedReason: CLIErrorReason? {
         switch self {
-        case let .notFoundWithReason(_, reason), let .unavailableWithReason(_, reason), let .writeSafetyWithReason(_, reason): reason
-        default: nil
+        case let .usageInvalidWithReason(_, reason),
+             let .notFoundWithReason(_, reason),
+             let .unavailableWithReason(_, reason),
+             let .writeSafetyWithReason(_, reason):
+            reason
+        default:
+            nil
         }
     }
 
+    var reason: String? { typedReason?.rawValue }
+
     var recoveryHint: String? {
-        reason == "cloud_sync_failed" ? "It is safe to rerun `applebookscli sync`." : nil
+        switch typedReason {
+        case .ambiguousIdentity:
+            "Refresh the selector from the corresponding list or search command and retry with a unique returned identity."
+        case .annotationNotFound:
+            "Run `applebookscli annotations list` and retry with a returned selector."
+        case .annotationRestoreUnavailable, .readingPositionUnavailable, nil:
+            nil
+        case .backupNotFound:
+            "Run `applebookscli backups list` and retry with a returned backupID."
+        case .bookNotFound:
+            "Run `applebookscli books list` or `applebookscli books search` and retry with a returned selector."
+        case .chapterNotFound:
+            "Run `applebookscli content chapters` for the same book and retry with a returned chapter order."
+        case .collectionNotFound:
+            "Run `applebookscli collections list` or `applebookscli collections search` and retry with a returned selector."
+        case .configurationInvalid:
+            "Fix or remove the AppleBooksCLI configuration, then retry."
+        case .contentUnavailable:
+            "Check that the content is locally available and readable in Apple Books, then retry."
+        case .contextUnavailable:
+            "Refresh the annotation selector and make sure its book content is locally available before retrying."
+        case .cursorStale:
+            "Restart from the first page and continue with the new nextCursor."
+        case .databaseUnavailable, .schemaUnavailable:
+            "Run `applebookscli doctor` and resolve the reported Apple Books data access issue."
+        case .historyEntryNotFound:
+            "Run `applebookscli history list` and retry with a returned history ID."
+        case .historyUnavailable:
+            "Retry after local operation history storage is accessible."
+        case .operationIDConflict:
+            "Use a fresh lowercase UUID for a different logical write request."
+        case .operationIDInvalid:
+            "Set APPLEBOOKSCLI_OPERATION_ID to a lowercase UUID, or unset it."
+        case .operationReplayBlocked:
+            "Run `applebookscli history get <operation-id>` with the same UUID and inspect the recorded outcome before any new attempt."
+        case .outputExists:
+            "Choose a different --output; for export, use --overwrite always only when replacement is intended."
+        case .pdfSourceNotFound:
+            "Run `applebookscli pdf list` and retry with a returned selector."
+        case .pdfWorkerUnavailable:
+            "Run `applebookscli doctor`; reinstall AppleBooksCLI if the PDF worker is unavailable."
+        case .readingOrderRequiresBook:
+            "Provide exactly one of --book or --book-pk with --order reading."
+        case .selectorNotFound:
+            "Refresh the selector with `applebookscli books list` or `applebookscli pdf list`, then retry."
+        case .syncAckFailed:
+            "It is safe to rerun `applebookscli sync`."
+        case .syncUnavailable:
+            "Run `applebookscli doctor` and resolve sync prerequisites before retrying."
+        case .unsafeOutput:
+            "Choose a different --output destination."
+        }
     }
 
     var exitCode: CLIProcessExit {
         switch self {
-        case .usageInvalid: .usageInvalid
+        case .usageInvalid, .usageInvalidWithReason: .usageInvalid
         case .notFound, .notFoundWithReason: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
@@ -97,7 +188,10 @@ enum CLIOperation {
             case .limitOutOfRange, .invalidCursor, .filterMismatch:
                 return .usageInvalid("Invalid pagination cursor or limit.")
             case .staleCursor, .generationUnavailable:
-                return .unavailable("Pagination cursor is stale. Restart from the first page.")
+                return .unavailableWithReason(
+                    message: "Pagination cursor is stale.",
+                    reason: .cursorStale
+                )
             case .internalContractFailure:
                 return .internalFailure
             }
@@ -107,15 +201,21 @@ enum CLIOperation {
             case .invalidSourceID:
                 return .usageInvalid("Invalid PDF source identity.")
             case .ambiguousSourceID:
-                return .unavailable("PDF source identity is ambiguous. Run `applebookscli pdf list` again.")
+                return .unavailableWithReason(
+                    message: "PDF source selector is ambiguous.",
+                    reason: .ambiguousIdentity
+                )
             }
         }
         if let historyError = error as? OperationHistoryStoreError {
             switch historyError {
             case .invalidID:
-                return .usageInvalid("Operation history ID must be a canonical lowercase UUID.")
+                return .usageInvalid("Operation history ID must be a lowercase UUID returned by `history list`.")
             case .unavailable:
-                return .unavailable("Operation history is unavailable.")
+                return .unavailableWithReason(
+                    message: "Operation history is unavailable.",
+                    reason: .historyUnavailable
+                )
             }
         }
         if let searchError = error as? BookSearchError {
@@ -123,9 +223,15 @@ enum CLIOperation {
             case .emptyQuery:
                 return .usageInvalid("Search query must not be empty.")
             case .noSearchableColumns:
-                return .unavailable("Apple Books search schema is unavailable.")
+                return .unavailableWithReason(
+                    message: "Apple Books search is unavailable.",
+                    reason: .schemaUnavailable
+                )
             case .fieldUnavailable:
-                return .unavailable("Requested Apple Books search field is unavailable.")
+                return .unavailableWithReason(
+                    message: "Requested Apple Books search field is unavailable.",
+                    reason: .schemaUnavailable
+                )
             }
         }
         if error is AnnotationQueryInputError {
@@ -136,9 +242,9 @@ enum CLIOperation {
             case .invalidTitle:
                 return .usageInvalid("Collection title is invalid.")
             case .collectionMissing:
-                return .notFound("Collection not found.")
+                return .notFoundWithReason(message: "Collection not found.", reason: .collectionNotFound)
             case .bookMissing:
-                return .notFound("Book not found.")
+                return .notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
             case .collectionDeletedOrUnknown,
                  .collectionIdentityUnavailable,
                  .collectionNotEditable,
@@ -152,11 +258,11 @@ enum CLIOperation {
             case .invalidNoteLength:
                 return .usageInvalid("Annotation note length is invalid.")
             case .annotationMissing:
-                return .notFound("Annotation not found.")
+                return .notFoundWithReason(message: "Annotation not found.", reason: .annotationNotFound)
             case .annotationRestoreUnavailable:
                 return .notFoundWithReason(
                     message: "Annotation tombstone is unavailable.",
-                    reason: "annotation_restore_unavailable"
+                    reason: .annotationRestoreUnavailable
                 )
             case .annotationDeletedOrUnknown, .annotationNotWritable:
                 return .writeSafety("Annotation is not writable.")
@@ -170,7 +276,10 @@ enum CLIOperation {
         if let restoreFailure = error as? RestoreFailure {
             switch restoreFailure.code {
             case .sourceRejected:
-                return .notFound("backupID is unavailable or invalid.")
+                return .notFoundWithReason(
+                    message: "backupID is unavailable or invalid.",
+                    reason: .backupNotFound
+                )
             case .quitFailed, .safetyBackupFailed, .restoreFailed:
                 return .writeSafety("Library restore failed safely (\(restoreFailure.code.rawValue)).")
             }
@@ -186,17 +295,29 @@ enum CLIOperation {
             case .invalidOverride:
                 return .permission("Database override is not a readable regular file.")
             case .missing, .ambiguous:
-                return .unavailable("Apple Books database is unavailable. Run `applebookscli doctor` for diagnostics.")
+                return .unavailableWithReason(
+                    message: "Apple Books database is unavailable.",
+                    reason: .databaseUnavailable
+                )
             }
         }
         if error is AppleBooksConfigurationError {
-            return .unavailable("AppleBooksCLI configuration is invalid.")
+            return .unavailableWithReason(
+                message: "AppleBooksCLI configuration is invalid.",
+                reason: .configurationInvalid
+            )
         }
         if error is SchemaCompatibilityError || error is QueryDecodingError || error is SQLiteRowError || error is SQLiteError {
-            return .unavailable("Apple Books database schema or data is unavailable.")
+            return .unavailableWithReason(
+                message: "Apple Books data is unavailable.",
+                reason: .schemaUnavailable
+            )
         }
         if error is StableIdentityError {
-            return .unavailable("Requested stable identity is ambiguous.")
+            return .unavailableWithReason(
+                message: "Requested selector is ambiguous.",
+                reason: .ambiguousIdentity
+            )
         }
         if error is AnnotationSourceClassificationError {
             return .unavailable("Annotation source classification is unavailable.")
@@ -204,21 +325,27 @@ enum CLIOperation {
         if let cloudSyncError = error as? AppleBooksCloudSyncError {
             switch cloudSyncError {
             case .unavailable:
-                return .unavailable("Apple Books cloud sync is unavailable for the selected databases.")
+                return .unavailableWithReason(
+                    message: "Apple Books sync is unavailable.",
+                    reason: .syncUnavailable
+                )
             case let .acknowledgementFailed(stateRestoreFailed):
                 return .unavailableWithReason(
                     message: stateRestoreFailed
                         ? "Apple Books cloud sync did not reach acknowledgement, and the original Books app state could not be restored."
                         : "Apple Books cloud sync did not reach acknowledgement.",
-                    reason: "cloud_sync_failed"
+                    reason: .syncAckFailed
                 )
             }
         }
         if error as? AppleBooksDependencyError == .unavailable(.pdfWorker) {
-            return .unavailable("PDF worker is unavailable.")
+            return .unavailableWithReason(message: "PDF worker is unavailable.", reason: .pdfWorkerUnavailable)
         }
         if error is PDFWorkerClientError {
-            return .unavailable("PDF highlight extraction is unavailable.")
+            return .unavailableWithReason(
+                message: "PDF highlight extraction is unavailable.",
+                reason: .pdfWorkerUnavailable
+            )
         }
         if let contextError = error as? AnnotationContextError {
             switch contextError {
@@ -232,19 +359,25 @@ enum CLIOperation {
                  .anchorUnavailable,
                  .anchorTooLarge,
                  .anchorNotFound:
-                return .unavailable("Annotation context is unavailable.")
+                return .unavailableWithReason(
+                    message: "Annotation context is unavailable.",
+                    reason: .contextUnavailable
+                )
             }
         }
         if let contentError = error as? BookContentError {
             switch contentError {
             case .chapterNotFound:
-                return .notFound("Chapter not found.")
+                return .notFoundWithReason(message: "Chapter not found.", reason: .chapterNotFound)
             case .invalidMaximumCharacters:
                 return .usageInvalid("Invalid chapter pagination parameters.")
             }
         }
         if error is XHTMLTextError {
-            return .unavailable("Book content is unavailable.")
+            return .unavailableWithReason(
+                message: "Book content is unavailable.",
+                reason: .contentUnavailable
+            )
         }
         if error is ContentError ||
             error is EPUBResourceError ||
@@ -252,7 +385,10 @@ enum CLIOperation {
             error is EPUBNavigationError ||
             error is EPUBPathError ||
             error is EPUBMetadataError {
-            return .unavailable("Book content is unavailable.")
+            return .unavailableWithReason(
+                message: "Book content is unavailable.",
+                reason: .contentUnavailable
+            )
         }
         if let optionsError = error as? ExportOptionsError {
             switch optionsError {
@@ -267,23 +403,38 @@ enum CLIOperation {
         if let exportError = error as? ExportServiceError {
             switch exportError {
             case .selectorNotFound:
-                return .notFound("Export selector was not found. Refresh books or pdf list.")
+                return .notFoundWithReason(
+                    message: "Export selector was not found.",
+                    reason: .selectorNotFound
+                )
             case .pdfWorkerUnavailable:
-                return .unavailable("PDF worker is unavailable for the requested export source.")
+                return .unavailableWithReason(
+                    message: "PDF worker is unavailable for the requested export source.",
+                    reason: .pdfWorkerUnavailable
+                )
             case .pdfSourceUnavailable:
-                return .unavailable("Selected PDF is not locally readable. Refresh pdf list.")
+                return .unavailableWithReason(
+                    message: "Selected PDF is not locally readable.",
+                    reason: .contentUnavailable
+                )
             case .pdfReadFailed:
-                return .unavailable("Selected PDF could not be read. Check its local availability.")
+                return .unavailableWithReason(
+                    message: "Selected PDF could not be read.",
+                    reason: .contentUnavailable
+                )
             case .documentIdentityCollision:
-                return .unavailable("Export document identity is ambiguous.")
+                return .unavailableWithReason(
+                    message: "Export document identity is ambiguous.",
+                    reason: .ambiguousIdentity
+                )
             }
         }
         if let writerError = error as? ExportFileWriterError {
             switch writerError {
             case .destinationExists:
-                return .writeSafetyWithReason(message: "Output already exists. Choose another destination or explicitly allow overwrite.", reason: "output_exists")
+                return .writeSafetyWithReason(message: "Output already exists.", reason: .outputExists)
             case .invalidOutputRoot, .unsafeOutputRoot, .invalidFileName, .unsafeParent, .unsafeDestination:
-                return .writeSafetyWithReason(message: "Output path is unsafe or has the wrong node type.", reason: "unsafe_output")
+                return .writeSafetyWithReason(message: "Output path is unsafe or has the wrong node type.", reason: .unsafeOutput)
             case .writeFailed:
                 return .writeSafety("Output could not be written.")
             }

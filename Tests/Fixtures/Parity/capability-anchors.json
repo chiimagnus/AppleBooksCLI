@@ -102,48 +102,20 @@
       ]
     ]
   },
-  "CFI chapter hint": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "locate"
-      ]
-    ]
-  },
-  "CFI char range diagnostics": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "locate"
-      ]
-    ]
-  },
   "CFI raw round-trip": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
+      "Sources/AppleBooksCore/Models/Location.swift",
+      "Sources/AppleBooksCore/Export/JSONExporter.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+      "Tests/AppleBooksCoreTests/Models/LocationTests.swift",
+      "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
     ],
     "cliHelpArgs": [
       [
-        "content",
-        "locate"
+        "export",
+        "--format"
       ]
     ]
   },
@@ -158,7 +130,7 @@
     "cliHelpArgs": [
       [
         "content",
-        "status"
+        "metadata"
       ]
     ]
   },
@@ -661,21 +633,6 @@
       ]
     ]
   },
-  "current reading chapter": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Reading/CurrentReadingChapter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/CurrentReadingChapterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "current-chapter"
-      ]
-    ]
-  },
   "current reading position": {
     "owner": "core",
     "implementationPaths": [
@@ -705,8 +662,7 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter",
-        "--config"
+        "chapter"
       ]
     ]
   },
@@ -970,8 +926,7 @@
     "cliHelpArgs": [
       [
         "annotations",
-        "list",
-        "--config"
+        "list"
       ]
     ]
   },
@@ -1335,8 +1290,7 @@
     "cliHelpArgs": [
       [
         "content",
-        "chapter",
-        "--config"
+        "chapter"
       ]
     ]
   },
@@ -1505,21 +1459,6 @@
       ]
     ]
   },
-  "本地 materialization 检查": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Content/BookContentAvailability.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/BookContentAvailabilityTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "status"
-      ]
-    ]
-  },
   "细粒度 spine entry": {
     "owner": "core",
     "implementationPaths": [
@@ -1533,25 +1472,6 @@
       [
         "content",
         "chapter"
-      ]
-    ]
-  },
-  "自定义 annotations/library DB 路径": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Database/DatabaseDiscovery.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Database/DatabaseDiscoveryTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "doctor",
-        "--library-db"
-      ],
-      [
-        "doctor",
-        "--annotations-db"
       ]
     ]
   },

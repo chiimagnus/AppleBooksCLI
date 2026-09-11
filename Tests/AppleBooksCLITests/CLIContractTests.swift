@@ -75,6 +75,98 @@ struct CLIContractTests {
     }
 
     @Test
+    func publicLeafHelpIsAgentFacingAndFiniteChoicesAreDiscoverable() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let leaves: [[String]] = [
+            ["doctor"],
+            ["books", "list"], ["books", "get"], ["books", "search"],
+            ["reading", "in-progress"], ["reading", "finished"], ["reading", "unstarted"], ["reading", "recent"], ["reading", "position"],
+            ["stats"],
+            ["content", "metadata"], ["content", "cover"], ["content", "chapters"], ["content", "chapter"],
+            ["annotations", "list"], ["annotations", "get"], ["annotations", "context"], ["annotations", "update-note"], ["annotations", "delete"], ["annotations", "restore"],
+            ["collections", "list"], ["collections", "get"], ["collections", "search"], ["collections", "books"], ["collections", "create"], ["collections", "rename"], ["collections", "delete"], ["collections", "add-book"], ["collections", "remove-book"],
+            ["sync"],
+            ["pdf", "list"], ["pdf", "highlights"],
+            ["export"],
+            ["backups", "list"], ["backups", "restore"],
+            ["history", "list"], ["history", "get"],
+        ]
+        let forbiddenPhrases = ["canonical", "core data", "cloudkit", "type-3", "materialization", "p2", "pdfkit"]
+
+        for leaf in leaves {
+            let invocation = try harness.run(leaf + ["--help"])
+            #expect(invocation.status == CLIProcessExit.success.rawValue)
+            #expect(invocation.stderr.isEmpty)
+            #expect(invocation.stdout.contains("OVERVIEW:"))
+            let lower = invocation.stdout.lowercased()
+            for phrase in forbiddenPhrases {
+                #expect(lower.contains(phrase) == false)
+            }
+            let words = Set(lower.split(whereSeparator: { $0.isLetter == false }).map(String.init))
+            #expect(words.contains("rail") == false)
+        }
+
+        func normalizedHelp(_ arguments: [String]) throws -> String {
+            let invocation = try harness.run(arguments + ["--help"])
+            #expect(invocation.status == 0)
+            return invocation.stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+
+        let annotationHelp = try normalizedHelp(["annotations", "list"])
+        for values in [
+            "values: all, highlight, note",
+            "values: green, blue, yellow, pink, purple",
+            "values: true, false",
+            "values: created, modified, reading",
+        ] {
+            #expect(annotationHelp.contains(values))
+        }
+
+        let exportHelp = try normalizedHelp(["export"])
+        for values in [
+            "values: json, markdown",
+            "values: epub, pdf, all",
+            "values: green, blue, yellow, pink, purple",
+            "values: true, false",
+            "values: single, per-document",
+            "values: never, always",
+        ] {
+            #expect(exportHelp.contains(values))
+        }
+        let searchHelp = try normalizedHelp(["books", "search"])
+        #expect(searchHelp.contains("values: all, title, author, genre"))
+    }
+
+    @Test
+    func annotationReadingOrderWithoutBookFailsBeforeDatabaseAccessWithActionableReason() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let invocation = try harness.run(["annotations", "list", "--order", "reading"])
+        #expect(invocation.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(invocation.stdout.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stderr.utf8))
+        #expect(envelope.error.reason == CLIErrorReason.readingOrderRequiresBook.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("--book") == true)
+        #expect(envelope.error.message.contains("database") == false)
+    }
+
+    @Test
+    func missingBookSelectorReturnsRefreshHintWithoutEchoingSelector() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let privateSelector = "missing-private-selector"
+        let invocation = try fixture.run(["books", "get", privateSelector] + fixture.globals)
+        #expect(invocation.status == CLIProcessExit.notFound.rawValue)
+        #expect(invocation.stdout.isEmpty)
+        #expect(invocation.stderr.contains(privateSelector) == false)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stderr.utf8))
+        #expect(envelope.error.reason == CLIErrorReason.bookNotFound.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("books list") == true)
+        #expect(envelope.error.recoveryHint?.contains("books search") == true)
+    }
+
+    @Test
     func recordableCommandWhitelistIsExact() throws {
         let cases: [([String], String)] = [
             (["annotations", "update-note", "annotation-id"], "annotations.update-note"),
@@ -108,12 +200,70 @@ struct CLIContractTests {
     }
 
     @Test
+    func processOperationIDBlocksTransportReplayBeforeRedispatch() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let operationID = "33333333-3333-4333-8333-333333333333"
+        let environment = ["APPLEBOOKSCLI_OPERATION_ID": operationID]
+        let createArguments = ["collections", "create", "Retry Shelf"] + fixture.globals
+
+        let first = try fixture.harness.run(createArguments, environment: environment)
+        #expect(first.status == CLIProcessExit.success.rawValue)
+        #expect(first.stderr.isEmpty)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Retry Shelf'",
+            database: fixture.library
+        ) == 1)
+
+        let replay = try fixture.harness.run(createArguments, environment: environment)
+        #expect(replay.status == CLIProcessExit.unavailable.rawValue)
+        #expect(replay.stdout.isEmpty)
+        let replayEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(replay.stderr.utf8))
+        #expect(replayEnvelope.error.reason == CLIErrorReason.operationReplayBlocked.rawValue)
+        #expect(replayEnvelope.error.recoveryHint?.contains("history get") == true)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Retry Shelf'",
+            database: fixture.library
+        ) == 1)
+        let recorded = try #require(try fixture.harness.historyRecords().first { $0.id == operationID })
+        #expect(recorded.status == .success)
+        #expect(recorded.operation == "collections.create")
+        #expect(recorded.request.title == "Retry Shelf")
+
+        let conflict = try fixture.harness.run(
+            ["collections", "create", "Different Shelf"] + fixture.globals,
+            environment: environment
+        )
+        #expect(conflict.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(conflict.stdout.isEmpty)
+        let conflictEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(conflict.stderr.utf8))
+        #expect(conflictEnvelope.error.reason == CLIErrorReason.operationIDConflict.rawValue)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Different Shelf'",
+            database: fixture.library
+        ) == 0)
+
+        let invalid = try fixture.harness.run(
+            ["collections", "create", "Invalid ID Shelf"] + fixture.globals,
+            environment: ["APPLEBOOKSCLI_OPERATION_ID": "NOT-A-UUID"]
+        )
+        #expect(invalid.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(invalid.stdout.isEmpty)
+        let invalidEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invalid.stderr.utf8))
+        #expect(invalidEnvelope.error.reason == CLIErrorReason.operationIDInvalid.rawValue)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Invalid ID Shelf'",
+            database: fixture.library
+        ) == 0)
+    }
+
+    @Test
     func processHistoryReadsDefaultHomeWithoutAppleBooksDatabasesOrRecursiveRecording() throws {
         let harness = try ProcessHarness()
         defer { harness.remove() }
         let store = OperationHistoryStore(root: harness.historyRoot)
         let privateArgument = "process-private-note"
-        let token = try store.begin(
+        let token = try store.beginTestHistory(
             operation: "annotations.update-note",
             request: OperationHistoryRequest(
                 selector: OperationHistorySelector(annotationUUID: "uuid"),
@@ -198,10 +348,6 @@ struct CLIContractTests {
         #expect(position["chapterID"] == nil)
         #expect(position["source"] == nil)
 
-        let status = try fixture.runJSON(["content", "status", "asset-a"])
-        #expect(status["ready"] as? Bool == true)
-        #expect(status["selectedSource"] as? String == "current")
-
         let metadata = try fixture.runJSON(["content", "metadata", "asset-a"])
         #expect(metadata["bookAssetID"] as? String == "asset-a")
         #expect(metadata["bookLocalPK"] == nil)
@@ -211,11 +357,6 @@ struct CLIContractTests {
         #expect(metadata["epub"] == nil)
         #expect(metadata["database"] == nil)
         #expect(metadata["enrichment"] == nil)
-
-        let located = try fixture.runJSON([
-            "content", "locate", "asset-a", "epubcfi(/6/2[shared]!/4/2,:0,:5)",
-        ])
-        #expect(located["chapterID"] as? String == "shared")
 
         let chapter = try fixture.runJSON([
             "content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "12",
@@ -353,12 +494,23 @@ struct CLIContractTests {
         #expect(visible.status == 0)
         #expect(visible.stderr.isEmpty)
 
+        let activeNoOp = try fixture.run(["annotations", "restore", "uuid-update"] + fixture.globals)
+        #expect(activeNoOp.status == 0)
+        #expect(activeNoOp.stderr.isEmpty)
+        let activeNoOpResult = try JSONDecoder().decode(
+            AnnotationMutationCommandResult.self,
+            from: Data(activeNoOp.stdout.utf8)
+        )
+        #expect(activeNoOpResult.changed == false)
+        #expect(activeNoOpResult.committed == false)
+
         let missing = try fixture.run(["annotations", "restore", "missing-uuid"] + fixture.globals)
         #expect(missing.status == CLIProcessExit.notFound.rawValue)
         #expect(missing.stdout.isEmpty)
         let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(missing.stderr.utf8))
         #expect(envelope.error.code == .notFound)
-        #expect(envelope.error.reason == "annotation_restore_unavailable")
+        #expect(envelope.error.reason == CLIErrorReason.annotationRestoreUnavailable.rawValue)
+        #expect(envelope.error.recoveryHint == nil)
 
         let history = try fixture.harness.historyRecords()
         let deleteRecord = try #require(history.first { $0.operation == "annotations.delete" })
@@ -366,7 +518,7 @@ struct CLIContractTests {
         #expect(deleteRecord.inverse.operation == "annotations.restore")
         #expect(deleteRecord.inverse.selector?.annotationUUID == "uuid-update")
         let restoreRecords = history.filter { $0.operation == "annotations.restore" }
-        let restoreRecord = try #require(restoreRecords.first { $0.status == .success })
+        let restoreRecord = try #require(restoreRecords.first { $0.status == .success && $0.inverse.available })
         #expect(restoreRecord.inverse.available)
         #expect(restoreRecord.inverse.operation == "annotations.delete")
         #expect(restoreRecord.inverse.selector?.annotationUUID == "uuid-update")
@@ -1067,7 +1219,11 @@ private final class ProcessHarness {
         return products
     }
 
-    func run(_ arguments: [String], stdin: Data? = nil) throws -> ProcessInvocation {
+    func run(
+        _ arguments: [String],
+        stdin: Data? = nil,
+        environment overrides: [String: String] = [:]
+    ) throws -> ProcessInvocation {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -1075,6 +1231,8 @@ private final class ProcessHarness {
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
+        environment.removeValue(forKey: "APPLEBOOKSCLI_OPERATION_ID")
+        for (key, value) in overrides { environment[key] = value }
         process.environment = environment
 
         let stdout = Pipe()

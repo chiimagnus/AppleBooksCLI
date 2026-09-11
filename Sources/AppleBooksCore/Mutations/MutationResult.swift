@@ -26,7 +26,7 @@ public enum MutationFailureCode: String, Equatable, Sendable {
 public enum RestoreWarning: String, Equatable, Sendable {
     case verificationFailed = "verification_failed"
     case retentionFailed = "retention_failed"
-    case relaunchFailed = "relaunch_failed"
+    case booksStateRestoreFailed = "books_state_restore_failed"
 }
 
 public enum RestoreFailureCode: String, Equatable, Sendable {

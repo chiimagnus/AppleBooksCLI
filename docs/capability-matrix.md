@@ -132,7 +132,7 @@
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
 | backup list/retention | 已实现（强化） | public library catalog 以流式目录扫描固定只返回 newest 10 valid recovery artifacts，不提供分页历史浏览；ordinary CLI 只暴露 opaque `backupID`，exact restore 由该 ID 进入既有 guarded restore rail；annotation backup 仅内部 safety use |
-| restore | 已实现 | restore 前 safety backup；apply 后 verification/relaunch failure 不能冒充未发生 |
+| restore | 已实现 | restore 前 safety backup；apply 后 verification/Books state restore failure 不能冒充未发生 |
 | Books.app lifecycle | 已实现（强化） | normal mutation 保留 closed/background/frontmost；explicit sync temporary launch 不夺取最终状态 ownership |
 | 批量 CloudKit flush | 已实现（强化） | 多条 mutation 可最后 root `sync` 一次 flush pending records；pending=0 no-op |
 | sanitised errors | 已实现 | 默认 error 不回显用户正文/SQLite payload |

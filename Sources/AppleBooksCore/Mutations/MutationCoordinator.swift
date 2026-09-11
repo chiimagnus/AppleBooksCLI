@@ -364,8 +364,8 @@ struct MutationCoordinator {
         }
         defer { try? restoreSource.close() }
 
-        let wasRunning = booksApp.isRunning()
-        if wasRunning {
+        let initialBooksState = booksApp.state()
+        if initialBooksState != .closed {
             do {
                 try booksApp.terminateAndWait()
             } catch {
@@ -386,7 +386,7 @@ struct MutationCoordinator {
                 error,
                 code: .safetyBackupFailed,
                 safetyBackupHandle: nil,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
         let safetyBackupHandle = safetyBackup.lastPathComponent
@@ -403,7 +403,7 @@ struct MutationCoordinator {
                 error,
                 code: .restoreFailed,
                 safetyBackupHandle: safetyBackupHandle,
-                restoreBooks: wasRunning
+                restoreBooks: initialBooksState
             )
         }
 
@@ -431,12 +431,10 @@ struct MutationCoordinator {
             }
         }
 
-        if wasRunning {
-            do {
-                try booksApp.launch()
-            } catch {
-                warnings.append(.relaunchFailed)
-            }
+        do {
+            try booksApp.restore(initialBooksState)
+        } catch {
+            warnings.append(.booksStateRestoreFailed)
         }
 
         return RestoreResult(
@@ -473,15 +471,13 @@ struct MutationCoordinator {
         _ underlying: any Error,
         code: RestoreFailureCode,
         safetyBackupHandle: String?,
-        restoreBooks: Bool
+        restoreBooks: BooksAppState
     ) -> RestoreFailure {
         var warnings: [RestoreWarning] = []
-        if restoreBooks {
-            do {
-                try booksApp.launch()
-            } catch {
-                warnings.append(.relaunchFailed)
-            }
+        do {
+            try booksApp.restore(restoreBooks)
+        } catch {
+            warnings.append(.booksStateRestoreFailed)
         }
         return RestoreFailure(
             safetyBackupHandle: safetyBackupHandle,

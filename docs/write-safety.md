@@ -78,10 +78,10 @@ validate/open selected backup
 → apply SQLite restore
 → checkpoint + verify
 → retention
-→ restore Books when needed
+→ restore original Books state (`closed` / `background` / `frontmost`)
 ```
 
-restore apply 后同样跨过不可逆边界；后续 verification/retention/relaunch 失败必须表达为 applied-but-warning/unverified，不能自动重复 restore。public backup catalog 当前只覆盖 BKLibrary；annotation mutation 的 safety backup 不构成第二套 public restore surface。
+restore source 在触碰 Books 前完成校验；随后 snapshot 原始 `closed/background/frontmost` 状态，进入 quiet state，并在 safety-backup failure、apply failure 或成功收尾后 best-effort 恢复原状态。`background` 使用 non-activating launch，只有原本 `frontmost` 才允许激活。restore apply 后同样跨过不可逆边界；后续 verification/retention/Books-state restore 失败必须表达为 applied-but-warning/unverified，不能自动重复 restore。public backup catalog 当前只覆盖 BKLibrary；annotation mutation 的 safety backup 不构成第二套 public restore surface。
 
 ## Cloud projection 与 sync
 

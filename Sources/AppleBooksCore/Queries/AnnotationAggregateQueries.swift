@@ -19,16 +19,6 @@ struct AnnotationAggregateQueries {
 
     let connection: SQLiteConnection
 
-    func totalUserAnnotations() throws -> Int {
-        _ = try AppleBooksSchema.inspect(.annotationUserBase, on: connection)
-        let statement = try connection.prepare("""
-        SELECT COUNT(*) AS count
-        FROM \(AppleBooksTable.annotations.rawValue)
-        WHERE \(userScopePredicate)
-        """)
-        return try decodeCount(statement)
-    }
-
     func userAnnotationCounts(assetIDs: [String]) throws -> [String: Int] {
         guard assetIDs.count <= Self.maximumIdentityBatch else {
             throw AnnotationAggregateQueryError.batchTooLarge
@@ -107,13 +97,4 @@ struct AnnotationAggregateQueries {
         "\(AppleBooksSchema.Annotation.isDeleted) = 0 AND \(AppleBooksSchema.Annotation.type) != 3"
     }
 
-    private func decodeCount(_ statement: SQLiteStatement) throws -> Int {
-        guard try statement.step(),
-              let rawCount = try SQLiteRow(statement: statement).int64("count"),
-              rawCount >= 0,
-              try statement.step() == false else {
-            throw QueryDecodingError.nullRequiredColumn("count")
-        }
-        return Int(rawCount)
-    }
 }

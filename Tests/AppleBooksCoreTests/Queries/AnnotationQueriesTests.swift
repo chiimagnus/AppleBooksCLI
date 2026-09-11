@@ -189,7 +189,6 @@ struct AnnotationQueriesTests {
             connection: try SQLiteConnection.readOnly(path: annotations.path)
         )
 
-        #expect(try aggregate.totalUserAnnotations() == 3)
         #expect(try aggregate.userAnnotationCounts(assetIDs: ["asset-a", "missing"]) == ["asset-a": 2])
         var groups: [UserAnnotationAssetCount] = []
         try aggregate.forEachUserAnnotationAssetCount { groups.append($0) }

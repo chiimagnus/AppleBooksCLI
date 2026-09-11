@@ -391,4 +391,3 @@ struct ContentChapterPageResult: Codable, Equatable, Sendable {
         nextCursor = page.nextCursor
     }
 }
-

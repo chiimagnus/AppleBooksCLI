@@ -116,6 +116,18 @@ final class BackupRootGuard {
         }
     }
 
+    func withExclusiveMutationLock<T>(_ body: () throws -> T) throws -> T {
+        try validateCurrentPathIdentity()
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else { throw SQLiteBackupError.filesystemFailure }
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        try validateCurrentPathIdentity()
+        let result = try body()
+        try validateCurrentPathIdentity()
+        return result
+    }
+
     func forEachEntryName(_ body: (String) throws -> Void) throws {
         try validateCurrentPathIdentity()
         let enumerationFD = openat(descriptor, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
@@ -392,17 +404,19 @@ public enum SQLiteBackup {
             try copyOnline(sourceHandle: sourceHandle, to: staging)
             try sourceConnection.close()
             try verifyIntegrity(of: staging)
-            try root.publish(staging: staging, finalName: metadata.filename)
-        }
-        do {
-            try applyRetention(
-                in: root,
-                sourceStem: sourceStem,
-                keep: keep,
-                preserving: preserving
-            )
-        } catch {
-            throw SQLiteBackupError.retentionFailed
+            try root.withExclusiveMutationLock {
+                try root.publish(staging: staging, finalName: metadata.filename)
+                do {
+                    try applyRetention(
+                        in: root,
+                        sourceStem: sourceStem,
+                        keep: keep,
+                        preserving: preserving
+                    )
+                } catch {
+                    throw SQLiteBackupError.retentionFailed
+                }
+            }
         }
         try root.validateCurrentPathIdentity()
         return root.url.appendingPathComponent(metadata.filename, isDirectory: false)
@@ -485,14 +499,16 @@ public enum SQLiteBackup {
         guard let root = try BackupRootGuard.openExisting(backupRoot) else {
             throw SQLiteBackupError.filesystemFailure
         }
-        try applyRetention(
-            in: root,
-            sourceStem: source.deletingPathExtension().lastPathComponent,
-            keep: keep,
-            preserving: preserving,
-            instrumentation: instrumentation,
-            betweenPasses: betweenPasses
-        )
+        try root.withExclusiveMutationLock {
+            try applyRetention(
+                in: root,
+                sourceStem: source.deletingPathExtension().lastPathComponent,
+                keep: keep,
+                preserving: preserving,
+                instrumentation: instrumentation,
+                betweenPasses: betweenPasses
+            )
+        }
     }
 
     static func checkpointRestoredDestination(_ destination: URL) throws {
@@ -682,12 +698,15 @@ public enum SQLiteBackup {
 
         try betweenPasses?()
         let retainedNames = Set(newest.map(\.name)).union(preserving)
+        let retentionCutoff = newest.count == keep ? newest.last : nil
         try root.forEachEntryName { name in
             instrumentation?.observeScannedEntry()
             guard retainedNames.contains(name) == false,
-                  BackupMetadata.parse(filename: name, sourceStem: sourceStem) != nil,
+                  let metadata = BackupMetadata.parse(filename: name, sourceStem: sourceStem),
                   let entryStat = try root.entryStat(name),
-                  entryStat.st_mode & S_IFMT == S_IFREG else {
+                  entryStat.st_mode & S_IFMT == S_IFREG,
+                  let retentionCutoff,
+                  retentionPrecedes(retentionCutoff, RetentionCandidate(name: name, metadata: metadata)) else {
                 return
             }
             try root.removeRegularFile(named: name)

@@ -144,6 +144,53 @@ struct SQLiteBackupTests {
     }
 
     @Test
+    func retentionNeverDeletesNewerBackupPublishedBetweenStreamingPasses() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("BKLibrary.sqlite")
+        let backupRoot = root.appendingPathComponent("backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+        let older = retentionFilename(index: 0)
+        let newer = retentionFilename(index: 1)
+        try Data().write(to: backupRoot.appendingPathComponent(older))
+
+        try SQLiteBackup.enforceRetention(
+            source: source,
+            backupRoot: backupRoot,
+            keep: 1,
+            betweenPasses: {
+                try Data().write(to: backupRoot.appendingPathComponent(newer))
+            }
+        )
+
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(newer).path))
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(older).path))
+
+        try SQLiteBackup.enforceRetention(source: source, backupRoot: backupRoot, keep: 1)
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(newer).path))
+        #expect(FileManager.default.fileExists(atPath: backupRoot.appendingPathComponent(older).path) == false)
+    }
+
+    @Test
+    func backupRootMutationLockSerializesPublishAndRetentionOwners() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let backupRoot = root.appendingPathComponent("backups", isDirectory: true)
+        let first = try BackupRootGuard.create(backupRoot)
+        let existing = try BackupRootGuard.openExisting(backupRoot)
+        let second = try #require(existing)
+
+        try first.withExclusiveMutationLock {
+            errno = 0
+            #expect(flock(second.descriptor, LOCK_EX | LOCK_NB) == -1)
+            #expect(errno == EWOULDBLOCK)
+        }
+
+        #expect(flock(second.descriptor, LOCK_EX | LOCK_NB) == 0)
+        #expect(flock(second.descriptor, LOCK_UN) == 0)
+    }
+
+    @Test
     func retentionFailsClosedWhenRootIdentityChangesBetweenStreamingPasses() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

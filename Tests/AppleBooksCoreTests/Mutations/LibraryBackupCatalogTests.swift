@@ -17,6 +17,18 @@ struct LibraryBackupCatalogTests {
         #expect(throws: SQLiteBackupError.filesystemFailure) {
             _ = try SQLiteBackup.list(source: source, backupRoot: fileRoot)
         }
+
+        let realRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let linkedRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: realRoot, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: realRoot)
+        defer {
+            try? FileManager.default.removeItem(at: linkedRoot)
+            try? FileManager.default.removeItem(at: realRoot)
+        }
+        #expect(throws: SQLiteBackupError.filesystemFailure) {
+            _ = try SQLiteBackup.list(source: source, backupRoot: linkedRoot)
+        }
     }
 
     @Test

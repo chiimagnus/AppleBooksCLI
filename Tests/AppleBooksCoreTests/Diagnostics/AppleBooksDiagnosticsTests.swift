@@ -250,6 +250,31 @@ struct AppleBooksDiagnosticsTests {
     }
 
     @Test
+    func backupLocationProbeRejectsSymlinkRootWithoutCreatingAnything() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let realRoot = fixture.root.appendingPathComponent("real-backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: realRoot, withIntermediateDirectories: false)
+        let linkedRoot = fixture.root.appendingPathComponent("linked-backups", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: realRoot)
+
+        let report = AppleBooksDiagnostics.inspect(
+            libraryOverride: fixture.library,
+            annotationsOverride: fixture.annotations,
+            configurationFile: fixture.emptyConfig,
+            databaseDiscovery: fixture.discovery,
+            backupRoot: linkedRoot,
+            booksApp: fixture.booksApp,
+            cloudSyncReadiness: { _, _ in true }
+        )
+
+        #expect(report.state == .degraded)
+        #expect(report.backupLocationReady == false)
+        #expect(report.issues.contains(.init(code: .backupLocationUnavailable, state: .degraded)))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: realRoot.path).isEmpty)
+    }
+
+    @Test
     func databaseProbeFailuresUseLogicalCodesOnly() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

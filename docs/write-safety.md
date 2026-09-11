@@ -67,7 +67,7 @@ CLI 的单侧 DB override 对应 domain 使用 detached Books lifecycle；公开
 
 ## Backup 与 restore
 
-Safety backup 使用 SQLite online backup，不裸复制 WAL store；completed backup 必须通过 integrity verification。
+Safety backup 使用 SQLite online backup，不裸复制 WAL store；completed backup 必须通过 integrity verification。Backup root 及其已存在祖先组件统一按 no-follow 目录边界验证；create/list/retention/restore 只操作同一已验证 root descriptor 下的 owned regular artifact。Symlink root、entry symlink 或路径 identity 被替换都 fail closed，不能通过 path canonicalization 变成可恢复身份。
 
 BKLibrary restore：
 

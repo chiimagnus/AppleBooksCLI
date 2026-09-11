@@ -70,6 +70,23 @@ struct SQLiteRestoreTests {
     }
 
     @Test
+    func restoreRejectsSymlinkBackupRootWithoutReadingItsTarget() throws {
+        let fixture = try restoreFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let linkedRoot = fixture.root.appendingPathComponent("linked-backups", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: fixture.backupRoot)
+
+        #expect(throws: SQLiteBackupError.filesystemFailure) {
+            _ = try SQLiteBackup.openRestoreSource(
+                handle: fixture.backup.lastPathComponent,
+                destination: fixture.destination,
+                backupRoot: linkedRoot
+            )
+        }
+        #expect(try readValue(at: fixture.destination) == "current")
+    }
+
+    @Test
     func midRestoreFailureRollsBackPartialBackupTransaction() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

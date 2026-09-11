@@ -110,7 +110,7 @@ struct CollectionWriteCommandTests {
         defer { fixture.remove() }
         let books = try fixture.books()
 
-        let create = try CollectionsCreateCommand.parse(["  New Shelf  ", "--details", "private details"])
+        let create = try CollectionsCreateCommand.parse(["  New Shelf  "])
         let created = try create.execute(using: books)
         #expect(created.committed)
         #expect(created.changed)
@@ -118,8 +118,6 @@ struct CollectionWriteCommandTests {
         #expect(created.collectionID != nil)
         #expect(created.backupID != nil)
         let createdData = try JSONEncoder().encode(created)
-        let createdJSON = String(decoding: createdData, as: UTF8.self)
-        #expect(createdJSON.contains("private details") == false)
         let createdObject = try #require(JSONSerialization.jsonObject(with: createdData) as? [String: Any])
         #expect(createdObject["collectionID"] != nil)
         #expect(createdObject["backupID"] != nil)
@@ -128,6 +126,10 @@ struct CollectionWriteCommandTests {
         #expect(createdObject["appleBooksURL"] == nil)
         #expect(try fixture.text("SELECT ZTITLE FROM ZBKCOLLECTION WHERE Z_PK=41") == "New Shelf")
         #expect(try fixture.integer("SELECT ZSORTKEY FROM ZBKCOLLECTION WHERE Z_PK=41") == 50_000)
+        #expect(try fixture.text("SELECT ZDETAILS FROM ZBKCOLLECTION WHERE Z_PK=41") == nil)
+        #expect(throws: (any Error).self) {
+            _ = try CollectionsCreateCommand.parse(["Shelf", "--details", "removed"])
+        }
 
         let rename = try CollectionsRenameCommand.parse([
             "550E8400-E29B-41D4-A716-446655440000", "--title", "Renamed",

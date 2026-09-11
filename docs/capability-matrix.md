@@ -89,7 +89,7 @@
 | get/describe collection | 已实现（强化） | stable collection ID 优先、显式 local PK fallback；返回 bounded semantic detail 与 collection/membership 可编辑能力，超限 title/details 带 `truncatedFields`；不暴露 persistence 排序/视图字段 |
 | search collections by title | 已实现（强化） | case-insensitive literal substring；opaque cursor 分页，默认 20、最大 100 |
 | list collection books | 已实现（强化） | relation owner 在分页前跳过 stale membership 并按 canonical membership order 去重；opaque cursor 分页，默认 20、最大 100 |
-| create collection | 已实现 | title + optional details，走 guarded write rail |
+| create collection | 已实现 | public CLI 只接收 title，走 guarded write rail |
 | rename collection | 已实现 | system collection fail closed |
 | delete collection | 已实现 | soft-delete |
 | add book | 已实现（强化） | idempotent membership add；固定 named selectors：`--collection|--collection-pk` + `--book|--book-pk` |

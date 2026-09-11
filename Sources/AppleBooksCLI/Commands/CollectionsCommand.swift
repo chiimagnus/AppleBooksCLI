@@ -180,9 +180,6 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Argument(help: "New collection title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
-    @Option(name: .long, help: "Optional collection details.")
-    var details: String?
-
     @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit for local-only writes; use root sync to flush pending changes later.")
     var sync = false
 
@@ -202,7 +199,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
         return try CLIOperation.run {
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .collectionWrite)
             return CollectionMutationCommandResult(
-                try books.createCollection(title: canonicalTitle, details: details, syncCloud: sync)
+                try books.createCollection(title: canonicalTitle, syncCloud: sync)
             )
         }
     }

@@ -191,7 +191,7 @@ struct ExportRunWarning: Codable, Equatable, Sendable {
     }
 }
 
-struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ExportCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "export",
         abstract: "Export Apple Books annotations and PDF highlights."

@@ -71,7 +71,7 @@ enum AnnotationBooleanArgument: String, ExpressibleByArgument, CaseIterable, Sen
     var value: Bool { self == .trueValue }
 }
 
-struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "Query user annotations with bounded semantic summaries and opaque cursor pagination."
@@ -163,7 +163,7 @@ struct AnnotationsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 }
 
-struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsGetCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "get",
         abstract: "Get one annotation by exact UUID or explicit local primary key."
@@ -198,7 +198,7 @@ struct AnnotationsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     }
 }
 
-struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct AnnotationsContextCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "context",
         abstract: "Resolve bounded context around one annotation."
@@ -247,7 +247,7 @@ struct AnnotationsContextCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     }
 }
 
-struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsUpdateNoteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "update-note",
         abstract: "Set an annotation note from stdin, or clear it explicitly."
@@ -308,7 +308,7 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, GlobalOptionsProviding, CL
     }
 }
 
-struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsDeleteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
         abstract: "Soft-delete one annotation so it can be restored later."
@@ -363,7 +363,7 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct AnnotationsRestoreCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "restore",
         abstract: "Restore one existing soft-deleted user annotation."

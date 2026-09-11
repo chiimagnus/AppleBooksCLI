@@ -20,7 +20,7 @@ struct CollectionsCommand: ParsableCommand {
     )
 }
 
-struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List non-deleted collections with opaque cursor pagination."
@@ -55,7 +55,7 @@ struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 }
 
-struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsGetCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "get",
         abstract: "Get one collection by exact collection ID or explicit local primary key."
@@ -88,7 +88,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
     }
 }
 
-struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsSearchCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "search",
         abstract: "Search collection titles by literal substring."
@@ -127,7 +127,7 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct CollectionsBooksCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "books",
         abstract: "List books in one collection with opaque cursor pagination."
@@ -171,7 +171,7 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
     }
 }
 
-struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct CollectionsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "create",
         abstract: "Create a new Apple Books collection."
@@ -217,7 +217,7 @@ struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct CollectionsRenameCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "rename",
         abstract: "Rename one collection by exact ID or explicit local primary key."
@@ -275,7 +275,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct CollectionsDeleteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
         abstract: "Delete one editable collection by exact ID or explicit local primary key."
@@ -325,7 +325,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     }
 }
 
-struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct CollectionsAddBookCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "add-book",
         abstract: "Add one exact book to one exact collection."
@@ -401,7 +401,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     }
 }
 
-struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+struct CollectionsRemoveBookCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "remove-book",
         abstract: "Remove one exact book from one exact collection."

@@ -1,10 +1,6 @@
 import ArgumentParser
 import Foundation
 
-protocol GlobalOptionsProviding {
-    var global: GlobalOptions { get }
-}
-
 protocol CLIOutputRunnable {
     func run(output: CLIOutput) throws
 }

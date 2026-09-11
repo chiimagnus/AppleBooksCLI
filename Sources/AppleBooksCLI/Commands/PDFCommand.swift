@@ -10,7 +10,7 @@ struct PDFCommand: ParsableCommand {
     )
 }
 
-struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct PDFListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List available PDF sources and stable selectors."
@@ -45,7 +45,7 @@ struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnabl
     }
 }
 
-struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct PDFHighlightsCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "highlights",
         abstract: "Read one bounded page of highlights from exactly one PDF source."

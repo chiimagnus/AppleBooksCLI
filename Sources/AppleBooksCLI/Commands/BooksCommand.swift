@@ -14,7 +14,7 @@ struct BooksCommand: ParsableCommand {
     )
 }
 
-struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct BooksListCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
         abstract: "List books with opaque cursor pagination."
@@ -68,7 +68,7 @@ struct BooksListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunna
     }
 }
 
-struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct BooksGetCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "get",
         abstract: "Get one book by exact asset ID or explicit local PK."
@@ -119,7 +119,7 @@ enum BookSearchFieldOption: String, ExpressibleByArgument, CaseIterable {
     }
 }
 
-struct BooksSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct BooksSearchCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "search",
         abstract: "Search books using a literal title, author, or genre query."

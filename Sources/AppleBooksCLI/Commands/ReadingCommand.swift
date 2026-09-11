@@ -41,7 +41,7 @@ enum ReadingStatusKind {
     }
 }
 
-protocol ReadingStatusLeaf: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+protocol ReadingStatusLeaf: ParsableCommand, CLIOutputRunnable {
     var limit: Int? { get }
     var cursor: String? { get }
     var global: GlobalOptions { get }
@@ -107,7 +107,7 @@ struct ReadingRecentCommand: ReadingStatusLeaf {
     var statusKind: ReadingStatusKind { .recent }
 }
 
-struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ReadingPositionCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "position",
         abstract: "Resolve the current bookmarked reading position when it maps to an actionable chapter."

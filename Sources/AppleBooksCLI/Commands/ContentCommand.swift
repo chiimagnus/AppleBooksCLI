@@ -15,7 +15,7 @@ struct ContentCommand: ParsableCommand {
     )
 }
 
-struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentMetadataCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "metadata",
         abstract: "Read metadata for one EPUB book."
@@ -55,7 +55,7 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 }
 
-struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentCoverCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "cover",
         abstract: "Write the cover image for one EPUB book."
@@ -110,7 +110,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
     }
 }
 
-struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentChaptersCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapters",
         abstract: "List an EPUB table of contents with opaque cursor pagination."
@@ -167,7 +167,7 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     }
 }
 
-struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
+struct ContentChapterCommand: ParsableCommand, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapter",
         abstract: "Read one EPUB chapter by table-of-contents order with opaque continuation."

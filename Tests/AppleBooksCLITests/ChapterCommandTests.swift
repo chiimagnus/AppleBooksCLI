@@ -96,7 +96,10 @@ struct ChapterCommandTests {
         )
         #expect(staleCode == CLIProcessExit.unavailable.rawValue)
         #expect(stale.stdout.isEmpty)
-        #expect(try fixture.decode(CLIErrorEnvelope.self, stale.stderr).error.message == "Pagination cursor is stale. Restart from the first page.")
+        let error = try fixture.decode(CLIErrorEnvelope.self, stale.stderr).error
+        #expect(error.message == "Pagination cursor is stale.")
+        #expect(error.reason == CLIErrorReason.cursorStale.rawValue)
+        #expect(error.recoveryHint?.contains("Restart from the first page") == true)
 
         let restarted = try fixture.runJSON(
             ContentChaptersPageResult.self,
@@ -211,7 +214,9 @@ struct ChapterCommandTests {
         #expect(staleCode == CLIProcessExit.unavailable.rawValue)
         #expect(stale.stdout.isEmpty)
         let envelope = try fixture.decode(CLIErrorEnvelope.self, stale.stderr)
-        #expect(envelope.error.message == "Pagination cursor is stale. Restart from the first page.")
+        #expect(envelope.error.message == "Pagination cursor is stale.")
+        #expect(envelope.error.reason == CLIErrorReason.cursorStale.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("Restart from the first page") == true)
     }
 
     @Test

@@ -3,7 +3,7 @@ name: applebookscli
 description: Use `applebookscli` to query, read, export, diagnose, recover, sync, or safely modify Apple Books books, reading state, EPUB/PDF content, annotations, collections, backups, and operation history
 license: AGPL-3.0-only
 metadata:
-  cli_version: "0.3.1"
+  cli_version: "0.4.0"
   repository: "https://github.com/chiimagnus/AppleBooksCLI"
   language: "en"
 ---

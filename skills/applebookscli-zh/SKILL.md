@@ -3,7 +3,7 @@ name: applebookscli-zh
 description: 使用 `applebookscli` 查询、读取、导出、诊断、恢复、同步或安全修改 Apple Books 的书籍、阅读状态、EPUB/PDF 内容、批注、藏书、备份与操作历史
 license: AGPL-3.0-only
 metadata:
-  cli_version: "0.3.1"
+  cli_version: "0.4.0"
   repository: "https://github.com/chiimagnus/AppleBooksCLI"
   language: "zh"
 ---

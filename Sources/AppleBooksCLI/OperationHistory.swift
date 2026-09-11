@@ -300,8 +300,8 @@ struct OperationHistoryToken: Equatable, Sendable {
 
 enum OperationHistoryBeginResult: Equatable, Sendable {
     case started(OperationHistoryToken)
-    case replay(OperationHistoryRecord)
-    case conflict(OperationHistoryRecord)
+    case replay
+    case conflict
 }
 
 struct OperationHistorySummaryRecord: Equatable, Sendable {
@@ -357,17 +357,6 @@ struct OperationHistoryStore: Sendable {
             .appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
     }
 
-    func begin(operation: String, request: OperationHistoryRequest) throws -> OperationHistoryToken {
-        guard case let .started(token) = try begin(
-            operation: operation,
-            request: request,
-            operationID: nil
-        ) else {
-            throw OperationHistoryStoreError.unavailable
-        }
-        return token
-    }
-
     func begin(
         operation: String,
         request: OperationHistoryRequest,
@@ -389,9 +378,9 @@ struct OperationHistoryStore: Sendable {
             let id = operationID ?? UUID().uuidString.lowercased()
             if operationID != nil, let existing = try targetRecord(id: id, rootFD: rootFD) {
                 if existing.operation == operation && existing.request == request {
-                    return OperationHistoryBeginResult.replay(existing)
+                    return OperationHistoryBeginResult.replay
                 }
-                return OperationHistoryBeginResult.conflict(existing)
+                return OperationHistoryBeginResult.conflict
             }
 
             let fileName = Self.dateFileName(for: startedAt, timeZone: timeZone())

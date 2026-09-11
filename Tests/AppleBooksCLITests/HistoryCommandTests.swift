@@ -62,7 +62,7 @@ struct HistoryCommandTests {
         defer { fixture.remove() }
         let store = fixture.store()
         let privateTitle = "line1\nline2\u{001B}[31m"
-        let token = try store.begin(
+        let token = try store.beginTestHistory(
             operation: "collections.rename",
             request: OperationHistoryRequest(
                 selector: OperationHistorySelector(collectionID: "collection-id"),

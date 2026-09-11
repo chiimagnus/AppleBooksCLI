@@ -6,8 +6,18 @@ import Testing
 @testable import AppleBooksCLI
 
 extension OperationHistoryStore {
-    func beginTestHistory(operation: String) throws -> OperationHistoryToken {
-        try begin(operation: operation, request: .unavailable)
+    func beginTestHistory(
+        operation: String,
+        request: OperationHistoryRequest = .unavailable
+    ) throws -> OperationHistoryToken {
+        guard case let .started(token) = try begin(
+            operation: operation,
+            request: request,
+            operationID: nil
+        ) else {
+            throw OperationHistoryStoreError.unavailable
+        }
+        return token
     }
 
     func completeTestHistory(_ token: OperationHistoryToken, exitCode: Int32) throws {
@@ -294,7 +304,8 @@ struct OperationHistoryTests {
         try fixture.store(at: date("2026-09-04T10:00:01Z")).completeTestHistory(token, exitCode: 0)
 
         switch try store.begin(operation: "collections.create", request: request, operationID: operationID) {
-        case let .replay(record):
+        case .replay:
+            let record = try #require(try store.get(id: operationID))
             #expect(record.status == .success)
             #expect(record.id == operationID)
         case .started, .conflict:
@@ -306,7 +317,8 @@ struct OperationHistoryTests {
             request: OperationHistoryRequest(title: "Different Shelf"),
             operationID: operationID
         ) {
-        case let .conflict(record):
+        case .conflict:
+            let record = try #require(try store.get(id: operationID))
             #expect(record.id == operationID)
             #expect(record.request == request)
         case .started, .replay:
@@ -399,7 +411,7 @@ struct OperationHistoryTests {
         defer { fixture.cleanup() }
         let time = date("2026-09-04T10:00:00Z")
         let store = fixture.store(at: time)
-        let token = try store.begin(
+        let token = try store.beginTestHistory(
             operation: "collections.rename",
             request: OperationHistoryRequest(
                 selector: OperationHistorySelector(collectionID: "collection-id"),
@@ -447,7 +459,7 @@ struct OperationHistoryTests {
         let file = fixture.root.appendingPathComponent("2026-09-04.jsonl")
         try Data("{\"schemaVersion\":1,\"kind\":\"started\",\"id\":\"broken\"\n".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        let valid = try fixture.store(at: time).begin(operation: "sync", request: .unavailable)
+        let valid = try fixture.store(at: time).beginTestHistory(operation: "sync")
         let warnings = CounterBox()
 
         let page = try fixture.store(

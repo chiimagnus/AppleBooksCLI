@@ -263,7 +263,7 @@ struct CLIContractTests {
         defer { harness.remove() }
         let store = OperationHistoryStore(root: harness.historyRoot)
         let privateArgument = "process-private-note"
-        let token = try store.begin(
+        let token = try store.beginTestHistory(
             operation: "annotations.update-note",
             request: OperationHistoryRequest(
                 selector: OperationHistorySelector(annotationUUID: "uuid"),

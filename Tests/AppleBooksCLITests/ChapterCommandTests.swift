@@ -307,43 +307,6 @@ struct ChapterCommandTests {
     }
 
     @Test
-    func currentChapterUsesOnlyTypeThreeBookmarkWithoutRecentAnnotationFallback() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-
-        let current = try fixture.runJSON(
-            ContentCurrentChapterResult.self,
-            arguments: ["content", "current-chapter", "12"]
-        )
-        #expect(current.bookLocalPK == 1)
-        #expect(current.bookAssetID == "12")
-        #expect(current.chapter.id == "1")
-        #expect(current.chapter.title == "One")
-        #expect(current.chapter.fragment == "one")
-
-        let inferredPosition = Capture()
-        let inferredPositionCode = CLIEntrypoint.run(
-            arguments: ["reading", "position", "fallback-only"] + fixture.globalArguments,
-            output: inferredPosition.output
-        )
-        #expect(inferredPositionCode == CLIProcessExit.unavailable.rawValue)
-        #expect(inferredPosition.stdout.isEmpty)
-        let inferredEnvelope = try fixture.decode(CLIErrorEnvelope.self, inferredPosition.stderr)
-        #expect(inferredEnvelope.error.message == "Reading position is unavailable for this book.")
-
-        let fallbackCapture = Capture()
-        let fallbackCode = CLIEntrypoint.run(
-            arguments: ["content", "current-chapter", "fallback-only"] + fixture.globalArguments,
-            output: fallbackCapture.output
-        )
-        #expect(fallbackCode == CLIProcessExit.unavailable.rawValue)
-        #expect(fallbackCapture.stdout.isEmpty)
-        let envelope = try fixture.decode(CLIErrorEnvelope.self, fallbackCapture.stderr)
-        #expect(envelope.error.code == .unavailable)
-        #expect(envelope.error.message == "Current reading chapter is unavailable.")
-    }
-
-    @Test
     func readingPositionChapterOrderFeedsCanonicalChapterAndNumericRawIDIsNotOrder() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

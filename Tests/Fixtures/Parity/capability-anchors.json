@@ -102,48 +102,20 @@
       ]
     ]
   },
-  "CFI chapter hint": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "locate"
-      ]
-    ]
-  },
-  "CFI char range diagnostics": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "locate"
-      ]
-    ]
-  },
   "CFI raw round-trip": {
     "owner": "core",
     "implementationPaths": [
-      "Sources/AppleBooksCore/Models/Location.swift"
+      "Sources/AppleBooksCore/Models/Location.swift",
+      "Sources/AppleBooksCore/Export/JSONExporter.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Models/LocationTests.swift"
+      "Tests/AppleBooksCoreTests/Models/LocationTests.swift",
+      "Tests/AppleBooksCoreTests/Export/JSONExporterTests.swift"
     ],
     "cliHelpArgs": [
       [
-        "content",
-        "locate"
+        "export",
+        "--format"
       ]
     ]
   },
@@ -153,12 +125,13 @@
       "Sources/AppleBooksCore/Content/EPUBEncryption.swift"
     ],
     "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift"
+      "Tests/AppleBooksCoreTests/Content/EPUBEncryptionTests.swift",
+      "Tests/AppleBooksCLITests/ContentInspectCommandTests.swift"
     ],
     "cliHelpArgs": [
       [
         "content",
-        "status"
+        "metadata"
       ]
     ]
   },
@@ -658,21 +631,6 @@
       [
         "annotations",
         "list"
-      ]
-    ]
-  },
-  "current reading chapter": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Reading/CurrentReadingChapter.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Reading/CurrentReadingChapterTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "current-chapter"
       ]
     ]
   },
@@ -1502,21 +1460,6 @@
       [
         "export",
         "--format"
-      ]
-    ]
-  },
-  "本地 materialization 检查": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Content/BookContentAvailability.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Content/BookContentAvailabilityTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "content",
-        "status"
       ]
     ]
   },

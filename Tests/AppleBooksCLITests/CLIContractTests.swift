@@ -198,10 +198,6 @@ struct CLIContractTests {
         #expect(position["chapterID"] == nil)
         #expect(position["source"] == nil)
 
-        let status = try fixture.runJSON(["content", "status", "asset-a"])
-        #expect(status["ready"] as? Bool == true)
-        #expect(status["selectedSource"] as? String == "current")
-
         let metadata = try fixture.runJSON(["content", "metadata", "asset-a"])
         #expect(metadata["bookAssetID"] as? String == "asset-a")
         #expect(metadata["bookLocalPK"] == nil)
@@ -211,11 +207,6 @@ struct CLIContractTests {
         #expect(metadata["epub"] == nil)
         #expect(metadata["database"] == nil)
         #expect(metadata["enrichment"] == nil)
-
-        let located = try fixture.runJSON([
-            "content", "locate", "asset-a", "epubcfi(/6/2[shared]!/4/2,:0,:5)",
-        ])
-        #expect(located["chapterID"] as? String == "shared")
 
         let chapter = try fixture.runJSON([
             "content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "12",

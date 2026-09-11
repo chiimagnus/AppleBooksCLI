@@ -41,7 +41,6 @@
 | recently read books | 已实现 | 按 last-opened 排序；cursor 分页，默认 20、最大 100 |
 | library stats | 已实现 | SQL aggregate + bounded cross-store classifier；分别报告 historical / unmapped / ambiguous / identity-unavailable annotation counts；top-5 只返回可消费书籍 identity + count |
 | current reading position | 已实现（强化） | `reading position` 只读取 type=3 current bookmark；仅当 raw hint 能映射当前 ToC 时返回 `chapterOrder`、bounded title 与 totalChapters，不暴露 raw chapter ID/source |
-| current reading chapter | 已实现 | current position 的 CFI hint 映射 ToC chapter |
 | current-position fallback | 已实现（Core compatibility） | public Core `currentReadingPosition` 仍保留最近 user annotation inference；ordinary `reading position` 不使用该 fallback |
 
 ## Annotations
@@ -69,7 +68,6 @@
 
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
-| 本地 materialization 检查 | 已实现 | probe 不主动触发 iCloud hydration |
 | DRM gate | 已实现 | DRM 明确不可读，不用空正文冒充成功 |
 | EPUB ToC | 已实现（强化） | `content chapters --book|--book-pk`；nav → NCX → spine fallback；默认 20 / 最大 100 的 opaque cursor，只公开 `chapterOrder`、bounded title、depth |
 | chapter text | 已实现（强化） | `content chapter --book <assetID> --chapter <order>`；按 ToC order 精确选择，ordinary JSON 不公开 raw chapter id/href/fragment |
@@ -77,9 +75,7 @@
 | 细粒度 spine entry | 已实现 | ToC 外 spine item 仍可读取 |
 | current-library packed EPUB fallback | 已实现 | primary 不可用时只在显式 root 做 exact-basename fallback；unsafe primary 不掩盖 |
 | directory / packed parser 等价 | 已实现（强化） | 两种 source 共用 package/content 语义与 path safety；结构深度/节点/ZIP inventory 有固定 hard budget，超限 fail closed |
-| CFI raw round-trip | 已实现（强化） | archival/raw Core 永久保留 source CFI；ordinary derived parsing 最多处理 64 KiB，超限不伪造 chapter/fragment |
-| CFI chapter hint | 已实现 | optimistic hint，不冒充完整 validator |
-| CFI char range diagnostics | 已实现 | offset 明确属于 leaf XHTML text node |
+| CFI raw round-trip | 已实现（强化） | archival export/raw Core 永久保留 source CFI；ordinary derived parsing 最多处理 64 KiB，超限不伪造 chapter/fragment |
 
 ## Collections
 

@@ -7,70 +7,17 @@ import Testing
 @Suite("ContentInspectCommandTests")
 struct ContentInspectCommandTests {
     @Test
-    func statusUsesExactSelectorAndReportsMaterializationWithoutReadingChapterBody() throws {
-        let fixture = try Fixture(contentAvailable: true, supplementalAvailable: true)
-        defer { fixture.remove() }
-
-        let byAsset = try fixture.runJSON(
-            ContentStatusResult.self,
-            arguments: ["content", "status", "12"]
-        )
-        #expect(byAsset.bookLocalPK == 1)
-        #expect(byAsset.bookAssetID == "12")
-        #expect(byAsset.currentAvailability == .available)
-        #expect(byAsset.supplementalAvailability == .available)
-        #expect(byAsset.selectedSource == .current)
-        #expect(byAsset.materialization == .available)
-        #expect(byAsset.encryption == EPUBEncryption.none)
-        #expect(byAsset.unavailableReason == nil)
-        #expect(byAsset.ready)
-
-        let byPK = try fixture.runJSON(
-            ContentStatusResult.self,
-            arguments: ["content", "status", "--pk", "1"]
-        )
-        #expect(byPK.bookAssetID == "12")
-    }
-
-    @Test
-    func unavailableStatusIsStructuredInsteadOfEmptySuccess() throws {
-        let fixture = try Fixture(contentAvailable: false)
-        defer { fixture.remove() }
-
-        let status = try fixture.runJSON(
-            ContentStatusResult.self,
-            arguments: ["content", "status", "12"]
-        )
-        #expect(status.ready == false)
-        #expect(status.currentAvailability == .missing)
-        #expect(status.selectedSource == nil)
-        #expect(status.materialization == .missing)
-        #expect(status.unavailableReason == .missing)
-    }
-
-    @Test
-    func statusClassifiesFontObfuscationAndUnsupportedDRMWithoutReadingChapterBody() throws {
+    func metadataAllowsFontObfuscationAndRejectsUnsupportedDRMWithoutReadingChapterBody() throws {
         let font = try Fixture(contentAvailable: true, encryption: .fontObfuscation)
         defer { font.remove() }
-        let fontStatus = try font.runJSON(
-            ContentStatusResult.self,
-            arguments: ["content", "status", "12"]
+        let fontMetadata = try font.runJSON(
+            ContentMetadataResult.self,
+            arguments: ["content", "metadata", "12"]
         )
-        #expect(fontStatus.encryption == .fontObfuscationOnly)
-        #expect(fontStatus.ready)
-        #expect(fontStatus.unavailableReason == nil)
+        #expect(fontMetadata.bookAssetID == "12")
 
         let drm = try Fixture(contentAvailable: true, encryption: .unsupported)
         defer { drm.remove() }
-        let drmStatus = try drm.runJSON(
-            ContentStatusResult.self,
-            arguments: ["content", "status", "12"]
-        )
-        #expect(drmStatus.materialization == .available)
-        #expect(drmStatus.encryption == .contentEncryptionUnsupported)
-        #expect(drmStatus.ready == false)
-        #expect(drmStatus.unavailableReason == .contentEncryptionUnsupported)
-
         let metadataCapture = Capture()
         let metadataCode = CLIEntrypoint.run(
             arguments: ["content", "metadata", "12"] + drm.globalArguments,
@@ -149,40 +96,6 @@ struct ContentInspectCommandTests {
         #expect(envelope.error.reason == "output_exists")
         #expect(second.stderr.contains(destination.path) == false)
         #expect(try Data(contentsOf: destination) == fixture.coverData)
-    }
-
-    @Test
-    func locateReturnsRawCFIRangeAndResolvedChapterWithoutInventingIdentity() throws {
-        let fixture = try Fixture(contentAvailable: true)
-        defer { fixture.remove() }
-        let rawCFI = "epubcfi(/6/2[chapter]!/4/2,:4,:8)"
-
-        let byAsset = try fixture.runJSON(
-            ContentLocationResult.self,
-            arguments: ["content", "locate", "12", rawCFI]
-        )
-        #expect(byAsset.rawCFI == rawCFI)
-        #expect(byAsset.chapterID == "chapter")
-        #expect(byAsset.characterRange == .init(start: 4, end: 8))
-        #expect(byAsset.source == .current)
-        #expect(byAsset.resolvedChapter?.id == "chapter")
-
-        let byPK = try fixture.runJSON(
-            ContentLocationResult.self,
-            arguments: ["content", "locate", "--pk", "1", rawCFI]
-        )
-        #expect(byPK.bookAssetID == "12")
-        #expect(byPK.rawCFI == rawCFI)
-
-        let defaultOutput = Capture()
-        let defaultCode = CLIEntrypoint.run(
-            arguments: ["content", "locate", "12", rawCFI] + fixture.globalArguments,
-            output: defaultOutput.output
-        )
-        #expect(defaultCode == CLIProcessExit.success.rawValue)
-        #expect(defaultOutput.stderr.isEmpty)
-        let defaultResult = try fixture.decode(ContentLocationResult.self, defaultOutput.stdout)
-        #expect(defaultResult.rawCFI == rawCFI)
     }
 
     @Test
@@ -330,23 +243,7 @@ struct ContentInspectCommandTests {
     }
 
     @Test
-    func malformedCFIRemainsDiagnosticOnlyEvenWhenContentIsUnavailable() throws {
-        let fixture = try Fixture(contentAvailable: false)
-        defer { fixture.remove() }
-
-        let result = try fixture.runJSON(
-            ContentLocationResult.self,
-            arguments: ["content", "locate", "12", "not-a-cfi"]
-        )
-        #expect(result.rawCFI == "not-a-cfi")
-        #expect(result.chapterID == nil)
-        #expect(result.characterRange == nil)
-        #expect(result.source == nil)
-        #expect(result.resolvedChapter == nil)
-    }
-
-    @Test
-    func invalidOutputAndLocateGrammarFailBeforeDatabaseAccess() throws {
+    func invalidOutputAndRemovedDiagnosticRoutesFailBeforeDatabaseAccess() throws {
         let missing = "/definitely/not-present/applebookscli-t7.sqlite"
 
         let outputCapture = Capture()
@@ -359,15 +256,25 @@ struct ContentInspectCommandTests {
         )
         #expect(outputCode == CLIProcessExit.usageInvalid.rawValue)
 
-        let locateCapture = Capture()
-        let locateCode = CLIEntrypoint.run(
-            arguments: [
-                "content", "locate", "--pk", "1", "extra", "cfi",
-                "--library-db", missing, "--annotations-db", missing,
-            ],
-            output: locateCapture.output
-        )
-        #expect(locateCode == CLIProcessExit.usageInvalid.rawValue)
+        for arguments in [
+            ["content", "status", "12"],
+            ["content", "locate", "12", "epubcfi(/6/2)"],
+            ["content", "current-chapter", "12"],
+        ] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+        }
+
+        let help = Capture()
+        let helpCode = CLIEntrypoint.run(arguments: ["content", "--help"], output: help.output)
+        #expect(helpCode == CLIProcessExit.success.rawValue)
+        #expect(help.stderr.isEmpty)
+        let helpTokens = Set(help.stdout.split(whereSeparator: \.isWhitespace).map(String.init))
+        for removed in ["status", "locate", "current-chapter"] {
+            #expect(helpTokens.contains(removed) == false)
+        }
     }
 
     private enum EncryptionMode {
@@ -395,18 +302,13 @@ struct ContentInspectCommandTests {
 
         init(
             contentAvailable: Bool,
-            encryption: EncryptionMode = .none,
-            supplementalAvailable: Bool = false
+            encryption: EncryptionMode = .none
         ) throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             epub = root.appendingPathComponent("book.epub", isDirectory: true)
             supplementalRoot = root.appendingPathComponent("supplemental", isDirectory: true)
             try FileManager.default.createDirectory(at: supplementalRoot, withIntermediateDirectories: true)
-            if supplementalAvailable {
-                try Data("materialized supplemental candidate".utf8)
-                    .write(to: supplementalRoot.appendingPathComponent("book.epub"))
-            }
             if contentAvailable {
                 try FileManager.default.createDirectory(at: epub.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
                 try FileManager.default.createDirectory(at: epub.appendingPathComponent("OPS"), withIntermediateDirectories: true)

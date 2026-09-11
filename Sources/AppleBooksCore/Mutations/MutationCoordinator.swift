@@ -225,6 +225,33 @@ struct MutationCoordinator {
             throw failure(error, code: .invariantFailed, backupHandle: backupHandle, restoreBooks: initialBooksState)
         }
 
+        let domain = domainData(payload)
+        if domain.changed == false {
+            rollbackAndClose(handle, transactionOpen: &transactionOpen, writableOpen: &writableOpen)
+            var warnings: [MutationWarning] = []
+            if initialBooksState != .closed {
+                do {
+                    try booksApp.restore(initialBooksState)
+                } catch {
+                    warnings.append(.booksStateRestoreFailed)
+                }
+            }
+            return MutationResult(
+                committed: false,
+                backupHandle: nil,
+                localPK: domain.localPK,
+                stableID: domain.stableID,
+                relatedLocalPK: domain.relatedLocalPK,
+                relatedStableID: domain.relatedStableID,
+                historyEffect: nil,
+                changed: false,
+                acknowledgementRequested: acknowledgementRequested,
+                acknowledged: nil,
+                warnings: warnings,
+                appleBooksURL: domain.appleBooksURL
+            )
+        }
+
         let commit = sqlite3_exec(handle, "COMMIT", nil, nil, nil)
         guard commit == SQLITE_OK else {
             let commitError = SQLiteError.current(operation: .step, code: commit, handle: handle)
@@ -248,7 +275,6 @@ struct MutationCoordinator {
             writableOpen = false
         }
 
-        let domain = domainData(payload)
         var readBackSucceeded = false
         do {
             let readBackConnection = try SQLiteConnection.readOnly(path: database.path)

@@ -180,7 +180,8 @@ struct MutationCoordinatorLifecycleTests {
             readBack: { _, _ in }
         )
 
-        #expect(result.committed)
+        #expect(result.committed == false)
+        #expect(result.backupHandle == nil)
         #expect(result.changed == false)
         #expect(result.acknowledgementRequested)
         #expect(result.acknowledged == nil)

@@ -239,6 +239,87 @@ struct OperationHistoryTests {
     }
 
     @Test
+    func operationIDClaimIsAtomicAcrossConcurrentStores() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store(at: date("2026-09-04T10:00:00Z"))
+        let operationID = "11111111-1111-4111-8111-111111111111"
+        let started = CounterBox()
+        let replays = CounterBox()
+        let failures = FailureBox()
+
+        DispatchQueue.concurrentPerform(iterations: 16) { index in
+            do {
+                switch try store.begin(
+                    operation: "collections.create",
+                    request: OperationHistoryRequest(title: "Retry Shelf"),
+                    operationID: operationID
+                ) {
+                case .started:
+                    started.increment()
+                case .replay:
+                    replays.increment()
+                case .conflict:
+                    failures.append("conflict[\(index)]")
+                }
+            } catch {
+                failures.append("claim[\(index)]: \(error)")
+            }
+        }
+
+        #expect(failures.isEmpty)
+        #expect(started.value == 1)
+        #expect(replays.value == 15)
+        let record = try #require(try store.get(id: operationID))
+        #expect(record.status == .incomplete)
+        #expect(record.operation == "collections.create")
+        #expect(record.request.title == "Retry Shelf")
+        #expect(try store.listPage(limit: 100).items.count == 1)
+    }
+
+    @Test
+    func operationIDReplayAndConflictReuseHistoryIdentityWithoutRedispatch() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let operationID = "22222222-2222-4222-8222-222222222222"
+        let request = OperationHistoryRequest(title: "Retry Shelf")
+        let store = fixture.store(at: date("2026-09-04T10:00:00Z"))
+
+        let token: OperationHistoryToken
+        switch try store.begin(operation: "collections.create", request: request, operationID: operationID) {
+        case let .started(value): token = value
+        case .replay, .conflict: throw OperationHistoryStoreError.unavailable
+        }
+        #expect(token.id == operationID)
+        try fixture.store(at: date("2026-09-04T10:00:01Z")).completeTestHistory(token, exitCode: 0)
+
+        switch try store.begin(operation: "collections.create", request: request, operationID: operationID) {
+        case let .replay(record):
+            #expect(record.status == .success)
+            #expect(record.id == operationID)
+        case .started, .conflict:
+            Issue.record("completed operation ID should replay-block")
+        }
+
+        switch try store.begin(
+            operation: "collections.create",
+            request: OperationHistoryRequest(title: "Different Shelf"),
+            operationID: operationID
+        ) {
+        case let .conflict(record):
+            #expect(record.id == operationID)
+            #expect(record.request == request)
+        case .started, .replay:
+            Issue.record("same operation ID with different request should conflict")
+        }
+
+        #expect(throws: OperationHistoryStoreError.invalidID) {
+            _ = try store.begin(operation: "sync", request: .unavailable, operationID: "NOT-A-UUID")
+        }
+        #expect(try store.listPage(limit: 100).items.count == 1)
+    }
+
+    @Test
     func trailingPartialLineIsRecoveredBeforeNextAppend() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

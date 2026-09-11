@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 
 protocol GlobalOptionsProviding {
     var global: GlobalOptions { get }
@@ -15,18 +16,31 @@ protocol OperationHistoryRecordable: CLIOutputRunnable {
 }
 
 enum CLIEntrypoint {
+    private static let operationIDEnvironmentKey = "APPLEBOOKSCLI_OPERATION_ID"
+
     static func run(arguments: [String]) -> Int32 {
-        run(arguments: arguments, output: .standard)
+        run(
+            arguments: arguments,
+            output: .standard,
+            historyStore: nil,
+            operationID: ProcessInfo.processInfo.environment[operationIDEnvironmentKey]
+        )
     }
 
     static func run(arguments: [String], output: CLIOutput) -> Int32 {
-        run(arguments: arguments, output: output, historyStore: nil)
+        run(
+            arguments: arguments,
+            output: output,
+            historyStore: nil,
+            operationID: ProcessInfo.processInfo.environment[operationIDEnvironmentKey]
+        )
     }
 
     static func run(
         arguments: [String],
         output: CLIOutput,
-        historyStore: OperationHistoryStore?
+        historyStore: OperationHistoryStore?,
+        operationID: String? = nil
     ) -> Int32 {
         let command: any ParsableCommand
         do {
@@ -39,7 +53,8 @@ enum CLIEntrypoint {
             command,
             arguments: arguments,
             output: output,
-            historyStore: historyStore
+            historyStore: historyStore,
+            operationID: operationID
         )
     }
 
@@ -47,7 +62,8 @@ enum CLIEntrypoint {
         _ command: any ParsableCommand,
         arguments _: [String],
         output: CLIOutput,
-        historyStore: OperationHistoryStore? = nil
+        historyStore: OperationHistoryStore? = nil,
+        operationID: String? = nil
     ) -> Int32 {
         guard let recordable = command as? any OperationHistoryRecordable else {
             return dispatch(command, output: output)
@@ -61,14 +77,48 @@ enum CLIEntrypoint {
         }
 
         let activeHistoryStore = historyStore ?? OperationHistoryStore()
-        let token: OperationHistoryToken
+        let beginResult: OperationHistoryBeginResult
         do {
-            token = try activeHistoryStore.begin(operation: recordable.historyOperation, request: request)
+            beginResult = try activeHistoryStore.begin(
+                operation: recordable.historyOperation,
+                request: request,
+                operationID: operationID
+            )
+        } catch OperationHistoryStoreError.invalidID {
+            return presentRunError(
+                CLIError.usageInvalidWithReason(
+                    message: "Operation ID must be a lowercase UUID.",
+                    reason: .operationIDInvalid
+                ),
+                output: output
+            )
         } catch {
             return presentRunError(
                 CLIError.unavailableWithReason(
                     message: "Operation history is unavailable.",
                     reason: .historyUnavailable
+                ),
+                output: output
+            )
+        }
+
+        let token: OperationHistoryToken
+        switch beginResult {
+        case let .started(value):
+            token = value
+        case .replay:
+            return presentRunError(
+                CLIError.unavailableWithReason(
+                    message: "Operation replay was blocked before dispatch.",
+                    reason: .operationReplayBlocked
+                ),
+                output: output
+            )
+        case .conflict:
+            return presentRunError(
+                CLIError.usageInvalidWithReason(
+                    message: "Operation ID is already associated with a different request.",
+                    reason: .operationIDConflict
                 ),
                 output: output
             )

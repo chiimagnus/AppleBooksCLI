@@ -34,6 +34,9 @@ enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
     case databaseUnavailable = "database_unavailable"
     case historyEntryNotFound = "history_entry_not_found"
     case historyUnavailable = "history_unavailable"
+    case operationIDConflict = "operation_id_conflict"
+    case operationIDInvalid = "operation_id_invalid"
+    case operationReplayBlocked = "operation_replay_blocked"
     case outputExists = "output_exists"
     case pdfSourceNotFound = "pdf_source_not_found"
     case pdfWorkerUnavailable = "pdf_worker_unavailable"
@@ -131,6 +134,12 @@ enum CLIError: Error, Equatable, Sendable {
             "Run `applebookscli history list` and retry with a returned history ID."
         case .historyUnavailable:
             "Retry after local operation history storage is accessible."
+        case .operationIDConflict:
+            "Use a fresh lowercase UUID for a different logical write request."
+        case .operationIDInvalid:
+            "Set APPLEBOOKSCLI_OPERATION_ID to a lowercase UUID, or unset it."
+        case .operationReplayBlocked:
+            "Run `applebookscli history get <operation-id>` with the same UUID and inspect the recorded outcome before any new attempt."
         case .outputExists:
             "Choose a different --output; for export, use --overwrite always only when replacement is intended."
         case .pdfSourceNotFound:

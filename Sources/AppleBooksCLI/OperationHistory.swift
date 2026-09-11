@@ -298,6 +298,12 @@ struct OperationHistoryToken: Equatable, Sendable {
     fileprivate let fileName: String
 }
 
+enum OperationHistoryBeginResult: Equatable, Sendable {
+    case started(OperationHistoryToken)
+    case replay(OperationHistoryRecord)
+    case conflict(OperationHistoryRecord)
+}
+
 struct OperationHistorySummaryRecord: Equatable, Sendable {
     let id: String
     let operation: String
@@ -352,11 +358,42 @@ struct OperationHistoryStore: Sendable {
     }
 
     func begin(operation: String, request: OperationHistoryRequest) throws -> OperationHistoryToken {
+        guard case let .started(token) = try begin(
+            operation: operation,
+            request: request,
+            operationID: nil
+        ) else {
+            throw OperationHistoryStoreError.unavailable
+        }
+        return token
+    }
+
+    func begin(
+        operation: String,
+        request: OperationHistoryRequest,
+        operationID: String?
+    ) throws -> OperationHistoryBeginResult {
         guard operation.isEmpty == false else { throw OperationHistoryStoreError.unavailable }
+        if let operationID, Self.isCanonicalHistoryID(operationID) == false {
+            throw OperationHistoryStoreError.invalidID
+        }
+
         let startedAt = Self.historyTimestamp(now())
         let result = try withLockedRoot(createIfMissing: true) { rootFD in
-            try pruneWholeExpiredDateFiles(rootFD: rootFD, reference: startedAt)
-            let id = UUID().uuidString.lowercased()
+            if operationID == nil {
+                try pruneWholeExpiredDateFiles(rootFD: rootFD, reference: startedAt)
+            } else {
+                try prune(rootFD: rootFD, reference: startedAt)
+            }
+
+            let id = operationID ?? UUID().uuidString.lowercased()
+            if operationID != nil, let existing = try targetRecord(id: id, rootFD: rootFD) {
+                if existing.operation == operation && existing.request == request {
+                    return OperationHistoryBeginResult.replay(existing)
+                }
+                return OperationHistoryBeginResult.conflict(existing)
+            }
+
             let fileName = Self.dateFileName(for: startedAt, timeZone: timeZone())
             let event = OperationHistoryEvent.started(
                 id: id,
@@ -365,10 +402,10 @@ struct OperationHistoryStore: Sendable {
                 startedAt: startedAt
             )
             try append(event, to: fileName, rootFD: rootFD)
-            return OperationHistoryToken(id: id, startedAt: startedAt, fileName: fileName)
+            return .started(OperationHistoryToken(id: id, startedAt: startedAt, fileName: fileName))
         }
-        guard case let .value(token) = result else { throw OperationHistoryStoreError.unavailable }
-        return token
+        guard case let .value(beginResult) = result else { throw OperationHistoryStoreError.unavailable }
+        return beginResult
     }
 
     func complete(
@@ -564,6 +601,17 @@ struct OperationHistoryStore: Sendable {
                 try Self.writeAll(data, to: temporaryFD)
             }
         }
+    }
+
+    private func targetRecord(id: String, rootFD: Int32) throws -> OperationHistoryRecord? {
+        var state: FoldState?
+        try forEachDateFile(rootFD: rootFD) { fileName in
+            try forEachStoredLine(fileName, rootFD: rootFD) { line in
+                guard line.event.id == id else { return }
+                try Self.applyTargetEvent(line.event, fileName: fileName, to: &state)
+            }
+        }
+        return state.map { Self.record(id: id, state: $0) }
     }
 
     private func targetRecord(id: String, fileName: String, rootFD: Int32) throws -> OperationHistoryRecord? {

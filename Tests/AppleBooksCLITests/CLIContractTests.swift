@@ -200,6 +200,64 @@ struct CLIContractTests {
     }
 
     @Test
+    func processOperationIDBlocksTransportReplayBeforeRedispatch() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let operationID = "33333333-3333-4333-8333-333333333333"
+        let environment = ["APPLEBOOKSCLI_OPERATION_ID": operationID]
+        let createArguments = ["collections", "create", "Retry Shelf"] + fixture.globals
+
+        let first = try fixture.harness.run(createArguments, environment: environment)
+        #expect(first.status == CLIProcessExit.success.rawValue)
+        #expect(first.stderr.isEmpty)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Retry Shelf'",
+            database: fixture.library
+        ) == 1)
+
+        let replay = try fixture.harness.run(createArguments, environment: environment)
+        #expect(replay.status == CLIProcessExit.unavailable.rawValue)
+        #expect(replay.stdout.isEmpty)
+        let replayEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(replay.stderr.utf8))
+        #expect(replayEnvelope.error.reason == CLIErrorReason.operationReplayBlocked.rawValue)
+        #expect(replayEnvelope.error.recoveryHint?.contains("history get") == true)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Retry Shelf'",
+            database: fixture.library
+        ) == 1)
+        let recorded = try #require(try fixture.harness.historyRecords().first { $0.id == operationID })
+        #expect(recorded.status == .success)
+        #expect(recorded.operation == "collections.create")
+        #expect(recorded.request.title == "Retry Shelf")
+
+        let conflict = try fixture.harness.run(
+            ["collections", "create", "Different Shelf"] + fixture.globals,
+            environment: environment
+        )
+        #expect(conflict.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(conflict.stdout.isEmpty)
+        let conflictEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(conflict.stderr.utf8))
+        #expect(conflictEnvelope.error.reason == CLIErrorReason.operationIDConflict.rawValue)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Different Shelf'",
+            database: fixture.library
+        ) == 0)
+
+        let invalid = try fixture.harness.run(
+            ["collections", "create", "Invalid ID Shelf"] + fixture.globals,
+            environment: ["APPLEBOOKSCLI_OPERATION_ID": "NOT-A-UUID"]
+        )
+        #expect(invalid.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(invalid.stdout.isEmpty)
+        let invalidEnvelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invalid.stderr.utf8))
+        #expect(invalidEnvelope.error.reason == CLIErrorReason.operationIDInvalid.rawValue)
+        #expect(try fixture.scalarInt(
+            "SELECT COUNT(*) FROM ZBKCOLLECTION WHERE ZTITLE='Invalid ID Shelf'",
+            database: fixture.library
+        ) == 0)
+    }
+
+    @Test
     func processHistoryReadsDefaultHomeWithoutAppleBooksDatabasesOrRecursiveRecording() throws {
         let harness = try ProcessHarness()
         defer { harness.remove() }
@@ -1161,7 +1219,11 @@ private final class ProcessHarness {
         return products
     }
 
-    func run(_ arguments: [String], stdin: Data? = nil) throws -> ProcessInvocation {
+    func run(
+        _ arguments: [String],
+        stdin: Data? = nil,
+        environment overrides: [String: String] = [:]
+    ) throws -> ProcessInvocation {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -1169,6 +1231,8 @@ private final class ProcessHarness {
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
+        environment.removeValue(forKey: "APPLEBOOKSCLI_OPERATION_ID")
+        for (key, value) in overrides { environment[key] = value }
         process.environment = environment
 
         let stdout = Pipe()

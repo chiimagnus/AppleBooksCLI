@@ -101,6 +101,8 @@ For several mutations, commit them normally and flush pending changes once at th
 applebookscli collections create "Shelf A"
 applebookscli collections add-book --collection <collection-id> --book <asset-id>
 printf '%s' 'New note' | applebookscli annotations update-note <annotation-uuid>
+applebookscli annotations delete <annotation-uuid>
+applebookscli annotations restore <annotation-uuid>
 applebookscli sync
 ```
 

@@ -1125,6 +1125,14 @@ public final class AppleBooks {
         try requiredAnnotationWriter().delete(uuid: uuid, syncCloud: syncCloud)
     }
 
+    public func restoreAnnotation(localPK: Int64, syncCloud: Bool = false) throws -> MutationResult {
+        try requiredAnnotationWriter().restore(localPK: localPK, syncCloud: syncCloud)
+    }
+
+    public func restoreAnnotation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
+        try requiredAnnotationWriter().restore(uuid: uuid, syncCloud: syncCloud)
+    }
+
     package func semanticAnnotationContextResult(
         localPK: Int64,
         charsBefore: Int = 300,

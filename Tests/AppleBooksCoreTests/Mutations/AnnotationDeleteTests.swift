@@ -38,15 +38,23 @@ struct AnnotationDeleteTests {
     }
 
     @Test
-    func deletedUnknownMissingAndDuplicateTargetsFailBeforeBackup() throws {
-        for deleted in [Int64(1), Int64(2)] {
-            let blocked = try fixture(deleted: deleted)
-            defer { blocked.remove() }
-            #expect(throws: AnnotationWriteError.annotationDeletedOrUnknown) {
-                _ = try blocked.writer.delete(localPK: 1)
-            }
-            #expect(FileManager.default.fileExists(atPath: blocked.backupRoot.path) == false)
+    func repeatedDeleteIsQuietNoOpWhileUnknownMissingAndDuplicateTargetsFailClosed() throws {
+        let tombstone = try fixture(deleted: 1)
+        defer { tombstone.remove() }
+        let repeated = try tombstone.writer.delete(localPK: 1, syncCloud: true)
+        #expect(repeated.committed == false)
+        #expect(repeated.changed == false)
+        #expect(repeated.backupHandle == nil)
+        #expect(repeated.acknowledgementRequested)
+        #expect(repeated.acknowledged == nil)
+        #expect(FileManager.default.fileExists(atPath: tombstone.backupRoot.path) == false)
+
+        let unknownDeleted = try fixture(deleted: 2)
+        defer { unknownDeleted.remove() }
+        #expect(throws: AnnotationWriteError.annotationDeletedOrUnknown) {
+            _ = try unknownDeleted.writer.delete(localPK: 1)
         }
+        #expect(FileManager.default.fileExists(atPath: unknownDeleted.backupRoot.path) == false)
 
         let nullDeleted = try fixture(deleted: nil)
         defer { nullDeleted.remove() }
@@ -66,6 +74,67 @@ struct AnnotationDeleteTests {
         defer { duplicate.remove() }
         #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
             _ = try duplicate.writer.delete(uuid: "uuid-1")
+        }
+        #expect(FileManager.default.fileExists(atPath: duplicate.backupRoot.path) == false)
+    }
+
+    @Test
+    func restoreTombstonePreservesUserPayloadAndActiveRestoreIsQuietNoOp() throws {
+        let tombstone = try fixture(deleted: 1)
+        defer { tombstone.remove() }
+
+        let restored = try tombstone.writer.restore(uuid: "uuid-1")
+        #expect(restored.committed)
+        #expect(restored.changed)
+        #expect(restored.stableID == "uuid-1")
+        #expect(try integer(tombstone.database, "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
+        #expect(try integer(tombstone.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+        #expect(try text(tombstone.database, "SELECT ZANNOTATIONUUID FROM ZAEANNOTATION WHERE Z_PK=1") == "uuid-1")
+        #expect(try text(tombstone.database, "SELECT ZANNOTATIONASSETID FROM ZAEANNOTATION WHERE Z_PK=1") == "asset-1")
+        #expect(try text(tombstone.database, "SELECT ZANNOTATIONSELECTEDTEXT FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-selected")
+        #expect(try text(tombstone.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-note")
+        #expect(try text(tombstone.database, "SELECT ZANNOTATIONLOCATION FROM ZAEANNOTATION WHERE Z_PK=1") == "epubcfi(/6/2[item]!/4/2,:1,:2)")
+        #expect(try integer(tombstone.database, "SELECT ZANNOTATIONSTYLE FROM ZAEANNOTATION WHERE Z_PK=1") == 2)
+
+        let active = try fixture()
+        defer { active.remove() }
+        let noOp = try active.writer.restore(localPK: 1, syncCloud: true)
+        #expect(noOp.committed == false)
+        #expect(noOp.changed == false)
+        #expect(noOp.backupHandle == nil)
+        #expect(noOp.acknowledgementRequested)
+        #expect(noOp.acknowledged == nil)
+        #expect(FileManager.default.fileExists(atPath: active.backupRoot.path) == false)
+    }
+
+    @Test
+    func explicitPKRestoreWorksWithoutEligibleStableUUID() throws {
+        let fixture = try fixture(deleted: 1)
+        defer { fixture.remove() }
+        try execute(fixture.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONUUID=NULL WHERE Z_PK=1")
+
+        let result = try fixture.writer.restore(localPK: 1)
+
+        #expect(result.committed)
+        #expect(result.changed)
+        #expect(result.localPK == 1)
+        #expect(result.stableID == nil)
+        #expect(try integer(fixture.database, "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
+    }
+
+    @Test
+    func missingRestoreUsesDedicatedUnavailableErrorBeforeBackup() throws {
+        let missing = try fixture()
+        defer { missing.remove() }
+        #expect(throws: AnnotationWriteError.annotationRestoreUnavailable) {
+            _ = try missing.writer.restore(localPK: 999)
+        }
+        #expect(FileManager.default.fileExists(atPath: missing.backupRoot.path) == false)
+
+        let duplicate = try fixture(deleted: 1, duplicateUUID: true)
+        defer { duplicate.remove() }
+        #expect(throws: StableIdentityError.ambiguousAnnotationUUID) {
+            _ = try duplicate.writer.restore(uuid: "uuid-1")
         }
         #expect(FileManager.default.fileExists(atPath: duplicate.backupRoot.path) == false)
     }
@@ -159,19 +228,22 @@ struct AnnotationDeleteTests {
               ZANNOTATIONDELETED INTEGER,
               \(includeTypeColumn ? "ZANNOTATIONTYPE INTEGER," : "")
               ZANNOTATIONUUID TEXT,
+              ZANNOTATIONASSETID TEXT,
               ZANNOTATIONNOTE TEXT,
               ZANNOTATIONMODIFICATIONDATE REAL,
               ZANNOTATIONSELECTEDTEXT TEXT,
+              ZANNOTATIONLOCATION TEXT,
+              ZANNOTATIONSTYLE INTEGER,
               ZFUTUREPROOFING6 TEXT
             )
             """)
         let deletedSQL = deleted.map(String.init) ?? "NULL"
         let typeColumn = includeTypeColumn ? ",ZANNOTATIONTYPE" : ""
         let typeValue = includeTypeColumn ? ",2" : ""
-        let columns = "Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED\(typeColumn),ZANNOTATIONUUID,ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZFUTUREPROOFING6"
-        try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(1,17,3,\(deletedSQL)\(typeValue),'uuid-1','keep-note',1,'keep-selected','1')")
+        let columns = "Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED\(typeColumn),ZANNOTATIONUUID,ZANNOTATIONASSETID,ZANNOTATIONNOTE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,ZANNOTATIONLOCATION,ZANNOTATIONSTYLE,ZFUTUREPROOFING6"
+        try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(1,17,3,\(deletedSQL)\(typeValue),'uuid-1','asset-1','keep-note',1,'keep-selected','epubcfi(/6/2[item]!/4/2,:1,:2)',2,'1')")
         if duplicateUUID {
-            try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(2,17,1,0\(typeValue),'uuid-1','other',1,'other-selected','1')")
+            try execute(database, "INSERT INTO ZAEANNOTATION(\(columns)) VALUES(2,17,1,\(deletedSQL)\(typeValue),'uuid-1','asset-2','other',1,'other-selected','epubcfi(/6/2[other]!/4/2,:1,:2)',1,'1')")
         }
         if blockDeleteUpdate {
             try execute(database, """

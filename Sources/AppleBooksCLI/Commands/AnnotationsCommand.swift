@@ -13,6 +13,7 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsContextCommand.self,
             AnnotationsUpdateNoteCommand.self,
             AnnotationsDeleteCommand.self,
+            AnnotationsRestoreCommand.self,
         ]
     )
 }
@@ -327,6 +328,45 @@ struct AnnotationsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
             let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
             return AnnotationMutationCommandResult(
                 try selector.delete(in: books, syncCloud: sync),
+                selector: selector
+            )
+        }
+    }
+}
+
+struct AnnotationsRestoreCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(
+        commandName: "restore",
+        abstract: "Restore one existing soft-deleted user annotation."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "Use an explicit local annotation primary key.")
+    var pk: Int64?
+
+    @Flag(name: .long, help: "After local commit, wait for current-Mac CloudKit acknowledgement. Omit to skip waiting; projection still occurs.")
+    var sync = false
+
+    @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.restore" }
+
+    mutating func run() throws {
+        try run(output: .standard)
+    }
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(try execute())
+    }
+
+    func execute(using injectedBooks: AppleBooks? = nil) throws -> AnnotationMutationCommandResult {
+        let selector = try parseAnnotationSelector(uuid: uuid, localPK: pk)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(dependencies: .annotationWrite)
+            return AnnotationMutationCommandResult(
+                try selector.restore(in: books, syncCloud: sync),
                 selector: selector
             )
         }

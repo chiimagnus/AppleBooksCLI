@@ -22,6 +22,7 @@ enum CLIErrorCode: String, Codable, Equatable, Sendable {
 enum CLIError: Error, Equatable, Sendable {
     case usageInvalid(String)
     case notFound(String)
+    case notFoundWithReason(message: String, reason: String)
     case unavailable(String)
     case unavailableWithReason(message: String, reason: String)
     case internalFailure
@@ -32,7 +33,7 @@ enum CLIError: Error, Equatable, Sendable {
     var code: CLIErrorCode {
         switch self {
         case .usageInvalid: .usageInvalid
-        case .notFound: .notFound
+        case .notFound, .notFoundWithReason: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety, .writeSafetyWithReason: .writeSafety
@@ -49,7 +50,7 @@ enum CLIError: Error, Equatable, Sendable {
              let .writeSafetyWithReason(message, _),
              let .permission(message):
             message
-        case let .unavailableWithReason(message, _):
+        case let .notFoundWithReason(message, _), let .unavailableWithReason(message, _):
             message
         case .internalFailure:
             "Internal error."
@@ -58,7 +59,7 @@ enum CLIError: Error, Equatable, Sendable {
 
     var reason: String? {
         switch self {
-        case let .unavailableWithReason(_, reason), let .writeSafetyWithReason(_, reason): reason
+        case let .notFoundWithReason(_, reason), let .unavailableWithReason(_, reason), let .writeSafetyWithReason(_, reason): reason
         default: nil
         }
     }
@@ -66,7 +67,7 @@ enum CLIError: Error, Equatable, Sendable {
     var exitCode: CLIProcessExit {
         switch self {
         case .usageInvalid: .usageInvalid
-        case .notFound: .notFound
+        case .notFound, .notFoundWithReason: .notFound
         case .unavailable, .unavailableWithReason: .unavailable
         case .internalFailure: .internal
         case .writeSafety, .writeSafetyWithReason: .writeSafety
@@ -148,6 +149,11 @@ enum CLIOperation {
                 return .usageInvalid("Annotation note length is invalid.")
             case .annotationMissing:
                 return .notFound("Annotation not found.")
+            case .annotationRestoreUnavailable:
+                return .notFoundWithReason(
+                    message: "Annotation tombstone is unavailable.",
+                    reason: "annotation_restore_unavailable"
+                )
             case .annotationDeletedOrUnknown, .annotationNotWritable:
                 return .writeSafety("Annotation is not writable.")
             case .writeFailed:

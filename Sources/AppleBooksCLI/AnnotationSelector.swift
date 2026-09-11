@@ -44,6 +44,15 @@ enum AnnotationSelector: Equatable, Sendable {
             try books.deleteAnnotation(localPK: localPK, syncCloud: syncCloud)
         }
     }
+
+    func restore(in books: AppleBooks, syncCloud: Bool = false) throws -> MutationResult {
+        switch self {
+        case let .uuid(uuid):
+            try books.restoreAnnotation(uuid: uuid, syncCloud: syncCloud)
+        case let .localPK(localPK):
+            try books.restoreAnnotation(localPK: localPK, syncCloud: syncCloud)
+        }
+    }
 }
 
 func parseAnnotationSelector(uuid: String?, localPK: Int64?) throws -> AnnotationSelector {

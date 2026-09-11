@@ -58,9 +58,9 @@ CLI 的单侧 DB override 对应 domain 使用 detached Books lifecycle；公开
 
 长期 writable boundary：
 
-- annotation 只允许已有 user annotation 的 note update / soft-delete；type=3 current-reading bookmark、deleted/system row 不进入该 writable scope；
+- annotation 只允许已有 user annotation 的 note update、soft-delete 与 tombstone restore；ordinary note update 只接受 active row，delete/restore 只在同一 existing user row 的 active/tombstone 状态间切换；type=3/system row 不进入该 writable scope；
 - collection mutation 必须拒绝 system collection；
-- delete 保持当前 soft-delete 语义；
+- annotation delete 不 hard-delete；restore 不 INSERT 或从历史正文重建，被外部物理移除的 tombstone 必须 fail closed；
 - local primary key（PK，即当前 Core Data SQLite 行的 `Z_PK`）只作显式本机 selector；stable identity 优先 UUID / collection ID / asset ID。
 
 具体列与 SQL 由 writer/tests 拥有，不在本文复制。

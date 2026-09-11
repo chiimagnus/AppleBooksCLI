@@ -128,7 +128,7 @@
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | 修改已有 annotation note | 已实现 | UUID/PK 定位；stdin 提供完整替换正文，`--clear` 显式清空为 NULL；只写 user annotation note |
-| soft-delete annotation | 已实现 | soft-delete，禁止 hard delete/system bookmark write |
+| soft-delete / restore annotation | 已实现（强化） | `delete` 只做 soft-delete；`restore` 只恢复仍存在的 user-annotation tombstone；两者幂等，禁止 hard delete/system bookmark write |
 | 写事务 | 已实现 | `BEGIN IMMEDIATE` + rollback + transaction revalidation |
 | 写前 backup | 已实现 | SQLite online backup + integrity verification |
 | backup list/retention | 已实现（强化） | public library catalog 以流式目录扫描固定只返回 newest 10 valid recovery artifacts，不提供分页历史浏览；ordinary CLI 只暴露 opaque `backupID`，exact restore 由该 ID 进入既有 guarded restore rail；annotation backup 仅内部 safety use |

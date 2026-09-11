@@ -207,6 +207,8 @@ struct AnnotationCloudProjectorTests {
         let decodedAnnotation = try #require(decodedAnnotations.first)
         #expect((decodedAnnotation.value(forKey: "hasNote") as? NSNumber)?.boolValue == false)
         #expect(decodedAnnotation.value(forKey: "note") == nil)
+        #expect((decodedAnnotation.value(forKey: "hasDeleted") as? NSNumber)?.boolValue == true)
+        #expect((decodedAnnotation.value(forKey: "deleted") as? NSNumber)?.boolValue == false)
     }
 
     @Test

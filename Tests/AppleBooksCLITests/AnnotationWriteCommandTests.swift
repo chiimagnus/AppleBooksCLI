@@ -20,11 +20,12 @@ struct AnnotationWriteCommandTests {
         #expect(stderr.isEmpty)
         #expect(stdout.contains("update-note"))
         #expect(stdout.contains("delete"))
+        #expect(stdout.contains("restore"))
     }
 
     @Test
     func annotationMutationHelpExposesExplicitCloudSyncFlag() {
-        for subcommand in ["update-note", "delete"] {
+        for subcommand in ["update-note", "delete", "restore"] {
             var stdout = ""
             var stderr = ""
             let code = CLIEntrypoint.run(
@@ -36,8 +37,10 @@ struct AnnotationWriteCommandTests {
             #expect(stdout.contains("--sync"))
             #expect(stdout.contains("After local commit"))
             #expect(stdout.contains("current-Mac CloudKit"))
-            #expect(stdout.contains("Omit for local-only writes"))
-            #expect(stdout.contains("pending changes later."))
+            if subcommand != "restore" {
+                #expect(stdout.contains("Omit for local-only writes"))
+                #expect(stdout.contains("pending changes later."))
+            }
             if subcommand == "update-note" {
                 #expect(stdout.contains("--clear"))
                 #expect(stdout.contains("--note") == false)
@@ -145,6 +148,46 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
+    func restoreUsesSameSelectorGrammarAndRestoresExistingTombstoneOnly() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let books = try fixture.books(controller: fixture.closedController())
+
+        _ = try AnnotationsDeleteCommand.parse(["123"]).execute(using: books)
+        let restored = try AnnotationsRestoreCommand.parse(["123", "--sync"]).execute(using: books)
+        #expect(restored.committed)
+        #expect(restored.changed)
+        #expect(restored.acknowledgementRequested)
+        #expect(restored.acknowledged == false)
+        #expect(restored.warningCodes == ["cloud_sync_failed"])
+        #expect(restored.annotationUUID == "123")
+        #expect(restored.annotationLocalPK == nil)
+        #expect(try fixture.integer("SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
+        #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old note")
+
+        let repeated = try AnnotationsRestoreCommand.parse(["--pk", "1", "--sync"]).execute(using: books)
+        #expect(repeated.committed == false)
+        #expect(repeated.changed == false)
+        #expect(repeated.acknowledgementRequested)
+        #expect(repeated.acknowledged == nil)
+
+        try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=1,ZANNOTATIONUUID=NULL WHERE Z_PK=1")
+        let pkOnly = try AnnotationsRestoreCommand.parse(["--pk", "1"]).execute(using: books)
+        #expect(pkOnly.committed)
+        #expect(pkOnly.changed)
+        #expect(pkOnly.annotationUUID == nil)
+        #expect(pkOnly.annotationLocalPK == 1)
+
+        let missing = try AnnotationsRestoreCommand.parse(["missing-uuid"])
+        #expect(throws: CLIError.notFoundWithReason(
+            message: "Annotation tombstone is unavailable.",
+            reason: "annotation_restore_unavailable"
+        )) {
+            _ = try missing.execute(using: books)
+        }
+    }
+
+    @Test
     func selectorConflictsFailBeforeAnyDatabaseConstruction() throws {
         for arguments in [
             ["123", "--pk", "1"],
@@ -159,6 +202,10 @@ struct AnnotationWriteCommandTests {
         let delete = try AnnotationsDeleteCommand.parse(["123", "--pk", "1"])
         #expect(throws: ValidationError.self) {
             _ = try delete.execute(using: nil)
+        }
+        let restore = try AnnotationsRestoreCommand.parse(["123", "--pk", "1"])
+        #expect(throws: ValidationError.self) {
+            _ = try restore.execute(using: nil)
         }
     }
 
@@ -182,9 +229,9 @@ struct AnnotationWriteCommandTests {
 
         try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=1 WHERE Z_PK=1")
         let deleted = try AnnotationsDeleteCommand.parse(["123"])
-        #expect(throws: CLIError.writeSafety("Annotation is not writable.")) {
-            _ = try deleted.execute(using: books)
-        }
+        let repeatedDelete = try deleted.execute(using: books)
+        #expect(repeatedDelete.committed == false)
+        #expect(repeatedDelete.changed == false)
         #expect(FileManager.default.fileExists(atPath: fixture.annotationBackupRoot.path) == false)
 
         try fixture.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=0,ZANNOTATIONTYPE=3 WHERE Z_PK=1")

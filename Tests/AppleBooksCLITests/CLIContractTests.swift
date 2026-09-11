@@ -79,6 +79,7 @@ struct CLIContractTests {
         let cases: [([String], String)] = [
             (["annotations", "update-note", "annotation-id"], "annotations.update-note"),
             (["annotations", "delete", "annotation-id"], "annotations.delete"),
+            (["annotations", "restore", "annotation-id"], "annotations.restore"),
             (["collections", "create", "Shelf"], "collections.create"),
             (["collections", "rename", "collection-id", "--title", "Renamed"], "collections.rename"),
             (["collections", "delete", "collection-id"], "collections.delete"),
@@ -305,6 +306,42 @@ struct CLIContractTests {
         // the executable still traverses the mutation coordinator instead of implementing direct CLI SQLite writes.
         #expect(fixture.harness.home.path.hasPrefix(fixture.harness.root.path + "/"))
         #expect(fixture.backupRoot.path.hasPrefix(fixture.harness.home.path))
+    }
+
+    @Test
+    func processAnnotationRestoreReappearsInOrdinaryReadsAndMissingTombstoneHasStableReason() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+
+        let deleted = try fixture.run(["annotations", "delete", "uuid-update"] + fixture.globals)
+        #expect(deleted.status == 0)
+        #expect(deleted.stderr.isEmpty)
+        #expect(try fixture.scalarInt(
+            "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'",
+            database: fixture.annotations
+        ) == 1)
+
+        let hidden = try fixture.run(["annotations", "get", "uuid-update"] + fixture.globals)
+        #expect(hidden.status == CLIProcessExit.notFound.rawValue)
+
+        let restored = try fixture.run(["annotations", "restore", "uuid-update"] + fixture.globals)
+        #expect(restored.status == 0)
+        #expect(restored.stderr.isEmpty)
+        #expect(try fixture.scalarInt(
+            "SELECT ZANNOTATIONDELETED FROM ZAEANNOTATION WHERE ZANNOTATIONUUID='uuid-update'",
+            database: fixture.annotations
+        ) == 0)
+
+        let visible = try fixture.run(["annotations", "get", "uuid-update"] + fixture.globals)
+        #expect(visible.status == 0)
+        #expect(visible.stderr.isEmpty)
+
+        let missing = try fixture.run(["annotations", "restore", "missing-uuid"] + fixture.globals)
+        #expect(missing.status == CLIProcessExit.notFound.rawValue)
+        #expect(missing.stdout.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(missing.stderr.utf8))
+        #expect(envelope.error.code == .notFound)
+        #expect(envelope.error.reason == "annotation_restore_unavailable")
     }
 
     @Test

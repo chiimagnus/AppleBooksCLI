@@ -4,7 +4,7 @@ import ArgumentParser
 struct ReadingCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "reading",
-        abstract: "Inspect canonical Apple Books reading state and position.",
+        abstract: "Inspect Apple Books reading state and bookmarked position.",
         subcommands: [
             ReadingInProgressCommand.self,
             ReadingFinishedCommand.self,
@@ -64,33 +64,45 @@ extension ReadingStatusLeaf {
 }
 
 struct ReadingInProgressCommand: ReadingStatusLeaf {
-    static let configuration = CommandConfiguration(commandName: "in-progress")
-    @Option(name: .long) var limit: Int?
-    @Option(name: .long) var cursor: String?
+    static let configuration = CommandConfiguration(
+        commandName: "in-progress",
+        abstract: "List books currently being read."
+    )
+    @Option(name: .long, help: "Maximum books in this page (default 20, max 100).") var limit: Int?
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.") var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .inProgress }
 }
 
 struct ReadingFinishedCommand: ReadingStatusLeaf {
-    static let configuration = CommandConfiguration(commandName: "finished")
-    @Option(name: .long) var limit: Int?
-    @Option(name: .long) var cursor: String?
+    static let configuration = CommandConfiguration(
+        commandName: "finished",
+        abstract: "List finished books."
+    )
+    @Option(name: .long, help: "Maximum books in this page (default 20, max 100).") var limit: Int?
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.") var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .finished }
 }
 
 struct ReadingUnstartedCommand: ReadingStatusLeaf {
-    static let configuration = CommandConfiguration(commandName: "unstarted")
-    @Option(name: .long) var limit: Int?
-    @Option(name: .long) var cursor: String?
+    static let configuration = CommandConfiguration(
+        commandName: "unstarted",
+        abstract: "List books not yet started."
+    )
+    @Option(name: .long, help: "Maximum books in this page (default 20, max 100).") var limit: Int?
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.") var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .unstarted }
 }
 
 struct ReadingRecentCommand: ReadingStatusLeaf {
-    static let configuration = CommandConfiguration(commandName: "recent")
-    @Option(name: .long) var limit: Int?
-    @Option(name: .long) var cursor: String?
+    static let configuration = CommandConfiguration(
+        commandName: "recent",
+        abstract: "List recently read books."
+    )
+    @Option(name: .long, help: "Maximum books in this page (default 20, max 100).") var limit: Int?
+    @Option(name: .long, help: "Opaque continuation cursor from the previous page.") var cursor: String?
     @OptionGroup var global: GlobalOptions
     var statusKind: ReadingStatusKind { .recent }
 }
@@ -104,7 +116,7 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key instead of an asset ID.")
+    @Option(name: .long, help: "Use an explicit local book primary key instead of an asset ID.")
     var pk: Int64?
 
     @OptionGroup var global: GlobalOptions
@@ -126,11 +138,11 @@ struct ReadingPositionCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             }
             switch resolution {
             case .bookMissing:
-                throw CLIError.notFound("Book not found.")
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
             case .unavailable:
                 throw CLIError.unavailableWithReason(
                     message: "Reading position is unavailable for this book.",
-                    reason: "reading_position_unavailable"
+                    reason: .readingPositionUnavailable
                 )
             case let .position(position):
                 return ReadingPositionResult(position)

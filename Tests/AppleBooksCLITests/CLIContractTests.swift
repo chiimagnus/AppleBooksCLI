@@ -75,6 +75,98 @@ struct CLIContractTests {
     }
 
     @Test
+    func publicLeafHelpIsAgentFacingAndFiniteChoicesAreDiscoverable() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let leaves: [[String]] = [
+            ["doctor"],
+            ["books", "list"], ["books", "get"], ["books", "search"],
+            ["reading", "in-progress"], ["reading", "finished"], ["reading", "unstarted"], ["reading", "recent"], ["reading", "position"],
+            ["stats"],
+            ["content", "metadata"], ["content", "cover"], ["content", "chapters"], ["content", "chapter"],
+            ["annotations", "list"], ["annotations", "get"], ["annotations", "context"], ["annotations", "update-note"], ["annotations", "delete"], ["annotations", "restore"],
+            ["collections", "list"], ["collections", "get"], ["collections", "search"], ["collections", "books"], ["collections", "create"], ["collections", "rename"], ["collections", "delete"], ["collections", "add-book"], ["collections", "remove-book"],
+            ["sync"],
+            ["pdf", "list"], ["pdf", "highlights"],
+            ["export"],
+            ["backups", "list"], ["backups", "restore"],
+            ["history", "list"], ["history", "get"],
+        ]
+        let forbiddenPhrases = ["canonical", "core data", "cloudkit", "type-3", "materialization", "p2", "pdfkit"]
+
+        for leaf in leaves {
+            let invocation = try harness.run(leaf + ["--help"])
+            #expect(invocation.status == CLIProcessExit.success.rawValue)
+            #expect(invocation.stderr.isEmpty)
+            #expect(invocation.stdout.contains("OVERVIEW:"))
+            let lower = invocation.stdout.lowercased()
+            for phrase in forbiddenPhrases {
+                #expect(lower.contains(phrase) == false)
+            }
+            let words = Set(lower.split(whereSeparator: { $0.isLetter == false }).map(String.init))
+            #expect(words.contains("rail") == false)
+        }
+
+        func normalizedHelp(_ arguments: [String]) throws -> String {
+            let invocation = try harness.run(arguments + ["--help"])
+            #expect(invocation.status == 0)
+            return invocation.stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+
+        let annotationHelp = try normalizedHelp(["annotations", "list"])
+        for values in [
+            "values: all, highlight, note",
+            "values: green, blue, yellow, pink, purple",
+            "values: true, false",
+            "values: created, modified, reading",
+        ] {
+            #expect(annotationHelp.contains(values))
+        }
+
+        let exportHelp = try normalizedHelp(["export"])
+        for values in [
+            "values: json, markdown",
+            "values: epub, pdf, all",
+            "values: green, blue, yellow, pink, purple",
+            "values: true, false",
+            "values: single, per-document",
+            "values: never, always",
+        ] {
+            #expect(exportHelp.contains(values))
+        }
+        let searchHelp = try normalizedHelp(["books", "search"])
+        #expect(searchHelp.contains("values: all, title, author, genre"))
+    }
+
+    @Test
+    func annotationReadingOrderWithoutBookFailsBeforeDatabaseAccessWithActionableReason() throws {
+        let harness = try ProcessHarness()
+        defer { harness.remove() }
+        let invocation = try harness.run(["annotations", "list", "--order", "reading"])
+        #expect(invocation.status == CLIProcessExit.usageInvalid.rawValue)
+        #expect(invocation.stdout.isEmpty)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stderr.utf8))
+        #expect(envelope.error.reason == CLIErrorReason.readingOrderRequiresBook.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("--book") == true)
+        #expect(envelope.error.message.contains("database") == false)
+    }
+
+    @Test
+    func missingBookSelectorReturnsRefreshHintWithoutEchoingSelector() throws {
+        let fixture = try ProcessFixture()
+        defer { fixture.remove() }
+        let privateSelector = "missing-private-selector"
+        let invocation = try fixture.run(["books", "get", privateSelector] + fixture.globals)
+        #expect(invocation.status == CLIProcessExit.notFound.rawValue)
+        #expect(invocation.stdout.isEmpty)
+        #expect(invocation.stderr.contains(privateSelector) == false)
+        let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(invocation.stderr.utf8))
+        #expect(envelope.error.reason == CLIErrorReason.bookNotFound.rawValue)
+        #expect(envelope.error.recoveryHint?.contains("books list") == true)
+        #expect(envelope.error.recoveryHint?.contains("books search") == true)
+    }
+
+    @Test
     func recordableCommandWhitelistIsExact() throws {
         let cases: [([String], String)] = [
             (["annotations", "update-note", "annotation-id"], "annotations.update-note"),
@@ -344,12 +436,23 @@ struct CLIContractTests {
         #expect(visible.status == 0)
         #expect(visible.stderr.isEmpty)
 
+        let activeNoOp = try fixture.run(["annotations", "restore", "uuid-update"] + fixture.globals)
+        #expect(activeNoOp.status == 0)
+        #expect(activeNoOp.stderr.isEmpty)
+        let activeNoOpResult = try JSONDecoder().decode(
+            AnnotationMutationCommandResult.self,
+            from: Data(activeNoOp.stdout.utf8)
+        )
+        #expect(activeNoOpResult.changed == false)
+        #expect(activeNoOpResult.committed == false)
+
         let missing = try fixture.run(["annotations", "restore", "missing-uuid"] + fixture.globals)
         #expect(missing.status == CLIProcessExit.notFound.rawValue)
         #expect(missing.stdout.isEmpty)
         let envelope = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(missing.stderr.utf8))
         #expect(envelope.error.code == .notFound)
-        #expect(envelope.error.reason == "annotation_restore_unavailable")
+        #expect(envelope.error.reason == CLIErrorReason.annotationRestoreUnavailable.rawValue)
+        #expect(envelope.error.recoveryHint == nil)
 
         let history = try fixture.harness.historyRecords()
         let deleteRecord = try #require(history.first { $0.operation == "annotations.delete" })
@@ -357,7 +460,7 @@ struct CLIContractTests {
         #expect(deleteRecord.inverse.operation == "annotations.restore")
         #expect(deleteRecord.inverse.selector?.annotationUUID == "uuid-update")
         let restoreRecords = history.filter { $0.operation == "annotations.restore" }
-        let restoreRecord = try #require(restoreRecords.first { $0.status == .success })
+        let restoreRecord = try #require(restoreRecords.first { $0.status == .success && $0.inverse.available })
         #expect(restoreRecord.inverse.available)
         #expect(restoreRecord.inverse.operation == "annotations.delete")
         #expect(restoreRecord.inverse.selector?.annotationUUID == "uuid-update")

@@ -77,7 +77,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key instead of an asset ID.")
+    @Option(name: .long, help: "Use an explicit local book primary key instead of an asset ID.")
     var pk: Int64?
 
     @OptionGroup var global: GlobalOptions
@@ -96,7 +96,7 @@ struct BooksGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnab
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let book = try selector.resolveSemanticDetail(in: books) else {
-                throw CLIError.notFound("Book not found.")
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
             }
             return BookDetailResult(book: book)
         }

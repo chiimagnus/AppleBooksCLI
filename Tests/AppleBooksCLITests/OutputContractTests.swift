@@ -89,6 +89,47 @@ struct OutputContractTests {
     }
 
     @Test
+    func publicReasonsHaveStableExitCategoriesAndRecoveryHints() throws {
+        let cases: [(CLIErrorReason, CLIError, CLIProcessExit, Bool)] = [
+            (.ambiguousIdentity, .unavailableWithReason(message: "sanitized", reason: .ambiguousIdentity), .unavailable, true),
+            (.annotationNotFound, .notFoundWithReason(message: "sanitized", reason: .annotationNotFound), .notFound, true),
+            (.annotationRestoreUnavailable, .notFoundWithReason(message: "sanitized", reason: .annotationRestoreUnavailable), .notFound, false),
+            (.bookNotFound, .notFoundWithReason(message: "sanitized", reason: .bookNotFound), .notFound, true),
+            (.collectionNotFound, .notFoundWithReason(message: "sanitized", reason: .collectionNotFound), .notFound, true),
+            (.configurationInvalid, .unavailableWithReason(message: "sanitized", reason: .configurationInvalid), .unavailable, true),
+            (.contentUnavailable, .unavailableWithReason(message: "sanitized", reason: .contentUnavailable), .unavailable, true),
+            (.contextUnavailable, .unavailableWithReason(message: "sanitized", reason: .contextUnavailable), .unavailable, true),
+            (.cursorStale, .unavailableWithReason(message: "sanitized", reason: .cursorStale), .unavailable, true),
+            (.databaseUnavailable, .unavailableWithReason(message: "sanitized", reason: .databaseUnavailable), .unavailable, true),
+            (.historyEntryNotFound, .notFoundWithReason(message: "sanitized", reason: .historyEntryNotFound), .notFound, true),
+            (.historyEntryNotFound, .notFoundWithReason(message: "sanitized", reason: .historyEntryNotFound), .notFound, true),
+            (.historyUnavailable, .unavailableWithReason(message: "sanitized", reason: .historyUnavailable), .unavailable, true),
+            (.outputExists, .writeSafetyWithReason(message: "sanitized", reason: .outputExists), .writeSafety, true),
+            (.pdfSourceNotFound, .notFoundWithReason(message: "sanitized", reason: .pdfSourceNotFound), .notFound, true),
+            (.pdfWorkerUnavailable, .unavailableWithReason(message: "sanitized", reason: .pdfWorkerUnavailable), .unavailable, true),
+            (.readingOrderRequiresBook, .usageInvalidWithReason(message: "sanitized", reason: .readingOrderRequiresBook), .usageInvalid, true),
+            (.readingPositionUnavailable, .unavailableWithReason(message: "sanitized", reason: .readingPositionUnavailable), .unavailable, false),
+            (.schemaUnavailable, .unavailableWithReason(message: "sanitized", reason: .schemaUnavailable), .unavailable, true),
+            (.selectorNotFound, .notFoundWithReason(message: "sanitized", reason: .selectorNotFound), .notFound, true),
+            (.syncAckFailed, .unavailableWithReason(message: "sanitized", reason: .syncAckFailed), .unavailable, true),
+            (.syncUnavailable, .unavailableWithReason(message: "sanitized", reason: .syncUnavailable), .unavailable, true),
+            (.unsafeOutput, .writeSafetyWithReason(message: "sanitized", reason: .unsafeOutput), .writeSafety, true),
+        ]
+        #expect(Set(cases.map(\.0)) == Set(CLIErrorReason.allCases))
+
+        for (reason, error, expectedExit, expectsHint) in cases {
+            let capture = Capture()
+            let code = CLIEntrypoint.presentRunError(error, output: capture.output)
+            #expect(code == expectedExit.rawValue)
+            #expect(capture.stdout.isEmpty)
+            let envelope = try decodeError(capture.stderr)
+            #expect(envelope.error.reason == reason.rawValue)
+            #expect((envelope.error.recoveryHint != nil) == expectsHint)
+            #expect(capture.stderr.contains("private-payload") == false)
+        }
+    }
+
+    @Test
     func validationErrorMapsToUsageInvalidJsonOnStderr() throws {
         let capture = Capture()
         let code = CLIEntrypoint.presentRunError(

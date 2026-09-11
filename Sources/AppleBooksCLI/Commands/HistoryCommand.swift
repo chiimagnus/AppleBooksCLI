@@ -61,7 +61,10 @@ struct HistoryGetCommand: ParsableCommand, CLIOutputRunnable {
     func run(output: CLIOutput, store: OperationHistoryStore) throws {
         let record = try CLIOperation.run {
             guard let value = try store.get(id: id) else {
-                throw CLIError.notFound("Operation history entry not found.")
+                throw CLIError.notFoundWithReason(
+                    message: "Operation history entry not found.",
+                    reason: .historyEntryNotFound
+                )
             }
             return value
         }

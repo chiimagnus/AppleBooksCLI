@@ -66,7 +66,10 @@ enum CLIEntrypoint {
             token = try activeHistoryStore.begin(operation: recordable.historyOperation, request: request)
         } catch {
             return presentRunError(
-                CLIError.unavailable("Operation history is unavailable."),
+                CLIError.unavailableWithReason(
+                    message: "Operation history is unavailable.",
+                    reason: .historyUnavailable
+                ),
                 output: output
             )
         }

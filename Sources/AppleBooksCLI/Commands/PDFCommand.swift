@@ -5,7 +5,7 @@ import Foundation
 struct PDFCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "pdf",
-        abstract: "Inspect PDF inventory and extract PDFKit highlights.",
+        abstract: "Inspect PDF inventory and extract highlights.",
         subcommands: [PDFListCommand.self, PDFHighlightsCommand.self]
     )
 }
@@ -13,7 +13,7 @@ struct PDFCommand: ParsableCommand {
 struct PDFListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List canonical Apple Books and fallback PDF sources."
+        abstract: "List available PDF sources and stable selectors."
     )
 
     @Option(name: .long, parsing: .unconditional, help: "Maximum PDF sources in this page (default 20, max 100).")
@@ -95,12 +95,18 @@ struct PDFHighlightsCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputR
             switch selection {
             case let .bookAssetID(assetID):
                 guard let resolved = try books.semanticPDFSource(bookAssetID: assetID) else {
-                    throw CLIError.notFound("PDF source not found. Run `applebookscli pdf list` again.")
+                    throw CLIError.notFoundWithReason(
+                        message: "PDF source not found.",
+                        reason: .pdfSourceNotFound
+                    )
                 }
                 source = resolved
             case let .sourceID(sourceID):
                 guard let resolved = try books.semanticPDFSource(sourceID: sourceID) else {
-                    throw CLIError.notFound("PDF source not found. Run `applebookscli pdf list` again.")
+                    throw CLIError.notFoundWithReason(
+                        message: "PDF source not found.",
+                        reason: .pdfSourceNotFound
+                    )
                 }
                 source = resolved
             }

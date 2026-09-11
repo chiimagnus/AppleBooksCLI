@@ -16,12 +16,15 @@ struct ContentCommand: ParsableCommand {
 }
 
 struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "metadata")
+    static let configuration = CommandConfiguration(
+        commandName: "metadata",
+        abstract: "Read metadata for one EPUB book."
+    )
 
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    @Option(name: .long, help: "Use an explicit local book primary key.")
     var pk: Int64?
 
     @OptionGroup var global: GlobalOptions
@@ -44,19 +47,24 @@ struct ContentMetadataCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             case let .localPK(localPK):
                 inspection = try books.semanticContentMetadata(bookLocalPK: localPK)
             }
-            guard let inspection else { throw CLIError.notFound("Book not found.") }
+            guard let inspection else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentMetadataResult(inspection)
         }
     }
 }
 
 struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
-    static let configuration = CommandConfiguration(commandName: "cover")
+    static let configuration = CommandConfiguration(
+        commandName: "cover",
+        abstract: "Write the cover image for one EPUB book."
+    )
 
     @Argument(help: "Exact Apple Books asset ID.")
     var assetID: String?
 
-    @Option(name: .long, help: "Use an explicit local Core Data primary key.")
+    @Option(name: .long, help: "Use an explicit local book primary key.")
     var pk: Int64?
 
     @Option(name: .customLong("output"), help: "Destination file path, relative to the current directory or absolute. Existing files are never replaced.")
@@ -105,7 +113,7 @@ struct ContentCoverCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRu
 struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "chapters",
-        abstract: "List the canonical EPUB table of contents with opaque cursor pagination."
+        abstract: "List an EPUB table of contents with opaque cursor pagination."
     )
 
     @Option(name: .customLong("book"), help: "Use an exact Apple Books asset ID.")
@@ -151,7 +159,9 @@ struct ContentChaptersCommand: ParsableCommand, GlobalOptionsProviding, CLIOutpu
             case let .localPK(localPK):
                 page = try books.semanticChapterListPage(bookLocalPK: localPK, limit: limit, cursor: cursor)
             }
-            guard let page else { throw CLIError.notFound("Book not found.") }
+            guard let page else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentChaptersPageResult(page)
         }
     }
@@ -225,7 +235,9 @@ struct ContentChapterCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
                     cursor: cursor
                 )
             }
-            guard let page else { throw CLIError.notFound("Book not found.") }
+            guard let page else {
+                throw CLIError.notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            }
             return ContentChapterPageResult(page)
         }
     }

@@ -23,7 +23,7 @@ struct CollectionWriteCommandTests {
     }
 
     @Test
-    func collectionMutationHelpExposesExplicitCloudSyncFlagAndNamedMembershipSelectors() {
+    func collectionMutationHelpExposesExplicitSyncFlagAndNamedMembershipSelectors() {
         for subcommand in ["create", "rename", "delete", "add-book", "remove-book"] {
             var stdout = ""
             var stderr = ""
@@ -33,10 +33,11 @@ struct CollectionWriteCommandTests {
             )
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
+            let normalized = stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("After local commit"))
-            #expect(stdout.contains("current-Mac CloudKit"))
-            #expect(stdout.contains("projection"))
+            #expect(normalized.contains("acknowledge this committed change on this Mac"))
+            #expect(stdout.contains("CloudKit") == false)
+            #expect(stdout.contains("projection") == false)
             #expect(stdout.contains("local-only") == false)
             if subcommand == "add-book" || subcommand == "remove-book" {
                 for selector in ["--collection", "--collection-pk", "--book", "--book-pk"] {
@@ -253,14 +254,20 @@ struct CollectionWriteCommandTests {
         let numericCollection = try CollectionsAddBookCommand.parse([
             "--collection", "10", "--book", "asset-1",
         ])
-        #expect(throws: CLIError.notFound("Collection not found.")) {
+        #expect(throws: CLIError.notFoundWithReason(
+            message: "Collection not found.",
+            reason: .collectionNotFound
+        )) {
             _ = try numericCollection.execute(using: books)
         }
 
         let numericBook = try CollectionsAddBookCommand.parse([
             "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book", "1",
         ])
-        #expect(throws: CLIError.notFound("Book not found.")) {
+        #expect(throws: CLIError.notFoundWithReason(
+            message: "Book not found.",
+            reason: .bookNotFound
+        )) {
             _ = try numericBook.execute(using: books)
         }
 

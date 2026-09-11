@@ -24,7 +24,7 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
-    func annotationMutationHelpExposesExplicitCloudSyncFlag() {
+    func annotationMutationHelpExposesExplicitSyncFlagWithoutImplementationTerms() {
         for subcommand in ["update-note", "delete", "restore"] {
             var stdout = ""
             var stderr = ""
@@ -34,13 +34,12 @@ struct AnnotationWriteCommandTests {
             )
             #expect(code == CLIProcessExit.success.rawValue)
             #expect(stderr.isEmpty)
+            let normalized = stdout.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             #expect(stdout.contains("--sync"))
-            #expect(stdout.contains("After local commit"))
-            #expect(stdout.contains("current-Mac CloudKit"))
-            if subcommand != "restore" {
-                #expect(stdout.contains("projection"))
-                #expect(stdout.contains("local-only") == false)
-            }
+            #expect(normalized.contains("acknowledge this committed change on this Mac"))
+            #expect(stdout.contains("CloudKit") == false)
+            #expect(stdout.contains("projection") == false)
+            #expect(stdout.contains("local-only") == false)
             if subcommand == "update-note" {
                 #expect(stdout.contains("--clear"))
                 #expect(stdout.contains("--note") == false)
@@ -181,7 +180,7 @@ struct AnnotationWriteCommandTests {
         let missing = try AnnotationsRestoreCommand.parse(["missing-uuid"])
         #expect(throws: CLIError.notFoundWithReason(
             message: "Annotation tombstone is unavailable.",
-            reason: "annotation_restore_unavailable"
+            reason: .annotationRestoreUnavailable
         )) {
             _ = try missing.execute(using: books)
         }

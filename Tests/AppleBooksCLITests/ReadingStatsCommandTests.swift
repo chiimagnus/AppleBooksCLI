@@ -131,7 +131,7 @@ struct ReadingStatsCommandTests {
             #expect(capture.stdout.isEmpty)
             let envelope = try fixture.decode(CLIErrorEnvelope.self, capture.stderr)
             #expect(envelope.error.code == .unavailable)
-            #expect(envelope.error.reason == "reading_position_unavailable")
+            #expect(envelope.error.reason == CLIErrorReason.readingPositionUnavailable.rawValue)
             #expect(envelope.error.message == "Reading position is unavailable for this book.")
             #expect(capture.stderr.contains("outside") == false)
             #expect(capture.stderr.contains("epubcfi") == false)
@@ -259,7 +259,10 @@ struct ReadingStatsCommandTests {
             }
             Issue.record("content failure should be translated")
         } catch let error as CLIError {
-            #expect(error == .unavailable("Book content is unavailable."))
+            #expect(error == .unavailableWithReason(
+                message: "Book content is unavailable.",
+                reason: .contentUnavailable
+            ))
         }
 
         let malformed = try Fixture(epubHref: "../../escape.xhtml")

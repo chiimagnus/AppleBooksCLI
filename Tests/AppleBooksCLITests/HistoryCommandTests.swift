@@ -106,7 +106,10 @@ struct HistoryCommandTests {
         #expect(FileManager.default.fileExists(atPath: fixture.root.path) == false)
 
         let get = try HistoryGetCommand.parse(["00000000-0000-4000-8000-000000000000"])
-        #expect(throws: CLIError.notFound("Operation history entry not found.")) {
+        #expect(throws: CLIError.notFoundWithReason(
+            message: "Operation history entry not found.",
+            reason: .historyEntryNotFound
+        )) {
             try get.run(output: Capture().output, store: store)
         }
         #expect(FileManager.default.fileExists(atPath: fixture.root.path) == false)
@@ -124,7 +127,10 @@ struct HistoryCommandTests {
             try command.run(output: Capture().output, store: fixture.store(now: fixture.date("2026-09-04T10:00:00Z")))
             Issue.record("expected unavailable")
         } catch let error as CLIError {
-            #expect(error == .unavailable("Operation history is unavailable."))
+            #expect(error == .unavailableWithReason(
+                message: "Operation history is unavailable.",
+                reason: .historyUnavailable
+            ))
             #expect(error.message.contains(privatePayload) == false)
             #expect(error.message.contains(fixture.root.path) == false)
         }

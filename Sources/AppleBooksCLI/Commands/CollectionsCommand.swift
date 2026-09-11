@@ -23,7 +23,7 @@ struct CollectionsCommand: ParsableCommand {
 struct CollectionsListCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List non-deleted collections in the canonical stable order."
+        abstract: "List non-deleted collections with opaque cursor pagination."
     )
 
     @Option(name: .long, parsing: .unconditional, help: "Maximum collections in this page (default 20, max 100).")
@@ -81,7 +81,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let collection = try selector.resolveSemantic(in: books) else {
-                throw CLIError.notFound("Collection not found.")
+                throw CLIError.notFoundWithReason(message: "Collection not found.", reason: .collectionNotFound)
             }
             return CollectionDetailResult(collection)
         }
@@ -91,7 +91,7 @@ struct CollectionsGetCommand: ParsableCommand, GlobalOptionsProviding, CLIOutput
 struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "search",
-        abstract: "Search collection titles using the core literal substring owner."
+        abstract: "Search collection titles by literal substring."
     )
 
     @Argument(help: "Literal title substring.")
@@ -130,7 +130,7 @@ struct CollectionsSearchCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable {
     static let configuration = CommandConfiguration(
         commandName: "books",
-        abstract: "List books in one collection using the canonical membership order."
+        abstract: "List books in one collection with opaque cursor pagination."
     )
 
     @Argument(help: "Exact Apple Books collection ID.")
@@ -160,7 +160,7 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
         return try CLIOperation.run {
             let books = try CLIContext(global: global).makeAppleBooks(dependencies: .libraryRead)
             guard let page = try selector.resolveBookSummaryPage(in: books, limit: limit, cursor: cursor) else {
-                throw CLIError.notFound("Collection not found.")
+                throw CLIError.notFoundWithReason(message: "Collection not found.", reason: .collectionNotFound)
             }
             return CollectionBooksResult(
                 items: page.items.map { BookSummaryResult(summary: $0) },
@@ -174,13 +174,13 @@ struct CollectionsBooksCommand: ParsableCommand, GlobalOptionsProviding, CLIOutp
 struct CollectionsCreateCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "create",
-        abstract: "Create a collection through the guarded mutation rail."
+        abstract: "Create a new Apple Books collection."
     )
 
     @Argument(help: "New collection title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -232,7 +232,7 @@ struct CollectionsRenameCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .customLong("title"), help: "Replacement title. Leading and trailing whitespace is removed; max 512 characters / 8 KiB UTF-8.")
     var title: String
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -287,7 +287,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
     @Option(name: .long, parsing: .unconditional, help: "Use an explicit local collection primary key.")
     var pk: Int64?
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -328,7 +328,7 @@ struct CollectionsDeleteCommand: ParsableCommand, GlobalOptionsProviding, CLIOut
 struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "add-book",
-        abstract: "Add one exact book to one exact collection through the guarded mutation rail."
+        abstract: "Add one exact book to one exact collection."
     )
 
     @Option(name: .customLong("collection"), help: "Exact Apple Books collection ID.")
@@ -343,7 +343,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions
@@ -404,7 +404,7 @@ struct CollectionsAddBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOu
 struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "remove-book",
-        abstract: "Remove one exact book from one exact collection through the guarded mutation rail."
+        abstract: "Remove one exact book from one exact collection."
     )
 
     @Option(name: .customLong("collection"), help: "Exact Apple Books collection ID.")
@@ -419,7 +419,7 @@ struct CollectionsRemoveBookCommand: ParsableCommand, GlobalOptionsProviding, CL
     @Option(name: .customLong("book-pk"), parsing: .unconditional, help: "Use an explicit local book primary key.")
     var bookPK: Int64?
 
-    @Flag(name: .long, help: "After local commit and projection, wait for current-Mac CloudKit acknowledgement. Omit only to skip waiting; root sync can acknowledge pending projected changes later.")
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
     var sync = false
 
     @OptionGroup var global: GlobalOptions

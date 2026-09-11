@@ -2,7 +2,7 @@ import AppleBooksCore
 import ArgumentParser
 import Foundation
 
-enum ExportFormatArgument: String, ExpressibleByArgument, Sendable {
+enum ExportFormatArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case json
     case markdown
 
@@ -14,7 +14,7 @@ enum ExportFormatArgument: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum ExportSourceArgument: String, ExpressibleByArgument, Sendable {
+enum ExportSourceArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case epub
     case pdf
     case all
@@ -22,7 +22,7 @@ enum ExportSourceArgument: String, ExpressibleByArgument, Sendable {
     var coreValue: ExportSourceScope { ExportSourceScope(rawValue: rawValue)! }
 }
 
-enum ExportColorArgument: String, ExpressibleByArgument, Sendable {
+enum ExportColorArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case green
     case blue
     case yellow
@@ -32,7 +32,7 @@ enum ExportColorArgument: String, ExpressibleByArgument, Sendable {
     var coreValue: ExportPresentationColor { ExportPresentationColor(rawValue: rawValue)! }
 }
 
-enum ExportGroupingArgument: String, ExpressibleByArgument, Sendable {
+enum ExportGroupingArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case single
     case perDocument = "per-document"
 
@@ -44,7 +44,7 @@ enum ExportGroupingArgument: String, ExpressibleByArgument, Sendable {
     }
 }
 
-enum ExportOverwriteArgument: String, ExpressibleByArgument, Sendable {
+enum ExportOverwriteArgument: String, ExpressibleByArgument, CaseIterable, Sendable {
     case never
     case always
 
@@ -218,7 +218,7 @@ struct ExportCommand: ParsableCommand, GlobalOptionsProviding, CLIOutputRunnable
     @Option(name: .long, help: "Filter note presence: true or false.")
     var hasNote: AnnotationBooleanArgument?
 
-    @Option(name: .long, help: "Canonical annotation color (PDF approximate colors do not match). Repeatable.")
+    @Option(name: .long, help: "Filter by annotation color. PDF approximate colors do not match. Repeatable.")
     var color: [ExportColorArgument] = []
 
     @Option(name: .long, help: "Filter underline state: true or false.")

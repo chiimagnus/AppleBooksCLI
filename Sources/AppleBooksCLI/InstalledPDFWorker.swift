@@ -3,7 +3,10 @@ import Foundation
 
 func installedPDFWorkerURL(bundle: Bundle = .main) throws -> URL {
     guard let executableURL = bundle.executableURL else {
-        throw CLIError.unavailable("Installed PDF worker is unavailable.")
+        throw CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )
     }
     return try installedPDFWorkerURL(executableURL: executableURL)
 }
@@ -11,7 +14,10 @@ func installedPDFWorkerURL(bundle: Bundle = .main) throws -> URL {
 func installedPDFWorkerURL(executableURL: URL) throws -> URL {
     let canonical = executableURL.standardizedFileURL.resolvingSymlinksInPath()
     guard canonical.lastPathComponent == "applebookscli" else {
-        throw CLIError.unavailable("Installed PDF worker is unavailable.")
+        throw CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )
     }
 
     let productDirectory = canonical.deletingLastPathComponent()
@@ -25,7 +31,10 @@ func installedPDFWorkerURL(executableURL: URL) throws -> URL {
     }
 
     guard isExecutableRegularFile(worker) else {
-        throw CLIError.unavailable("Installed PDF worker is unavailable.")
+        throw CLIError.unavailableWithReason(
+            message: "Installed PDF worker is unavailable.",
+            reason: .pdfWorkerUnavailable
+        )
     }
     return worker.standardizedFileURL
 }

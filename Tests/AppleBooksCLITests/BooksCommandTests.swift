@@ -298,7 +298,7 @@ struct BooksCommandTests {
         let error = try jsonObject(capture.stderr)
         let payload = try #require(error["error"] as? [String: Any])
         #expect(payload["code"] as? String == "unavailable")
-        #expect(payload["message"] as? String == "Apple Books database schema or data is unavailable.")
+        #expect(payload["message"] as? String == "Apple Books data is unavailable.")
         #expect(capture.stderr.contains("secret") == false)
     }
 

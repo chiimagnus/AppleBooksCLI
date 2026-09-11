@@ -130,7 +130,7 @@ struct LibraryBackupCatalogTests {
             withDestinationURL: root.appendingPathComponent(metadata.last!.filename)
         )
 
-        let instrumentation = BackupCatalogInstrumentation()
+        let instrumentation = BackupScanInstrumentation()
         let result = try SQLiteBackup.list(source: source, backupRoot: root, instrumentation: instrumentation)
         let expected = metadata.suffix(SQLiteBackup.retentionCount).reversed().map(\.filename)
 

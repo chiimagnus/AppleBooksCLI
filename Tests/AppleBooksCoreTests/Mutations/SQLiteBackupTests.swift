@@ -113,7 +113,7 @@ struct SQLiteBackupTests {
             withIntermediateDirectories: false
         )
 
-        let instrumentation = BackupRetentionInstrumentation()
+        let instrumentation = BackupScanInstrumentation()
         try SQLiteBackup.enforceRetention(
             source: source,
             backupRoot: backupRoot,

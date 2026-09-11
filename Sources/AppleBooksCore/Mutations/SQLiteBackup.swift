@@ -15,20 +15,7 @@ public enum SQLiteBackupError: Error, Equatable, Sendable {
     case restoreFailed(Int32)
 }
 
-final class BackupCatalogInstrumentation {
-    private(set) var scannedEntryCount = 0
-    private(set) var retainedCandidatePeak = 0
-
-    func observeScannedEntry() {
-        scannedEntryCount += 1
-    }
-
-    func observeRetainedCandidates(_ count: Int) {
-        retainedCandidatePeak = max(retainedCandidatePeak, count)
-    }
-}
-
-final class BackupRetentionInstrumentation {
+final class BackupScanInstrumentation {
     private(set) var scannedEntryCount = 0
     private(set) var retainedCandidatePeak = 0
 
@@ -316,7 +303,7 @@ public enum SQLiteBackup {
     static func list(
         source: URL,
         backupRoot: URL = defaultRoot(),
-        instrumentation: BackupCatalogInstrumentation? = nil
+        instrumentation: BackupScanInstrumentation? = nil
     ) throws -> [LibraryBackup] {
         guard let root = try BackupRootGuard.openExisting(backupRoot) else { return [] }
         let sourceStem = source.deletingPathExtension().lastPathComponent
@@ -492,7 +479,7 @@ public enum SQLiteBackup {
         backupRoot: URL = defaultRoot(),
         keep: Int = retentionCount,
         preserving: Set<String> = [],
-        instrumentation: BackupRetentionInstrumentation? = nil,
+        instrumentation: BackupScanInstrumentation? = nil,
         betweenPasses: (() throws -> Void)? = nil
     ) throws {
         guard keep >= 1 else { throw SQLiteBackupError.invalidRetention }
@@ -668,7 +655,7 @@ public enum SQLiteBackup {
         sourceStem: String,
         keep: Int,
         preserving: Set<String>,
-        instrumentation: BackupRetentionInstrumentation? = nil,
+        instrumentation: BackupScanInstrumentation? = nil,
         betweenPasses: (() throws -> Void)? = nil
     ) throws {
         var newest: [RetentionCandidate] = []

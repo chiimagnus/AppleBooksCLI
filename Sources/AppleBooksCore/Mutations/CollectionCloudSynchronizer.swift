@@ -259,7 +259,6 @@ struct CollectionCloudSynchronizer {
         guard let invalidCount = try row.int64("ZINVALIDCOUNT"),
               invalidCount == 0,
               let count = try row.int64("ZPENDINGCOUNT"),
-              count >= 0,
               try statement.step() == false else {
             throw CollectionCloudSyncError.cloudRecordInvalid
         }
@@ -272,8 +271,7 @@ struct CollectionCloudSynchronizer {
                   deleted == 0 || deleted == 1,
                   let editGeneration = try row.int64("ZEDITGENERATION"),
                   let syncGeneration = try row.int64("ZSYNCGENERATION"),
-                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES"),
-                  systemFieldsBytes >= 0 else {
+                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES") else {
                 throw CollectionCloudSyncError.cloudRecordInvalid
             }
             return CollectionCloudSyncState(

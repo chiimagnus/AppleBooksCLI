@@ -42,11 +42,7 @@ enum CloudProjectionResourcePolicy {
         guard sqlite3_column_type(statement, lengthIndex) == SQLITE_INTEGER else {
             throw SQLiteTextCodecError.invalidUTF8
         }
-        let rawLength = sqlite3_column_int64(statement, lengthIndex)
-        guard rawLength >= 0, rawLength <= Int64(Int.max) else {
-            throw SQLiteTextCodecError.invalidUTF8
-        }
-        let byteCount = Int(rawLength)
+        let byteCount = Int(sqlite3_column_int64(statement, lengthIndex))
         guard byteCount <= maximumUTF8Bytes else {
             return .oversized(originalUTF8ByteCount: byteCount)
         }

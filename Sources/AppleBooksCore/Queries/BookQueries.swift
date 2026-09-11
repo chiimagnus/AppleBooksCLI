@@ -232,7 +232,7 @@ struct BookQueries {
                 case .value, .null, .oversized: assetID = nil
                 }
                 let rawMultiplicity = try row.int64("pdfAssetMultiplicity") ?? 0
-                multiplicity = rawMultiplicity > 0 && rawMultiplicity <= Int64(Int.max) ? Int(rawMultiplicity) : 0
+                multiplicity = rawMultiplicity > 0 ? Int(rawMultiplicity) : 0
             } else {
                 assetID = nil
                 multiplicity = 0

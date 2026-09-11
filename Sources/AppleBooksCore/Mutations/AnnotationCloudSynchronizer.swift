@@ -126,7 +126,6 @@ struct AnnotationCloudSynchronizer {
         guard let invalidCount = try row.int64("ZINVALIDCOUNT"),
               invalidCount == 0,
               let count = try row.int64("ZPENDINGCOUNT"),
-              count >= 0,
               try statement.step() == false else {
             throw AnnotationCloudSyncError.cloudRecordInvalid
         }
@@ -154,8 +153,7 @@ struct AnnotationCloudSynchronizer {
         do {
             guard let editGeneration = try row.int64("ZEDITGENERATION"),
                   let syncGeneration = try row.int64("ZSYNCGENERATION"),
-                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES"),
-                  systemFieldsBytes >= 0 else {
+                  let systemFieldsBytes = try row.int64("ZSYSTEMFIELDSBYTES") else {
                 throw AnnotationCloudSyncError.cloudRecordInvalid
             }
             state = AnnotationCloudSyncState(

@@ -5,20 +5,24 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}
   queue: max
 
 jobs:
-  release:
-    name: Publish tagged release
+  prepare:
+    name: Build release package
+    permissions:
+      actions: read
+      contents: read
     runs-on: macos-26
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      npm_dist_tag: ${{ steps.metadata.outputs.npm_dist_tag }}
+      github_prerelease: ${{ steps.metadata.outputs.github_prerelease }}
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -33,23 +37,43 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
-      - name: Preflight tag and publication state
+      - name: Preflight tag, CI, and publication state
         id: metadata
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           . scripts/release-metadata.sh "$GITHUB_REF_NAME"
-          {
-            echo "RELEASE_VERSION=$RELEASE_VERSION"
-            echo "NPM_DIST_TAG=$NPM_DIST_TAG"
-            echo "GITHUB_PRERELEASE=$GITHUB_PRERELEASE"
-          } >> "$GITHUB_ENV"
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "npm_dist_tag=$NPM_DIST_TAG" >> "$GITHUB_OUTPUT"
+          echo "github_prerelease=$GITHUB_PRERELEASE" >> "$GITHUB_OUTPUT"
 
           node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) process.exit(1)' "$(npm --version)"
 
           git fetch --no-tags origin main
-          git merge-base --is-ancestor HEAD origin/main || { echo "release tag must point at a commit on main" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || {
+            echo "release tag must point at current origin/main HEAD" >&2
+            exit 1
+          }
+
+          attempt=1
+          while [ "$attempt" -le 60 ]; do
+            CI_STATE=$(gh run list --workflow ci.yml --event push --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq 'if length == 0 then "missing" else "\(.[0].status):\(.[0].conclusion)" end')
+            case "$CI_STATE" in
+              completed:success)
+                break
+                ;;
+              completed:*)
+                echo "exact-SHA main CI failed: $CI_STATE" >&2
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq 60 ]; then
+              echo "exact-SHA main CI did not complete successfully: $CI_STATE" >&2
+              exit 1
+            fi
+            sleep 10
+            attempt=$((attempt + 1))
+          done
 
           npm view @chiimagnus/applebookscli dist-tags --json > "$RUNNER_TEMP/npm-tags.json"
           LATEST=$(node -e 'const value=require(process.argv[1]); process.stdout.write(value.latest ?? "")' "$RUNNER_TEMP/npm-tags.json")
@@ -60,44 +84,83 @@ jobs:
           fi
           node scripts/check-release-order.mjs "$RELEASE_VERSION" "$RELEASE_CHANNEL" "$LATEST" "$BETA"
 
-      - name: Run release CI gates
-        run: scripts/ci-gates.sh
-
-      - name: Build release package
+      - name: Build and smoke-test package
         env:
           APPLEBOOKSCLI_TAG: ${{ github.ref_name }}
         run: scripts/build-release.sh
 
+      - name: Upload release package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-package
+          path: dist/chiimagnus-applebookscli-${{ steps.metadata.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish-npm:
+    name: Publish npm package
+    needs: prepare
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up Node and npm registry
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Download release package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-package
+          path: dist
+
+      - name: Verify npm supports trusted publishing
+        run: node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) process.exit(1)' "$(npm --version)"
+
+      - name: Publish npm package
+        run: npm publish "./dist/chiimagnus-applebookscli-${{ needs.prepare.outputs.version }}.tgz" --access public --tag "${{ needs.prepare.outputs.npm_dist_tag }}"
+
+  github-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - publish-npm
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download release package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-package
+          path: dist
+
       - name: Attest release asset
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          subject-path: dist/chiimagnus-applebookscli-${{ steps.metadata.outputs.version }}.tgz
-
-      - name: Publish npm package
-        run: npm publish "./dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz" --access public --tag "$NPM_DIST_TAG"
-
-      - name: Verify npm publication
-        run: |
-          attempt=1
-          while [ "$attempt" -le 12 ]; do
-            PUBLISHED_VERSION=$(npm view "@chiimagnus/applebookscli@$RELEASE_VERSION" version 2>/dev/null || true)
-            DIST_TAG_VERSION=$(npm view @chiimagnus/applebookscli "dist-tags.$NPM_DIST_TAG" 2>/dev/null || true)
-            if [ "$PUBLISHED_VERSION" = "$RELEASE_VERSION" ] && [ "$DIST_TAG_VERSION" = "$RELEASE_VERSION" ]; then
-              echo "npm publication visible: $RELEASE_VERSION ($NPM_DIST_TAG)"
-              exit 0
-            fi
-            if [ "$attempt" -lt 12 ]; then sleep 5; fi
-            attempt=$((attempt + 1))
-          done
-          echo "npm publication is not visible after bounded verification: version=$PUBLISHED_VERSION dist-tag=$DIST_TAG_VERSION" >&2
-          exit 1
+          subject-path: dist/chiimagnus-applebookscli-${{ needs.prepare.outputs.version }}.tgz
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ASSET="dist/chiimagnus-applebookscli-$RELEASE_VERSION.tgz"
-          if [ "$GITHUB_PRERELEASE" = true ]; then
+          ASSET="dist/chiimagnus-applebookscli-${{ needs.prepare.outputs.version }}.tgz"
+          if [ "${{ needs.prepare.outputs.github_prerelease }}" = true ]; then
             gh release create "$GITHUB_REF_NAME" "$ASSET" \
               --verify-tag --generate-notes --title "$GITHUB_REF_NAME" --prerelease --latest=false
           else

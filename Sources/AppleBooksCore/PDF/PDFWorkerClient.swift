@@ -31,15 +31,18 @@ struct PDFWorkerClient {
     let workerURL: URL
     let timeout: TimeInterval
     private let terminationGrace: TimeInterval
+    private let didLaunch: ((pid_t) -> Void)?
 
     init(
         workerURL: URL,
         timeout: TimeInterval = Self.defaultTimeout,
-        terminationGrace: TimeInterval = 0.2
+        terminationGrace: TimeInterval = 0.2,
+        didLaunch: ((pid_t) -> Void)? = nil
     ) {
         self.workerURL = workerURL
         self.timeout = timeout
         self.terminationGrace = terminationGrace
+        self.didLaunch = didLaunch
     }
 
     func readPage(
@@ -90,6 +93,7 @@ struct PDFWorkerClient {
         } catch {
             throw PDFWorkerClientError.launchFailed
         }
+        didLaunch?(process.processIdentifier)
 
         // ponytail: 子进程启动后已持有自己的 fd；父进程只保留真正使用的 pipe 端，避免 EOF 依赖 Process 内部生命周期。
         try? stdinPipe.fileHandleForReading.close()

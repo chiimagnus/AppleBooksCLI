@@ -93,7 +93,10 @@ private final class StreamingMarkdownWriter {
             try block(&firstBlock) { try raw("_No records._") }
             return
         }
-        for record in group.records {
+        for (index, record) in group.records.enumerated() {
+            if index > 0 {
+                try block(&firstBlock) { try raw("---") }
+            }
             try block(&firstBlock) { try writeRecord(record) }
         }
     }

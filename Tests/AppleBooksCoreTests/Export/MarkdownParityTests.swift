@@ -29,7 +29,7 @@ struct MarkdownParityTests {
         #expect(lines.count { $0.hasPrefix("# ") } == 1)
         #expect(lines.count { $0.hasPrefix("## ") } == 2)
         #expect(lines.count { $0.hasPrefix("### ") } == 0)
-        #expect(lines.contains("---") == false)
+        #expect(lines.count { $0 == "---" } == 1)
         #expect(lines.contains { $0.hasPrefix("```") } == false)
         #expect(markdown.contains("<script>") == false)
         #expect(markdown.contains("**Chapter:**") == false)
@@ -71,6 +71,7 @@ struct MarkdownParityTests {
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
         #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("## ") } == 0)
         #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("### ") } == 0)
+        #expect(markdown.components(separatedBy: "\n").count { $0 == "---" } == 1)
     }
 
     @Test

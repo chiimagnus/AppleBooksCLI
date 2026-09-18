@@ -9,24 +9,27 @@ struct PDFWorkerTimeoutTests {
     func timeoutTerminatesAndReapsWorkerPID() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let pidFile = fixture.root.appendingPathComponent("worker.pid")
         let worker = try fixture.script(
             """
-            printf '%s' "$$" > \(shellQuote(pidFile.path))
             IFS= read -r request || true
             trap '' TERM
             while :; do :; done
             """,
             name: "slow-worker"
         )
-        let client = PDFWorkerClient(workerURL: worker, timeout: 0.2, terminationGrace: 0.05)
+        var launchedPID: pid_t?
+        let client = PDFWorkerClient(
+            workerURL: worker,
+            timeout: 0.2,
+            terminationGrace: 0.05,
+            didLaunch: { launchedPID = $0 }
+        )
 
         #expect(throws: PDFWorkerClientError.timedOut) {
             _ = try client.readPage(fileURL: fixture.inputPDF, mode: .archive, limit: 1)
         }
 
-        let pidText = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        let pid = try #require(pid_t(pidText))
+        let pid = try #require(launchedPID)
         errno = 0
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)

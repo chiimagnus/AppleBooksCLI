@@ -30,15 +30,16 @@ private final class StreamingMarkdownWriter {
     private let sink: (Data) throws -> Void
     private let observeBufferedBytes: ((Int) -> Void)?
     private var buffer: [UInt8] = []
-    private let dateFormatter: ISO8601DateFormatter
+    private let dateFormatter: DateFormatter
 
     init(sink: @escaping (Data) throws -> Void, observeBufferedBytes: ((Int) -> Void)?) {
         self.sink = sink
         self.observeBufferedBytes = observeBufferedBytes
         buffer.reserveCapacity(ExportFileWriter.maximumChunkBytes)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         dateFormatter = formatter
     }
 
@@ -47,6 +48,11 @@ private final class StreamingMarkdownWriter {
     func writeBundle(_ bundle: ExportBundle) throws {
         if bundle.groups.isEmpty {
             try raw("# Apple Books export\n\n_No records._\n")
+            return
+        }
+        if bundle.groups.count == 1 {
+            try writeGroup(bundle.groups[0], headingLevel: 1)
+            try raw("\n")
             return
         }
         try raw("# Apple Books export\n\n")
@@ -71,14 +77,14 @@ private final class StreamingMarkdownWriter {
         }
         if let author = source.author {
             try block(&firstBlock) {
-                try raw("**Author:** ")
+                try raw("*")
                 try inline(author)
+                try raw("*")
             }
         }
-        try block(&firstBlock) { try raw("**Source:** " + source.kind) }
         if let appleBooksURL = source.appleBooksURL {
             try block(&firstBlock) {
-                try raw("**Apple Books:** [Open book](<")
+                try raw("[Open in Apple Books](<")
                 try raw(appleBooksURL)
                 try raw(">)")
             }
@@ -87,55 +93,41 @@ private final class StreamingMarkdownWriter {
             try block(&firstBlock) { try raw("_No records._") }
             return
         }
-        for record in group.records {
+        for (index, record) in group.records.enumerated() {
+            if index > 0 {
+                try block(&firstBlock) { try raw("---") }
+            }
             try block(&firstBlock) { try writeRecord(record) }
         }
     }
 
     private func writeRecord(_ record: ExportRecord) throws {
         var firstBlock = true
-        try block(&firstBlock) { try raw(record.hasNote ? "### Note" : "### Highlight") }
         switch record.payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
+            if let date = annotation.createdAt ?? annotation.modifiedAt {
+                try block(&firstBlock) { try timestamp(date) }
+            }
             if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
-                try block(&firstBlock) { try blockquote(label: "Quote", text: quote) }
+                try block(&firstBlock) { try blockquote(quote) }
             }
             if let note = content(annotation.note) {
-                try block(&firstBlock) { try blockquote(label: "Note", text: note) }
-            }
-            if let chapter = content(annotation.chapterHint) {
-                try block(&firstBlock) {
-                    try raw("**Chapter:** ")
-                    try inline(chapter)
-                }
-            }
-            if let physicalLocation = annotation.physicalLocation {
-                try block(&firstBlock) { try raw("**Location:** \(physicalLocation)") }
-            }
-            if let createdAt = annotation.createdAt {
-                try block(&firstBlock) { try raw("**Created:** " + dateFormatter.string(from: createdAt)) }
-            }
-            if let modifiedAt = annotation.modifiedAt {
-                try block(&firstBlock) { try raw("**Modified:** " + dateFormatter.string(from: modifiedAt)) }
+                try block(&firstBlock) { try paragraph(note) }
             }
         case let .pdf(_, highlight):
+            if let date = highlight.modifiedAt {
+                try block(&firstBlock) { try timestamp(date) }
+            }
             if let quote = content(highlight.text) {
-                try block(&firstBlock) { try blockquote(label: "Quote", text: quote) }
+                try block(&firstBlock) { try blockquote(quote) }
             }
             if let note = content(highlight.note) {
-                try block(&firstBlock) { try blockquote(label: "Note", text: note) }
-            }
-            try block(&firstBlock) { try raw("**Page:** \(highlight.page)") }
-            if let modifiedAt = highlight.modifiedAt {
-                try block(&firstBlock) { try raw("**Modified:** " + dateFormatter.string(from: modifiedAt)) }
+                try block(&firstBlock) { try paragraph(note) }
             }
         }
-        if let color = record.presentationColor {
-            try block(&firstBlock) { try raw("**Color:** " + color.rawValue) }
-        }
-        if record.isUnderline {
-            try block(&firstBlock) { try raw("**Underline:** true") }
+        if firstBlock {
+            try raw("_No text._")
         }
     }
 
@@ -145,28 +137,24 @@ private final class StreamingMarkdownWriter {
             return MarkdownSourceContext(
                 title: nonEmpty(book.title) ?? "Untitled EPUB",
                 author: nonEmpty(book.author),
-                kind: "EPUB",
                 appleBooksURL: book.assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .epubHistorical(assetID, metadata):
             return MarkdownSourceContext(
                 title: nonEmpty(metadata.title) ?? "Historical EPUB",
                 author: nonEmpty(metadata.author),
-                kind: "Historical EPUB",
                 appleBooksURL: assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .epubUnmapped(assetID):
             return MarkdownSourceContext(
                 title: "Unmapped EPUB",
                 author: nil,
-                kind: "Unmapped EPUB",
                 appleBooksURL: assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
             )
         case let .pdf(source):
             return MarkdownSourceContext(
                 title: source.displayTitle,
                 author: source.book.flatMap { nonEmpty($0.author) },
-                kind: "PDF",
                 appleBooksURL: nil
             )
         }
@@ -177,8 +165,8 @@ private final class StreamingMarkdownWriter {
         try body()
     }
 
-    private func blockquote(label: String, text: String) throws {
-        try raw("**\(label):**\n> ")
+    private func blockquote(_ text: String) throws {
+        try raw("> ")
         var pendingCR = false
         for byte in text.utf8 {
             if pendingCR {
@@ -199,6 +187,28 @@ private final class StreamingMarkdownWriter {
             }
         }
         if pendingCR { try raw("\n> ") }
+    }
+
+    private func timestamp(_ date: Date) throws {
+        try raw("*")
+        try raw(dateFormatter.string(from: date))
+        try raw("*")
+    }
+
+    private func paragraph(_ text: String) throws {
+        var lineStart = true
+        for byte in text.utf8 {
+            if byte == 0x0d || byte == 0x0a {
+                try appendByte(0x0a)
+                lineStart = true
+                continue
+            }
+            if lineStart && byte == 0x2d {
+                try appendByte(0x5c)
+            }
+            try escaped(byte)
+            lineStart = false
+        }
     }
 
     private func inline(_ text: String) throws {
@@ -265,6 +275,5 @@ private final class StreamingMarkdownWriter {
 private struct MarkdownSourceContext {
     let title: String
     let author: String?
-    let kind: String
     let appleBooksURL: String?
 }

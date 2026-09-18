@@ -12,26 +12,31 @@ struct MarkdownParityTests {
 
         #expect(markdown.hasPrefix("# Apple Books export\n\n"))
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
+        #expect(markdown.firstRange(of: "*2020-")!.lowerBound < markdown.firstRange(of: "SECOND")!.lowerBound)
         #expect(markdown.firstRange(of: "Hostile")!.lowerBound < markdown.firstRange(of: "PDF")!.lowerBound)
-        #expect(markdown.contains("**Source:** EPUB"))
-        #expect(markdown.contains("**Source:** PDF"))
-        #expect(markdown.contains("**Page:** 7"))
-        #expect(markdown.contains("**Created:** 2020-09-13T12:26:40.500Z"))
-        #expect(markdown.contains("**Modified:** 2020-09-13T12:26:40.500Z"))
-        #expect(markdown.contains("**Color:** purple"))
-        #expect(markdown.contains("**Underline:** true"))
+        #expect(markdown.contains("### Highlight") == false)
+        #expect(markdown.contains("### Note") == false)
+        #expect(markdown.contains("**Quote:**") == false)
+        #expect(markdown.contains("**Note:**") == false)
+        #expect(markdown.contains("**Source:**") == false)
+        #expect(markdown.contains("**Page:**") == false)
+        #expect(markdown.contains("**Created:**") == false)
+        #expect(markdown.contains("**Modified:**") == false)
+        #expect(markdown.contains("*2020-") == true)
+        #expect(markdown.contains("**Color:**") == false)
+        #expect(markdown.contains("**Underline:**") == false)
 
         let lines = markdown.components(separatedBy: "\n")
         #expect(lines.count { $0.hasPrefix("# ") } == 1)
         #expect(lines.count { $0.hasPrefix("## ") } == 2)
-        #expect(lines.count { $0.hasPrefix("### ") } == 3)
-        #expect(lines.contains("---") == false)
+        #expect(lines.count { $0.hasPrefix("### ") } == 0)
+        #expect(lines.count { $0 == "---" } == 1)
         #expect(lines.contains { $0.hasPrefix("```") } == false)
         #expect(markdown.contains("<script>") == false)
-        #expect(markdown.contains("**Chapter:** Chapter 2"))
-        #expect(markdown.contains("**Location:** 42"))
+        #expect(markdown.contains("**Chapter:**") == false)
+        #expect(markdown.contains("**Location:**") == false)
         #expect(markdown.contains("epubcfi") == false)
-        #expect(markdown.contains("**Apple Books:** [Open book](<ibooks://assetid/"))
+        #expect(markdown.contains("[Open in Apple Books](<ibooks://assetid/"))
         #expect(markdown.contains(try #require(fixture.book.assetID)) == false)
         #expect(markdown.contains("/tmp/") == false)
         #expect(markdown.contains("]( <script>") == false)
@@ -66,7 +71,25 @@ struct MarkdownParityTests {
         #expect(markdown.contains("# Apple Books export") == false)
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
         #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("## ") } == 0)
-        #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("### ") } == 2)
+        #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("### ") } == 0)
+        #expect(markdown.components(separatedBy: "\n").count { $0 == "---" } == 1)
+    }
+
+    @Test
+    func singleDocumentBundleUsesBookAsTopLevelHeading() throws {
+        let fixture = try Fixture()
+        let bundle = ExportBundle(
+            options: fixture.bundle.options,
+            groups: [fixture.bundle.groups[0]],
+            warnings: fixture.bundle.warnings,
+            statistics: fixture.bundle.statistics,
+            sourceTotals: fixture.bundle.sourceTotals
+        )
+        let markdown = renderMarkdown(bundle)
+
+        #expect(markdown.hasPrefix("# Apple Books export") == false)
+        #expect(markdown.hasPrefix("# "))
+        #expect(markdown.components(separatedBy: "\n").count { $0.hasPrefix("## ") } == 0)
     }
 
     @Test

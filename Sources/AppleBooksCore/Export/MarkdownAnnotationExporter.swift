@@ -30,11 +30,17 @@ private final class StreamingMarkdownWriter {
     private let sink: (Data) throws -> Void
     private let observeBufferedBytes: ((Int) -> Void)?
     private var buffer: [UInt8] = []
+    private let dateFormatter: DateFormatter
 
     init(sink: @escaping (Data) throws -> Void, observeBufferedBytes: ((Int) -> Void)?) {
         self.sink = sink
         self.observeBufferedBytes = observeBufferedBytes
         buffer.reserveCapacity(ExportFileWriter.maximumChunkBytes)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        dateFormatter = formatter
     }
 
     func finish() throws { try flush() }
@@ -103,12 +109,18 @@ private final class StreamingMarkdownWriter {
             if let note = content(annotation.note) {
                 try block(&firstBlock) { try paragraph(note) }
             }
+            if let date = annotation.createdAt ?? annotation.modifiedAt {
+                try block(&firstBlock) { try timestamp(date) }
+            }
         case let .pdf(_, highlight):
             if let quote = content(highlight.text) {
                 try block(&firstBlock) { try blockquote(quote) }
             }
             if let note = content(highlight.note) {
                 try block(&firstBlock) { try paragraph(note) }
+            }
+            if let date = highlight.modifiedAt {
+                try block(&firstBlock) { try timestamp(date) }
             }
         }
         if firstBlock {
@@ -172,6 +184,12 @@ private final class StreamingMarkdownWriter {
             }
         }
         if pendingCR { try raw("\n> ") }
+    }
+
+    private func timestamp(_ date: Date) throws {
+        try raw("*")
+        try raw(dateFormatter.string(from: date))
+        try raw("*")
     }
 
     private func paragraph(_ text: String) throws {

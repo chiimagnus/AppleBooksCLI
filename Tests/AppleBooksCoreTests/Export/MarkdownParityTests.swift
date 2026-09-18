@@ -21,6 +21,7 @@ struct MarkdownParityTests {
         #expect(markdown.contains("**Page:**") == false)
         #expect(markdown.contains("**Created:**") == false)
         #expect(markdown.contains("**Modified:**") == false)
+        #expect(markdown.contains("*2020-") == true)
         #expect(markdown.contains("**Color:**") == false)
         #expect(markdown.contains("**Underline:**") == false)
 

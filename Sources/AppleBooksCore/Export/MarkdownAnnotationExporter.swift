@@ -106,24 +106,24 @@ private final class StreamingMarkdownWriter {
         switch record.payload {
         case let .epub(enriched):
             let annotation = enriched.annotation
+            if let date = annotation.createdAt ?? annotation.modifiedAt {
+                try block(&firstBlock) { try timestamp(date) }
+            }
             if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
                 try block(&firstBlock) { try blockquote(quote) }
             }
             if let note = content(annotation.note) {
                 try block(&firstBlock) { try paragraph(note) }
             }
-            if let date = annotation.createdAt ?? annotation.modifiedAt {
+        case let .pdf(_, highlight):
+            if let date = highlight.modifiedAt {
                 try block(&firstBlock) { try timestamp(date) }
             }
-        case let .pdf(_, highlight):
             if let quote = content(highlight.text) {
                 try block(&firstBlock) { try blockquote(quote) }
             }
             if let note = content(highlight.note) {
                 try block(&firstBlock) { try paragraph(note) }
-            }
-            if let date = highlight.modifiedAt {
-                try block(&firstBlock) { try timestamp(date) }
             }
         }
         if firstBlock {

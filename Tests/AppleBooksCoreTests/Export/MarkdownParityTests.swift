@@ -12,6 +12,7 @@ struct MarkdownParityTests {
 
         #expect(markdown.hasPrefix("# Apple Books export\n\n"))
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
+        #expect(markdown.firstRange(of: "*2020-")!.lowerBound < markdown.firstRange(of: "SECOND")!.lowerBound)
         #expect(markdown.firstRange(of: "Hostile")!.lowerBound < markdown.firstRange(of: "PDF")!.lowerBound)
         #expect(markdown.contains("### Highlight") == false)
         #expect(markdown.contains("### Note") == false)

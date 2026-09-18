@@ -6,7 +6,7 @@ AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS �
 
 ## 系统要求
 
-- 发布到 npm 的安装包面向 macOS 12+ Apple Silicon（`arm64`）。
+- 发布到 npm 的安装包支持 macOS 12+ Apple Silicon（`arm64`）和 Intel（`x86_64`）。
 - 终端或调用进程可能需要 Full Disk Access。
 - AppleBooksCLI 只读取本地已可用内容，不主动下载 iCloud placeholder，也不绕过 DRM 或系统保护。
 

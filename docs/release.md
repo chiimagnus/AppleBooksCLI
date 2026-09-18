@@ -28,7 +28,7 @@ CI 缓存 `.build`，减少相邻提交重复编译；测试、privacy、Skill�
 
 Release workflow 按职责拆成三个 job：
 
-1. `prepare`：解析 metadata/channel，验证 tag + exact-SHA CI + publication state，只构建一次并 smoke-test arm64 npm package；
+1. `prepare`：解析 metadata/channel，验证 tag + exact-SHA CI + publication state，分别构建 arm64/x86_64，再合并并 smoke-test 单个 Universal npm package；
 2. `publish-npm`：下载上述 artifact，只负责 `npm publish` 到对应 dist-tag；
 3. `github-release`：仅在 npm job 成功后下载同一 artifact，生成 attestation 并创建 GitHub Release。
 

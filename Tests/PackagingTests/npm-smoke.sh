@@ -76,6 +76,21 @@ CLI="$PREFIX/bin/applebookscli"
 
 PACKAGE_ROOT="$PREFIX/lib/node_modules/@chiimagnus/applebookscli"
 WORKER="$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+for binary in "$CLI" "$WORKER"; do
+  arch_count=0
+  has_arm64=0
+  has_x86_64=0
+  for arch in $(xcrun lipo -archs "$binary"); do
+    arch_count=$((arch_count + 1))
+    case "$arch" in
+      arm64) has_arm64=1 ;;
+      x86_64) has_x86_64=1 ;;
+      *) fail "npm-installed binary contains unexpected architecture: $binary ($arch)" ;;
+    esac
+  done
+  [ "$arch_count" -eq 2 ] && [ "$has_arm64" -eq 1 ] && [ "$has_x86_64" -eq 1 ] || \
+    fail "npm-installed binary must contain arm64 and x86_64: $binary"
+done
 rm -f "$NPX_CALL"
 EMPTY_HOME="$SMOKE_ROOT/empty-home"
 mkdir -p "$EMPTY_HOME"

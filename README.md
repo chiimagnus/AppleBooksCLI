@@ -6,7 +6,7 @@ AppleBooksCLI is a macOS command-line tool for querying and safely updating Appl
 
 ## Requirements
 
-- The published npm package targets macOS 12+ on Apple Silicon (`arm64`).
+- The published npm package targets macOS 12+ on Apple Silicon (`arm64`) and Intel (`x86_64`).
 - The terminal or calling process may need Full Disk Access.
 - AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders or bypass DRM/system protections.
 

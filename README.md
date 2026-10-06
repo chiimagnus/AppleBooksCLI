@@ -6,18 +6,31 @@ AppleBooksCLI is a macOS command-line tool for querying and safely updating Appl
 
 ## Requirements
 
-- The published npm package targets macOS 12+ on Apple Silicon (`arm64`) and Intel (`x86_64`).
+- AppleBooksCLI targets macOS 12+ on Apple Silicon (`arm64`) and Intel (`x86_64`). Homebrew follows the architectures included in the latest stable release.
 - The terminal or calling process may need Full Disk Access.
 - AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders or bypass DRM/system protections.
 
 ## Install
 
+Homebrew:
+
+```sh
+brew install chiimagnus/tap/applebookscli
+```
+
+Or npm:
+
 ```sh
 npm install --global @chiimagnus/applebookscli@latest
+```
+
+Optional Agent Skill:
+
+```sh
 npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to align it to the same CLI release tag. `--ignore-scripts` disables that optional step.
+If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to align it to the same CLI release tag. `--ignore-scripts` disables that optional npm step.
 
 ## Use
 

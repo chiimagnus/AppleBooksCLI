@@ -6,18 +6,31 @@ AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS �
 
 ## 系统要求
 
-- 发布到 npm 的安装包支持 macOS 12+ Apple Silicon（`arm64`）和 Intel（`x86_64`）。
+- AppleBooksCLI 支持 macOS 12+ Apple Silicon（`arm64`）和 Intel（`x86_64`）；Homebrew 跟随最新稳定 Release 实际包含的架构。
 - 终端或调用进程可能需要 Full Disk Access。
 - AppleBooksCLI 只读取本地已可用内容，不主动下载 iCloud placeholder，也不绕过 DRM 或系统保护。
 
 ## 安装
 
+Homebrew：
+
+```sh
+brew install chiimagnus/tap/applebookscli
+```
+
+或使用 npm：
+
 ```sh
 npm install --global @chiimagnus/applebookscli@latest
+```
+
+可选安装 Agent Skill：
+
+```sh
 npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli-zh --global
 ```
 
-如果 Agent Skills CLI 已管理 AppleBooksCLI Skill，正常 npm 升级会尝试把 Skill 对齐到同一 CLI release tag；`--ignore-scripts` 可关闭这项可选步骤。
+如果 Agent Skills CLI 已管理 AppleBooksCLI Skill，正常 npm 升级会尝试把 Skill 对齐到同一 CLI release tag；`--ignore-scripts` 可关闭这项可选的 npm 步骤。
 
 ## 使用
 

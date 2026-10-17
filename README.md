@@ -6,7 +6,7 @@ AppleBooksCLI is a macOS command-line tool for querying and safely updating Appl
 
 ## Requirements
 
-- AppleBooksCLI targets macOS 12+ on Apple Silicon (`arm64`) and Intel (`x86_64`). Homebrew follows the architectures included in the latest stable release.
+- AppleBooksCLI targets macOS 15.6+ on Apple Silicon (`arm64`). Homebrew installs the precompiled ARM64 release.
 - The terminal or calling process may need Full Disk Access.
 - AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders or bypass DRM/system protections.
 

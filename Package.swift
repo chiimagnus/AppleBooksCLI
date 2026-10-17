@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "AppleBooksCLI",
     platforms: [
-        .macOS(.v12),
+        .macOS("15.6"),
     ],
     products: [
         .library(name: "AppleBooksCore", targets: ["AppleBooksCore"]),

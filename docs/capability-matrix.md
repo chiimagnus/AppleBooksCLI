@@ -1,8 +1,11 @@
 # AppleBooksCLI 能力矩阵
 
-> 当前用户可见能力与明确不支持项的唯一 owner。命令参数以 `applebookscli --help` 为准；写安全细节见 [`write-safety.md`](write-safety.md)。
+> 当前用户可见能力与明确不支持项的唯一 owner。命令参数以 `applebookscli --help` 为准；
+> 写安全细节见 [`write-safety.md`](write-safety.md)。
 
-范围标记：**已实现**=当前用户能力；**已实现（强化）**=同一能力带额外 correctness/safety 边界；**已实现（展示）**=presentation 能力。每个“已实现”行都必须有 implementation/test/CLI reachability anchor。
+范围标记：**已实现**=当前用户能力；**已实现（强化）**=同一能力带额外 correctness/safety
+边界；**已实现（展示）**=presentation 能力。每个“已实现”行都必须有 implementation/test/CLI
+reachability anchor。
 
 ## 数据访问与诊断
 
@@ -147,4 +150,6 @@
 
 ## Edit trigger / evidence
 
-用户可见 capability、selector/output 语义、分页/limit、写入能力或明确不支持项变化时更新本文，并同步 `Tests/Fixtures/Parity/capability-anchors.json`。当前事实以 CLI `--help`、对应 Core/CLI executable tests 与 `CapabilityParityTests` 为证据。
+用户可见 capability、selector/output 语义、分页/limit、写入能力或明确不支持项变化时更新本文，
+并同步 `Tests/Fixtures/Parity/capability-anchors.json`。
+当前事实以 CLI `--help`、对应 Core/CLI executable tests 与 `CapabilityParityTests` 为证据。

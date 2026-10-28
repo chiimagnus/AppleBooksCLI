@@ -2,7 +2,8 @@
 
 [English](README.md) | 简体中文
 
-AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS 命令行工具，覆盖书籍、阅读状态、批注、本地 EPUB/PDF 内容、导出、备份、藏书、同步与近期写入历史。
+AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS 命令行工具，
+覆盖书籍、阅读状态、批注、本地 EPUB/PDF 内容、导出、备份、藏书、同步与近期写入历史。
 
 ## 系统要求
 
@@ -30,7 +31,8 @@ npm install --global @chiimagnus/applebookscli@latest
 npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli-zh --global
 ```
 
-如果 Agent Skills CLI 已管理 AppleBooksCLI Skill，正常 npm 升级会尝试把 Skill 对齐到同一 CLI release tag；`--ignore-scripts` 可关闭这项可选的 npm 步骤。
+如果 Agent Skills CLI 已管理 AppleBooksCLI Skill，正常 npm 升级会尝试把 Skill 对齐到同一 CLI
+release tag；`--ignore-scripts` 可关闭这项可选的 npm 步骤。
 
 ## 使用
 
@@ -83,23 +85,35 @@ applebookscli history list
 
 ## 关键契约
 
-- Operational command 在 stdout 输出 JSON；fatal error 在 stderr 输出净化后的 JSON。help/version 保持纯文本。
-- 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、opaque `pdfSourceID` 或 `backupID`。local PK 只是本机 fallback，必须显式选择。
-- 可增长查询使用 opaque `nextCursor`；续页时把 token 原样交回同一查询，不解析、不修改。`backups list` 不分页，只是最新 10 个恢复备份的固定目录。
-- 普通读取是有界 semantic view；出现 `truncatedFields` 表示展示文本被缩短。需要完整 raw text/CFI 时使用 archival JSON export。
-- 普通读取保持只读；mutation 经过 guarded transaction 与 safety backup。`--sync` 只等待当前 Mac acknowledgement，不代表另一台设备已经显示变更。
-- 通过可能自动重试的 transport 执行 mutation、restore 或 root sync 时，为该逻辑请求生成一次 fresh lowercase UUID，设为 `APPLEBOOKSCLI_OPERATION_ID`，并在重试时原样复用，避免再次派发写操作。
+- Operational command 在 stdout 输出 JSON；fatal error 在 stderr 输出净化后的 JSON。
+  help/version 保持纯文本。
+- 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、
+  opaque `pdfSourceID` 或 `backupID`。local PK 只是本机 fallback，必须显式选择。
+- 可增长查询使用 opaque `nextCursor`；续页时把 token 原样交回同一查询，不解析、不修改。
+  `backups list` 不分页，只是最新 10 个恢复备份的固定目录。
+- 普通读取是有界 semantic view；出现 `truncatedFields` 表示展示文本被缩短。
+  需要完整 raw text/CFI 时使用 archival JSON export。
+- 普通读取保持只读；mutation 经过 guarded transaction 与 safety backup。
+  `--sync` 只等待当前 Mac acknowledgement，不代表另一台设备已经显示变更。
+- 通过可能自动重试的 transport 执行 mutation、restore 或 root sync 时，
+  为该逻辑请求生成一次 fresh lowercase UUID，设为 `APPLEBOOKSCLI_OPERATION_ID`，并在重试时原样复用，
+  避免再次派发写操作。
 - Export artifact 只写显式 destination；stdout 只返回 compact write result，不返回完整 artifact。
 
-详细契约统一从 [`docs/index.md`](docs/index.md) 进入。Process/history 见 [`docs/cli-contract.md`](docs/cli-contract.md)，mutation/backup/restore/sync 见 [`docs/write-safety.md`](docs/write-safety.md)。
+详细契约统一从 [`docs/index.md`](docs/index.md) 进入。
+Process/history 见 [`docs/cli-contract.md`](docs/cli-contract.md)，
+mutation/backup/restore/sync 见 [`docs/write-safety.md`](docs/write-safety.md)。
 
 ## 可选配置
 
-多数用户不需要配置文件。`~/.config/applebookscli/config.json` 只配置受支持的 supplemental EPUB root 与 historical metadata mapping。示例见 [`Config/applebookscli.example.json`](Config/applebookscli.example.json)。
+多数用户不需要配置文件。`~/.config/applebookscli/config.json` 只配置受支持的 supplemental EPUB
+root 与 historical metadata mapping。
+示例见 [`Config/applebookscli.example.json`](Config/applebookscli.example.json)。
 
 ## 开发
 
-先读 [`AGENTS.md`](AGENTS.md)，再从 [`docs/index.md`](docs/index.md) 找到本次修改对应的 canonical owner。
+先读 [`AGENTS.md`](AGENTS.md)，再从 [`docs/index.md`](docs/index.md) 找到本次修改对应的 canonical
+owner。
 
 ## 致谢
 
@@ -114,4 +128,6 @@ AppleBooksCLI 受益于以下项目的既有工作与思路：
 
 ## License
 
-AppleBooksCLI 使用 [AGPLv3 LICENSE](LICENSE)。第三方 notice 与许可证文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`ThirdPartyLicenses/`](ThirdPartyLicenses/)。
+AppleBooksCLI 使用 [AGPLv3 LICENSE](LICENSE)。
+第三方 notice 与许可证文本见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和
+[`ThirdPartyLicenses/`](ThirdPartyLicenses/)。

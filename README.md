@@ -2,13 +2,17 @@
 
 English | [简体中文](README.zh.md)
 
-AppleBooksCLI is a macOS command-line tool for querying and safely updating Apple Books data. It covers books, reading state, annotations, local EPUB/PDF content, exports, backups, collections, sync, and recent write history.
+AppleBooksCLI is a macOS command-line tool for querying and safely updating Apple Books data.
+It covers books, reading state, annotations, local EPUB/PDF content, exports, backups,
+collections, sync, and recent write history.
 
 ## Requirements
 
-- AppleBooksCLI targets macOS 15.6+ on Apple Silicon (`arm64`). Homebrew installs the precompiled ARM64 release.
+- AppleBooksCLI targets macOS 15.6+ on Apple Silicon (`arm64`). Homebrew installs the precompiled
+  ARM64 release.
 - The terminal or calling process may need Full Disk Access.
-- AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders or bypass DRM/system protections.
+- AppleBooksCLI reads only locally available content; it does not hydrate iCloud placeholders
+  or bypass DRM/system protections.
 
 ## Install
 
@@ -30,7 +34,8 @@ Optional Agent Skill:
 npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill applebookscli --global
 ```
 
-If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to align it to the same CLI release tag. `--ignore-scripts` disables that optional npm step.
+If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to
+align it to the same CLI release tag. `--ignore-scripts` disables that optional npm step.
 
 ## Use
 
@@ -83,23 +88,38 @@ applebookscli history list
 
 ## Key contracts
 
-- Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version remain plain text.
-- Prefer stable identities: book asset ID, annotation UUID, collection ID, opaque `pdfSourceID`, or `backupID`. Local PKs are machine-local fallbacks and must be selected explicitly.
-- Growing queries use opaque `nextCursor` continuation. Pass the token unchanged to the same query; do not decode or edit it. `backups list` is different: it is a fixed newest-10 recovery catalog, not paginated history.
-- Ordinary reads are bounded semantic views. `truncatedFields` means presentation text was shortened; use archival JSON export when full raw text/CFI fidelity is required.
-- Ordinary reads are read-only. Mutations use guarded transactions and safety backups. `--sync` waits only for current-Mac acknowledgement; it does not prove another device already displays the change.
-- When a transport may automatically retry a mutation, restore, or root sync, generate one fresh lowercase UUID for that logical request, set it as `APPLEBOOKSCLI_OPERATION_ID`, and reuse it on retry so the write cannot be redispatched blindly.
-- Export artifacts are written only to the explicit destination; stdout returns a compact write result rather than the full artifact.
+- Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version
+  remain plain text.
+- Prefer stable identities: book asset ID, annotation UUID, collection ID, opaque `pdfSourceID`,
+  or `backupID`. Local PKs are machine-local fallbacks and must be selected explicitly.
+- Growing queries use opaque `nextCursor` continuation. Pass the token unchanged to the same
+  query; do not decode or edit it. `backups list` is different: it is a fixed newest-10 recovery
+  catalog, not paginated history.
+- Ordinary reads are bounded semantic views. `truncatedFields` means presentation text was
+  shortened; use archival JSON export when full raw text/CFI fidelity is required.
+- Ordinary reads are read-only. Mutations use guarded transactions and safety backups. `--sync`
+  waits only for current-Mac acknowledgement; it does not prove another device already displays
+  the change.
+- When a transport may automatically retry a mutation, restore, or root sync, generate one
+  fresh lowercase UUID for that logical request, set it as `APPLEBOOKSCLI_OPERATION_ID`, and
+  reuse it on retry so the write cannot be redispatched blindly.
+- Export artifacts are written only to the explicit destination; stdout returns a compact write
+  result rather than the full artifact.
 
-Detailed contracts live in [`docs/index.md`](docs/index.md). In particular, see [`docs/cli-contract.md`](docs/cli-contract.md) for process/history behavior and [`docs/write-safety.md`](docs/write-safety.md) for mutation, backup, restore, and sync semantics.
+Detailed contracts live in [`docs/index.md`](docs/index.md). In particular, see
+[`docs/cli-contract.md`](docs/cli-contract.md) for process/history behavior and
+[`docs/write-safety.md`](docs/write-safety.md) for mutation, backup, restore, and sync semantics.
 
 ## Optional configuration
 
-Most users do not need a configuration file. `~/.config/applebookscli/config.json` only configures the supported supplemental EPUB root and historical metadata mapping. See [`Config/applebookscli.example.json`](Config/applebookscli.example.json).
+Most users do not need a configuration file. `~/.config/applebookscli/config.json` only
+configures the supported supplemental EPUB root and historical metadata mapping. See
+[`Config/applebookscli.example.json`](Config/applebookscli.example.json).
 
 ## Development
 
-Start with [`AGENTS.md`](AGENTS.md), then use [`docs/index.md`](docs/index.md) to find the canonical owner for the contract you are changing.
+Start with [`AGENTS.md`](AGENTS.md), then use [`docs/index.md`](docs/index.md) to find the
+canonical owner for the contract you are changing.
 
 ## Acknowledgements
 
@@ -114,4 +134,6 @@ AppleBooksCLI benefited from prior art and ideas in:
 
 ## License
 
-AppleBooksCLI is licensed under the [AGPLv3 LICENSE](LICENSE). Third-party notices and license texts are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`ThirdPartyLicenses/`](ThirdPartyLicenses/).
+AppleBooksCLI is licensed under the [AGPLv3 LICENSE](LICENSE). Third-party notices and license
+texts are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
+[`ThirdPartyLicenses/`](ThirdPartyLicenses/).

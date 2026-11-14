@@ -11,6 +11,7 @@ private func updateExistingAnnotationCloudObject(
     _ row: UnsafeMutableRawPointer?
 ) -> Int8
 
+#if DEBUG
 @_silgen_name("ABTestUpdateExistingAnnotationCloudObjectWithBookClass")
 private func testUpdateExistingAnnotationCloudObjectWithBookClass(
     _ cloudObject: UnsafeMutableRawPointer?,
@@ -24,9 +25,11 @@ private func testAppendNewNativeAnnotation(
     _ row: UnsafeMutableRawPointer?,
     _ uuid: UnsafeMutableRawPointer?
 ) -> Int32
+#endif
 
 @Suite("AnnotationCloudProjectorTests")
 struct AnnotationCloudProjectorTests {
+    #if DEBUG
     @Test
     func nativeProtoAdditionAndConflictAreVerifiedWithoutAnyBooksDatabaseWrites() throws {
         let framework = dlopen(
@@ -93,6 +96,7 @@ struct AnnotationCloudProjectorTests {
             }
         }
     }
+    #endif
 
     @Test
     func newAnnotationProjectorReusesNativeBackupAndExactIdentity() throws {
@@ -384,6 +388,7 @@ struct AnnotationCloudProjectorTests {
         ) >= 4)
     }
 
+    #if DEBUG
     @Test
     func privateProtoRawAndUpdatedPayloadsRespectFixedBudget() throws {
         let maximum = CloudProjectionResourcePolicy.bookAnnotationsBytes
@@ -422,6 +427,7 @@ struct AnnotationCloudProjectorTests {
         #expect(oversizedUpdated == 0)
         #expect(oversizedUpdatedCloud.setCount == 0)
     }
+    #endif
 
     @Test
     func bridgeClearRemovesExistingSerializedNote() throws {

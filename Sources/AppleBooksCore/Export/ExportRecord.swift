@@ -15,10 +15,6 @@ public struct ExportRecord: Equatable, Sendable {
         AnnotationContentSemantics.hasContent(annotation.annotation.note)
     }
 
-    var semanticColor: ExportPresentationColor? {
-        presentationColor
-    }
-
     var presentationColor: ExportPresentationColor? {
         switch annotation.annotation.style {
         case 1: .green
@@ -62,30 +58,30 @@ enum ExportSelection {
         to records: [ExportRecord],
         chapterOrder: (ExportRecord) throws -> [String: Int] = { _ in [:] }
     ) throws -> [ExportRecord] {
-        let filtered = records.enumerated().compactMap { index, record -> IndexedRecord? in
+        let filtered = records.filter { record in
             guard record.isCurrentEPUBSource,
                   record.hasHighlight || record.hasNote,
                   options.hasHighlight.map({ $0 == record.hasHighlight }) ?? true,
                   options.hasNote.map({ $0 == record.hasNote }) ?? true,
-                  options.colors.map({ colors in record.semanticColor.map(colors.contains) == true }) ?? true,
+                  options.colors.map({ colors in record.presentationColor.map(colors.contains) == true }) ?? true,
                   options.underline.map({ $0 == record.isUnderline }) ?? true else {
-                return nil
+                return false
             }
-            return IndexedRecord(index: index, record: record)
+            return true
         }
 
         var groupOrder: [ResolvedExportSourceKey] = []
-        var groups: [ResolvedExportSourceKey: [IndexedRecord]] = [:]
-        for item in filtered {
-            let key = item.record.documentSourceKey
+        var groups: [ResolvedExportSourceKey: [ExportRecord]] = [:]
+        for record in filtered {
+            let key = record.documentSourceKey
             if groups[key] == nil { groupOrder.append(key) }
-            groups[key, default: []].append(item)
+            groups[key, default: []].append(record)
         }
         return try groupOrder.flatMap { key -> [ExportRecord] in
             guard let group = groups[key], let first = group.first else { return [] }
-            let chapters = try chapterOrder(first.record)
+            let chapters = try chapterOrder(first)
             let sorted = group.map {
-                ReadingRecord(index: $0.index, record: $0.record, key: $0.record.readingKey(chapterOrder: chapters))
+                ReadingRecord(record: $0, key: $0.readingKey(chapterOrder: chapters))
             }.sorted {
                 EPUBAnnotationReadingKey.lessThan($0.key, $1.key)
             }
@@ -94,13 +90,7 @@ enum ExportSelection {
     }
 }
 
-private struct IndexedRecord {
-    let index: Int
-    let record: ExportRecord
-}
-
 private struct ReadingRecord {
-    let index: Int
     let record: ExportRecord
     let key: EPUBAnnotationReadingKey
 }

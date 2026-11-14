@@ -135,10 +135,8 @@ struct ExportCommand: ParsableCommand, CLIOutputRunnable {
         for localPK in bookPK {
             try LocalPKPolicy.validateInput(localPK, optionName: "--book-pk")
         }
-        let defaults = try CLIOperation.run { try ExportOptions() }
         let selectors = book.map(ExportBookSelector.assetID) + bookPK.map(ExportBookSelector.localPK)
-        let colors: Set<ExportPresentationColor>? = color.isEmpty ? defaults.colors : Set(color.map(\.coreValue))
-        let resolvedGrouping = grouping?.coreValue ?? defaults.grouping
+        let colors: Set<ExportPresentationColor>? = color.isEmpty ? nil : Set(color.map(\.coreValue))
 
         let options = try CLIOperation.run {
             try ExportOptions(
@@ -147,7 +145,7 @@ struct ExportCommand: ParsableCommand, CLIOutputRunnable {
                 hasNote: hasNote?.value,
                 colors: colors,
                 underline: underline?.value,
-                grouping: resolvedGrouping
+                grouping: grouping?.coreValue ?? .single
             )
         }
 
@@ -267,6 +265,4 @@ struct ExportCommand: ParsableCommand, CLIOutputRunnable {
         result.warnings = additionalWarnings
         return result
     }
-
-
 }

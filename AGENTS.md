@@ -2,8 +2,8 @@
 
 ## 不可破坏的边界
 
-- 本仓库是 Swift 6 / SwiftPM 项目，公开 `AppleBooksCore` library、`applebookscli` executable
-  。业务语义归 `AppleBooksCore`；
+- 本仓库是 Swift 6 / SwiftPM 项目，公开 `AppleBooksCore` library 和 `applebookscli` executable。
+  业务语义归 `AppleBooksCore`；
   CLI 只负责 composition、参数、输出与 operation history。
   不要在 CLI 或其它 transport 层复制 SQLite 查询/写入、EPUB 解析、cloud projection 等业务路径，
   也不要为了 CLI 特例静默改变公开 Core API 的既有语义。
@@ -45,8 +45,8 @@
   archival export 才承担 raw fidelity。稳定 identity 优先于 local PK，
   missing/ambiguous exact selector 必须 fail closed，presentation/grouping 不能改变 selection
   或 ordering。
-- Agent 只表达业务意图，不要求它选择数据库、媒体 routing、worker timeout、
-  type-3/raw CFI 等内部实现。普通 help 不暴露死参数、无效参数或纯诊断 tuning；
+- Agent 只表达业务意图，不要求它选择数据库、raw CFI 等内部实现。
+  普通 help 不暴露死参数、无效参数或纯诊断 tuning；
   需要保留的内部/诊断能力放 advanced/doctor 或内部测试路径。
 - stdout 只承载主结果；error/diagnostic 走 stderr；默认不依赖 TTY、pager、ANSI、prompt 或人工确认。
   错误必须有稳定 code 和足够的 recovery hint。

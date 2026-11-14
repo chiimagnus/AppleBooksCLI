@@ -140,7 +140,7 @@ struct ExportCommandTests {
     }
 
     @Test
-    func exactCurrentEPUBWorksWithoutWorkerDependency() throws {
+    func exactCurrentEPUBExportWritesArtifact() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let destination = fixture.root.appendingPathComponent("exact-epub.json")

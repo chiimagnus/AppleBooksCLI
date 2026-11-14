@@ -788,6 +788,22 @@ struct AnnotationWriteCommandTests {
             _ = try noParentSingle.execute(using: unavailableBooks)
         }
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
+
+        // A previously confirmed no-op must still check source validity after an earlier batch write.
+        replaceChapterAfterPK = 504
+        let changedBeforeNoOp = try batch([tagged(503), tagged(1)])
+        #expect(changedBeforeNoOp.0.status == "partial")
+        #expect(changedBeforeNoOp.0.items.map(\.status) == ["created", "failed"])
+        #expect(changedBeforeNoOp.0.items[1].errorCode == "content_changed")
+        #expect(changedBeforeNoOp.0.changedCount == 1)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 504)
+        replaceChapterAfterPK = nil
+        try Data(xhtml.utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+        let unchangedAfterRestore = try batch([tagged(503), tagged(1)])
+        #expect(unchangedAfterRestore.0.complete)
+        #expect(unchangedAfterRestore.0.items.map(\.status) == ["already_exists", "already_exists"])
+        #expect(unchangedAfterRestore.0.changedCount == 0)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 504)
     }
 
     private func executeScalar(_ database: URL, _ sql: String) throws -> Int64 {

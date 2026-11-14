@@ -60,8 +60,9 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
   若确实需要 INSERT，仍必须由原有 coordinator 退出 Books、重新校验、备份并提交。
   不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
   `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。
-  批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序执行单条事务；
-  同批相同选区且属性相同的后续条目 no-op，冲突在第一条写入前拒绝。
+  批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序逐项调用 Core；
+  包括预检为 `already_exists` 的条目也要重新核对源正文，重复项只读 no-op，
+  冲突在第一条写入前拒绝。
   运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
 - collection：只允许 editable user collection 的 create/rename/soft-delete/membership mutation；
   system collection fail closed。

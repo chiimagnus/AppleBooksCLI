@@ -26,7 +26,6 @@ public enum AppleBooksDiagnosticIssueCode: String, Codable, Equatable, Sendable 
     case supplementalRootUnavailable = "supplemental_root_unavailable"
     case backupLocationUnavailable = "backup_location_unavailable"
     case cloudSyncUnavailable = "cloud_sync_unavailable"
-    case pdfWorkerUnavailable = "pdf_worker_unavailable"
 }
 
 public struct AppleBooksDiagnosticIssue: Codable, Equatable, Sendable {
@@ -49,7 +48,6 @@ public struct AppleBooksDiagnosticReport: Codable, Equatable, Sendable {
     public let collectionWriteReady: Bool
     public let annotationWriteReady: Bool
     public let contentReadPrerequisitesReady: Bool
-    public let pdfReadPrerequisitesReady: Bool
     public let libraryOptionalSchemaComplete: Bool
     public let annotationsOptionalSchemaComplete: Bool
     public let configurationReady: Bool
@@ -110,7 +108,6 @@ public enum AppleBooksDiagnostics {
         var collectionWriteReady = false
         var annotationWriteReady = false
         var contentReadPrerequisitesReady = false
-        var pdfReadPrerequisitesReady = false
         var libraryOptionalSchemaComplete = false
         var annotationsOptionalSchemaComplete = false
 
@@ -134,10 +131,6 @@ public enum AppleBooksDiagnostics {
             )
             contentReadPrerequisitesReady = capabilitiesReady(
                 [.bookAssetLookup, .bookContentPathLookup],
-                on: libraryConnection
-            )
-            pdfReadPrerequisitesReady = capabilitiesReady(
-                [.bookAssetLookup, .bookPDF],
                 on: libraryConnection
             )
 
@@ -226,7 +219,6 @@ public enum AppleBooksDiagnostics {
             collectionWriteReady: collectionWriteReady,
             annotationWriteReady: annotationWriteReady,
             contentReadPrerequisitesReady: contentReadPrerequisitesReady,
-            pdfReadPrerequisitesReady: pdfReadPrerequisitesReady,
             libraryOptionalSchemaComplete: libraryOptionalSchemaComplete,
             annotationsOptionalSchemaComplete: annotationsOptionalSchemaComplete,
             configurationReady: configuration != nil,

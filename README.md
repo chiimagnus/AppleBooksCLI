@@ -3,8 +3,16 @@
 English | [简体中文](README.zh.md)
 
 AppleBooksCLI is a macOS command-line tool for querying and safely updating Apple Books data.
-It covers books, reading state, annotations, local EPUB/PDF content, exports, backups,
+It covers books, reading state, annotations, local EPUB content, exports, backups,
 collections, sync, and recent write history.
+
+## PDF support ended in v0.5.0
+
+**Starting with v0.5.0, AppleBooksCLI no longer supports PDFs.**
+The PDF commands, highlight extraction, and PDF export have been removed.
+**PDF support is available only in v0.4.2 and earlier.**
+General library listings may still include PDF book metadata, but the tool does not read
+or export their PDF content or highlights.
 
 ## Requirements
 
@@ -60,8 +68,6 @@ applebookscli annotations context <annotation-uuid>
 applebookscli reading position <asset-id>
 applebookscli content chapters --book <asset-id>
 applebookscli content chapter --book <asset-id> --chapter 1
-applebookscli pdf list
-applebookscli pdf highlights --book <asset-id>
 ```
 
 Export writes a file or managed directory; Markdown is the default and archival JSON is explicit:
@@ -70,7 +76,6 @@ Export writes a file or managed directory; Markdown is the default and archival 
 applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --book <asset-id> --output notes.md
-applebookscli export --pdf <pdfSourceID> --output pdf-notes.md
 ```
 
 Guarded writes and recovery:
@@ -107,8 +112,8 @@ An interrupted history entry must be reconciled using read-only preview/get befo
 
 - Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version
   remain plain text.
-- Prefer stable identities: book asset ID, annotation UUID, collection ID, opaque `pdfSourceID`,
-  or `backupID`. Local PKs are machine-local fallbacks and must be selected explicitly.
+- Prefer stable identities: book asset ID, annotation UUID, collection ID, or `backupID`.
+  Local PKs are machine-local fallbacks and must be selected explicitly.
 - Growing queries use opaque `nextCursor` continuation. Pass the token unchanged to the same
   query; do not decode or edit it. `backups list` is different: it is a fixed newest-10 recovery
   catalog, not paginated history.

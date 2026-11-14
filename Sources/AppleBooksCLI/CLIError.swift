@@ -39,8 +39,6 @@ enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
     case operationIDInvalid = "operation_id_invalid"
     case operationReplayBlocked = "operation_replay_blocked"
     case outputExists = "output_exists"
-    case pdfSourceNotFound = "pdf_source_not_found"
-    case pdfWorkerUnavailable = "pdf_worker_unavailable"
     case readingOrderRequiresBook = "reading_order_requires_book"
     case readingPositionUnavailable = "reading_position_unavailable"
     case schemaUnavailable = "schema_unavailable"
@@ -145,14 +143,10 @@ enum CLIError: Error, Equatable, Sendable {
             "Run `applebookscli history get <operation-id>` with the same UUID and inspect the recorded outcome before any new attempt."
         case .outputExists:
             "Choose a different --output; for export, use --overwrite always only when replacement is intended."
-        case .pdfSourceNotFound:
-            "Run `applebookscli pdf list` and retry with a returned selector."
-        case .pdfWorkerUnavailable:
-            "Run `applebookscli doctor`; reinstall AppleBooksCLI if the PDF worker is unavailable."
         case .readingOrderRequiresBook:
             "Provide exactly one of --book or --book-pk with --order reading."
         case .selectorNotFound:
-            "Refresh the selector with `applebookscli books list` or `applebookscli pdf list`, then retry."
+            "Refresh the selector with `applebookscli books list`, then retry."
         case .syncAckFailed:
             "It is safe to rerun `applebookscli sync`."
         case .syncUnavailable:
@@ -197,17 +191,6 @@ enum CLIOperation {
                 )
             case .internalContractFailure:
                 return .internalFailure
-            }
-        }
-        if let pdfInventoryError = error as? PDFInventoryError {
-            switch pdfInventoryError {
-            case .invalidSourceID:
-                return .usageInvalid("Invalid PDF source identity.")
-            case .ambiguousSourceID:
-                return .unavailableWithReason(
-                    message: "PDF source selector is ambiguous.",
-                    reason: .ambiguousIdentity
-                )
             }
         }
         if let historyError = error as? OperationHistoryStoreError {
@@ -375,15 +358,6 @@ enum CLIOperation {
                 )
             }
         }
-        if error as? AppleBooksDependencyError == .unavailable(.pdfWorker) {
-            return .unavailableWithReason(message: "PDF worker is unavailable.", reason: .pdfWorkerUnavailable)
-        }
-        if error is PDFWorkerClientError {
-            return .unavailableWithReason(
-                message: "PDF highlight extraction is unavailable.",
-                reason: .pdfWorkerUnavailable
-            )
-        }
         if let contextError = error as? AnnotationContextError {
             switch contextError {
             case .invalidWindow:
@@ -433,8 +407,6 @@ enum CLIOperation {
                 return .usageInvalid("At least one export color is required when filtering by color.")
             case .invalidBookSelector:
                 return .usageInvalid("Export book selector is invalid.")
-            case .conflictingOptions:
-                return .usageInvalid("Export options conflict.")
             }
         }
         if let exportError = error as? ExportServiceError {
@@ -444,21 +416,8 @@ enum CLIOperation {
                     message: "Export selector was not found.",
                     reason: .selectorNotFound
                 )
-            case .pdfWorkerUnavailable:
-                return .unavailableWithReason(
-                    message: "PDF worker is unavailable for the requested export source.",
-                    reason: .pdfWorkerUnavailable
-                )
-            case .pdfSourceUnavailable:
-                return .unavailableWithReason(
-                    message: "Selected PDF is not locally readable.",
-                    reason: .contentUnavailable
-                )
-            case .pdfReadFailed:
-                return .unavailableWithReason(
-                    message: "Selected PDF could not be read.",
-                    reason: .contentUnavailable
-                )
+            case .unsupportedBookFormat:
+                return .unavailable("Only EPUB books can be exported.")
             case .documentIdentityCollision:
                 return .unavailableWithReason(
                     message: "Export document identity is ambiguous.",

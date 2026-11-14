@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | [`README.md`](../README.md) / [`README.zh.md`](../README.zh.md) | 用户入口：安装、常用任务、关键限制、导航 | 安装、支持平台或核心用户工作流变化 |
 | [`capability-matrix.md`](capability-matrix.md) | 当前用户可见能力与明确不支持项 | capability、selector/output 语义或用户可见限制变化 |
-| [`architecture.md`](architecture.md) | store/source/identity、Core↔CLI ownership 与长期资源边界 | 数据源、identity、分层、content/PDF/export ownership 或 hard budget 变化 |
+| [`architecture.md`](architecture.md) | store/source/identity、Core↔CLI ownership 与长期资源边界 | 数据源、identity、分层、content/export ownership 或 hard budget 变化 |
 | [`cli-contract.md`](cli-contract.md) | process exit/stdout/stderr/JSON/cursor/doctor/history contract | process protocol、cursor、doctor 或 history 行为变化 |
 | [`write-safety.md`](write-safety.md) | mutation/backup/restore/Books lifecycle/cloud 边界 | write rail、restore、sync、replay 或 post-COMMIT 语义变化 |
 | [`release.md`](release.md) | version/channel/tag/publication | release pipeline、version injection 或 publication ordering 变化 |

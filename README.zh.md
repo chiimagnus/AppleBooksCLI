@@ -3,7 +3,14 @@
 [English](README.md) | 简体中文
 
 AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS 命令行工具，
-覆盖书籍、阅读状态、批注、本地 EPUB/PDF 内容、导出、备份、藏书、同步与近期写入历史。
+覆盖书籍、阅读状态、批注、本地 EPUB 正文、导出、备份、藏书、同步与近期写入历史。
+
+## 0.5.0 起不再支持 PDF
+
+**AppleBooksCLI 自 v0.5.0 起完全移除 PDF 专用功能。**
+不再提供 PDF 命令、PDF 高亮提取和 PDF 导出。
+**只有 v0.4.2 及更早版本支持 PDF。**
+一般书库列表可能仍包含 PDF 的书籍元数据，但不会读取或导出 PDF 正文和高亮。
 
 ## 系统要求
 
@@ -57,8 +64,6 @@ applebookscli annotations context <annotation-uuid>
 applebookscli reading position <asset-id>
 applebookscli content chapters --book <asset-id>
 applebookscli content chapter --book <asset-id> --chapter 1
-applebookscli pdf list
-applebookscli pdf highlights --book <asset-id>
 ```
 
 导出只写入显式文件或受管目录；默认 Markdown，归档 JSON 需显式指定：
@@ -67,7 +72,6 @@ applebookscli pdf highlights --book <asset-id>
 applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
 applebookscli export --book <asset-id> --output notes.md
-applebookscli export --pdf <pdfSourceID> --output pdf-notes.md
 ```
 
 安全写入与恢复：
@@ -105,8 +109,8 @@ CLI 支持直接为尚无批注的 EPUB 创建第一条原生高亮。首次云�
 
 - Operational command 在 stdout 输出 JSON；fatal error 在 stderr 输出净化后的 JSON。
   help/version 保持纯文本。
-- 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID、
-  opaque `pdfSourceID` 或 `backupID`。local PK 只是本机 fallback，必须显式选择。
+- 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 `backupID`。
+  local PK 只是本机 fallback，必须显式选择。
 - 可增长查询使用 opaque `nextCursor`；续页时把 token 原样交回同一查询，不解析、不修改。
   `backups list` 不分页，只是最新 10 个恢复备份的固定目录。
 - 普通读取是有界 semantic view；出现 `truncatedFields` 表示展示文本被缩短。

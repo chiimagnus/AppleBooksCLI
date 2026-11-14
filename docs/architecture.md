@@ -12,13 +12,12 @@ Apple Books
 ├── BKLibrary SQLite            books / collections / membership
 ├── AEAnnotation SQLite         highlights / notes / bookmarks
 ├── Apple-owned cloud stores
-├── EPUB resources
-└── PDF files
+└── EPUB resources
         │
         ▼
 AppleBooksCore
 ├── queries / semantic projections / reading state
-├── EPUB/CFI + PDF worker protocol
+├── EPUB / CFI content
 ├── export bundle / renderers
 └── guarded mutation / backup / restore / cloud projection
         │
@@ -30,7 +29,7 @@ applebookscli
 └── local operation history
 ```
 
-业务语义归 `AppleBooksCore`；CLI 不重新实现 SQLite 查询/写入、EPUB/PDF 解析或 cloud projection。
+业务语义归 `AppleBooksCore`；CLI 不重新实现 SQLite 查询/写入、EPUB 解析或 cloud projection。
 `AppleBooksCloudBridge` 是唯一允许的非 Swift production runtime，
 只桥接 Apple Books 自有 cloud representation，不实现独立 CloudKit client。
 
@@ -39,8 +38,7 @@ applebookscli
 BKLibrary 与 AEAnnotation 是独立 store，必须分别发现、打开和管理 lifecycle。
 annotation existence 不依赖当前 BKLibrary row；library metadata 只是 enrichment。
 
-CLI 按命令需要组合最小 Core dependencies：library-only 命令不应强制发现 annotation store/config/PDF
-worker；annotation-only mutation 不应要求 library store；content 只组合 library + config；
+CLI 按命令需要组合最小 Core dependencies：library-only 命令不应强制发现 annotation store/config；annotation-only mutation 不应要求 library store；content 只组合 library + config；
 跨域 context/reading/export 再按真实需要增加依赖。
 公开 `AppleBooks` 双 DB initializer 表示调用方显式请求完整 Core composition；
 CLI 的 partial composition 是 package 内部边界，未装配能力必须明确失败。
@@ -56,7 +54,6 @@ optional read column 可以降级。默认数据库发现流式扫描目录，am
 | Book | Apple Books asset ID | local `Z_PK`; title/author/genre 仅 search/display |
 | Annotation | `ZANNOTATIONUUID` | local `Z_PK`; raw CFI/range 是 source data，不是 annotation identity |
 | Collection | stable collection ID | local `Z_PK`; title 仅 search |
-| PDF | unique Book asset ID，或 deterministic opaque `pdfSourceID` | absolute path 不是 ordinary public selector |
 | Backup | opaque `backupID` | backup filename/path 不是 public recovery identity |
 
 数字形式的 stable ID 不能猜成 local PK；多候选 exact identity 必须 fail closed。
@@ -111,21 +108,16 @@ EPUB 不变量：
   CSS 明确隐藏的文本不作为选区；未知复杂选择器与导入规则拒绝自动定位，
   不把有限的 CSS 解析冒充浏览器布局引擎。
 
-## PDF
+## PDF 支持边界
 
-PDF inventory 优先公开唯一 `bookAssetID`，否则公开 opaque `pdfSourceID`；
-ordinary selector 不暴露 absolute path。Library/fallback source 必须解析为 no-follow 打开的
-regular file；同 inode source 合并为一个 inventory item。
-
-PDFKit 只运行在独立 `applebookscli-pdf-worker` 进程。Worker 以 no-follow 语义重新打开/验证 source，
-并通过 held descriptor 读取；timeout、crash、malformed protocol、generation mismatch、
-oversized protocol data 都结构化失败。Ordinary highlight read 返回 bounded semantic page；
-archival export 走独立 archive path 保留 raw page/geometry/color fidelity。
+v0.5.0 起完全移除 PDF 命令、PDF 解析/Worker 与 PDF 导出；仅 v0.4.2 及更早版本支持 PDF。
+通用 BKLibrary 的书籍列表仍可能显示 contentType=3 的书籍元数据，但不将其解释为 PDF 阅读能力。
+EPUB 导出必须排除当前 BKLibrary 中可确定属于 PDF 的批注，精确选中 PDF 书籍拒绝导出。
 
 ## Export ownership
 
 ```text
-query / content / PDF
+query / EPUB content
 → ExportSourceResolver
 → ExportBundle
 → JSON or Markdown renderer
@@ -146,7 +138,7 @@ Canonical CLI 的 renderer/file-writer plumbing 保持 package-internal，
 ## Edit trigger / evidence
 
 store/source/identity ownership、Core↔CLI layering、ordinary-vs-archival projection、hard budget、
-EPUB/PDF trust boundary、export ownership 或 cloud bridge boundary 变化时更新本文。
+EPUB trust boundary、export ownership 或 cloud bridge boundary 变化时更新本文。
 证据来自 `Sources/AppleBooksCore/**`、`Sources/AppleBooksCLI/**`、
 `Sources/AppleBooksCloudBridge/**` 与对应 contract/parity tests；
 用户可见能力变化同时更新 [`capability-matrix.md`](capability-matrix.md)。

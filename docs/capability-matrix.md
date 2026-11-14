@@ -12,7 +12,7 @@ reachability anchor。
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | SQLite DB 自动发现 | 已实现（强化） | 自动发现 library/annotation store；ordinary read 保持只读；缺失或歧义时 fail closed |
-| Full Disk Access / DB 可访问性诊断 | 已实现（强化） | `doctor` 返回固定 `components` + command-level `capabilities` 与 `ready/partial/unavailable`；单个 store/config/worker 失败不会把无关能力判死 |
+| Full Disk Access / DB 可访问性诊断 | 已实现（强化） | `doctor` 返回固定 `components` + command-level `capabilities` 与 `ready/partial/unavailable`；单个 store/config 失败不会把无关能力判死 |
 | 读取 schema capability detection | 已实现 | optional column 缺失按能力降级 |
 | 写 schema fail-closed | 已实现 | required write schema/entity 漂移即拒绝写 |
 | help / version | 已实现 | 根 CLI 提供 help/version |
@@ -98,26 +98,19 @@ reachability anchor。
 | 能力 | 范围 | 当前 contract |
 | --- | --- | --- |
 | export output destination | 已实现（强化） | 完整artifact只写显式confined file/dir；stdout仅compact JSON write result；默认不覆盖 unsafe/existing target |
-| Markdown export | 已实现 | 面向阅读的精简笔记：title/author、摘录引用块、紧随其后的个人 Note、轻量本地时间与可用 Apple Books 链接；其余技术元数据留在 archival JSON，不含 raw asset ID/CFI/absolute PDF path |
-| JSON export | 已实现 | schemaVersion=10；保留 source-specific raw fields/warnings/statistics；Book non-finite raw numerics 主字段为 null，并用固定 `numericAnomalies` 标记 ±Infinity；presence 属性独立编码，PDF selector 使用 opaque source ID |
-| export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 user annotations 与 PDF highlights |
-| export 颜色过滤 | 已实现 | canonical EPUB colors；PDF approximate presentation color 不参与 hard filter |
+| Markdown export | 已实现 | 面向阅读的精简笔记：title/author、摘录引用块、紧随其后的个人 Note、轻量本地时间与可用 Apple Books 链接；其余技术元数据留在 archival JSON，不含 raw asset ID/CFI |
+| JSON export | 已实现 | schemaVersion=11；保留 EPUB 批注 raw fields 与 statistics；Book non-finite raw numerics 主字段为 null，并用固定 `numericAnomalies` 标记 ±Infinity；presence 属性独立编码 |
+| export 属性过滤 | 已实现（强化） | `--has-highlight / --has-note / --underline true\|false` 独立 AND 过滤；省略不筛；仅导出有正文的 EPUB user annotations |
+| export 颜色过滤 | 已实现 | canonical EPUB colors |
 | export single/multiple file | 已实现（强化） | single 原子写文件；per-document 原子发布 managed directory；`--overwrite always` 只替换可验证的既有 AppleBooksCLI managed output |
 | export statistics | 已实现 | final selection stats 与 sourceTotals 分开；highlightCount/noteCount 独立且可重叠，无 bookmarkCount |
-| annotation export ordering | 已实现（强化） | 默认 reading；EPUB 与 PDF 都使用稳定的阅读位置顺序和确定性 fallback；没有额外 order flag |
-| EPUB/PDF source scope | 已实现（强化） | bulk 默认 all，可用 `--source epub / pdf / all` 收窄；exact `--book / --book-pk / --pdf` 可重复、自动路由并去重，missing/ambiguous fail closed；有效空书允许零记录，bulk PDF 失败显式标为 incomplete |
+| annotation export ordering | 已实现（强化） | 默认 reading；EPUB 使用稳定的阅读位置顺序和确定性 fallback；没有额外 order flag |
+| EPUB export source selectors | 已实现（强化） | bulk 默认仅 EPUB；exact `--book` / `--book-pk` 可重复、自动去重，missing/ambiguous fail closed；PDF 书籍精确选择返回不可用，bulk 排除可识别的 PDF 书籍批注 |
 
-## PDF
+## PDF（自 v0.5.0 起已移除）
 
-| 能力 | 范围 | 当前 contract |
-| --- | --- | --- |
-| PDF inventory | 已实现（强化） | `pdf list` 默认20、最大100，opaque cursor；summary 不暴露绝对 path，每项提供唯一可消费的 `bookAssetID` 或 `pdfSourceID` |
-| PDF highlight extraction | 已实现（强化） | `--book / --pdf` exact selector；默认20、最大100的 opaque cursor；PDFKit 隔离在 worker 中，ordinary JSON 只返回 bounded semantic summary |
-| PDF highlight note | 已实现 | ordinary read 返回 bounded optional Note/text preview；archive/export 保留 raw highlight fidelity |
-| PDF page/location | 已实现 | ordinary read只公开1-based page；raw geometry仅由archive/export保留，不生成 EPUB CFI |
-| PDF color mapping | 已实现 | ordinary read只公开 approximate 五色 presentation；archive/export 保留 normalized RGBA |
-| PDF parse timeout | 已实现（强化） | 独立 worker 使用内部 bounded timeout；普通 CLI 不暴露 timeout tuning；timeout/crash/malformed/oversize 都结构化失败 |
-| PDF metadata fallback | 已实现 | exact Book enrichment；无 Book 时 title 最多 fallback filename，不伪造 asset identity |
+PDF 专用查询、PDF 高亮提取与 PDF 导出均不再支持。最后支持 PDF 的版本为 **v0.4.2**（含更早版本）。
+书库列表仍可出现 PDF 书籍的常规 metadata，不代表 CLI 可以读取 PDF 文件或其高亮。
 
 ## Safe writes / backup
 
@@ -146,6 +139,8 @@ reachability anchor。
 | 原始 physical/range/type/style/UUID 字段完整 export | 已实现 | canonical raw identity/location/style 不被 renderer 改写 |
 
 ## 当前明确不支持
+
+- **PDF**：自 v0.5.0 起不支持 `pdf`、`export --pdf`、`export --source`，也不再打包 PDF Worker。需要 PDF 的用户应保留 v0.4.2 或更早版本。
 
 - 在未经受控验收的目标书上保证跨设备原生显示（须完成 P3-T3 实测）。
 - 修改 selected text / CFI range。

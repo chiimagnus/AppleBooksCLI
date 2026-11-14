@@ -7,7 +7,6 @@ package enum AppleBooksDependency: String, Equatable, Sendable {
     case collectionWrite
     case annotationWrite
     case libraryBackup
-    case pdfWorker
 }
 
 package struct AppleBooksDependencies: OptionSet, Sendable {
@@ -23,7 +22,6 @@ package struct AppleBooksDependencies: OptionSet, Sendable {
     package static let collectionWrite = Self(rawValue: 1 << 3)
     package static let annotationWrite = Self(rawValue: 1 << 4)
     package static let libraryBackup = Self(rawValue: 1 << 5)
-    package static let pdfWorker = Self(rawValue: 1 << 6)
 
     package static let full: Self = [
         .libraryRead,
@@ -32,11 +30,10 @@ package struct AppleBooksDependencies: OptionSet, Sendable {
         .collectionWrite,
         .annotationWrite,
         .libraryBackup,
-        .pdfWorker,
     ]
 
     package var needsLibraryDatabase: Bool {
-        contains(.libraryRead) || contains(.collectionWrite) || contains(.libraryBackup) || contains(.pdfWorker)
+        contains(.libraryRead) || contains(.collectionWrite) || contains(.libraryBackup)
     }
 
     package var needsAnnotationsDatabase: Bool {

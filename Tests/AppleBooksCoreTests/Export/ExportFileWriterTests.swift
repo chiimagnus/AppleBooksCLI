@@ -154,6 +154,8 @@ struct ExportFileWriterTests {
         let createdNames = try FileManager.default.contentsOfDirectory(atPath: destination.path)
         #expect(createdNames.count == 4)
         #expect(createdNames.contains(ManagedExportManifestWriter.fileName))
+        #expect(createdNames.contains(".applebookscli-export-v2"))
+        #expect(createdNames.contains(".applebookscli-export-v1") == false)
         #expect(createdNames.filter { $0 != ManagedExportManifestWriter.fileName }.count == 3)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
 
@@ -170,6 +172,41 @@ struct ExportFileWriterTests {
         }
         #expect(try directorySnapshot(destination) == original)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+    }
+
+    @Test
+    func legacyV1ManagedDirectoryIsPreservedInsteadOfSilentlyReplaced() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let directory = fixture.output.appendingPathComponent("old-export", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let legacyManifest = directory.appendingPathComponent(".applebookscli-export-v1")
+        let original = Data("""
+            producer\tapplebookscli
+            version\t1
+            format\tjson
+            grouping\tper-document
+            count\t0
+
+            """.utf8)
+        try original.write(to: legacyManifest)
+
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: directory.lastPathComponent,
+                bundle: FixtureFactory.canonicalBundle(count: 1),
+                fileExtension: "json",
+                overwrite: .always
+            ) { _, sink in
+                try sink(Data("new".utf8))
+            }
+        }
+        #expect(try Data(contentsOf: legacyManifest) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [legacyManifest.lastPathComponent])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains {
+            $0.hasPrefix(".applebookscli-export-stage-")
+        } == false)
     }
 
     @Test
@@ -582,7 +619,7 @@ struct ExportFileWriterTests {
         )
         for index in 0..<count {
             let key = "doc1_" + String(format: "%064llx", UInt64(index))
-            let identity = ExportDocumentIdentity(sourceKind: .epub, fullKey: key)
+            let identity = ExportDocumentIdentity(fullKey: key)
             try writer.append(identity: identity, fileName: "D-\(key).json")
         }
         try writer.finish()
@@ -602,13 +639,13 @@ struct ExportFileWriterTests {
         defer { fixture.remove() }
         let firstKey = "doc1_" + String(repeating: "0", count: 64)
         let secondKey = "doc1_" + String(repeating: "1", count: 64)
-        let validHeader = "producer\tapplebookscli\nversion\t1\nformat\tjson\ngrouping\tper-document\ncount\t2\n"
+        let validHeader = "producer\tapplebookscli\nversion\t2\nformat\tjson\ngrouping\tper-document\ncount\t2\n"
         let invalidBodies = [
-            "entry\t0\t\(secondKey)\tD-\(secondKey).json\nentry\t0\t\(firstKey)\tD-\(firstKey).json\n",
-            "entry\t0\t\(firstKey)\tD-\(firstKey).json\nentry\t0\t\(firstKey)\tD-\(firstKey).json\n",
-            "entry\t0\t\(firstKey)\tD-wrong.json\nentry\t0\t\(secondKey)\tD-\(secondKey).json\n",
-            "entry\t0\t\(firstKey)\t../D-\(firstKey).json\nentry\t0\t\(secondKey)\tD-\(secondKey).json\n",
-            "entry\t0\t\(firstKey)\tD-\(firstKey).json\n",
+            "entry\t\(secondKey)\tD-\(secondKey).json\nentry\t\(firstKey)\tD-\(firstKey).json\n",
+            "entry\t\(firstKey)\tD-\(firstKey).json\nentry\t\(firstKey)\tD-\(firstKey).json\n",
+            "entry\t\(firstKey)\tD-wrong.json\nentry\t\(secondKey)\tD-\(secondKey).json\n",
+            "entry\t\(firstKey)\t../D-\(firstKey).json\nentry\t\(secondKey)\tD-\(secondKey).json\n",
+            "entry\t\(firstKey)\tD-\(firstKey).json\n",
         ]
         for (index, body) in invalidBodies.enumerated() {
             let path = fixture.output.appendingPathComponent("invalid-\(index)")
@@ -829,7 +866,7 @@ struct ExportFileWriterTests {
     func destinationParsingRejectsReservedFinalComponents() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
-        for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v1"] {
+        for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v2"] {
             #expect(throws: ExportFileWriterError.invalidFileName) {
                 _ = try ExportFileWriter.destination(path: invalid, currentDirectory: fixture.output)
             }
@@ -931,16 +968,13 @@ struct ExportFileWriterTests {
         static func makeBundle(groups: [ExportGroup]) -> ExportBundle {
             let count = groups.reduce(0) { $0 + $1.records.count }
             return ExportBundle(
-                options: try! ExportOptions(source: .epub, hasHighlight: true),
+                options: try! ExportOptions(hasHighlight: true),
                 groups: groups,
-                warnings: [],
                 statistics: ExportStatistics(
                     documentCount: groups.count,
                     epubDocumentCount: groups.count,
-                    pdfDocumentCount: 0,
                     recordCount: count,
                     epubAnnotationCount: count,
-                    pdfHighlightCount: 0,
                     highlightCount: count,
                     noteCount: 0,
                     historicalEPUBAnnotationCount: 0,
@@ -949,10 +983,6 @@ struct ExportFileWriterTests {
                 sourceTotals: ExportSourceTotals(
                     epubDocumentCount: groups.count,
                     epubAnnotationCount: count,
-                    pdfAttemptedDocumentCount: 0,
-                    pdfSucceededDocumentCount: 0,
-                    pdfFailedDocumentCount: 0,
-                    pdfHighlightCount: 0
                 )
             )
         }
@@ -1014,7 +1044,7 @@ struct ExportFileWriterTests {
                 rangeStart: nil,
                 rangeEnd: nil
             )
-            return ExportRecord(payload: .epub(EnrichedAnnotation(annotation: annotation, source: .currentLibrary(book))))
+            return ExportRecord(annotation: EnrichedAnnotation(annotation: annotation, source: .currentLibrary(book)))
         }
     }
 }

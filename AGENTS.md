@@ -2,10 +2,10 @@
 
 ## 不可破坏的边界
 
-- 本仓库是 Swift 6 / SwiftPM 项目，公开 `AppleBooksCore` library、`applebookscli` executable
-  和独立 `applebookscli-pdf-worker`。业务语义归 `AppleBooksCore`；
+- 本仓库是 Swift 6 / SwiftPM 项目，公开 `AppleBooksCore` library 和 `applebookscli` executable。
+  业务语义归 `AppleBooksCore`；
   CLI 只负责 composition、参数、输出与 operation history。
-  不要在 CLI 或其它 transport 层复制 SQLite 查询/写入、EPUB/PDF 解析、cloud projection 等业务路径，
+  不要在 CLI 或其它 transport 层复制 SQLite 查询/写入、EPUB 解析、cloud projection 等业务路径，
   也不要为了 CLI 特例静默改变公开 Core API 的既有语义。
 - BKLibrary 与 AEAnnotation 是独立 store，分别发现、override 和管理 lifecycle。
   普通查询保持 SQLite read-only；optional read schema 可降级，
@@ -21,7 +21,7 @@
   同一批多条 mutation 仅在至少一条 `changed=true` 时最后调用一次根 `applebookscli sync`。
   全部 no-op 时不要 root sync；current-Mac acknowledgement 也不代表其它设备已经显示。
 - EPUB 只消费可安全读取、已 materialized 的本地资源；
-  不要主动 hydration iCloud placeholder 或绕过 DRM。PDFKit 保持隔离在独立 worker process。
+  不要主动 hydration iCloud placeholder 或绕过 DRM。v0.5.0 起不提供 PDF 支持。
   export renderer 保持 DB-free，文件落盘继续经过 `ExportFileWriter` 的 confinement/overwrite rail。
 - `AppleBooksCloudBridge` 是当前唯一允许的非 Swift production runtime；
   不要把它扩成自建 Apple Books CloudKit client，也不要伪造 Apple identity、
@@ -45,8 +45,8 @@
   archival export 才承担 raw fidelity。稳定 identity 优先于 local PK，
   missing/ambiguous exact selector 必须 fail closed，presentation/grouping 不能改变 selection
   或 ordering。
-- Agent 只表达业务意图，不要求它选择数据库、媒体 routing、worker timeout、
-  type-3/raw CFI 等内部实现。普通 help 不暴露死参数、无效参数或纯诊断 tuning；
+- Agent 只表达业务意图，不要求它选择数据库、raw CFI 等内部实现。
+  普通 help 不暴露死参数、无效参数或纯诊断 tuning；
   需要保留的内部/诊断能力放 advanced/doctor 或内部测试路径。
 - stdout 只承载主结果；error/diagnostic 走 stderr；默认不依赖 TTY、pager、ANSI、prompt 或人工确认。
   错误必须有稳定 code 和足够的 recovery hint。

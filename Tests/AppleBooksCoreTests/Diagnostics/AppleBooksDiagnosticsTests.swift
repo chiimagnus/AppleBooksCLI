@@ -31,7 +31,6 @@ struct AppleBooksDiagnosticsTests {
         #expect(report.collectionWriteReady)
         #expect(report.annotationWriteReady)
         #expect(report.contentReadPrerequisitesReady)
-        #expect(report.pdfReadPrerequisitesReady)
         #expect(report.libraryOptionalSchemaComplete == false)
         #expect(report.annotationsOptionalSchemaComplete == false)
         #expect(report.configurationReady)

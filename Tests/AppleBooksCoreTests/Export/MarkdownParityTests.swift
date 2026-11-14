@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import AppleBooksCore
@@ -13,7 +12,7 @@ struct MarkdownParityTests {
         #expect(markdown.hasPrefix("# Apple Books export\n\n"))
         #expect(markdown.firstRange(of: "SECOND")!.lowerBound < markdown.firstRange(of: "FIRST")!.lowerBound)
         #expect(markdown.firstRange(of: "*2020-")!.lowerBound < markdown.firstRange(of: "SECOND")!.lowerBound)
-        #expect(markdown.firstRange(of: "Hostile")!.lowerBound < markdown.firstRange(of: "PDF")!.lowerBound)
+        #expect(markdown.firstRange(of: "Hostile")!.lowerBound < markdown.firstRange(of: "History")!.lowerBound)
         #expect(markdown.contains("### Highlight") == false)
         #expect(markdown.contains("### Note") == false)
         #expect(markdown.contains("**Quote:**") == false)
@@ -59,7 +58,6 @@ struct MarkdownParityTests {
         #expect(fixture.book.author == fixture.hostileAuthor)
         #expect(fixture.secondAnnotation.selectedText == fixture.hostileQuote)
         #expect(fixture.secondAnnotation.note == fixture.hostileNote)
-        #expect(fixture.pdfSource.fileURL.path == fixture.hostilePath)
     }
 
     @Test
@@ -81,7 +79,6 @@ struct MarkdownParityTests {
         let bundle = ExportBundle(
             options: fixture.bundle.options,
             groups: [fixture.bundle.groups[0]],
-            warnings: fixture.bundle.warnings,
             statistics: fixture.bundle.statistics,
             sourceTotals: fixture.bundle.sourceTotals
         )
@@ -113,7 +110,7 @@ struct MarkdownParityTests {
             rangeStart: nil,
             rangeEnd: nil
         )
-        let epubRecord = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let epubRecord = ExportRecord(annotation: .init(annotation: annotation, source: .unmapped))
         let epub = renderMarkdown(
             ExportGroup(source: .epubUnmapped(assetID: "asset"), records: [epubRecord])
         )
@@ -124,30 +121,7 @@ struct MarkdownParityTests {
         #expect(epub.contains("**Note:**") == false)
         #expect(epub.contains(">  ") == false)
 
-        let pdfSource = PDFSource(fileURL: URL(fileURLWithPath: "/synthetic/whitespace.pdf"), book: nil)
-        let pdfRecord = ExportRecord(payload: .pdf(
-            source: pdfSource,
-            highlight: PDFHighlight(
-                page: 1,
-                traversalIndex: 0,
-                bounds: .zero,
-                quadrilateralPoints: [],
-                note: " \t\r\n",
-                pdfKitRGBA: nil,
-                presentationColor: nil,
-                modifiedAt: nil,
-                text: "PDF quote",
-                textSource: .boundsFallback,
-                textIsApproximate: true,
-                textUnavailableReason: nil
-            )
-        ))
-        let pdf = renderMarkdown(
-            ExportGroup(source: .pdf(pdfSource), records: [pdfRecord])
-        )
-        #expect(pdfRecord.hasNote == false)
-        #expect(pdf.contains("> PDF quote"))
-        #expect(pdf.contains("**Note:**") == false)
+
     }
 
     @Test
@@ -173,20 +147,17 @@ struct MarkdownParityTests {
                 rangeStart: nil,
                 rangeEnd: nil
             )
-            return ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+            return ExportRecord(annotation: .init(annotation: annotation, source: .unmapped))
         }
         let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: records)
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub),
+            options: try ExportOptions(),
             groups: [group],
-            warnings: [],
             statistics: ExportStatistics(
                 documentCount: 1,
                 epubDocumentCount: 1,
-                pdfDocumentCount: 0,
                 recordCount: records.count,
                 epubAnnotationCount: records.count,
-                pdfHighlightCount: 0,
                 highlightCount: records.count,
                 noteCount: 0,
                 historicalEPUBAnnotationCount: 0,
@@ -195,10 +166,6 @@ struct MarkdownParityTests {
             sourceTotals: ExportSourceTotals(
                 epubDocumentCount: 1,
                 epubAnnotationCount: records.count,
-                pdfAttemptedDocumentCount: 0,
-                pdfSucceededDocumentCount: 0,
-                pdfFailedDocumentCount: 0,
-                pdfHighlightCount: 0
             )
         )
         var totalBytes = 0
@@ -223,14 +190,11 @@ struct MarkdownParityTests {
         let emptyBundle = ExportBundle(
             options: options,
             groups: [],
-            warnings: [],
             statistics: ExportStatistics(
                 documentCount: 0,
                 epubDocumentCount: 0,
-                pdfDocumentCount: 0,
                 recordCount: 0,
                 epubAnnotationCount: 0,
-                pdfHighlightCount: 0,
                 highlightCount: 0,
                 noteCount: 0,
                 historicalEPUBAnnotationCount: 0,
@@ -239,10 +203,6 @@ struct MarkdownParityTests {
             sourceTotals: ExportSourceTotals(
                 epubDocumentCount: 0,
                 epubAnnotationCount: 0,
-                pdfAttemptedDocumentCount: 0,
-                pdfSucceededDocumentCount: 0,
-                pdfFailedDocumentCount: 0,
-                pdfHighlightCount: 0
             )
         )
         #expect(renderMarkdown(emptyBundle) == "# Apple Books export\n\n_No records._\n")
@@ -259,11 +219,9 @@ struct MarkdownParityTests {
         let hostileAuthor = "Author ](\n<script>"
         let hostileQuote = "# SECOND *star* _under_ {brace} +plus !bang |pipe \\slash\n---\n``` quote ]( <script>"
         let hostileNote = "note\r---\r``` ]( <script>"
-        let hostilePath = "/tmp/# PDF\n--- ]( <script>.pdf"
         let date = Date(timeIntervalSince1970: 1_600_000_000.5)
         let book: Book
         let secondAnnotation: Annotation
-        let pdfSource: PDFSource
         let bundle: ExportBundle
 
         init() throws {
@@ -339,68 +297,38 @@ struct MarkdownParityTests {
                 rangeStart: nil,
                 rangeEnd: nil
             )
-            pdfSource = PDFSource(
-                fileURL: URL(fileURLWithPath: hostilePath).standardizedFileURL,
-                book: nil
-            )
-            let pdfHighlight = PDFHighlight(
-                page: 7,
-                traversalIndex: 1,
-                bounds: CGRect(x: 1, y: 2, width: 3, height: 4),
-                quadrilateralPoints: [],
-                note: "PDF note ]( <script>",
-                pdfKitRGBA: [0.3, 0.2, 0.7, 1],
-                presentationColor: PDFColorMatch(color: .purple, distance: 0.1, isApproximate: true),
-                modifiedAt: date,
-                text: "PDF quote ``` ]( <script>",
-                textSource: .boundsFallback,
-                textIsApproximate: true,
-                textUnavailableReason: nil
-            )
             let groups = [
                 ExportGroup(
                     source: .epubCurrent(book),
                     records: [
-                        ExportRecord(
-                            payload: .epub(
-                                EnrichedAnnotation(annotation: secondAnnotation, source: .currentLibrary(book))
-                            )
-                        ),
-                        ExportRecord(
-                            payload: .epub(
-                                EnrichedAnnotation(annotation: firstAnnotation, source: .currentLibrary(book))
-                            )
-                        ),
+                        ExportRecord(annotation: EnrichedAnnotation(annotation: secondAnnotation, source: .currentLibrary(book))),
+                        ExportRecord(annotation: EnrichedAnnotation(annotation: firstAnnotation, source: .currentLibrary(book))),
                     ]
                 ),
                 ExportGroup(
-                    source: .pdf(pdfSource),
-                    records: [ExportRecord(payload: .pdf(source: pdfSource, highlight: pdfHighlight))]
-                ),
+                    source: .epubHistorical(assetID: "history", metadata: .init(title: "History", author: "Reporter")),
+                    records: [ExportRecord(annotation: EnrichedAnnotation(
+                        annotation: firstAnnotation,
+                        source: .historicalInferred(.init(title: "History", author: "Reporter"))
+                    ))]
+                )
             ]
             bundle = ExportBundle(
-                options: try ExportOptions(source: .all),
+                options: try ExportOptions(),
                 groups: groups,
-                warnings: [],
                 statistics: ExportStatistics(
                     documentCount: 2,
-                    epubDocumentCount: 1,
-                    pdfDocumentCount: 1,
+                    epubDocumentCount: 2,
                     recordCount: 3,
-                    epubAnnotationCount: 2,
-                    pdfHighlightCount: 1,
+                    epubAnnotationCount: 3,
                     highlightCount: 3,
                     noteCount: 0,
-                    historicalEPUBAnnotationCount: 0,
+                    historicalEPUBAnnotationCount: 1,
                     unmappedEPUBAnnotationCount: 0
                 ),
                 sourceTotals: ExportSourceTotals(
-                    epubDocumentCount: 1,
-                    epubAnnotationCount: 2,
-                    pdfAttemptedDocumentCount: 1,
-                    pdfSucceededDocumentCount: 1,
-                    pdfFailedDocumentCount: 0,
-                    pdfHighlightCount: 1
+                    epubDocumentCount: 2,
+                    epubAnnotationCount: 3,
                 )
             )
         }

@@ -177,18 +177,6 @@ struct CLIContextTests {
     }
 
     @Test
-    func pdfWorkerDependencyFailureUsesTypedUnavailableError() throws {
-        #expect(throws: CLIError.unavailableWithReason(
-            message: "PDF worker is unavailable.",
-            reason: .pdfWorkerUnavailable
-        )) {
-            try CLIOperation.run {
-                throw AppleBooksDependencyError.unavailable(.pdfWorker)
-            }
-        }
-    }
-
-    @Test
     func invalidDatabaseOverrideFailsThroughCoreDiscovery() throws {
         let fixture = try DiscoveryFixture()
         defer { fixture.remove() }

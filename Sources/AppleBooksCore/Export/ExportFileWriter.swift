@@ -40,7 +40,7 @@ package struct ManagedExportManifestSummary: Equatable, Sendable {
 }
 
 package struct ManagedExportManifestWriter {
-    package static let fileName = ".applebookscli-export-v1"
+    package static let fileName = ".applebookscli-export-v2"
     package static let maximumBytes = 64 * 1_024 * 1_024
     package static let maximumLineBytes = 512
 
@@ -65,7 +65,7 @@ package struct ManagedExportManifestWriter {
         self.declaredDocumentCount = declaredDocumentCount
         self.observeRetainedBytes = observeRetainedBytes
         try writeLine("producer\tapplebookscli")
-        try writeLine("version\t1")
+        try writeLine("version\t2")
         try writeLine("format\t\(fileExtension)")
         try writeLine("grouping\tper-document")
         try writeLine("count\t\(declaredDocumentCount)")
@@ -82,7 +82,7 @@ package struct ManagedExportManifestWriter {
         guard fileName.hasSuffix("-\(identity.fullKey).\(fileExtension)") else {
             throw ExportFileWriterError.writeFailed
         }
-        try writeLine("entry\t\(identity.sourceKind.rawValue)\t\(identity.fullKey)\t\(fileName)")
+        try writeLine("entry\t\(identity.fullKey)\t\(fileName)")
         previousIdentity = identity
         documentCount += 1
     }
@@ -139,7 +139,7 @@ package enum ManagedExportManifest {
             case 0:
                 guard line == "producer\tapplebookscli" else { throw ExportFileWriterError.unsafeDestination }
             case 1:
-                guard line == "version\t1" else { throw ExportFileWriterError.unsafeDestination }
+                guard line == "version\t2" else { throw ExportFileWriterError.unsafeDestination }
             case 2:
                 let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
                 guard fields.count == 2, fields[0] == "format" else { throw ExportFileWriterError.unsafeDestination }
@@ -159,15 +159,12 @@ package enum ManagedExportManifest {
                 declaredDocumentCount = value
             default:
                 guard let fileExtension else { throw ExportFileWriterError.unsafeDestination }
-                let fields = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
-                guard fields.count == 4,
-                      fields[0] == "entry",
-                      let rawKind = UInt8(fields[1]),
-                      let sourceKind = ExportDocumentSourceKind(rawValue: rawKind) else {
+                let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+                guard fields.count == 3, fields[0] == "entry" else {
                     throw ExportFileWriterError.unsafeDestination
                 }
-                let fullKey = String(fields[2])
-                let fileName = String(fields[3])
+                let fullKey = String(fields[1])
+                let fileName = String(fields[2])
                 guard validFullKey(fullKey),
                       fileName != ManagedExportManifestWriter.fileName else {
                     throw ExportFileWriterError.unsafeDestination
@@ -180,7 +177,7 @@ package enum ManagedExportManifest {
                 guard fileName.hasSuffix("-\(fullKey).\(fileExtension)") else {
                     throw ExportFileWriterError.unsafeDestination
                 }
-                let identity = ExportDocumentIdentity(sourceKind: sourceKind, fullKey: fullKey)
+                let identity = ExportDocumentIdentity(fullKey: fullKey)
                 guard previousIdentity.map({ $0 < identity }) ?? true else {
                     throw ExportFileWriterError.unsafeDestination
                 }
@@ -921,8 +918,6 @@ package struct ExportFileWriter {
             return nonEmpty(metadata.title) ?? "Historical EPUB"
         case .epubUnmapped:
             return "Unmapped EPUB"
-        case let .pdf(source):
-            return nonEmpty(source.displayTitle) ?? "PDF"
         }
     }
 

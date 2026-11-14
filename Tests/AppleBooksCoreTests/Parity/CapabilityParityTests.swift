@@ -47,7 +47,7 @@ struct CapabilityParityTests {
                 let file = try anchoredFile(path, under: root)
                 switch owner {
                 case .core:
-                    #expect(path.hasPrefix("Sources/AppleBooksCore/") || path.hasPrefix("Sources/AppleBooksPDFWorker/"))
+                    #expect(path.hasPrefix("Sources/AppleBooksCore/"))
                 case .cli:
                     #expect(path.hasPrefix("Sources/AppleBooksCLI/"))
                 }

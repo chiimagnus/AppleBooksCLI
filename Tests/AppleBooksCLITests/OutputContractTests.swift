@@ -111,8 +111,6 @@ struct OutputContractTests {
             (.operationIDInvalid, .usageInvalidWithReason(message: "sanitized", reason: .operationIDInvalid), .usageInvalid, true),
             (.operationReplayBlocked, .unavailableWithReason(message: "sanitized", reason: .operationReplayBlocked), .unavailable, true),
             (.outputExists, .writeSafetyWithReason(message: "sanitized", reason: .outputExists), .writeSafety, true),
-            (.pdfSourceNotFound, .notFoundWithReason(message: "sanitized", reason: .pdfSourceNotFound), .notFound, true),
-            (.pdfWorkerUnavailable, .unavailableWithReason(message: "sanitized", reason: .pdfWorkerUnavailable), .unavailable, true),
             (.readingOrderRequiresBook, .usageInvalidWithReason(message: "sanitized", reason: .readingOrderRequiresBook), .usageInvalid, true),
             (.readingPositionUnavailable, .unavailableWithReason(message: "sanitized", reason: .readingPositionUnavailable), .unavailable, false),
             (.schemaUnavailable, .unavailableWithReason(message: "sanitized", reason: .schemaUnavailable), .unavailable, true),

@@ -1,8 +1,7 @@
-import CoreGraphics
 import Foundation
 
 package enum JSONExporter {
-    static let schemaVersion = 10
+    static let schemaVersion = 11
 
     package static func stream(
         _ bundle: ExportBundle,
@@ -111,7 +110,6 @@ private final class StreamingJSONWriter {
             try field("options", first: &first) { try writeOptions(bundle.options) }
             try field("statistics", first: &first) { try writeStatistics(bundle.statistics) }
             try field("sourceTotals", first: &first) { try writeSourceTotals(bundle.sourceTotals) }
-            try field("warnings", first: &first) { try array(bundle.warnings, writeWarning) }
             try field("groups", first: &first) { try array(bundle.groups, writeGroup) }
         }
     }
@@ -127,7 +125,6 @@ private final class StreamingJSONWriter {
 
     private func writeOptions(_ value: ExportOptions) throws {
         try object { first in
-            try field("source", first: &first) { try string(value.source.rawValue) }
             try field("bookSelectors", first: &first) {
                 try array(value.bookSelectors) { selector in
                     try object { selectorFirst in
@@ -138,8 +135,6 @@ private final class StreamingJSONWriter {
                             kind = "assetID"; rawValue = assetID
                         case let .localPK(localPK):
                             kind = "localPK"; rawValue = String(localPK)
-                        case let .pdfSourceID(sourceID):
-                            kind = "pdfSourceID"; rawValue = sourceID
                         }
                         try field("kind", first: &selectorFirst) { try string(kind) }
                         try field("value", first: &selectorFirst) { try string(rawValue) }
@@ -176,25 +171,15 @@ private final class StreamingJSONWriter {
             case let .epubUnmapped(assetID):
                 try field("kind", first: &first) { try string("epubUnmapped") }
                 try optionalField("assetID", value: assetID, first: &first, write: string)
-            case let .pdf(source):
-                try field("kind", first: &first) { try string("pdf") }
-                try field("pdfSource", first: &first) { try writePDFSource(source) }
             }
         }
     }
 
     private func writeRecord(_ value: ExportRecord) throws {
         try object { first in
-            switch value.payload {
-            case let .epub(enriched):
-                try field("source", first: &first) { try string("epub") }
-                try field("presentation", first: &first) { try writePresentation(value) }
-                try field("annotation", first: &first) { try writeAnnotation(enriched.annotation) }
-            case let .pdf(_, highlight):
-                try field("source", first: &first) { try string("pdf") }
-                try field("presentation", first: &first) { try writePresentation(value) }
-                try field("pdfHighlight", first: &first) { try writePDFHighlight(highlight) }
-            }
+            try field("source", first: &first) { try string("epub") }
+            try field("presentation", first: &first) { try writePresentation(value) }
+            try field("annotation", first: &first) { try writeAnnotation(value.annotation.annotation) }
         }
     }
 
@@ -302,69 +287,12 @@ private final class StreamingJSONWriter {
         }
     }
 
-    private func writePDFSource(_ value: PDFSource) throws {
-        try object { first in
-            try field("filePath", first: &first) { try string(value.fileURL.path) }
-            try field("displayTitle", first: &first) { try string(value.displayTitle) }
-            if let book = value.book {
-                try field("book", first: &first) { try writeBook(book) }
-            }
-        }
-    }
-
-    private func writePDFHighlight(_ value: PDFHighlight) throws {
-        try object { first in
-            try field("page", first: &first) { try integer(value.page) }
-            try field("traversalIndex", first: &first) { try integer(value.traversalIndex) }
-            try field("bounds", first: &first) { try writeRect(value.bounds) }
-            try field("quadrilateralPoints", first: &first) { try array(value.quadrilateralPoints, writePoint) }
-            try optionalField("note", value: value.note, first: &first, write: string)
-            if let rgba = value.pdfKitRGBA {
-                try field("pdfKitRGBA", first: &first) { try array(rgba, double) }
-            }
-            if let color = value.presentationColor {
-                try field("presentationColor", first: &first) { try writeColor(color) }
-            }
-            try optionalField("modifiedAt", value: value.modifiedAt.map(dateFormatter.string(from:)), first: &first, write: string)
-            try optionalField("text", value: value.text, first: &first, write: string)
-            try optionalField("textSource", value: value.textSource?.rawValue, first: &first, write: string)
-            try field("textIsApproximate", first: &first) { try boolean(value.textIsApproximate) }
-            try optionalField("textUnavailableReason", value: value.textUnavailableReason?.rawValue, first: &first, write: string)
-        }
-    }
-
-    private func writeRect(_ value: CGRect) throws {
-        try object { first in
-            try field("x", first: &first) { try double(Double(value.origin.x)) }
-            try field("y", first: &first) { try double(Double(value.origin.y)) }
-            try field("width", first: &first) { try double(Double(value.size.width)) }
-            try field("height", first: &first) { try double(Double(value.size.height)) }
-        }
-    }
-
-    private func writePoint(_ value: CGPoint) throws {
-        try object { first in
-            try field("x", first: &first) { try double(Double(value.x)) }
-            try field("y", first: &first) { try double(Double(value.y)) }
-        }
-    }
-
-    private func writeColor(_ value: PDFColorMatch) throws {
-        try object { first in
-            try field("color", first: &first) { try string(value.color.rawValue) }
-            try field("distance", first: &first) { try double(value.distance) }
-            try field("isApproximate", first: &first) { try boolean(value.isApproximate) }
-        }
-    }
-
     private func writeStatistics(_ value: ExportStatistics) throws {
         try object { first in
             try field("documentCount", first: &first) { try integer(value.documentCount) }
             try field("epubDocumentCount", first: &first) { try integer(value.epubDocumentCount) }
-            try field("pdfDocumentCount", first: &first) { try integer(value.pdfDocumentCount) }
             try field("recordCount", first: &first) { try integer(value.recordCount) }
             try field("epubAnnotationCount", first: &first) { try integer(value.epubAnnotationCount) }
-            try field("pdfHighlightCount", first: &first) { try integer(value.pdfHighlightCount) }
             try field("highlightCount", first: &first) { try integer(value.highlightCount) }
             try field("noteCount", first: &first) { try integer(value.noteCount) }
             try field("historicalEPUBAnnotationCount", first: &first) { try integer(value.historicalEPUBAnnotationCount) }
@@ -376,67 +304,6 @@ private final class StreamingJSONWriter {
         try object { first in
             try field("epubDocumentCount", first: &first) { try integer(value.epubDocumentCount) }
             try field("epubAnnotationCount", first: &first) { try integer(value.epubAnnotationCount) }
-            try field("pdfAttemptedDocumentCount", first: &first) { try integer(value.pdfAttemptedDocumentCount) }
-            try field("pdfSucceededDocumentCount", first: &first) { try integer(value.pdfSucceededDocumentCount) }
-            try field("pdfFailedDocumentCount", first: &first) { try integer(value.pdfFailedDocumentCount) }
-            try field("pdfHighlightCount", first: &first) { try integer(value.pdfHighlightCount) }
-        }
-    }
-
-    private func writeWarning(_ value: ExportWarning) throws {
-        try object { first in
-            switch value {
-            case .pdfUnavailable:
-                try field("code", first: &first) { try string("pdfUnavailable") }
-            case let .pdfFailure(failure):
-                try field("code", first: &first) { try string("pdfFailure") }
-                try field("pdfSource", first: &first) { try writePDFSource(failure.source) }
-                try field("pdfFailure", first: &first) { try writePDFFailure(failure.reason) }
-            }
-        }
-    }
-
-    private func writePDFFailure(_ value: PDFHighlightServiceFailureReason) throws {
-        try object { first in
-            switch value {
-            case .timeout:
-                try field("kind", first: &first) { try string("timeout") }
-            case .internalFailure:
-                try field("kind", first: &first) { try string("internalFailure") }
-            case let .worker(error):
-                try field("kind", first: &first) { try string("worker") }
-                try field("workerError", first: &first) { try writeWorkerError(error) }
-            }
-        }
-    }
-
-    private func writeWorkerError(_ value: PDFWorkerClientError) throws {
-        try object { first in
-            let code: String
-            switch value {
-            case .launchFailed: code = "launchFailed"
-            case .timedOut: code = "timedOut"
-            case .stdoutLimitExceeded: code = "stdoutLimitExceeded"
-            case .stderrLimitExceeded: code = "stderrLimitExceeded"
-            case .pipeReadFailed: code = "pipeReadFailed"
-            case .nonzeroExit: code = "nonzeroExit"
-            case .signalTerminated: code = "signalTerminated"
-            case .malformedResponse: code = "malformedResponse"
-            case .workerFailure: code = "workerFailure"
-            }
-            try field("code", first: &first) { try string(code) }
-            switch value {
-            case let .stdoutLimitExceeded(bytes), let .stderrLimitExceeded(bytes):
-                try field("capturedBytes", first: &first) { try integer(bytes) }
-            case let .nonzeroExit(status):
-                try field("exitStatus", first: &first) { try integer(status) }
-            case let .signalTerminated(signal):
-                try field("signal", first: &first) { try integer(signal) }
-            case let .workerFailure(workerCode):
-                try field("workerCode", first: &first) { try string(workerCode.rawValue) }
-            case .launchFailed, .timedOut, .pipeReadFailed, .malformedResponse:
-                break
-            }
         }
     }
 

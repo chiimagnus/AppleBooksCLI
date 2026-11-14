@@ -43,8 +43,7 @@ int32_t ABProjectAnnotationState(
     size_t annotation_uuid_length
 );
 
-#if DEBUG
-int32_t ABTestAppendSyntheticAnnotationState(
+int32_t ABCreateAnnotationState(
     const char *root_path,
     const char *canonical_cloud_database_path,
     const char *canonical_annotations_database_path,
@@ -53,7 +52,6 @@ int32_t ABTestAppendSyntheticAnnotationState(
     const uint8_t *annotation_uuid_bytes,
     size_t annotation_uuid_length
 );
-#endif
 
 #ifdef __cplusplus
 }

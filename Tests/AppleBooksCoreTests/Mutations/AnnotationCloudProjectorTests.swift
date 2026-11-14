@@ -18,8 +18,190 @@ private func testUpdateExistingAnnotationCloudObjectWithBookClass(
     _ bookClass: AnyClass
 ) -> Int8
 
+@_silgen_name("ABTestAppendNewNativeAnnotation")
+private func testAppendNewNativeAnnotation(
+    _ book: UnsafeMutableRawPointer?,
+    _ row: UnsafeMutableRawPointer?,
+    _ uuid: UnsafeMutableRawPointer?
+) -> Int32
+
 @Suite("AnnotationCloudProjectorTests")
 struct AnnotationCloudProjectorTests {
+    @Test
+    func nativeProtoAdditionAndConflictAreVerifiedWithoutAnyBooksDatabaseWrites() throws {
+        let framework = dlopen(
+            "/System/Library/PrivateFrameworks/BookDataStore.framework/BookDataStore", RTLD_NOW
+        )
+        #expect(framework != nil)
+        defer { if let framework { dlclose(framework) } }
+        let bookClass = try #require(NSClassFromString("BCAnnotationsProtoBook") as? NSObject.Type)
+
+        for style in 1...5 {
+            for underline in [false, true] {
+                for note: String? in [nil, "Synthetic programmatic note"] {
+                    let book = bookClass.init()
+                    _ = book.perform(NSSelectorFromString("setAssetID:"), with: "synthetic-asset")
+                    _ = book.perform(NSSelectorFromString("setAppVersion:"), with: "1")
+                    let uuid = "synthetic-uuid-\(style)-\(underline)-\(note != nil)"
+                    let value: NSDictionary = [
+                        "selected": "sample",
+                        "representative": "A sample text string.",
+                        "cfi": "synthetic:cfi-a",
+                        "note": note as Any? ?? NSNull(),
+                        "created": 100.0,
+                        "modified": 101.0,
+                        "style": style,
+                        "underline": underline,
+                    ]
+                    let uuidObject = uuid as NSString
+                    let invoke = {
+                        testAppendNewNativeAnnotation(
+                            Unmanaged.passUnretained(book).toOpaque(),
+                            Unmanaged.passUnretained(value).toOpaque(),
+                            Unmanaged.passUnretained(uuidObject).toOpaque()
+                        )
+                    }
+                    #expect(invoke() == 0)
+                    let encoded = try #require(book.value(forKey: "data") as? Data)
+                    let parsed = try #require(
+                        bookClass.init().perform(
+                            NSSelectorFromString("initWithData:"), with: encoded
+                        )?.takeUnretainedValue() as? NSObject
+                    )
+                    let annotations = try #require(parsed.value(forKey: "annotations") as? [NSObject])
+                    #expect(annotations.count == 1)
+                    let item = annotations[0]
+                    #expect(item.value(forKey: "uuid") as? String == uuid)
+                    #expect(item.value(forKey: "selectedText") as? String == "sample")
+                    #expect(item.value(forKey: "representativeText") as? String == "A sample text string.")
+                    #expect(item.value(forKey: "locationCFIString") as? String == value["cfi"] as? String)
+                    #expect((item.value(forKey: "style") as? NSNumber)?.intValue == style)
+                    #expect((item.value(forKey: "isUnderline") as? NSNumber)?.boolValue == underline)
+                    #expect(item.value(forKey: "note") as? String == note)
+                    #expect(invoke() == 1, "Exactly identical UUID must not append another proto")
+                    #expect((book.value(forKey: "annotations") as? [NSObject])?.count == 1)
+                    var conflicting = value as! [String: Any]
+                    conflicting["selected"] = "different"
+                    let changed = conflicting as NSDictionary
+                    #expect(testAppendNewNativeAnnotation(
+                        Unmanaged.passUnretained(book).toOpaque(),
+                        Unmanaged.passUnretained(changed).toOpaque(),
+                        Unmanaged.passUnretained(uuidObject).toOpaque()
+                    ) == 12)
+                    #expect((book.value(forKey: "annotations") as? [NSObject])?.count == 1)
+                }
+            }
+        }
+    }
+
+    @Test
+    func newAnnotationProjectorReusesNativeBackupAndExactIdentity() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = AppleBooksDatabasePaths.defaults(homeDirectory: root)
+        try FileManager.default.createDirectory(
+            at: paths.annotationsDirectory, withIntermediateDirectories: true
+        )
+        let annotations = paths.annotationsDirectory.appendingPathComponent("AEAnnotation-create.sqlite")
+        try execute(annotations, """
+            CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
+            INSERT INTO ZAEANNOTATION VALUES(11,'SYNTHETIC-ASSET','SYNTHETIC-UUID');
+            """)
+        var events: [String] = []
+        let projector = try #require(AnnotationCloudProjector.liveCreate(
+            annotationsDatabase: annotations,
+            homeDirectory: root,
+            backupRoot: root.appendingPathComponent("create-backups"),
+            backupAction: { _, _ in events.append("backup") },
+            bridgeAction: { rootURL, cloudURL, dbURL, identity in
+                events.append("nativeCreate")
+                #expect(rootURL.path.hasSuffix("BCCloudData-iBooks"))
+                #expect(cloudURL.lastPathComponent == "BCAssetData")
+                #expect(dbURL == annotations)
+                #expect(identity == .init(assetID: "SYNTHETIC-ASSET", uuid: "SYNTHETIC-UUID"))
+                return 0
+            }
+        ))
+        try projector.project(localPK: 11)
+        #expect(events == ["backup", "nativeCreate"])
+        #expect(AnnotationCloudProjector.liveCreate(
+            annotationsDatabase: root.appendingPathComponent("wrong.sqlite"),
+            homeDirectory: root
+        ) == nil)
+    }
+
+    @Test
+    func newAnnotationProjectorExposesBridgeRejectionAfterBackup() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = AppleBooksDatabasePaths.defaults(homeDirectory: root)
+        try FileManager.default.createDirectory(at: paths.annotationsDirectory, withIntermediateDirectories: true)
+        let annotations = paths.annotationsDirectory.appendingPathComponent("AEAnnotation-create.sqlite")
+        try execute(annotations, """
+            CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
+            INSERT INTO ZAEANNOTATION VALUES(1,'ASSET','UUID');
+            """)
+        var backups = 0
+        let projector = try #require(AnnotationCloudProjector.liveCreate(
+            annotationsDatabase: annotations,
+            homeDirectory: root,
+            backupAction: { _, _ in backups += 1 },
+            bridgeAction: { _, _, _, _ in 17 }
+        ))
+        #expect(throws: AnnotationCloudProjectionError.bridgeRejected(17)) {
+            try projector.project(localPK: 1)
+        }
+        #expect(backups == 1)
+    }
+
+    @Test
+    func newNativeBridgeRejectsMalformedCommittedRowsBeforeTouchingCloudFramework() throws {
+        let rows: [(String, String)] = [
+            ("bad-type", "3,0,1,0,100.0,100.0,'quote','sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("deleted", "2,1,1,0,100.0,100.0,'quote','sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("bad-style", "2,0,6,0,100.0,100.0,'quote','sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("bad-underline", "2,0,1,2,100.0,100.0,'quote','sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("bad-selected", "2,0,1,0,100.0,100.0,CAST(X'FF' AS TEXT),'sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("bad-date", "2,0,1,0,'infinity',100.0,'quote','sentence','synthetic:cfi-b',NULL,'com~apple~iBooks'"),
+            ("bad-note", "2,0,1,0,100.0,100.0,'quote','sentence','synthetic:cfi-b',CAST(X'FF' AS TEXT),'com~apple~iBooks'"),
+            ("bad-creator", "2,0,1,0,100.0,100.0,'quote','sentence','synthetic:cfi-b',NULL,'untrusted-creator'"),
+            ("invalid-cfi", "2,0,1,0,100.0,100.0,'quote','sentence',NULL,NULL,'com~apple~iBooks'"),
+        ]
+        for (_, record) in rows {
+            let root = try fixtureRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let cloudDir = root.appendingPathComponent("BCAssetData", isDirectory: true)
+            try FileManager.default.createDirectory(at: cloudDir, withIntermediateDirectories: true)
+            let cloudDB = cloudDir.appendingPathComponent("BCAssetData")
+            try Data().write(to: cloudDB)
+            let annotations = root.appendingPathComponent("annotations.sqlite")
+            try execute(annotations, """
+                CREATE TABLE ZAEANNOTATION (
+                    ZANNOTATIONTYPE, ZANNOTATIONDELETED, ZANNOTATIONSTYLE, ZANNOTATIONISUNDERLINE,
+                    ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,
+                    ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONLOCATION,ZANNOTATIONNOTE,
+                    ZANNOTATIONCREATORIDENTIFIER,ZANNOTATIONASSETID,ZANNOTATIONUUID
+                );
+                INSERT INTO ZAEANNOTATION VALUES(\(record),'ASSET','UUID');
+                """)
+            let status = root.path.withCString { rootPath in
+                cloudDB.path.withCString { cloudPath in
+                    annotations.path.withCString { annotationsPath in
+                        withCloudBridgeUTF8Bytes("ASSET") { assetID, assetLength in
+                            withCloudBridgeUTF8Bytes("UUID") { uuid, uuidLength in
+                                ABCreateAnnotationState(
+                                    rootPath, cloudPath, annotationsPath,
+                                    assetID, assetLength, uuid, uuidLength
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            #expect(status == 3)
+        }
+    }
+
     @Test
     func liveProjectorResolvesExactAssetAndUUIDAfterBackup() throws {
         let root = try fixtureRoot()

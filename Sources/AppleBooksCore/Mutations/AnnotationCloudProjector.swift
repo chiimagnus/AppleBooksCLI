@@ -48,6 +48,24 @@ struct AnnotationCloudProjector {
         }
     }
 
+    static func liveCreate(
+        annotationsDatabase: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        backupRoot: URL = SQLiteBackup.defaultRoot().appendingPathComponent("cloud-annotations", isDirectory: true),
+        backupAction: @escaping BackupAction = { source, root in
+            _ = try SQLiteBackup.create(source: source, backupRoot: root)
+        },
+        bridgeAction: @escaping BridgeAction = liveCreateBridgeAction
+    ) -> AnnotationCloudProjector? {
+        live(
+            annotationsDatabase: annotationsDatabase,
+            homeDirectory: homeDirectory,
+            backupRoot: backupRoot,
+            backupAction: backupAction,
+            bridgeAction: bridgeAction
+        )
+    }
+
     static func identity(annotationsDatabase: URL, localPK: Int64) throws -> AnnotationCloudIdentity {
         let connection = try SQLiteConnection.readOnly(path: annotationsDatabase.path)
         defer { try? connection.close() }
@@ -98,25 +116,37 @@ struct AnnotationCloudProjector {
     }
 
     private static func liveBridgeAction(
-        root: URL,
-        database: URL,
-        annotationsDatabase: URL,
-        identity: AnnotationCloudIdentity
+        root: URL, database: URL, annotationsDatabase: URL, identity: AnnotationCloudIdentity
+    ) -> Int32 {
+        invokeNativeBridge(root, database, annotationsDatabase, identity, creating: false)
+    }
+
+    private static func liveCreateBridgeAction(
+        root: URL, database: URL, annotationsDatabase: URL, identity: AnnotationCloudIdentity
+    ) -> Int32 {
+        invokeNativeBridge(root, database, annotationsDatabase, identity, creating: true)
+    }
+
+    private static func invokeNativeBridge(
+        _ root: URL, _ database: URL, _ annotationsDatabase: URL,
+        _ identity: AnnotationCloudIdentity, creating: Bool
     ) -> Int32 {
         root.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 annotationsDatabase.path.withCString { annotationsPath in
-                    withCloudBridgeUTF8Bytes(identity.assetID) { assetID, assetIDLength in
+                    withCloudBridgeUTF8Bytes(identity.assetID) { assetID, assetLength in
                         withCloudBridgeUTF8Bytes(identity.uuid) { uuid, uuidLength in
-                            ABProjectAnnotationState(
-                                rootPath,
-                                databasePath,
-                                annotationsPath,
-                                assetID,
-                                assetIDLength,
-                                uuid,
-                                uuidLength
-                            )
+                            if creating {
+                                ABCreateAnnotationState(
+                                    rootPath, databasePath, annotationsPath,
+                                    assetID, assetLength, uuid, uuidLength
+                                )
+                            } else {
+                                ABProjectAnnotationState(
+                                    rootPath, databasePath, annotationsPath,
+                                    assetID, assetLength, uuid, uuidLength
+                                )
+                            }
                         }
                     }
                 }

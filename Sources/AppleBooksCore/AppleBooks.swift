@@ -246,6 +246,9 @@ public final class AppleBooks {
                     cloudProjector: manageAnnotationBooksApplication ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB) : nil,
                     cloudSynchronizer: manageAnnotationBooksApplication
                         ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: booksApp)
+                        : nil,
+                    creationProjector: manageAnnotationBooksApplication
+                        ? AnnotationCloudProjector.liveCreate(annotationsDatabase: annotationsDB)
                         : nil
                 )
             }

@@ -37,9 +37,9 @@ collection_not_found          configuration_invalid         content_unavailable
 context_unavailable           cursor_stale                  database_unavailable
 history_entry_not_found       history_unavailable           operation_id_conflict
 operation_id_invalid          operation_replay_blocked      output_exists
-reading_order_requires_book
-reading_position_unavailable  schema_unavailable            selector_not_found
-sync_ack_failed               sync_unavailable              unsafe_output
+reading_order_requires_book   reading_position_unavailable  schema_unavailable
+selector_not_found            sync_ack_failed               sync_unavailable
+unsafe_output
 ```
 
 Unexpected/internal failure 只公开 `Internal error.`；parse failure 不回放 raw argv、selector、
@@ -112,10 +112,11 @@ Deterministic no-op 返回 `committed=false`、`changed=false`，不返回 `back
 
 `export` 必须显式 `--output`，默认 Markdown，`--format json` 才是 archival JSON。
 v0.5.0 起只导出 EPUB 批注；不接受 `pdf` 命令、`export --pdf` 或 `export --source`。
-JSON `schemaVersion=11`，不含 PDF 分支；managed directory manifest v2 不会把旧版 manifest 当作可覆盖的目标。
+JSON `schemaVersion=11`，不含 PDF 分支；新托管目录使用 `.applebookscli-export-v2` 清单，
+旧版 `.applebookscli-export-v1` 目录不会被识别为可安全覆盖的目标。
 PDF 功能只存在于 v0.4.2 及更早版本。
 Artifact 只写入 guarded destination；stdout 只返回 compact write result（`destination` /
-`disposition` / `documentCount` / `warningCount` / `warnings`)，
+`disposition` / `documentCount` / `warningCount` / `warnings`），
 不输出完整 artifact 或逐文件路径。`warnings` 仅报告文件发布后目录同步或旧树清理异常；
 不再包含 PDF 部分成功或 PDF Worker 失败。
 Relative output 基于 cwd，结果返回 canonical destination。

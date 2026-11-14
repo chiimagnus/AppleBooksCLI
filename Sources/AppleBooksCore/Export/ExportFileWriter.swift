@@ -40,7 +40,7 @@ package struct ManagedExportManifestSummary: Equatable, Sendable {
 }
 
 package struct ManagedExportManifestWriter {
-    package static let fileName = ".applebookscli-export-v1"
+    package static let fileName = ".applebookscli-export-v2"
     package static let maximumBytes = 64 * 1_024 * 1_024
     package static let maximumLineBytes = 512
 

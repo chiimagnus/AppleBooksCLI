@@ -154,6 +154,8 @@ struct ExportFileWriterTests {
         let createdNames = try FileManager.default.contentsOfDirectory(atPath: destination.path)
         #expect(createdNames.count == 4)
         #expect(createdNames.contains(ManagedExportManifestWriter.fileName))
+        #expect(createdNames.contains(".applebookscli-export-v2"))
+        #expect(createdNames.contains(".applebookscli-export-v1") == false)
         #expect(createdNames.filter { $0 != ManagedExportManifestWriter.fileName }.count == 3)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
 
@@ -170,6 +172,41 @@ struct ExportFileWriterTests {
         }
         #expect(try directorySnapshot(destination) == original)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains { $0.hasPrefix(".applebookscli-export-stage-") } == false)
+    }
+
+    @Test
+    func legacyV1ManagedDirectoryIsPreservedInsteadOfSilentlyReplaced() throws {
+        let fixture = try FileFixture()
+        defer { fixture.remove() }
+        let writer = try ExportFileWriter(outputRoot: fixture.output)
+        let directory = fixture.output.appendingPathComponent("old-export", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let legacyManifest = directory.appendingPathComponent(".applebookscli-export-v1")
+        let original = Data("""
+            producer\tapplebookscli
+            version\t1
+            format\tjson
+            grouping\tper-document
+            count\t0
+
+            """.utf8)
+        try original.write(to: legacyManifest)
+
+        #expect(throws: ExportFileWriterError.unsafeDestination) {
+            _ = try writer.writeManagedDirectoryIncrementally(
+                destinationName: directory.lastPathComponent,
+                bundle: FixtureFactory.canonicalBundle(count: 1),
+                fileExtension: "json",
+                overwrite: .always
+            ) { _, sink in
+                try sink(Data("new".utf8))
+            }
+        }
+        #expect(try Data(contentsOf: legacyManifest) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [legacyManifest.lastPathComponent])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.output.path).contains {
+            $0.hasPrefix(".applebookscli-export-stage-")
+        } == false)
     }
 
     @Test
@@ -829,7 +866,7 @@ struct ExportFileWriterTests {
     func destinationParsingRejectsReservedFinalComponents() throws {
         let fixture = try FileFixture()
         defer { fixture.remove() }
-        for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v1"] {
+        for invalid in [".", "..", "/", "directory/.", "directory/..", ".applebookscli-export-v2"] {
             #expect(throws: ExportFileWriterError.invalidFileName) {
                 _ = try ExportFileWriter.destination(path: invalid, currentDirectory: fixture.output)
             }

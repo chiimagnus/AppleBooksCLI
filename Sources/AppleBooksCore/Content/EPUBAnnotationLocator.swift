@@ -5,6 +5,7 @@ struct EPUBAnnotationSelection: Equatable, Sendable {
     let chapterOrder: Int
     let resourcePath: String
     let selectedText: String
+    let representativeText: String
     let cfi: String
     let sourceGeneration: CursorGenerationComponent
     let bookIdentity: BookResourceTarget?
@@ -127,6 +128,7 @@ struct EPUBAnnotationLocator {
                             chapterOrder: chapter.order,
                             resourcePath: chapter.href,
                             selectedText: (run.text as NSString).substring(with: range),
+                            representativeText: run.text,
                             cfi: cfi,
                             sourceGeneration: generation,
                             bookIdentity: bookIdentity

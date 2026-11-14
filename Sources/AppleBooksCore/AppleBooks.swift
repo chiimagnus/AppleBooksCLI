@@ -1153,6 +1153,27 @@ public final class AppleBooks {
         try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid)
     }
 
+    public func createAnnotation(
+        assetID: String, text: String,
+        chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,
+        occurrence: Int? = nil, note: String? = nil,
+        color: AnnotationColor = .yellow, underline: Bool = false,
+        syncCloud: Bool = false
+    ) throws -> MutationResult {
+        let writer = try requiredAnnotationWriter()
+        let queries = try requiredBookQueries()
+        let configuration = try requiredConfiguration()
+        func locate() throws -> EPUBAnnotationSelection {
+            try EPUBAnnotationLocator(
+                assetID: assetID, bookQueries: queries, configuration: configuration
+            ).locate(text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix, occurrence: occurrence)
+        }
+        return try writer.create(
+            assetID: assetID, selection: locate(), note: note,
+            color: color, underline: underline, verifySource: locate, syncCloud: syncCloud
+        )
+    }
+
     public func updateAnnotationNote(localPK: Int64, note: String?, syncCloud: Bool = false) throws -> MutationResult {
         try requiredAnnotationWriter().updateNote(localPK: localPK, note: note, syncCloud: syncCloud)
     }

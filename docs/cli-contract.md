@@ -56,6 +56,18 @@ plain-text stdout。
 或 CLI grapheme budget 缩短，但仍是合法 UTF-8 且结束在完整 `Character`。
 需要 archival fidelity 时使用显式 archival JSON export，而不是把 ordinary result 当 raw dump。
 
+`annotations preview --book ... --input file.json` 不属于 recordable mutation，
+不创建 history、备份或本机写入；`annotations create` 从同一有界 JSON 输入创建高亮。
+输入 JSON 的根对象仅含 `annotations` 数组，数组必须有 1–500 条；文件为只读普通文件，
+允许指向普通文件的符号链接，大小上限 8 MiB。
+每项 `text` 必填，`chapterOrder`、`prefix`、`suffix`、`occurrence`、`color`、`underline`、`note` 可选，
+不接收外部 CFI 或来源平台 ID。单条创建可显式 `--sync`。
+`preview.items` 逐项返回 `ready`、`already_exists`、`missing`、`ambiguous`、`conflict` 或 `invalid`；
+不可直接创建的项目带候选数（可确定时）与不含原文的修正提示。
+`preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
+原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
+`annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
+
 Mutation 结果统一表达 `committed`、`changed`、`acknowledgementRequested`、
 nullable `acknowledged` 与 `warningCodes`，并使用领域 identity：annotation 为 `annotationUUID`
 / fallback `annotationLocalPK`；collection 为 `collectionID` / fallback `collectionLocalPK`；
@@ -107,6 +119,8 @@ per-book EPUB/PDF 是否 materialized/DRM-readable 仍由实际 content command 
 `history` 保存最近 24 小时 recordable mutation/restore/root-sync 的结构化证据。
 `history list` 默认20/最大100并用 opaque cursor 分页；
 `history get <id>` 按 exact lowercase UUID 返回 `request`、`result`、`inverse`。
+新建批注的 history request 只存输入 bytes 的 SHA-256 摘要，与执行使用同一份已读取文件快照，
+不存原始 JSON、划线、笔记或本机输入文件路径；不同输入内容不能复用同一 operation ID。
 History 不保存 raw argv 或 captured stdout/stderr；
 可用 inverse 只保存执行安全反操作所必需的 prior state。只接受当前 history schema，
 unsupported schema fail closed。

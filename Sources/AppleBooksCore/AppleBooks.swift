@@ -1156,6 +1156,33 @@ public final class AppleBooks {
         try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid)
     }
 
+    public func repairAnnotationProjection(uuid: String) throws -> AnnotationProjectionRepairResult {
+        try requiredAnnotationWriter().repairCreationProjection(uuid: uuid)
+    }
+
+    public func previewAnnotation(
+        assetID: String, text: String,
+        chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,
+        occurrence: Int? = nil, note: String? = nil,
+        color: AnnotationColor = .yellow, underline: Bool = false
+    ) throws -> AnnotationCreationPreview {
+        let queries = try requiredBookQueries()
+        let configuration = try requiredConfiguration()
+        let connection = try require(annotationConnection, .annotationsRead)
+        let selection = try EPUBAnnotationLocator(
+            assetID: assetID, bookQueries: queries, configuration: configuration
+        ).locate(text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix, occurrence: occurrence)
+        guard let handle = connection.handle else { throw AnnotationCreateError.sourceChanged }
+        let existingUUID = try AnnotationWriter.previewExistingUUID(
+            assetID: assetID, selection: selection, note: note,
+            color: color, underline: underline, on: handle
+        )
+        return AnnotationCreationPreview(
+            status: existingUUID == nil ? .ready : .alreadyExists,
+            existingUUID: existingUUID, chapterOrder: selection.chapterOrder
+        )
+    }
+
     public func createAnnotation(
         assetID: String, text: String,
         chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,

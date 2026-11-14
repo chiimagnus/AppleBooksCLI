@@ -253,6 +253,35 @@ enum CLIOperation {
                 return .writeSafety("Collection mutation failed safely.")
             }
         }
+        if let createError = error as? AnnotationCreateError {
+            switch createError {
+            case .projectionUnavailable:
+                return .unavailableWithReason(
+                    message: "Native annotation creation is unavailable on this Mac.",
+                    reason: .syncUnavailable
+                )
+            case .conflict:
+                return .writeSafety("An annotation at this exact location has different attributes.")
+            case .sourceChanged:
+                return .writeSafety("The book content changed before creating the annotation.")
+            }
+        }
+        if let locationError = error as? EPUBAnnotationLocatorError {
+            switch locationError {
+            case .invalidText, .invalidOccurrence, .noMatch, .ambiguous:
+                return .usageInvalid("Annotation text position is missing or ambiguous. Specify chapter and context.")
+            case .chapterNotFound:
+                return .notFoundWithReason(message: "Book chapter not found.", reason: .chapterNotFound)
+            case .bookNotFound:
+                return .notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            case .unsupportedSource, .fragmentNotFound, .invalidXHTML, .ambiguousVisibility,
+                 .ambiguousSpine, .sourceChanged, .tooComplex:
+                return .unavailableWithReason(
+                    message: "EPUB text cannot be safely located in the current book.",
+                    reason: .contentUnavailable
+                )
+            }
+        }
         if let annotationWriteError = error as? AnnotationWriteError {
             switch annotationWriteError {
             case .invalidNoteLength:

@@ -179,6 +179,38 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func previewIsReadOnlyBeforeAndAfterNativeCreation() throws {
+        let f = try Fixture()
+        defer { f.remove() }
+        let app = try f.facade(annotationWriter: f.writer { _ in })
+        let preview = try app.previewAnnotation(
+            assetID: "synthetic-asset", text: "token", chapterOrder: 1, note: "test note"
+        )
+        #expect(preview.status == .ready)
+        #expect(preview.existingUUID == nil)
+        #expect(preview.chapterOrder == 1)
+        #expect(try f.count() == 0)
+        #expect(try f.backupCount() == 0)
+
+        let created = try app.createAnnotation(
+            assetID: "synthetic-asset", text: "token", chapterOrder: 1, note: "test note"
+        )
+        let after = try app.previewAnnotation(
+            assetID: "synthetic-asset", text: "token", chapterOrder: 1, note: "test note"
+        )
+        #expect(after.status == .alreadyExists)
+        #expect(after.existingUUID == created.stableID)
+        #expect(try f.count() == 1)
+        #expect(try f.backupCount() == 1)
+        #expect(throws: AnnotationCreateError.conflict) {
+            _ = try app.previewAnnotation(
+                assetID: "synthetic-asset", text: "token", chapterOrder: 1, note: "different note"
+            )
+        }
+        #expect(try f.backupCount() == 1)
+    }
+
+    @Test
     func facadeWithoutNativeCreateProjectorNeverCommits() throws {
         let f = try Fixture()
         defer { f.remove() }
@@ -206,6 +238,59 @@ struct AnnotationCreateTests {
         #expect(row["ZANNOTATIONSTYLE"] == "5")
         #expect(row["ZANNOTATIONISUNDERLINE"] == "1")
         #expect(row["ZANNOTATIONNOTE"] == nil)
+        #expect(try f.count() == 1)
+    }
+
+    @Test
+    func repairAfterCommittedProjectionFailureReusesTheSameNativeUUID() throws {
+        let f = try Fixture()
+        defer { f.remove() }
+        var attempts = 0
+        let writer = f.writer { _ in
+            attempts += 1
+            if attempts == 1 { throw AnnotationCloudProjectionError.bridgeRejected(17) }
+        }
+        let created = try f.create(writer: writer, note: "Unsent synthetic note")
+        #expect(created.committed && created.changed)
+        #expect(created.warnings == [.cloudProjectionFailed])
+        let uuid = try #require(created.stableID)
+        let countBefore = try f.count()
+        let backupBefore = try f.backupCount()
+        let app = try f.facade(annotationWriter: writer)
+        let repair = try app.repairAnnotationProjection(uuid: uuid)
+        #expect(repair.verified)
+        #expect(repair.annotationUUID == uuid)
+        #expect(repair.warningCodes.isEmpty)
+        #expect(attempts == 2)
+        #expect(try f.count() == countBefore)
+        #expect(try f.backupCount() == backupBefore)
+        #expect(try app.semanticAnnotation(uuid: uuid)?.note == "Unsent synthetic note")
+    }
+
+    @Test
+    func cloudRepairReprojectsOnlyExistingUUIDAndNeverInserts() throws {
+        let f = try Fixture()
+        defer { f.remove() }
+        var projected: [Int64] = []
+        let writer = f.writer { projected.append($0) }
+        let created = try f.create(writer: writer, note: "Synthetic")
+        let uuid = try #require(created.stableID)
+        let originalBackups = try f.backupCount()
+        let app = try f.facade(annotationWriter: writer)
+        let repaired = try app.repairAnnotationProjection(uuid: uuid)
+        #expect(repaired.verified)
+        #expect(repaired.annotationUUID == uuid)
+        #expect(repaired.warningCodes.isEmpty)
+        #expect(projected == [created.localPK!, created.localPK!])
+        #expect(try f.count() == 1)
+        #expect(try f.backupCount() == originalBackups)
+        #expect(throws: AnnotationWriteError.annotationMissing) {
+            _ = try app.repairAnnotationProjection(uuid: "no-such-uuid")
+        }
+        try f.execute("UPDATE ZAEANNOTATION SET ZANNOTATIONDELETED=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try app.repairAnnotationProjection(uuid: uuid)
+        }
         #expect(try f.count() == 1)
     }
 

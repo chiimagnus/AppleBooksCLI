@@ -71,6 +71,8 @@ struct AnnotationWriter {
     private let cloudProjector: AnnotationCloudProjector?
     private let cloudSynchronizer: AnnotationCloudSynchronizer?
     private let creationProjector: AnnotationCloudProjector?
+    private let annotationsDatabase: URL
+    private let booksApp: BooksAppController
 
     init(
         database: URL,
@@ -90,6 +92,8 @@ struct AnnotationWriter {
         self.cloudProjector = cloudProjector
         self.cloudSynchronizer = cloudSynchronizer
         self.creationProjector = creationProjector
+        annotationsDatabase = database
+        self.booksApp = booksApp
     }
 
 
@@ -99,7 +103,53 @@ struct AnnotationWriter {
         let changed: Bool
     }
 
-    // The production creator remains unavailable until P2-T2 supplies a native create-capable projector.
+    func repairCreationProjection(uuid: String) throws -> AnnotationProjectionRepairResult {
+        guard let creationProjector else { throw AnnotationCreateError.projectionUnavailable }
+        guard PublicStableIdentityPolicy.isEligible(uuid) else { throw AnnotationWriteError.annotationMissing }
+        let connection = try SQLiteConnection.readOnly(path: annotationsDatabase.path)
+        defer { try? connection.close() }
+        let stmt = try connection.prepare("""
+            SELECT Z_PK,ZANNOTATIONTYPE,ZANNOTATIONDELETED FROM ZAEANNOTATION
+            WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
+            """)
+        try stmt.bind(uuid, at: 1)
+        guard try stmt.step() else { throw AnnotationWriteError.annotationMissing }
+        let row = try SQLiteRow(statement: stmt)
+        guard let pk = try row.int64("Z_PK"), pk > 0,
+              try row.int64("ZANNOTATIONTYPE") == 2,
+              try row.int64("ZANNOTATIONDELETED") == 0,
+              try stmt.step() == false else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        let originalState = booksApp.state()
+        try booksApp.terminateAndWait()
+        do {
+            try creationProjector.project(localPK: pk)
+        } catch {
+            try? booksApp.restore(originalState)
+            throw error
+        }
+        var warnings: [String] = []
+        do { try booksApp.restore(originalState) }
+        catch { warnings.append("books_state_restore_failed") }
+        return AnnotationProjectionRepairResult(annotationUUID: uuid, verified: true, warningCodes: warnings)
+    }
+
+    static func previewExistingUUID(
+        assetID: String, selection: EPUBAnnotationSelection,
+        note: String?, color: AnnotationColor, underline: Bool, on handle: OpaquePointer
+    ) throws -> String? {
+        try validateNoteTarget(note)
+        try WriteSchemaGuard.validateTable(
+            .annotations, required: WriteSchemaGuard.annotationKnownColumns, inserting: true, on: handle
+        )
+        _ = try WriteSchemaGuard.entity(named: entityName, on: handle)
+        return try findCreation(
+            assetID: assetID, selection: selection, note: note,
+            color: color, underline: underline, on: handle
+        )?.uuid
+    }
+
     func create(
         assetID: String, selection: EPUBAnnotationSelection, note: String?,
         color: AnnotationColor, underline: Bool = false,

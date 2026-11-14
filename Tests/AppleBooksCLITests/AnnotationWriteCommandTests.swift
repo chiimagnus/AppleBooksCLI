@@ -315,6 +315,264 @@ struct AnnotationWriteCommandTests {
         }
     }
 
+    @Test
+    func createAndPreviewAreReachableAndPreviewNeverEntersHistory() {
+        var out = ""
+        let result = CLIEntrypoint.run(
+            arguments: ["annotations", "--help"],
+            output: CLIOutput(stdout: { out += $0 }, stderr: { _ in })
+        )
+        #expect(result == CLIProcessExit.success.rawValue)
+        #expect(out.contains("preview"))
+        #expect(out.contains("create"))
+    }
+
+    @Test
+    func createHistoryPinsInputBytesAndDoesNotEchoNotes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("annotations.json")
+        let secret = "private synthetic note must not be in operation history"
+        let payload = "{\"annotations\":[{\"text\":\"single token\",\"color\":\"green\",\"note\":\"" + secret + "\"}]}"
+        try Data(payload.utf8).write(to: file)
+        let args = ["--book", "synthetic-book", "--input", file.path]
+        let command = try AnnotationsCreateCommand.parse(args)
+        let history1 = try command.historyRequest()
+        #expect(history1.selector?.bookAssetID == "synthetic-book")
+        #expect(history1.inputDigest?.count == 64)
+        #expect(history1.inputDigest == (try command.historyRequest()).inputDigest)
+        let raw = String(decoding: try JSONEncoder().encode(history1), as: UTF8.self)
+        #expect(raw.contains(secret) == false)
+        #expect(raw.contains(file.path) == false)
+        let changed = Data(#"{"annotations":[{"text":"another token","color":"green","note":"not the same file"}]}"#.utf8)
+        try changed.write(to: file)
+        // The parsed command and history must share the original immutable bytes.
+        #expect(try command.historyRequest().inputDigest == history1.inputDigest)
+        let other = try AnnotationsCreateCommand.parse(args)
+        #expect(try other.historyRequest().inputDigest != history1.inputDigest)
+        #expect(command.historyOperation == "annotations.create")
+        try FileManager.default.removeItem(at: file)
+        #expect(try command.historyRequest().inputDigest == history1.inputDigest)
+    }
+
+    @Test
+    func boundedCreateInputRejectsInvalidSchemaAndSupportsReadOnlySymlinks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("input.json")
+        let link = root.appendingPathComponent("input-link.json")
+        let accepted = #"{"annotations":[{"text":"private synthetic text","chapterOrder":2,"color":"purple","underline":true}]}"#
+        try Data(accepted.utf8).write(to: file)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        let input = try AnnotationCreateInputCache().load(link.path)
+        #expect(input.input.annotations.count == 1)
+        #expect(input.input.annotations[0].nativeColor == .purple)
+        #expect(input.input.annotations[0].isUnderlined == true)
+        #expect(input.digest.count == 64)
+
+        let invalid: [String] = [
+            "", "not-json", #"{"annotations":[]}"#,
+            #"{"annotations":[{"text":"x","rawCFI":"do not accept"}]}"#,
+            #"{"annotations":[{"text":"x","color":"orange"}]}"#,
+            #"{"annotations":[{"text":"x","occurrence":0}]}"#,
+            #"{"annotations":[{"text":"x","note":"   "}]}"#,
+            #"{"annotations":[{"text":1}]}"#,
+            #"{"annotations":[{"text":"x"}],"private":true}"#,
+            #"{"annotations":[{"text":"x","underline":"false"}]}"#,
+        ]
+        for value in invalid {
+            try Data(value.utf8).write(to: file)
+            #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+        }
+        let maximum = "{\"annotations\":["
+            + Array(repeating: "{\"text\":\"sample\"}", count: 500).joined(separator: ",")
+            + "]}"
+        try Data(maximum.utf8).write(to: file)
+        #expect(try AnnotationCreateInputCache().load(file.path).input.annotations.count == 500)
+        let many = "{\"annotations\":["
+            + Array(repeating: "{\"text\":\"sample\"}", count: 501).joined(separator: ",")
+            + "]}"
+        try Data(many.utf8).write(to: file)
+        #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+        let leading = "{\"annotations\":[{\"text\":\"small\",\"prefix\":\""
+        let trailing = "\"}]}"
+        let size = 8 * 1_024 * 1_024
+        let exact = leading + String(repeating: "x", count: size - leading.utf8.count - trailing.utf8.count) + trailing
+        let exactData = Data(exact.utf8)
+        #expect(exactData.count == size)
+        try exactData.write(to: file)
+        #expect(try AnnotationCreateInputCache().load(file.path).input.annotations.count == 1)
+        try Data(repeating: 0x20, count: size + 1).write(to: file)
+        #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+        try Data([0x7B, 0x22, 0x78, 0x22, 0x3A, 0x22, 0xFF, 0x22, 0x7D]).write(to: file)
+        #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+        try Data("{\"annotations\":[{\"text\":\"x\",\"note\":\"".utf8).write(to: file)
+        #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+    }
+
+    @Test
+    func previewAndSingleCreateShareCoreAndPersistOnlyOneSyntheticAnnotation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let epub = root.appendingPathComponent("synthetic.epub")
+        try FileManager.default.createDirectory(
+            at: epub.appendingPathComponent("META-INF"), withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: epub.appendingPathComponent("OPS"), withIntermediateDirectories: true
+        )
+        try Data("""
+            <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+            <rootfiles><rootfile full-path="OPS/content.opf" media-type="application/oebps-package+xml"/>
+            </rootfiles></container>
+            """.utf8).write(to: epub.appendingPathComponent("META-INF/container.xml"))
+        try Data("""
+            <package xmlns="http://www.idpf.org/2007/opf"><metadata/><manifest>
+            <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+            </manifest><spine><itemref idref="chapter"/></spine></package>
+            """.utf8).write(to: epub.appendingPathComponent("OPS/content.opf"))
+        try Data("""
+            <html><head><title>Synthetic</title></head><body><p id="line1">Fresh synthetic test sentence.</p></body></html>
+            """.utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+
+        let library = root.appendingPathComponent("library.sqlite")
+        let annotations = root.appendingPathComponent("annotations.sqlite")
+        func execute(_ database: URL, _ sql: String) throws {
+            var handle: OpaquePointer?
+            guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else {
+                throw CLIError.usageInvalid("Synthetic database setup failed.")
+            }
+            defer { sqlite3_close_v2(handle) }
+            guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+                throw CLIError.usageInvalid("Synthetic database schema setup failed.")
+            }
+        }
+        try execute(library, """
+            CREATE TABLE ZBKLIBRARYASSET(
+              Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER,
+              ZTITLE TEXT,ZAUTHOR TEXT
+            );
+            """)
+        var libraryHandle: OpaquePointer?
+        guard sqlite3_open(library.path, &libraryHandle) == SQLITE_OK, let libraryHandle else {
+            throw CLIError.usageInvalid("Synthetic library unavailable.")
+        }
+        defer { sqlite3_close_v2(libraryHandle) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(libraryHandle,
+              "INSERT INTO ZBKLIBRARYASSET VALUES(1,?,?,1,'Synthetic','Fixture')",
+              -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            throw CLIError.usageInvalid("Synthetic book preparation failed.")
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard bindSQLiteText("synthetic-asset", to: stmt, at: 1) == SQLITE_OK,
+              bindSQLiteText(epub.path, to: stmt, at: 2) == SQLITE_OK,
+              sqlite3_step(stmt) == SQLITE_DONE else {
+            throw CLIError.usageInvalid("Synthetic book creation failed.")
+        }
+        try execute(annotations, """
+            CREATE TABLE Z_PRIMARYKEY(Z_NAME TEXT,Z_ENT INTEGER,Z_MAX INTEGER);
+            INSERT INTO Z_PRIMARYKEY VALUES('AEAnnotation',17,0);
+            CREATE TABLE ZAEANNOTATION(
+              Z_PK INTEGER PRIMARY KEY,Z_ENT INTEGER,Z_OPT INTEGER,ZANNOTATIONDELETED INTEGER,
+              ZANNOTATIONISUNDERLINE INTEGER,ZANNOTATIONSTYLE INTEGER,ZANNOTATIONTYPE INTEGER,
+              ZPLABSOLUTEPHYSICALLOCATION INTEGER,ZPLLOCATIONRANGESTART INTEGER,
+              ZPLLOCATIONRANGEEND INTEGER,ZANNOTATIONCREATIONDATE REAL,
+              ZANNOTATIONMODIFICATIONDATE REAL,ZANNOTATIONASSETID TEXT,
+              ZANNOTATIONCREATORIDENTIFIER TEXT,ZANNOTATIONLOCATION TEXT,
+              ZANNOTATIONNOTE TEXT,ZANNOTATIONREPRESENTATIVETEXT TEXT,
+              ZANNOTATIONSELECTEDTEXT TEXT,ZANNOTATIONUUID TEXT,
+              ZFUTUREPROOFING11 TEXT,ZFUTUREPROOFING6 TEXT
+            );
+            """)
+        let backupRoot = root.appendingPathComponent("backups")
+        var projected: [Int64] = []
+        let writer = AnnotationWriter(
+            database: annotations, backupRoot: backupRoot, booksApp: .detached,
+            creationProjector: AnnotationCloudProjector(projectAction: { projected.append($0) })
+        )
+        let books = try AppleBooks(
+            libraryDB: library, annotationsDB: annotations, configurationFile: nil,
+            collectionWriter: CollectionWriter(database: library, booksApp: .detached),
+            annotationWriter: writer, libraryBackupRoot: backupRoot
+        )
+        let input = root.appendingPathComponent("notes.json")
+        try Data("""
+            {"annotations":[{"text":"synthetic","chapterOrder":1,"color":"green","note":"Synthetic note"}]}
+            """.utf8).write(to: input)
+        let args = ["--book", "synthetic-asset", "--input", input.path]
+        let preview = try AnnotationsPreviewCommand.parse(args)
+        let before = try preview.execute(using: books)
+        #expect(before.complete && before.itemCount == 1)
+        #expect(before.items[0].status == "ready")
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 0)
+        #expect(!FileManager.default.fileExists(atPath: backupRoot.path))
+        let create = try AnnotationsCreateCommand.parse(args)
+        let inputHistory = try create.historyRequest()
+        #expect(inputHistory.inputDigest?.count == 64)
+        try Data("not JSON after the history was prepared".utf8).write(to: input)
+        // Even after a file replacement, dispatch must consume the immutable history snapshot.
+        let sink = OperationHistoryCompletionSink()
+        let created = try create.execute(using: books, historySink: sink)
+        #expect(created.changed)
+        #expect(created.committed)
+        #expect(sink.completion?.result.kind == .mutation)
+        #expect(sink.completion?.inverse.available == true)
+        #expect(projected == [1])
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 1)
+        let after = try preview.execute(using: books)
+        #expect(after.items[0].status == "already_exists")
+        #expect(try create.historyRequest().inputDigest == inputHistory.inputDigest)
+        let createdUUID = try #require(created.annotationUUID)
+        let repair = try AnnotationsRepairSyncCommand.parse([createdUUID])
+        #expect(try repair.historyRequest().selector?.annotationUUID == createdUUID)
+        let repairSink = OperationHistoryCompletionSink()
+        let repaired = try repair.execute(using: books, historySink: repairSink)
+        #expect(repaired.verified)
+        #expect(repaired.annotationUUID == createdUUID)
+        #expect(repairSink.completion?.result.kind == .sync)
+        #expect(repairSink.completion?.result.verified == true)
+        #expect(repairSink.completion?.inverse.available == false)
+        #expect(projected == [1, 1])
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 1)
+        #expect(after.items[0].existingUUID == created.annotationUUID)
+        try Data("""
+            {"annotations":[
+              {"text":"synthetic","chapterOrder":1,"color":"green","note":"Synthetic note"},
+              {"text":"not in this chapter","chapterOrder":1},
+              {"text":"synthetic","chapterOrder":1,"color":"blue","note":"Synthetic note"},
+              {"text":"Fresh","chapterOrder":1},
+              {"text":"e","chapterOrder":1},
+              {"text":"Fresh","occurrence":1}
+            ]}
+            """.utf8).write(to: input)
+        let mixedPreview = try AnnotationsPreviewCommand.parse(args).execute(using: books)
+        #expect(!mixedPreview.complete)
+        #expect(mixedPreview.status == "needs_review")
+        #expect(mixedPreview.itemCount == 6)
+        #expect(mixedPreview.items.map(\.status) == [
+            "already_exists", "missing", "conflict", "ready", "ambiguous", "invalid"
+        ])
+        #expect(mixedPreview.items[4].candidateCount ?? 0 > 1)
+        #expect(mixedPreview.items[4].recoveryHint != nil)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 1)
+        let duplicate = try create.execute(using: books)
+        #expect(!duplicate.changed)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 1)
+        #expect(projected == [1, 1])
+    }
+
+    private func executeScalar(_ database: URL, _ sql: String) throws -> Int64 {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare(sql)
+        guard try statement.step() else { throw CLIError.usageInvalid("Synthetic query failed.") }
+        let handle = try #require(statement.handle)
+        return sqlite3_column_int64(handle, 0)
+    }
+
     private func withInput<T>(_ text: String, _ body: (FileHandle) throws -> T) throws -> T {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try Data(text.utf8).write(to: url)

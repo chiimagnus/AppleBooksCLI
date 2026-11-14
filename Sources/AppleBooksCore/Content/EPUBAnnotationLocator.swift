@@ -11,7 +11,7 @@ struct EPUBAnnotationSelection: Equatable, Sendable {
     let bookIdentity: BookResourceTarget?
 }
 
-enum EPUBAnnotationLocatorError: Error, Equatable {
+public enum EPUBAnnotationLocatorError: Error, Equatable, Sendable {
     case invalidText
     case invalidOccurrence
     case bookNotFound

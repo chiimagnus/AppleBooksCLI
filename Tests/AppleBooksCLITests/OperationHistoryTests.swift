@@ -332,6 +332,47 @@ struct OperationHistoryTests {
     }
 
     @Test
+    func newHighlightHistoryBindsInputDigestAndBlocksChangedFileReplay() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let id = "33333333-3333-4333-8333-333333333333"
+        let store = fixture.store(at: date("2026-09-04T10:00:00Z"))
+        let selector = OperationHistorySelector(bookAssetID: "synthetic-book")
+        let first = OperationHistoryRequest(selector: selector, inputDigest: String(repeating: "a", count: 64))
+        let changed = OperationHistoryRequest(selector: selector, inputDigest: String(repeating: "b", count: 64))
+        guard case let .started(token) = try store.begin(
+            operation: "annotations.create", request: first, operationID: id
+        ) else {
+            throw OperationHistoryStoreError.unavailable
+        }
+        #expect(token.id == id)
+        guard case .replay = try store.begin(
+            operation: "annotations.create", request: first, operationID: id
+        ) else {
+            Issue.record("Same operation ID and digest must block redispatch")
+            return
+        }
+        guard case .conflict = try store.begin(
+            operation: "annotations.create", request: changed, operationID: id
+        ) else {
+            Issue.record("Same operation ID with different bytes must conflict")
+            return
+        }
+        let persisted = try #require(try store.get(id: id))
+        #expect(persisted.status == .incomplete)
+        #expect(persisted.request.inputDigest == first.inputDigest)
+        #expect(persisted.request.selector?.bookAssetID == "synthetic-book")
+        try store.complete(token, exitCode: 0, completion: nil)
+        #expect(try store.get(id: id)?.status == .success)
+        guard case .replay = try store.begin(
+            operation: "annotations.create", request: first, operationID: id
+        ) else {
+            Issue.record("Completed operation ID must still block replay")
+            return
+        }
+    }
+
+    @Test
     func trailingPartialLineIsRecoveredBeforeNextAppend() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

@@ -1,5 +1,21 @@
 import Foundation
 
+public struct AnnotationProjectionRepairResult: Codable, Equatable, Sendable {
+    public let annotationUUID: String
+    public let verified: Bool
+    public let warningCodes: [String]
+}
+
+public struct AnnotationCreationPreview: Equatable, Sendable {
+    public enum Status: String, Codable, Sendable {
+        case ready
+        case alreadyExists = "already_exists"
+    }
+    public let status: Status
+    public let existingUUID: String?
+    public let chapterOrder: Int
+}
+
 public enum SemanticAnnotationSourceKind: String, Equatable, Sendable {
     case currentLibrary
     case historicalInferred

@@ -61,13 +61,15 @@ struct OperationHistoryRequest: Codable, Equatable, Sendable {
     let noteAction: OperationHistoryNoteAction?
     let title: String?
     let syncRequested: Bool?
+    let inputDigest: String?
 
     static let unavailable = Self(
         available: false,
         selector: nil,
         noteAction: nil,
         title: nil,
-        syncRequested: nil
+        syncRequested: nil,
+        inputDigest: nil
     )
 
     init(
@@ -75,13 +77,15 @@ struct OperationHistoryRequest: Codable, Equatable, Sendable {
         selector: OperationHistorySelector? = nil,
         noteAction: OperationHistoryNoteAction? = nil,
         title: String? = nil,
-        syncRequested: Bool? = nil
+        syncRequested: Bool? = nil,
+        inputDigest: String? = nil
     ) {
         self.available = available
         self.selector = selector
         self.noteAction = noteAction
         self.title = title
         self.syncRequested = syncRequested
+        self.inputDigest = inputDigest
     }
 }
 
@@ -255,6 +259,18 @@ extension OperationHistoryCompletion {
                 collectionPendingBefore: nil,
                 annotationPendingBefore: nil,
                 warningCodes: Array(result.warnings.prefix(100).map(\.rawValue))
+            ),
+            inverse: .unavailable
+        )
+    }
+
+    static func repairProjection(_ result: AnnotationProjectionRepairResult) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .sync, committed: nil, changed: nil,
+                acknowledgementRequested: false, acknowledged: nil,
+                verified: result.verified, collectionPendingBefore: nil,
+                annotationPendingBefore: nil, warningCodes: result.warningCodes
             ),
             inverse: .unavailable
         )

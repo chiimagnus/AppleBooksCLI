@@ -742,11 +742,10 @@ package struct ExportFileWriter {
                 guard errno == 0 else { throw ExportFileWriterError.writeFailed }
                 break
             }
-            var rawName = entry.pointee.d_name
-            let rawNameCapacity = MemoryLayout.size(ofValue: rawName)
-            let name = withUnsafePointer(to: &rawName) { pointer in
-                pointer.withMemoryRebound(to: CChar.self, capacity: rawNameCapacity) {
-                    String(cString: $0)
+            let length = Int(entry.pointee.d_namlen)
+            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: length) {
+                    FileManager.default.string(withFileSystemRepresentation: $0, length: length)
                 }
             }
             if name == "." || name == ".." { continue }

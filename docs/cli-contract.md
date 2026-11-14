@@ -68,6 +68,25 @@ plain-text stdout。
 原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
 `annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
 
+多条 `annotations create` 先完成**整批只读预检**，再逐条调用已验证的单条写事务。
+返回 `status=complete / preflight_failed / partial`、`complete`、`itemCount`、
+`createdCount`、`alreadyExistsCount`、`failedCount`、`notAttemptedCount`、
+`changedCount`、`syncRequired` 和按输入顺序排列的 `items`。
+每项只返回 `index`、`created / already_exists / failed / not_attempted`、
+可用的 `annotationUUID`、`warningCodes` 和安全的 `errorCode`；不含正文或 raw CFI。
+**这三种批次业务状态均使用 stdout JSON + 退出码 0**，调用方必须判断 `complete`，
+不能只凭 exit code 视为全部成功。输入文件/权限/历史错误仍走 stderr 和非零退出码。
+`preflight_failed` 保证整批没有写入；`partial` 表示运行过程中停止，
+已提交条目仍返回 `created` 与 UUID。云投影失败后不要重建该条，
+先用 `annotations repair-sync` 修复已有 UUID。
+多条不支持 `create --sync`；只有 `changedCount > 0` 时，
+调用者在解决投影失败后**另外调用一次**根 `applebookscli sync`。
+只有 `changedCount=0` 时 `syncRequired=false`。
+批次历史仅保存 `result.batch.complete / changedCount` 与有界错误摘要，
+不保留整份逐项返回值；批次 `inverse.available=false`。
+出现 `history incomplete` 应按原输入只读 preview/get/list 核销实际已创建的 UUID，
+不能简单改换 operation ID 重放全部条目。
+
 Mutation 结果统一表达 `committed`、`changed`、`acknowledgementRequested`、
 nullable `acknowledged` 与 `warningCodes`，并使用领域 identity：annotation 为 `annotationUUID`
 / fallback `annotationLocalPK`；collection 为 `collectionID` / fallback `collectionLocalPK`；

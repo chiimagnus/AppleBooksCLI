@@ -332,6 +332,38 @@ struct OperationHistoryTests {
     }
 
     @Test
+    func batchOutcomeHistoryPersistsOnlyCountsAndBlocksUnsafeInverse() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store(at: date("2026-09-04T10:00:00Z"))
+        let request = OperationHistoryRequest(
+            selector: OperationHistorySelector(bookAssetID: "synthetic-book"),
+            inputDigest: String(repeating: "f", count: 64)
+        )
+        let token = try store.beginTestHistory(operation: "annotations.create", request: request)
+        let result = AnnotationCreateBatchResult(status: "partial", items: [
+            AnnotationCreateBatchItem(index: 0, status: "created", annotationUUID: "synthetic-uuid-1"),
+            AnnotationCreateBatchItem(index: 1, status: "created", annotationUUID: "synthetic-uuid-2",
+                                      warningCodes: ["cloud_projection_failed"]),
+            AnnotationCreateBatchItem(index: 2, status: "not_attempted"),
+        ])
+        try store.complete(token, exitCode: 0, completion: .batch(result))
+        let record = try #require(try store.get(id: token.id))
+        #expect(record.status == .success)
+        #expect(record.result?.kind == .mutation)
+        #expect(record.result?.batch?.complete == false)
+        #expect(record.result?.batch?.changedCount == 2)
+        #expect(record.result?.changed == true)
+        #expect(record.inverse.available == false)
+        let stored = try Data(contentsOf: fixture.onlyDateFile())
+        let serialized = String(decoding: stored, as: UTF8.self)
+        #expect(!serialized.contains("synthetic-uuid-1"))
+        #expect(!serialized.contains("synthetic-uuid-2"))
+        #expect(!serialized.contains("private synthetic note body"))
+        #expect(serialized.contains("cloud_projection_failed"))
+    }
+
+    @Test
     func newHighlightHistoryBindsInputDigestAndBlocksChangedFileReplay() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

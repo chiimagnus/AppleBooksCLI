@@ -179,6 +179,35 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func batchPreflightDetectsSameRangeConflictsBeforeAnyWrite() throws {
+        let f = try Fixture()
+        defer { f.remove() }
+        let app = try f.facade(annotationWriter: f.writer { _ in })
+        let checks = try app.previewAnnotationBatch(assetID: "synthetic-asset", requests: [
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, note: "same", color: .green),
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, note: "same", color: .green),
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, note: "different", color: .green),
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, note: "same", color: .green),
+            AnnotationCreationRequest(text: "absent", chapterOrder: 1),
+            AnnotationCreationRequest(text: "synthetic", occurrence: 1),
+        ])
+        #expect(checks.count == 6)
+        for index in 0..<4 {
+            #expect(throws: AnnotationCreateError.conflict) { _ = try checks[index].get() }
+        }
+        #expect(throws: EPUBAnnotationLocatorError.noMatch) { _ = try checks[4].get() }
+        #expect(throws: EPUBAnnotationLocatorError.invalidOccurrence) { _ = try checks[5].get() }
+        #expect(try f.count() == 0)
+        #expect(try f.backupCount() == 0)
+        let identical = try app.previewAnnotationBatch(assetID: "synthetic-asset", requests: [
+            AnnotationCreationRequest(text: "token", chapterOrder: 1),
+            AnnotationCreationRequest(text: "token", chapterOrder: 1),
+        ])
+        #expect(try identical[0].get().status == .ready)
+        #expect(try identical[1].get().status == .ready)
+    }
+
+    @Test
     func previewIsReadOnlyBeforeAndAfterNativeCreation() throws {
         let f = try Fixture()
         defer { f.remove() }

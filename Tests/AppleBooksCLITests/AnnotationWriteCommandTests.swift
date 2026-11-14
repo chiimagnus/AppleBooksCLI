@@ -433,9 +433,16 @@ struct AnnotationWriteCommandTests {
             <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
             </manifest><spine><itemref idref="chapter"/></spine></package>
             """.utf8).write(to: epub.appendingPathComponent("OPS/content.opf"))
-        try Data("""
-            <html><head><title>Synthetic</title></head><body><p id="line1">Fresh synthetic test sentence.</p></body></html>
-            """.utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+        let batchParagraphs = (1...505).map { index in
+            "<p id=\"batch\(index)\">Tagged batch marker TAG\(String(format: "%04d", index)) complete.</p>"
+        }.joined()
+        let xhtml = """
+            <html><head><title>Synthetic</title></head><body>
+            <p id="line1">Fresh synthetic test sentence.</p>
+            \(batchParagraphs)
+            </body></html>
+            """
+        try Data(xhtml.utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
 
         let library = root.appendingPathComponent("library.sqlite")
         let annotations = root.appendingPathComponent("annotations.sqlite")
@@ -489,9 +496,20 @@ struct AnnotationWriteCommandTests {
             """)
         let backupRoot = root.appendingPathComponent("backups")
         var projected: [Int64] = []
+        var rejectProjectionForPK: Int64?
+        var replaceChapterAfterPK: Int64?
         let writer = AnnotationWriter(
             database: annotations, backupRoot: backupRoot, booksApp: .detached,
-            creationProjector: AnnotationCloudProjector(projectAction: { projected.append($0) })
+            creationProjector: AnnotationCloudProjector(projectAction: { localPK in
+                projected.append(localPK)
+                if localPK == rejectProjectionForPK {
+                    throw AnnotationCloudProjectionError.bridgeRejected(17)
+                }
+                if localPK == replaceChapterAfterPK {
+                    try Data("<html><head/><body><p>Content was replaced.</p></body></html>".utf8)
+                        .write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+                }
+            })
         )
         let books = try AppleBooks(
             libraryDB: library, annotationsDB: annotations, configurationFile: nil,
@@ -562,6 +580,142 @@ struct AnnotationWriteCommandTests {
         #expect(!duplicate.changed)
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 1)
         #expect(projected == [1, 1])
+
+        func tagged(_ number: Int, color: String = "yellow") -> [String: Any] {
+            ["text": String(format: "TAG%04d", number), "chapterOrder": 1, "color": color]
+        }
+
+        func batch(_ entries: [[String: Any]]) throws -> (AnnotationCreateBatchResult, OperationHistoryCompletionSink) {
+            let payload = try JSONSerialization.data(
+                withJSONObject: ["annotations": entries], options: [.sortedKeys]
+            )
+            try payload.write(to: input)
+            let command = try AnnotationsCreateCommand.parse(args)
+            let sink = OperationHistoryCompletionSink()
+            let result = try command.executeBatch(using: books, historySink: sink)
+            return (result, sink)
+        }
+
+        let sourceCount = try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION")
+        let semanticFailure = try batch([tagged(1), ["text": "not present", "chapterOrder": 1]])
+        #expect(semanticFailure.0.status == "preflight_failed")
+        #expect(!semanticFailure.0.complete)
+        #expect(semanticFailure.0.items.map(\.status) == ["not_attempted", "failed"])
+        #expect(semanticFailure.0.items[1].errorCode == "missing")
+        #expect(semanticFailure.1.completion?.result.batch?.complete == false)
+        #expect(semanticFailure.1.completion?.result.batch?.changedCount == 0)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == sourceCount)
+
+        let collision = try batch([tagged(1, color: "green"), tagged(1, color: "blue")])
+        #expect(collision.0.status == "preflight_failed")
+        #expect(collision.0.failedCount == 2)
+        #expect(collision.0.items.allSatisfy { $0.errorCode == "conflict" })
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == sourceCount)
+
+        let duplicateBatch = try batch([tagged(1), tagged(1)])
+        #expect(duplicateBatch.0.complete)
+        #expect(duplicateBatch.0.createdCount == 1)
+        #expect(duplicateBatch.0.alreadyExistsCount == 1)
+        #expect(duplicateBatch.0.syncRequired)
+        #expect(duplicateBatch.0.items.map(\.status) == ["created", "already_exists"])
+        #expect(duplicateBatch.0.items[0].annotationUUID == duplicateBatch.0.items[1].annotationUUID)
+        #expect(duplicateBatch.1.completion?.result.batch?.changedCount == 1)
+        #expect(duplicateBatch.1.completion?.inverse.available == false)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 2)
+
+        let unchanged = try batch([tagged(1), tagged(1)])
+        #expect(unchanged.0.complete)
+        #expect(unchanged.0.changedCount == 0)
+        #expect(!unchanged.0.syncRequired)
+        #expect(unchanged.0.alreadyExistsCount == 2)
+        #expect(projected.last == 2)
+
+        rejectProjectionForPK = 4
+        let interrupted = try batch([tagged(2), tagged(3), tagged(4)])
+        #expect(interrupted.0.status == "partial")
+        #expect(!interrupted.0.complete)
+        #expect(interrupted.0.changedCount == 2)
+        #expect(interrupted.0.notAttemptedCount == 1)
+        #expect(interrupted.0.items.map(\.status) == ["created", "created", "not_attempted"])
+        #expect(interrupted.0.items[1].warningCodes.contains(MutationWarning.cloudProjectionFailed.rawValue))
+        #expect(interrupted.1.completion?.result.batch?.complete == false)
+        #expect(interrupted.1.completion?.result.batch?.changedCount == 2)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 4)
+        rejectProjectionForPK = nil
+
+        let unsyncedUUID = try #require(interrupted.0.items[1].annotationUUID)
+        let repairedBatchEntry = try AnnotationsRepairSyncCommand.parse([unsyncedUUID])
+            .execute(using: books)
+        #expect(repairedBatchEntry.verified)
+        #expect(repairedBatchEntry.annotationUUID == unsyncedUUID)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 4)
+        let resumed = try batch([tagged(2), tagged(3), tagged(4)])
+        #expect(resumed.0.complete)
+        #expect(resumed.0.changedCount == 1)
+        #expect(resumed.0.items.map(\.status) == ["already_exists", "already_exists", "created"])
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 5)
+
+        try execute(annotations, """
+            CREATE TRIGGER reject_pk_six BEFORE INSERT ON ZAEANNOTATION
+            WHEN NEW.Z_PK=6 BEGIN SELECT RAISE(ABORT, 'synthetic transient failure'); END;
+            """)
+        let rollback = try batch([tagged(5), tagged(6), tagged(7)])
+        #expect(rollback.0.status == "partial")
+        #expect(rollback.0.failedCount == 1)
+        #expect(rollback.0.changedCount == 0)
+        #expect(rollback.0.items.map(\.status) == ["failed", "not_attempted", "not_attempted"])
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 5)
+        #expect(try executeScalar(annotations, "SELECT Z_MAX FROM Z_PRIMARYKEY") == 5)
+        try execute(annotations, "DROP TRIGGER reject_pk_six")
+        let recovered = try batch([tagged(5), tagged(6), tagged(7)])
+        #expect(recovered.0.complete && recovered.0.createdCount == 3)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 8)
+
+        let firstTwenty = try batch((1...20).map { tagged($0) })
+        #expect(firstTwenty.0.complete && firstTwenty.0.createdCount == 13)
+        #expect(firstTwenty.0.alreadyExistsCount == 7)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 21)
+        let firstHundred = try batch((1...100).map { tagged($0) })
+        #expect(firstHundred.0.complete && firstHundred.0.createdCount == 80)
+        #expect(firstHundred.0.alreadyExistsCount == 20)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 101)
+        let beganAt = Date()
+        let maximumBatch = try batch((1...500).map { tagged($0) })
+        let elapsed = Date().timeIntervalSince(beganAt)
+        print(String(format: "Synthetic 500-entry creation: %.2fs (single-transaction-per-entry)", elapsed))
+        #expect(maximumBatch.0.complete)
+        #expect(maximumBatch.0.status == "complete")
+        #expect(maximumBatch.0.itemCount == 500)
+        #expect(maximumBatch.0.createdCount == 400)
+        #expect(maximumBatch.0.alreadyExistsCount == 100)
+        #expect(maximumBatch.0.failedCount == 0)
+        #expect(maximumBatch.0.notAttemptedCount == 0)
+        #expect(maximumBatch.0.syncRequired)
+        #expect(maximumBatch.1.completion?.result.batch?.complete == true)
+        #expect(maximumBatch.1.completion?.result.batch?.changedCount == 400)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 501)
+        #expect(try executeScalar(annotations, "SELECT COUNT(DISTINCT ZANNOTATIONUUID) FROM ZAEANNOTATION") == 501)
+        #expect(try executeScalar(annotations, "SELECT Z_MAX FROM Z_PRIMARYKEY") == 501)
+        let json = try JSONEncoder().encode(maximumBatch.0)
+        #expect(json.count < 200_000)
+        #expect(!String(decoding: json, as: UTF8.self).contains("Tagged batch marker"))
+        let illegalSync = try AnnotationsCreateCommand.parse(args + ["--sync"])
+        #expect(throws: CLIError.self) { _ = try illegalSync.historyRequest() }
+        #expect(throws: CLIError.self) { _ = try illegalSync.executeBatch(using: books) }
+
+        replaceChapterAfterPK = 502
+        let sourceDrift = try batch([tagged(501), tagged(502)])
+        #expect(sourceDrift.0.status == "partial")
+        #expect(sourceDrift.0.items.map(\.status) == ["created", "failed"])
+        #expect(sourceDrift.0.items[1].errorCode == "content_changed")
+        #expect(sourceDrift.0.changedCount == 1)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 502)
+        replaceChapterAfterPK = nil
+        try Data(xhtml.utf8).write(to: epub.appendingPathComponent("OPS/chapter.xhtml"))
+        let sourceRecovered = try batch([tagged(501), tagged(502)])
+        #expect(sourceRecovered.0.complete)
+        #expect(sourceRecovered.0.items.map(\.status) == ["already_exists", "created"])
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
     }
 
     private func executeScalar(_ database: URL, _ sql: String) throws -> Int64 {

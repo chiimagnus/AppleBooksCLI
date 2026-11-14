@@ -6,6 +6,33 @@ public struct AnnotationProjectionRepairResult: Codable, Equatable, Sendable {
     public let warningCodes: [String]
 }
 
+public struct AnnotationCreationRequest: Sendable {
+    public let text: String
+    public let chapterOrder: Int?
+    public let prefix: String?
+    public let suffix: String?
+    public let occurrence: Int?
+    public let note: String?
+    public let color: AnnotationColor
+    public let underline: Bool
+
+    public init(
+        text: String, chapterOrder: Int? = nil,
+        prefix: String? = nil, suffix: String? = nil,
+        occurrence: Int? = nil, note: String? = nil,
+        color: AnnotationColor = .yellow, underline: Bool = false
+    ) {
+        self.text = text
+        self.chapterOrder = chapterOrder
+        self.prefix = prefix
+        self.suffix = suffix
+        self.occurrence = occurrence
+        self.note = note
+        self.color = color
+        self.underline = underline
+    }
+}
+
 public struct AnnotationCreationPreview: Equatable, Sendable {
     public enum Status: String, Codable, Sendable {
         case ready

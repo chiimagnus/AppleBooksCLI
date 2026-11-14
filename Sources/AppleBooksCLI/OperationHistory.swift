@@ -89,6 +89,11 @@ struct OperationHistoryRequest: Codable, Equatable, Sendable {
     }
 }
 
+struct OperationHistoryBatchOutcome: Codable, Equatable, Sendable {
+    let complete: Bool
+    let changedCount: Int
+}
+
 struct OperationHistoryResult: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Equatable, Sendable {
         case mutation
@@ -106,6 +111,7 @@ struct OperationHistoryResult: Codable, Equatable, Sendable {
     let collectionPendingBefore: Int?
     let annotationPendingBefore: Int?
     let warningCodes: [String]
+    var batch: OperationHistoryBatchOutcome? = nil
 
     static let unavailable = Self(
         kind: .unavailable,
@@ -129,7 +135,7 @@ struct OperationHistoryResult: Codable, Equatable, Sendable {
             verified: verified,
             collectionPendingBefore: collectionPendingBefore,
             annotationPendingBefore: annotationPendingBefore,
-            warningCodes: []
+            warningCodes: [], batch: batch
         )
     }
 }
@@ -259,6 +265,22 @@ extension OperationHistoryCompletion {
                 collectionPendingBefore: nil,
                 annotationPendingBefore: nil,
                 warningCodes: Array(result.warnings.prefix(100).map(\.rawValue))
+            ),
+            inverse: .unavailable
+        )
+    }
+
+    static func batch(_ result: AnnotationCreateBatchResult) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .mutation, committed: result.changedCount > 0,
+                changed: result.changedCount > 0, acknowledgementRequested: false,
+                acknowledged: nil, verified: nil,
+                collectionPendingBefore: nil, annotationPendingBefore: nil,
+                warningCodes: Array(Set(result.items.flatMap(\.warningCodes))).sorted(),
+                batch: OperationHistoryBatchOutcome(
+                    complete: result.complete, changedCount: result.changedCount
+                )
             ),
             inverse: .unavailable
         )

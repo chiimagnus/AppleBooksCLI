@@ -53,6 +53,9 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
   没有可用的原生创建投影器时必须在 COMMIT 前拒绝；同选区同属性 no-op，冲突拒绝覆盖。
   不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
   `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。
+  批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序执行单条事务；
+  同批相同选区且属性相同的后续条目 no-op，冲突在第一条写入前拒绝。
+  运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
 - collection：只允许 editable user collection 的 create/rename/soft-delete/membership mutation；
   system collection fail closed。
 - local PK 仅作显式本机 selector；stable UUID/collection ID/book asset ID 优先。

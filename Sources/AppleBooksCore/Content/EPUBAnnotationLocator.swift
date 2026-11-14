@@ -28,8 +28,15 @@ public enum EPUBAnnotationLocatorError: Error, Equatable, Sendable {
 }
 
 struct EPUBAnnotationLocator {
+    private final class Cache {
+        var chapters: [Chapter]?
+        var spineByResource: [String: [Int]]?
+        var documents: [String: (generation: CursorGenerationComponent, document: EPUBAnnotationDocument)] = [:]
+    }
+
     let content: BookContent
     let bookIdentity: BookResourceTarget?
+    private let cache = Cache()
 
     init(content: BookContent) {
         self.content = content
@@ -66,7 +73,13 @@ struct EPUBAnnotationLocator {
         if let occurrence, (chapterOrder == nil || occurrence < 1) {
             throw EPUBAnnotationLocatorError.invalidOccurrence
         }
-        let chapters = try content.listChapters()
+        let chapters: [Chapter]
+        if let existing = cache.chapters {
+            chapters = existing
+        } else {
+            chapters = try content.listChapters()
+            cache.chapters = chapters
+        }
         let selected: [Chapter]
         if let chapterOrder {
             guard let chapter = chapters.first(where: { $0.order == chapterOrder }) else {
@@ -80,14 +93,20 @@ struct EPUBAnnotationLocator {
         var relaxed: [EPUBAnnotationSelection] = []
         var seenExact = Set<String>()
         var seenRelaxed = Set<String>()
-        var spineByResource: [String: [Int]] = [:]
-        for index in content.package.spine.indices {
-            let item = content.package.spine[index]
-            if let href = content.package.manifest[item.idref]?.path.relativePath {
-                spineByResource[href, default: []].append(index)
+        let spineByResource: [String: [Int]]
+        if let existing = cache.spineByResource {
+            spineByResource = existing
+        } else {
+            var indexed: [String: [Int]] = [:]
+            for index in content.package.spine.indices {
+                let item = content.package.spine[index]
+                if let href = content.package.manifest[item.idref]?.path.relativePath {
+                    indexed[href, default: []].append(index)
+                }
             }
+            cache.spineByResource = indexed
+            spineByResource = indexed
         }
-        var cached: (href: String, generation: CursorGenerationComponent, document: EPUBAnnotationDocument)?
         for chapter in selected {
             let spineIndices = spineByResource[chapter.href] ?? []
             guard spineIndices.count == 1, let spineIndex = spineIndices.first else {
@@ -96,8 +115,7 @@ struct EPUBAnnotationLocator {
             let spineCFI = try cfiPrefix(spineIndex: spineIndex)
             let generation = try content.chapterCursorGenerationComponent(for: chapter)
             let document: EPUBAnnotationDocument
-            if let cached, cached.href == chapter.href {
-                guard cached.generation == generation else { throw EPUBAnnotationLocatorError.sourceChanged }
+            if let cached = cache.documents[chapter.href], cached.generation == generation {
                 document = cached.document
             } else {
                 let resource = try content.readChapterBytes(chapter)
@@ -106,7 +124,10 @@ struct EPUBAnnotationLocator {
                 document = selectors.isEmpty
                     ? initial
                     : try EPUBAnnotationDocument.parse(resource, hiddenSelectors: selectors)
-                cached = (chapter.href, generation, document)
+                // External stylesheets may change independently; avoid caching that visibility judgment.
+                if initial.stylesheetLinks.isEmpty && cache.documents.count < 8 {
+                    cache.documents[chapter.href] = (generation, document)
+                }
             }
             let fragments = Set(chapters.filter { $0.href == chapter.href && $0.fragment.isEmpty == false }.map(\.fragment))
             let leaves = try document.leaves(from: chapter.fragment, otherFragments: fragments)

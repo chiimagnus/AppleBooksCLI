@@ -19,6 +19,12 @@ struct AnnotationCreateInput: Decodable {
             AnnotationColorArgument(rawValue: color ?? "yellow")!.queryValue
         }
         var isUnderlined: Bool { underline ?? false }
+        var creationRequest: AnnotationCreationRequest {
+            AnnotationCreationRequest(
+                text: text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix,
+                occurrence: occurrence, note: note, color: nativeColor, underline: isUnderlined
+            )
+        }
     }
 
     let annotations: [Entry]
@@ -161,6 +167,61 @@ struct AnnotationCreatePreviewResult: Encodable {
     let items: [AnnotationCreatePreviewEntry]
 }
 
+struct AnnotationCreateBatchItem: Encodable {
+    let index: Int
+    let status: String
+    let annotationUUID: String?
+    let warningCodes: [String]
+    let errorCode: String?
+
+    init(index: Int, status: String, annotationUUID: String? = nil,
+         warningCodes: [String] = [], errorCode: String? = nil) {
+        self.index = index
+        self.status = status
+        self.annotationUUID = annotationUUID
+        self.warningCodes = warningCodes
+        self.errorCode = errorCode
+    }
+}
+
+struct AnnotationCreateBatchResult: Encodable {
+    let status: String
+    let complete: Bool
+    let itemCount: Int
+    let createdCount: Int
+    let alreadyExistsCount: Int
+    let failedCount: Int
+    let notAttemptedCount: Int
+    let changedCount: Int
+    let syncRequired: Bool
+    let items: [AnnotationCreateBatchItem]
+
+    init(status: String, items: [AnnotationCreateBatchItem]) {
+        self.status = status
+        complete = status == "complete"
+        itemCount = items.count
+        createdCount = items.filter { $0.status == "created" }.count
+        alreadyExistsCount = items.filter { $0.status == "already_exists" }.count
+        failedCount = items.filter { $0.status == "failed" }.count
+        notAttemptedCount = items.filter { $0.status == "not_attempted" }.count
+        changedCount = createdCount
+        syncRequired = createdCount > 0
+        self.items = items
+    }
+}
+
+enum AnnotationCreateCommandOutput: Encodable {
+    case single(AnnotationMutationCommandResult)
+    case batch(AnnotationCreateBatchResult)
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case let .single(result): try result.encode(to: encoder)
+        case let .batch(result): try result.encode(to: encoder)
+        }
+    }
+}
+
 struct AnnotationsRepairSyncCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "repair-sync",
@@ -220,16 +281,14 @@ struct AnnotationsPreviewCommand: ParsableCommand, CLIOutputRunnable {
                 dependencies: [.libraryRead, .annotationsRead, .configuration]
             )
             let assetID = try annotationCreateBookID(book: book, bookPK: bookPK, books: books)
-            let values = try snapshot.input.annotations.enumerated().map { index, record in
-                do {
-                    let preview = try books.previewAnnotation(
-                        assetID: assetID, text: record.text,
-                        chapterOrder: record.chapterOrder, prefix: record.prefix,
-                        suffix: record.suffix, occurrence: record.occurrence,
-                        note: record.note, color: record.nativeColor, underline: record.isUnderlined
-                    )
+            let checks = try books.previewAnnotationBatch(
+                assetID: assetID, requests: snapshot.input.annotations.map(\.creationRequest)
+            )
+            let values = try checks.enumerated().map { index, check in
+                switch check {
+                case let .success(preview):
                     return AnnotationCreatePreviewEntry(index: index, preview: preview)
-                } catch {
+                case let .failure(error):
                     return try AnnotationCreatePreviewEntry(index: index, error: error)
                 }
             }
@@ -245,7 +304,7 @@ struct AnnotationsPreviewCommand: ParsableCommand, CLIOutputRunnable {
 struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "create",
-        abstract: "Create one native EPUB highlight from a validated JSON input."
+        abstract: "Create native EPUB highlights from a validated JSON input."
     )
     @Option(name: .long, help: "Exact Apple Books book asset ID.") var book: String?
     @Option(name: .customLong("book-pk"), help: "Explicit local book primary key.") var bookPK: Int64?
@@ -259,8 +318,8 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
     func historyRequest() throws -> OperationHistoryRequest {
         let selector = try parseBookSelector(assetID: book, localPK: bookPK)
         let snapshot = try cache.load(input)
-        guard snapshot.input.annotations.count == 1 else {
-            throw CLIError.usageInvalid("Create currently requires exactly one annotation entry.")
+        if snapshot.input.annotations.count > 1 && sync {
+            throw CLIError.usageInvalid("Batch creation must use a separate root sync after the batch.")
         }
         return OperationHistoryRequest(
             selector: selector.addingHistoryIdentity(to: OperationHistorySelector()),
@@ -268,10 +327,22 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
         )
     }
     mutating func run() throws { try run(output: .standard) }
-    func run(output: CLIOutput) throws { try output.writeJSON(try execute()) }
+    func run(output: CLIOutput) throws { try output.writeJSON(try executeRequest()) }
     func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
-        try output.writeJSON(try execute(historySink: sink))
+        try output.writeJSON(try executeRequest(historySink: sink))
     }
+
+    func executeRequest(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationCreateCommandOutput {
+        let snapshot = try cache.load(input)
+        if snapshot.input.annotations.count > 1 {
+            return .batch(try executeBatch(using: injectedBooks, historySink: historySink))
+        }
+        return .single(try execute(using: injectedBooks, historySink: historySink))
+    }
+
     func execute(
         using injectedBooks: AppleBooks? = nil,
         historySink: OperationHistoryCompletionSink? = nil
@@ -298,6 +369,92 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
             let selector: AnnotationSelector = result.stableID.map(AnnotationSelector.uuid)
                 ?? .localPK(result.localPK ?? 0)
             return AnnotationMutationCommandResult(result, selector: selector)
+        }
+    }
+
+    func executeBatch(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationCreateBatchResult {
+        let snapshot = try cache.load(input)
+        guard snapshot.input.annotations.count > 1 else {
+            throw CLIError.usageInvalid("Batch creation requires multiple entries.")
+        }
+        guard !sync else {
+            throw CLIError.usageInvalid("Batch creation must use a separate root sync after the batch.")
+        }
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(
+                dependencies: [.libraryRead, .annotationsRead, .configuration, .annotationWrite]
+            )
+            let assetID = try annotationCreateBookID(book: book, bookPK: bookPK, books: books)
+            let checks = try books.previewAnnotationBatch(
+                assetID: assetID, requests: snapshot.input.annotations.map(\.creationRequest)
+            )
+            let preview = try checks.enumerated().map { index, check in
+                switch check {
+                case let .success(value): return AnnotationCreatePreviewEntry(index: index, preview: value)
+                case let .failure(error): return try AnnotationCreatePreviewEntry(index: index, error: error)
+                }
+            }
+            guard preview.allSatisfy({ $0.status == "ready" || $0.status == "already_exists" }) else {
+                let items = preview.map { item in
+                    if item.status == "ready" || item.status == "already_exists" {
+                        return AnnotationCreateBatchItem(index: item.index, status: "not_attempted")
+                    }
+                    return AnnotationCreateBatchItem(
+                        index: item.index, status: "failed", errorCode: item.status
+                    )
+                }
+                let result = AnnotationCreateBatchResult(status: "preflight_failed", items: items)
+                historySink?.record(.batch(result))
+                return result
+            }
+
+            var items: [AnnotationCreateBatchItem] = []
+            var stopped = false
+            for (index, record) in snapshot.input.annotations.enumerated() {
+                if stopped {
+                    items.append(AnnotationCreateBatchItem(index: index, status: "not_attempted"))
+                    continue
+                }
+                do {
+                    let mutation = try books.createAnnotation(
+                        assetID: assetID, text: record.text,
+                        chapterOrder: record.chapterOrder, prefix: record.prefix,
+                        suffix: record.suffix, occurrence: record.occurrence,
+                        note: record.note, color: record.nativeColor,
+                        underline: record.isUnderlined
+                    )
+                    items.append(AnnotationCreateBatchItem(
+                        index: index,
+                        status: mutation.changed ? "created" : "already_exists",
+                        annotationUUID: mutation.stableID,
+                        warningCodes: mutation.warnings.map(\.rawValue)
+                    ))
+                    if mutation.warnings.contains(.cloudProjectionFailed) {
+                        stopped = true
+                    }
+                } catch {
+                    let reason: String
+                    if let creation = error as? AnnotationCreateError {
+                        reason = creation == .conflict ? "conflict" : "source_changed"
+                    } else if error is EPUBAnnotationLocatorError {
+                        reason = "content_changed"
+                    } else {
+                        reason = "mutation_failed"
+                    }
+                    items.append(AnnotationCreateBatchItem(
+                        index: index, status: "failed", errorCode: reason
+                    ))
+                    stopped = true
+                }
+            }
+            let result = AnnotationCreateBatchResult(
+                status: stopped ? "partial" : "complete", items: items
+            )
+            historySink?.record(.batch(result))
+            return result
         }
     }
 }

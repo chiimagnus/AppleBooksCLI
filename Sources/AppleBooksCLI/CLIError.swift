@@ -243,7 +243,7 @@ enum CLIOperation {
             switch createError {
             case .projectionUnavailable:
                 return .unavailableWithReason(
-                    message: "Native annotation creation is unavailable on this Mac.",
+                    message: "Native annotation cloud projection is unavailable on this Mac.",
                     reason: .syncUnavailable
                 )
             case .applicationVersionUnavailable:
@@ -277,6 +277,8 @@ enum CLIOperation {
             switch annotationWriteError {
             case .invalidNoteLength:
                 return .usageInvalid("Annotation note length is invalid.")
+            case .invalidCreationDate:
+                return .usageInvalid("Creation time must be valid and no later than the annotation modification time.")
             case .annotationMissing:
                 return .notFoundWithReason(message: "Annotation not found.", reason: .annotationNotFound)
             case .annotationRestoreUnavailable:

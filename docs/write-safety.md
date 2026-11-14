@@ -50,6 +50,10 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 
 - annotation：支持已有 user annotation 的 note replacement/clear、soft-delete 和 tombstone restore；
   新建 EPUB 高亮只能通过当前书籍的精确原文定位、受控 INSERT、读回和原生云端新对象创建。
+  可选 `createdAt` 只在首次创建时设定原始创建时间（包含来源平台的历史日期），
+  修改时间仍使用实际创建时刻，且同步写入 CoreData 时间字段及 Apple 原生云对象；
+  时间缺失时沿用当前时间，日期非法或未来时间必须在备份/写入前拒绝。
+  同一选区、颜色、笔记重复导入不隐式回填或覆盖已有批注的时间。
   CLI 可为从未有批注的 EPUB 创建原生云父对象，但执行文件必须携带自身
   `CFBundleShortVersionString`。标准 Debug 构建在 Mach-O 中嵌入 `dev`，正式发布从 Git tag 嵌入版本；
   无版本信息时在本地 COMMIT 前返回 `application_version_unavailable`。
@@ -64,6 +68,12 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
   包括预检为 `already_exists` 的条目也要重新核对源正文，重复项只读 no-op，
   冲突在第一条写入前拒绝。
   运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
+  `annotations set-created-at` 按现有 UUID 回填原始创建时间，只允许已存在的正常 user highlight（type 2）；
+  校验日期、唯一身份、CoreData entity 和当前行的时间版本，不更改 CFI、正文、笔记或 UUID。
+  已匹配的时间静默 no-op；需要变更时复用备份、事务、读回和原生云投影。
+  原生云端对未前进的修改时间会丢弃创建时间更新，因此必须把修改时间推进到本次修复时间，
+  同步更新本地两组时间元数据；云投影必须读回原生 proto 验证实际创建和修改时间。
+  如已提交但云投影失败，禁止盲目重放；先按 UUID 核对当前本地和原生云端状态。
 - collection：只允许 editable user collection 的 create/rename/soft-delete/membership mutation；
   system collection fail closed。
 - local PK 仅作显式本机 selector；stable UUID/collection ID/book asset ID 优先。

@@ -993,11 +993,12 @@ public final class AppleBooks {
         let locator = try EPUBAnnotationLocator(
             assetID: assetID, bookQueries: queries, configuration: configuration
         )
-        typealias Position = (indices: [Int], note: String?, color: Int64, underline: Bool, conflicted: Bool)
+        typealias Position = (indices: [Int], note: String?, color: Int64, underline: Bool, createdAt: Date?, conflicted: Bool)
         var positions: [String: Position] = [:]
         var checks: [Result<AnnotationCreationPreview, Error>] = []
         for (index, request) in requests.enumerated() {
             do {
+                _ = try AnnotationWriter.validatedCreationTimestamp(request.createdAt)
                 let selection = try locator.locate(
                     request.text, chapterOrder: request.chapterOrder,
                     prefix: request.prefix, suffix: request.suffix, occurrence: request.occurrence
@@ -1012,7 +1013,8 @@ public final class AppleBooks {
                 )))
                 if var prior = positions[selection.cfi] {
                     if prior.conflicted || prior.note != request.note ||
-                        prior.color != request.color.rawValue || prior.underline != request.underline {
+                        prior.color != request.color.rawValue || prior.underline != request.underline ||
+                        prior.createdAt != request.createdAt {
                         for priorIndex in prior.indices {
                             checks[priorIndex] = .failure(AnnotationCreateError.conflict)
                         }
@@ -1024,7 +1026,8 @@ public final class AppleBooks {
                 } else {
                     positions[selection.cfi] = (
                         indices: [index], note: request.note,
-                        color: request.color.rawValue, underline: request.underline, conflicted: false
+                        color: request.color.rawValue, underline: request.underline,
+                        createdAt: request.createdAt, conflicted: false
                     )
                 }
             } catch {
@@ -1039,7 +1042,7 @@ public final class AppleBooks {
         chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,
         occurrence: Int? = nil, note: String? = nil,
         color: AnnotationColor = .yellow, underline: Bool = false,
-        syncCloud: Bool = false
+        createdAt: Date? = nil, syncCloud: Bool = false
     ) throws -> MutationResult {
         let writer = try requiredAnnotationWriter()
         let queries = try requiredBookQueries()
@@ -1051,8 +1054,13 @@ public final class AppleBooks {
         }
         return try writer.create(
             assetID: assetID, selection: locate(), note: note,
-            color: color, underline: underline, verifySource: locate, syncCloud: syncCloud
+            color: color, underline: underline, createdAt: createdAt,
+            verifySource: locate, syncCloud: syncCloud
         )
+    }
+
+    public func setAnnotationCreatedAt(uuid: String, date: Date, syncCloud: Bool = false) throws -> MutationResult {
+        try requiredAnnotationWriter().setCreatedAt(uuid: uuid, date: date, syncCloud: syncCloud)
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String?, syncCloud: Bool = false) throws -> MutationResult {

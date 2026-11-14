@@ -33,6 +33,7 @@ metadata:
 | 查询/详情/上下文批注 | `annotations list`、`annotations get`、`annotations context` |
 | 设置/清空/删除/恢复批注 | `annotations update-note`、`annotations delete`、`annotations restore` |
 | 创建 EPUB 划线与笔记；修复云投影 | `annotations preview` → `annotations create`；已提交 UUID 使用 `annotations repair-sync` |
+| 回填已有原生高亮的创建时间 | `annotations set-created-at <uuid> --created-at <带时区 RFC3339>` |
 | EPUB metadata/cover/ToC/chapter text | `content metadata`、`content cover`、`content chapters`、`content chapter` |
 | 读取藏书与 membership | `collections list`、`collections search`、`collections get`、`collections books` |
 | 修改藏书与 membership | `collections create`、`collections rename`、`collections delete`、`collections add-book`、`collections remove-book` |
@@ -48,7 +49,8 @@ metadata:
 
 - 只有用户授权修改时才执行 mutation/restore。不要直接修改 Apple Books SQLite。
 - `annotations update-note` 从 stdin 读取完整 replacement Note。用户要追加时先读取当前 note；只有清空时使用 `--clear`。`annotations delete` 只 soft-delete；`annotations restore` 只恢复仍存在的 tombstone。
-- 创建高亮前准备含 `annotations` 数组的 JSON 文件，例如 `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…" }`；先运行 `annotations preview --book <asset-id> --input <file>`，解决缺失、歧义和冲突后，再用相同 selector 与文件调用 `annotations create`。不传入 raw CFI。标准 Debug CLI 和正式发行版均可为一本书创建第一个原生云父对象；自定义未携带版本信息的程序在 COMMIT 前返回 `application_version_unavailable`，需换用标准构建。`preview` 不检测可执行文件的版本信息。
+- 创建高亮前准备含 `annotations` 数组的 JSON 文件，例如 `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…", "createdAt": "2023-06-02T11:58:15+08:00" }`；`createdAt` 可选、必须带时区，创建时直接保存原始时间，重复导入不覆盖已有批注的时间；先运行 `annotations preview --book <asset-id> --input <file>`，解决缺失、歧义和冲突后，再用相同 selector 与文件调用 `annotations create`。不传入 raw CFI。标准 Debug CLI 和正式发行版均可为一本书创建第一个原生云父对象；自定义未携带版本信息的程序在 COMMIT 前返回 `application_version_unavailable`，需换用标准构建。`preview` 不检测可执行文件的版本信息。
+- `annotations set-created-at` 只修改已有原生高亮的创建时间，不重建、不改变 UUID/选区/笔记；由于原生云端版本规则，修改时间会更新到本次回填时刻。支持 `--sync`，重复相同时间为无写入 no-op；已提交但云投影失败必须先检查本地与云端状态，不能盲目重试。
 - 批量 `create` 的 `status=partial` 或 `preflight_failed` 即使退出码为 0，也必须检查 `complete`、逐项状态/UUID、`changedCount` 与 `syncRequired`。若有 `cloud_projection_failed`，先用 `annotations repair-sync <uuid>` 修复**已有 UUID**，再独立调用根 `sync`；不要重复创建。`--sync` 只适用于单条创建。
 - Collection membership 写入使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个。
 - 把 mutation result 当状态读取：`changed=false` 是成功 no-op；`committed=true` 表示本地写入已经跨过 COMMIT。出现 post-commit `warningCodes` 不授权 replay。

@@ -3,6 +3,7 @@ import SQLite3
 
 public enum AnnotationWriteError: Error, Equatable, Sendable {
     case invalidNoteLength
+    case invalidCreationDate
     case annotationMissing
     case annotationRestoreUnavailable
     case annotationDeletedOrUnknown
@@ -28,6 +29,11 @@ struct AnnotationWriter {
         "ZANNOTATIONNOTE",
         "ZANNOTATIONMODIFICATIONDATE",
         "ZFUTUREPROOFING6",
+    ]
+    private static let creationDateColumns: Set<String> = [
+        "Z_PK", "Z_ENT", "Z_OPT", "ZANNOTATIONDELETED", "ZANNOTATIONTYPE",
+        "ZANNOTATIONUUID", "ZANNOTATIONASSETID", "ZANNOTATIONCREATIONDATE",
+        "ZANNOTATIONMODIFICATIONDATE", "ZFUTUREPROOFING11", "ZFUTUREPROOFING6",
     ]
     private static let deleteColumns: Set<String> = [
         "Z_PK",
@@ -102,6 +108,15 @@ struct AnnotationWriter {
         let localPK: Int64
         let uuid: String
         let changed: Bool
+        let timestamps: (created: Double, modified: Double)?
+    }
+
+    static func validatedCreationTimestamp(_ date: Date?) throws -> Double? {
+        guard let date else { return nil }
+        guard let seconds = CoreDataTime.seconds(from: date), date <= Date() else {
+            throw AnnotationWriteError.invalidCreationDate
+        }
+        return seconds
     }
 
     func repairCreationProjection(uuid: String) throws -> AnnotationProjectionRepairResult {
@@ -156,10 +171,11 @@ struct AnnotationWriter {
 
     func create(
         assetID: String, selection: EPUBAnnotationSelection, note: String?,
-        color: AnnotationColor, underline: Bool = false,
+        color: AnnotationColor, underline: Bool = false, createdAt: Date? = nil,
         verifySource: @escaping () throws -> EPUBAnnotationSelection,
         syncCloud: Bool = false
     ) throws -> MutationResult {
+        let requestedTimestamp = try Self.validatedCreationTimestamp(createdAt)
         try Self.validateNoteTarget(note)
         guard let creationProjector else { throw AnnotationCreateError.projectionUnavailable }
         guard PublicStableIdentityPolicy.isEligible(assetID),
@@ -208,12 +224,15 @@ struct AnnotationWriter {
                     entityName: Self.entityName, table: .annotations, on: handle
                 )
                 let uuid = UUID().uuidString
-                try Self.insertCreation(
+                let timestamps = try Self.insertCreation(
                     localPK: allocated.localPK, entityID: allocated.entityID,
                     uuid: uuid, assetID: assetID, selection: selection,
-                    note: note, color: color, underline: underline, on: handle
+                    note: note, color: color, underline: underline,
+                    createdAt: requestedTimestamp, on: handle
                 )
-                return Creation(localPK: allocated.localPK, uuid: uuid, changed: true)
+                return Creation(
+                    localPK: allocated.localPK, uuid: uuid, changed: true, timestamps: timestamps
+                )
             },
             invariant: { handle, record in
                 guard try verifySource() == selection else {
@@ -315,17 +334,18 @@ struct AnnotationWriter {
         try WriteSchemaGuard.validateExistingEntity(
             table: .annotations, localPK: localPK, expectedEntityID: entity.entityID, on: handle
         )
-        return Creation(localPK: localPK, uuid: uuid, changed: false)
+        return Creation(localPK: localPK, uuid: uuid, changed: false, timestamps: nil)
     }
 
     private static func insertCreation(
         localPK: Int64, entityID: Int64, uuid: String, assetID: String,
         selection: EPUBAnnotationSelection, note: String?, color: AnnotationColor,
-        underline: Bool, on handle: OpaquePointer
-    ) throws {
-        guard let time = CoreDataTime.seconds(from: Date()) else {
+        underline: Bool, createdAt: Double?, on handle: OpaquePointer
+    ) throws -> (created: Double, modified: Double) {
+        guard let modified = CoreDataTime.seconds(from: Date()) else {
             throw AnnotationWriteError.writeFailed
         }
+        let created = createdAt ?? modified
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(handle, """
             INSERT INTO ZAEANNOTATION(
@@ -346,19 +366,20 @@ struct AnnotationWriter {
               sqlite3_bind_int64(stmt, 2, entityID) == SQLITE_OK,
               sqlite3_bind_int(stmt, 3, underline ? 1 : 0) == SQLITE_OK,
               sqlite3_bind_int64(stmt, 4, color.rawValue) == SQLITE_OK,
-              sqlite3_bind_double(stmt, 5, time) == SQLITE_OK,
-              sqlite3_bind_double(stmt, 6, time) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 5, created) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 6, modified) == SQLITE_OK,
               bind(assetID, to: stmt, index: 7) == SQLITE_OK,
               bind(selection.cfi, to: stmt, index: 8) == SQLITE_OK,
               (note.map { bind($0, to: stmt, index: 9) } ?? sqlite3_bind_null(stmt, 9)) == SQLITE_OK,
               bind(selection.representativeText, to: stmt, index: 10) == SQLITE_OK,
               bind(selection.selectedText, to: stmt, index: 11) == SQLITE_OK,
               bind(uuid, to: stmt, index: 12) == SQLITE_OK,
-              bind(String(time), to: stmt, index: 13) == SQLITE_OK,
-              bind(String(time), to: stmt, index: 14) == SQLITE_OK,
+              bind(String(created), to: stmt, index: 13) == SQLITE_OK,
+              bind(String(modified), to: stmt, index: 14) == SQLITE_OK,
               sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(handle) == 1 else {
             throw AnnotationWriteError.writeFailed
         }
+        return (created: created, modified: modified)
     }
 
     private static func verifyCreation(
@@ -376,6 +397,202 @@ struct AnnotationWriter {
             table: .annotations, localPK: created.localPK,
             expectedEntityID: entity.entityID, on: handle
         )
+        guard let time = created.timestamps else { return }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, """
+            SELECT ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,
+                   ZFUTUREPROOFING11,ZFUTUREPROOFING6
+            FROM ZAEANNOTATION WHERE Z_PK=? LIMIT 2
+            """, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, created.localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 0)),
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 1)),
+              sqlite3_column_double(statement, 0) == time.created,
+              sqlite3_column_double(statement, 1) == time.modified,
+              (try? decodeSQLiteText(statement, at: 2)) == String(time.created),
+              (try? decodeSQLiteText(statement, at: 3)) == String(time.modified),
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw AnnotationWriteError.writeFailed
+        }
+    }
+
+    private struct CreationDateState {
+        let target: Target
+        let createdAt: Double
+        let modifiedAt: Double
+    }
+
+    private struct CreationDateMutation {
+        let state: CreationDateState
+        let changed: Bool
+        let committedModifiedAt: Double
+    }
+
+    func setCreatedAt(uuid: String, date: Date, syncCloud: Bool = false) throws -> MutationResult {
+        guard let projector = cloudProjector else { throw AnnotationCreateError.projectionUnavailable }
+        guard let seconds = try Self.validatedCreationTimestamp(date) else {
+            throw AnnotationWriteError.invalidCreationDate
+        }
+        let selector = Selector.uuid(uuid)
+        var observed: CreationDateState?
+
+        func requireUnchanged(_ state: CreationDateState) throws {
+            guard let observed,
+                  observed.target.localPK == state.target.localPK,
+                  observed.createdAt == state.createdAt,
+                  observed.modifiedAt == state.modifiedAt else {
+                throw AnnotationWriteError.writeFailed
+            }
+        }
+
+        func read(_ handle: OpaquePointer) throws -> CreationDateState {
+            let state = try Self.creationDateState(selector: selector, on: handle)
+            guard let now = CoreDataTime.seconds(from: Date()), seconds <= now else {
+                throw AnnotationWriteError.invalidCreationDate
+            }
+            return state
+        }
+
+        return try coordinator.perform(
+            preflight: { connection in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                observed = try read(handle)
+            },
+            quietDecision: { connection in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                let state = try read(handle)
+                if state.createdAt == seconds {
+                    return .noChange(Self.domainData(target: state.target, changed: false))
+                }
+                try requireUnchanged(state)
+                return .needsMutation
+            },
+            avoidBooksQuitForReadOnlyNoOp: true,
+            revalidate: { handle in
+                let state = try read(handle)
+                if state.createdAt != seconds { try requireUnchanged(state) }
+            },
+            mutation: { handle in
+                let state = try read(handle)
+                guard state.createdAt != seconds else {
+                    return CreationDateMutation(
+                        state: state, changed: false, committedModifiedAt: state.modifiedAt
+                    )
+                }
+                try requireUnchanged(state)
+                guard let now = CoreDataTime.seconds(from: Date()), now > state.modifiedAt else {
+                    throw AnnotationWriteError.invalidCreationDate
+                }
+                try Self.applyCreationDate(
+                    seconds, modifiedAt: now, to: state.target.localPK, on: handle
+                )
+                return CreationDateMutation(
+                    state: state, changed: true, committedModifiedAt: now
+                )
+            },
+            invariant: { handle, mutation in
+                try Self.verifyCreationDate(
+                    seconds, modifiedAt: mutation.committedModifiedAt,
+                    target: mutation.state.target, on: handle
+                )
+            },
+            domainData: { mutation in
+                Self.domainData(target: mutation.state.target, changed: mutation.changed)
+            },
+            cloudProjection: { mutation in
+                try projector.project(localPK: mutation.state.target.localPK)
+            },
+            acknowledgementRequested: syncCloud,
+            acknowledgement: cloudSynchronizer.map { synchronizer in
+                { mutation, onLaunch in
+                    try synchronizer.sync(
+                        localPK: mutation.state.target.localPK,
+                        onTemporaryBooksLaunch: onLaunch
+                    )
+                }
+            },
+            readBack: { connection, mutation in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                try Self.verifyCreationDate(
+                    seconds, modifiedAt: mutation.committedModifiedAt,
+                    target: mutation.state.target, on: handle
+                )
+            }
+        )
+    }
+
+    private static func creationDateState(
+        selector: Selector, on handle: OpaquePointer
+    ) throws -> CreationDateState {
+        try validateSchema(for: selector, required: creationDateColumns, on: handle)
+        let target = try resolve(selector, on: handle)
+        var statement: OpaquePointer?
+        let sql = """
+            SELECT ZANNOTATIONTYPE, ZANNOTATIONCREATIONDATE, ZANNOTATIONMODIFICATIONDATE
+            FROM ZAEANNOTATION WHERE Z_PK=? LIMIT 2
+            """
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, target.localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 0) == 2,
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 1)),
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 2)) else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        let created = sqlite3_column_double(statement, 1)
+        let modified = sqlite3_column_double(statement, 2)
+        guard CoreDataTime.date(from: created) != nil,
+              CoreDataTime.date(from: modified) != nil,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        return CreationDateState(target: target, createdAt: created, modifiedAt: modified)
+    }
+
+    private static func applyCreationDate(
+        _ seconds: Double, modifiedAt: Double, to localPK: Int64, on handle: OpaquePointer
+    ) throws {
+        var statement: OpaquePointer?
+        let sql = """
+            UPDATE ZAEANNOTATION
+            SET ZANNOTATIONCREATIONDATE=?, ZANNOTATIONMODIFICATIONDATE=?,
+                ZFUTUREPROOFING11=?, ZFUTUREPROOFING6=?, Z_OPT=Z_OPT+1
+            WHERE Z_PK=?
+            """
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_double(statement, 1, seconds) == SQLITE_OK,
+              sqlite3_bind_double(statement, 2, modifiedAt) == SQLITE_OK,
+              bind(String(seconds), to: statement, index: 3) == SQLITE_OK,
+              bind(String(modifiedAt), to: statement, index: 4) == SQLITE_OK,
+              sqlite3_bind_int64(statement, 5, localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_DONE,
+              sqlite3_changes(handle) == 1 else {
+            throw AnnotationWriteError.writeFailed
+        }
+    }
+
+    private static func verifyCreationDate(
+        _ seconds: Double, modifiedAt: Double, target: Target, on handle: OpaquePointer
+    ) throws {
+        let state = try creationDateState(selector: .localPK(target.localPK), on: handle)
+        guard state.target.stableID == target.stableID,
+              state.createdAt == seconds,
+              state.modifiedAt == modifiedAt else {
+            throw AnnotationWriteError.writeFailed
+        }
     }
 
     func updateNote(

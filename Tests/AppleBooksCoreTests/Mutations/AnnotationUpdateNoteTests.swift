@@ -29,6 +29,140 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func restoredCreationDateUpdatesOnlyCreationMetadataAndIsIdempotent() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareCreationDateSchema(fixture.database)
+        var projections = 0
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in projections += 1 })
+        )
+        let historical = Date(timeIntervalSince1970: 1_685_707_095)
+        let result = try writer.setCreatedAt(uuid: "uuid-1", date: historical)
+        #expect(result.committed && result.changed)
+        #expect(result.stableID == "uuid-1")
+        #expect(result.warnings.isEmpty)
+        #expect(projections == 1)
+        let restored = try #require(CoreDataTime.seconds(from: historical))
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == restored)
+        let modified = try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1")
+        #expect(modified > 810_000_000)
+        #expect(try text(fixture.database, "SELECT ZFUTUREPROOFING6 FROM ZAEANNOTATION WHERE Z_PK=1") == String(modified))
+        #expect(try text(fixture.database, "SELECT ZFUTUREPROOFING11 FROM ZAEANNOTATION WHERE Z_PK=1") == String(restored))
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old-note")
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+        let noChange = try writer.setCreatedAt(uuid: "uuid-1", date: historical)
+        #expect(noChange.changed == false && noChange.committed == false)
+        #expect(projections == 1)
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == modified)
+    }
+
+    @Test
+    func restoredCreationDateRejectsInvalidTargetsAndDatesBeforeBackup() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareCreationDateSchema(fixture.database)
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in Issue.record("must not project") })
+        )
+        for bad in [Date(timeIntervalSince1970: .nan), Date(timeIntervalSince1970: 3_000_000_000)] {
+            #expect(throws: AnnotationWriteError.invalidCreationDate) {
+                _ = try writer.setCreatedAt(uuid: "uuid-1", date: bad)
+            }
+        }
+        try execute(fixture.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try writer.setCreatedAt(uuid: "uuid-1", date: Date(timeIntervalSince1970: 1_685_707_095))
+        }
+        try execute(fixture.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=2, ZANNOTATIONDELETED=1 WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationDeletedOrUnknown) {
+            _ = try writer.setCreatedAt(uuid: "uuid-1", date: Date(timeIntervalSince1970: 1_685_707_095))
+        }
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+    }
+
+    @Test
+    func restoredCreationDateRejectsExternalModificationDuringBooksQuit() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareCreationDateSchema(fixture.database)
+        var running = true
+        var projections = 0
+        let controller = BooksAppController(
+            isRunning: { running },
+            terminate: {
+                let updated = executeNoThrow(
+                    fixture.database,
+                    "UPDATE ZAEANNOTATION SET ZANNOTATIONMODIFICATIONDATE=810000001 WHERE Z_PK=1"
+                )
+                running = false
+                return updated
+            },
+            launch: { running = true },
+            sleep: { _ in }
+        )
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: controller,
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in projections += 1 })
+        )
+        do {
+            _ = try writer.setCreatedAt(
+                uuid: "uuid-1", date: Date(timeIntervalSince1970: 1_685_707_095)
+            )
+            Issue.record("Expected revalidation to reject modified annotation state")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .revalidateFailed || failure.code == .preflightFailed)
+        }
+        #expect(projections == 0)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == 800_000_000)
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+        #expect(running)
+    }
+
+    @Test
+    func restoredCreationDateCloudFailureIsCommittedWarningNotReplayed() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareCreationDateSchema(fixture.database)
+        var projections = 0
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in
+                projections += 1
+                throw AnnotationCloudProjectionError.bridgeRejected(8)
+            })
+        )
+        let historical = Date(timeIntervalSince1970: 1_685_707_095)
+        let result = try writer.setCreatedAt(uuid: "uuid-1", date: historical)
+        #expect(result.committed && result.changed)
+        #expect(result.warnings == [.cloudProjectionFailed])
+        #expect(projections == 1)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == CoreDataTime.seconds(from: historical))
+        let noChange = try writer.setCreatedAt(uuid: "uuid-1", date: historical)
+        #expect(noChange.changed == false && noChange.committed == false)
+        #expect(projections == 1)
+    }
+
+    private func prepareCreationDateSchema(_ database: URL) throws {
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONCREATIONDATE REAL")
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZFUTUREPROOFING11 TEXT")
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(database, """
+            UPDATE ZAEANNOTATION
+            SET ZANNOTATIONCREATIONDATE=800000000, ZANNOTATIONMODIFICATIONDATE=810000000,
+                ZFUTUREPROOFING11='800000000', ZFUTUREPROOFING6='810000000',
+                ZANNOTATIONASSETID='synthetic-asset'
+            """)
+    }
+
+    @Test
     func embeddedNULNoteRoundTripsWithoutTruncation() throws {
         let fixture = try fixture()
         defer { fixture.remove() }

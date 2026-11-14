@@ -62,7 +62,7 @@ struct NativeAnnotationCreateBridgeTests {
             INSERT INTO ZAEANNOTATION VALUES(1,'synthetic-asset','synthetic-uuid-1',2,0,1,0,100.0,101.0,
                 'first','first synthetic chapter','synthetic:cfi-one',
                 'Synthetic note','com~apple~iBooks');
-            INSERT INTO ZAEANNOTATION VALUES(2,'synthetic-asset','synthetic-uuid-2',2,0,5,1,102.0,103.0,
+            INSERT INTO ZAEANNOTATION VALUES(2,'synthetic-asset','synthetic-uuid-2',2,0,5,1,-86400.5,103.0,
                 'second','second synthetic chapter','synthetic:cfi-two',
                 NULL,'com~apple~iBooks');
             """)
@@ -87,12 +87,42 @@ struct NativeAnnotationCreateBridgeTests {
         try verifyNativeCloud(cloudDB, expectedCount: 2, values: [
             "synthetic-uuid-1": (1, false, "Synthetic note"),
             "synthetic-uuid-2": (5, true, nil),
-        ])
+        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)])
         #expect(project("synthetic-uuid-2") == 0)
         try verifyNativeCloud(cloudDB, expectedCount: 2, values: [
             "synthetic-uuid-1": (1, false, "Synthetic note"),
             "synthetic-uuid-2": (5, true, nil),
-        ])
+        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)])
+        try execute(localDB, """
+            ALTER TABLE ZAEANNOTATION ADD COLUMN ZFUTUREPROOFING6 TEXT;
+            UPDATE ZAEANNOTATION SET ZANNOTATIONCREATIONDATE=-86400.5,
+                ZANNOTATIONMODIFICATIONDATE=106.0, ZFUTUREPROOFING6='106'
+            WHERE ZANNOTATIONUUID='synthetic-uuid-1';
+            """)
+        let changedUUID = "synthetic-uuid-1"
+        let status = root.path.withCString { r in
+            cloudDB.path.withCString { c in
+                localDB.path.withCString { l in
+                    withCloudBridgeUTF8Bytes("synthetic-asset") { asset, al in
+                        withCloudBridgeUTF8Bytes(changedUUID) { id, il in
+                            ABProjectAnnotationState(r, c, l, asset, al, id, il)
+                        }
+                    }
+                }
+            }
+        }
+        #expect(status == 0, "Existing native cloud annotation must persist backdated creation after advancing modification")
+        try verifyNativeCloud(
+            cloudDB, expectedCount: 2,
+            values: [
+                "synthetic-uuid-1": (1, false, "Synthetic note"),
+                "synthetic-uuid-2": (5, true, nil),
+            ],
+            dates: [
+                "synthetic-uuid-1": (-86400.5, 106.0),
+                "synthetic-uuid-2": (-86400.5, 103.0),
+            ]
+        )
         try execute(localDB, """
             UPDATE ZAEANNOTATION SET ZANNOTATIONSELECTEDTEXT='mismatched'
             WHERE ZANNOTATIONUUID='synthetic-uuid-1';
@@ -104,7 +134,7 @@ struct NativeAnnotationCreateBridgeTests {
         ])
         try execute(localDB, """
             INSERT INTO ZAEANNOTATION VALUES(3,'synthetic-missing-parent','synthetic-uuid-3',2,0,1,0,104.0,105.0,
-                'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks');
+                'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks',NULL);
             """)
         let firstParentStatus = project("synthetic-uuid-3", assetID: "synthetic-missing-parent")
         let testHostVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -126,7 +156,8 @@ struct NativeAnnotationCreateBridgeTests {
 
     private func verifyNativeCloud(
         _ database: URL, expectedCount: Int,
-        values: [String: (Int, Bool, String?)]
+        values: [String: (Int, Bool, String?)],
+        dates: [String: (Double, Double)] = [:]
     ) throws {
         let conn = try SQLiteConnection.readOnly(path: database.path)
         defer { try? conn.close() }
@@ -153,6 +184,10 @@ struct NativeAnnotationCreateBridgeTests {
             #expect((item.value(forKey: "style") as? NSNumber)?.intValue == expected.0)
             #expect((item.value(forKey: "isUnderline") as? NSNumber)?.boolValue == expected.1)
             #expect(item.value(forKey: "note") as? String == expected.2)
+            if let requiredDates = dates[uuid] {
+                #expect((item.value(forKey: "creationDate") as? NSNumber)?.doubleValue == requiredDates.0)
+                #expect((item.value(forKey: "modificationDate") as? NSNumber)?.doubleValue == requiredDates.1)
+            }
         }
     }
 

@@ -1406,6 +1406,21 @@
       ]
     ]
   },
+  "回填已有高亮的历史创建时间": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationWriteCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "set-created-at"
+      ]
+    ]
+  },
   "恢复已提交的新建高亮云投影": {
     "owner": "cli",
     "implementationPaths": [

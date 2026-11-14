@@ -14,6 +14,7 @@ struct AnnotationCreateInput: Decodable {
         let color: String?
         let underline: Bool?
         let note: String?
+        let createdAt: Date?
 
         var nativeColor: AnnotationColor {
             AnnotationColorArgument(rawValue: color ?? "yellow")!.queryValue
@@ -22,7 +23,8 @@ struct AnnotationCreateInput: Decodable {
         var creationRequest: AnnotationCreationRequest {
             AnnotationCreationRequest(
                 text: text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix,
-                occurrence: occurrence, note: note, color: nativeColor, underline: isUnderlined
+                occurrence: occurrence, note: note, color: nativeColor, underline: isUnderlined,
+                createdAt: createdAt
             )
         }
     }
@@ -65,7 +67,7 @@ final class AnnotationCreateInputCache {
             throw CLIError.usageInvalid("Annotation JSON requires 1 to 500 entries in `annotations`.")
         }
         let keys: Set<String> = [
-            "text", "chapterOrder", "prefix", "suffix", "occurrence", "color", "underline", "note",
+            "text", "chapterOrder", "prefix", "suffix", "occurrence", "color", "underline", "note", "createdAt",
         ]
         for record in records {
             guard Set(record.keys).isSubset(of: keys),
@@ -78,7 +80,8 @@ final class AnnotationCreateInputCache {
                   (record["prefix"] == nil || record["prefix"] is String),
                   (record["suffix"] == nil || record["suffix"] is String),
                   (record["color"] == nil || (record["color"] as? String).flatMap(AnnotationColorArgument.init(rawValue:)) != nil),
-                  (record["underline"] == nil || record["underline"] is Bool) else {
+                  (record["underline"] == nil || record["underline"] is Bool),
+                  (record["createdAt"] == nil || record["createdAt"] is String || record["createdAt"] is NSNull) else {
                 throw CLIError.usageInvalid("Annotation entry contains invalid or unsupported fields.")
             }
             if let note = record["note"] as? String {
@@ -91,8 +94,25 @@ final class AnnotationCreateInputCache {
             }
         }
         let parsed: AnnotationCreateInput
-        do { parsed = try JSONDecoder().decode(AnnotationCreateInput.self, from: data) }
-        catch { throw CLIError.usageInvalid("Annotation input has invalid field types.") }
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let raw = try decoder.singleValueContainer().decode(String.self)
+                guard let date = try parseCanonicalAnnotationInstant(raw, optionName: "createdAt") else {
+                    throw CLIError.usageInvalid("createdAt must be a timezone-bearing RFC3339 instant.")
+                }
+                return date
+            }
+            parsed = try decoder.decode(AnnotationCreateInput.self, from: data)
+        } catch {
+            throw CLIError.usageInvalid("Annotation input has invalid fields or createdAt timestamps.")
+        }
+        guard parsed.annotations.allSatisfy({ entry in
+            guard let date = entry.createdAt else { return true }
+            return date <= Date() && CoreDataTime.seconds(from: date) != nil
+        }) else {
+            throw CLIError.usageInvalid("createdAt must not be in the future or outside supported dates.")
+        }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let snapshot = AnnotationCreateSnapshot(input: parsed, digest: digest)
         cached = snapshot
@@ -361,7 +381,7 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                 assetID: assetID, text: record.text, chapterOrder: record.chapterOrder,
                 prefix: record.prefix, suffix: record.suffix, occurrence: record.occurrence,
                 note: record.note, color: record.nativeColor, underline: record.isUnderlined,
-                syncCloud: sync
+                createdAt: record.createdAt, syncCloud: sync
             )
             historySink?.record(.mutation(
                 result, inverse: .annotationState(result, operation: "annotations.delete")
@@ -424,7 +444,7 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                         chapterOrder: record.chapterOrder, prefix: record.prefix,
                         suffix: record.suffix, occurrence: record.occurrence,
                         note: record.note, color: record.nativeColor,
-                        underline: record.isUnderlined
+                        underline: record.isUnderlined, createdAt: record.createdAt
                     )
                     items.append(AnnotationCreateBatchItem(
                         index: index,

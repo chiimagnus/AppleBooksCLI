@@ -61,7 +61,7 @@ struct OutputContractTests {
         let versionCode = CLIEntrypoint.run(arguments: ["--version"], output: version.output)
         #expect(versionCode == CLIProcessExit.success.rawValue)
         #expect(version.stderr.isEmpty)
-        #expect(version.stdout == "dev")
+        #expect(version.stdout == AppleBooksCLI.configuration.version)
     }
 
     @Test

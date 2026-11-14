@@ -18,6 +18,7 @@ enum EPUBAnnotationLocatorError: Error, Equatable {
     case chapterNotFound
     case fragmentNotFound
     case invalidXHTML
+    case ambiguousVisibility
     case noMatch
     case ambiguous(Int)
     case ambiguousSpine
@@ -99,7 +100,11 @@ struct EPUBAnnotationLocator {
                 document = cached.document
             } else {
                 let resource = try content.readChapterBytes(chapter)
-                document = try EPUBAnnotationDocument.parse(resource)
+                let initial = try EPUBAnnotationDocument.parse(resource)
+                let selectors = try hiddenSelectors(in: initial, chapter: chapter)
+                document = selectors.isEmpty
+                    ? initial
+                    : try EPUBAnnotationDocument.parse(resource, hiddenSelectors: selectors)
                 cached = (chapter.href, generation, document)
             }
             let fragments = Set(chapters.filter { $0.href == chapter.href && $0.fragment.isEmpty == false }.map(\.fragment))
@@ -152,6 +157,60 @@ struct EPUBAnnotationLocator {
         return matches[0]
     }
 
+    private func hiddenSelectors(
+        in document: EPUBAnnotationDocument, chapter: Chapter
+    ) throws -> [EPUBCSSHiddenSelector] {
+        var selectors: [EPUBCSSHiddenSelector] = []
+        for embedded in document.embeddedStyles {
+            try Self.collectHiddenSelectors(embedded, into: &selectors)
+        }
+        guard document.stylesheetLinks.count <= 64 else { throw EPUBAnnotationLocatorError.tooComplex }
+        var remaining = EPUBResourceBudget.navigation
+        var seen = Set<String>()
+        let base = try EPUBPath.resolve(reference: chapter.href)
+        for reference in document.stylesheetLinks {
+            let path = try EPUBPath.resolve(reference: reference, relativeTo: base.directory)
+            guard seen.insert(path.relativePath).inserted else { continue }
+            let data = try content.package.reader.readExactResource(path, maxBytes: remaining)
+            remaining -= data.count
+            guard let css = String(data: data, encoding: .utf8) else {
+                throw EPUBAnnotationLocatorError.ambiguousVisibility
+            }
+            try Self.collectHiddenSelectors(css, into: &selectors)
+        }
+        return selectors
+    }
+
+    private static func collectHiddenSelectors(
+        _ css: String, into selectors: inout [EPUBCSSHiddenSelector]
+    ) throws {
+        let withoutComments = css.replacingOccurrences(
+            of: #"(?s)/\*.*?\*/"#, with: "", options: [.regularExpression]
+        )
+        guard withoutComments.lowercased().contains("@import") == false else {
+            throw EPUBAnnotationLocatorError.ambiguousVisibility
+        }
+        for rule in withoutComments.split(separator: "}") {
+            guard let opening = rule.lastIndex(of: "{") else { continue }
+            let declarations = rule[rule.index(after: opening)...].lowercased().filter { !$0.isWhitespace }
+            let hides = ["display:none", "visibility:hidden", "visibility:collapse",
+                         "content-visibility:hidden", "color:transparent", "clip-path:"]
+                .contains { declarations.contains($0) }
+                || declarations.contains("opacity:0;")
+                || declarations.contains("opacity:0!important")
+                || declarations.hasSuffix("opacity:0")
+            guard hides else { continue }
+            let rawSelectors = rule[..<opening].split(separator: "{").last ?? ""
+            for raw in rawSelectors.split(separator: ",") {
+                guard let selector = EPUBCSSHiddenSelector.parse(String(raw)) else {
+                    throw EPUBAnnotationLocatorError.ambiguousVisibility
+                }
+                selectors.append(selector)
+                guard selectors.count <= 256 else { throw EPUBAnnotationLocatorError.tooComplex }
+            }
+        }
+    }
+
     private func cfiPrefix(spineIndex: Int) throws -> String {
         let package = content.package
         guard package.spinePackageCFIStep > 0,
@@ -189,6 +248,56 @@ private struct EPUBTextLeaf {
     let textOffset: Int
 }
 
+private struct EPUBCSSHiddenSelector {
+    let tag: String?
+    let id: String?
+    let classes: Set<String>
+
+    static func parse(_ raw: String) -> Self? {
+        let chars = Array(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard chars.isEmpty == false else { return nil }
+        var position = 0
+        var tag: String?
+        var id: String?
+        var classes = Set<String>()
+        while position < chars.count {
+            let prefix = chars[position]
+            let kind: Character
+            if prefix == "." || prefix == "#" {
+                kind = prefix
+                position += 1
+            } else if position == 0 {
+                kind = "t"
+            } else {
+                return nil
+            }
+            let start = position
+            while position < chars.count {
+                let char = chars[position]
+                guard char.isLetter || char.isNumber || char == "_" || char == "-" else { break }
+                position += 1
+            }
+            guard start < position else { return nil }
+            let name = String(chars[start..<position])
+            switch kind {
+            case ".": classes.insert(name)
+            case "#":
+                guard id == nil else { return nil }
+                id = name
+            default: tag = name.lowercased()
+            }
+        }
+        return Self(tag: tag, id: id, classes: classes)
+    }
+
+    func matches(tag elementTag: String, attributes: [String: String]) -> Bool {
+        if let tag, tag != elementTag { return false }
+        if let id, id != attributes["id"] { return false }
+        let present = Set((attributes["class"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init))
+        return present.isSuperset(of: classes)
+    }
+}
+
 private final class EPUBAnnotationDocument: NSObject, XMLParserDelegate {
     private struct Frame {
         let tag: String
@@ -208,6 +317,8 @@ private final class EPUBAnnotationDocument: NSObject, XMLParserDelegate {
 
     private var frames: [Frame] = []
     private(set) var leaves: [EPUBTextLeaf] = []
+    private(set) var embeddedStyles: [String] = []
+    private(set) var stylesheetLinks: [String] = []
     private var markers: [String: Int] = [:]
     private var duplicateIDs = false
     private var bodyCount = 0
@@ -217,9 +328,17 @@ private final class EPUBAnnotationDocument: NSObject, XMLParserDelegate {
     private var pending = ""
     private var decodedUTF8Bytes = 0
     private var tooComplex = false
+    private let hiddenSelectors: [EPUBCSSHiddenSelector]
 
-    static func parse(_ data: Data) throws -> EPUBAnnotationDocument {
-        let document = EPUBAnnotationDocument()
+    private init(hiddenSelectors: [EPUBCSSHiddenSelector]) {
+        self.hiddenSelectors = hiddenSelectors
+        super.init()
+    }
+
+    static func parse(
+        _ data: Data, hiddenSelectors: [EPUBCSSHiddenSelector] = []
+    ) throws -> EPUBAnnotationDocument {
+        let document = EPUBAnnotationDocument(hiddenSelectors: hiddenSelectors)
         let parser = XMLParser(data: data)
         parser.delegate = document
         parser.shouldProcessNamespaces = true
@@ -265,10 +384,15 @@ private final class EPUBAnnotationDocument: NSObject, XMLParserDelegate {
             path = frames[last].path + [CFIStep(index: frames[last].elementChildren * 2, assertion: attributes["id"])]
         }
         if tag == "body" { bodyCount += 1 }
+        if tag == "style" { embeddedStyles.append("") }
+        if tag == "link", attributes["rel"]?.lowercased().split(whereSeparator: \.isWhitespace).contains("stylesheet") == true {
+            stylesheetLinks.append(attributes["href"] ?? "")
+        }
         let style = (attributes["style"] ?? "").lowercased().filter { !$0.isWhitespace }
         let invisible = Self.excluded.contains(tag) || attributes["hidden"] != nil ||
             attributes["aria-hidden"]?.lowercased() == "true" ||
-            style.contains("display:none") || style.contains("visibility:hidden")
+            style.contains("display:none") || style.contains("visibility:hidden") ||
+            hiddenSelectors.contains(where: { $0.matches(tag: tag, attributes: attributes) })
         let excluded = (frames.last?.excluded ?? false) || invisible
         if excluded == false, bodyCount > 0,
            let id = attributes["id"], id.isEmpty == false {
@@ -320,6 +444,9 @@ private final class EPUBAnnotationDocument: NSObject, XMLParserDelegate {
         let path = frames[last].path + [CFIStep(index: frames[last].elementChildren * 2 + 1, assertion: nil)]
         let offset = frames[last].textOffset
         frames[last].textOffset += pending.utf16.count
+        if frames[last].tag == "style", embeddedStyles.isEmpty == false {
+            embeddedStyles[embeddedStyles.count - 1] += pending
+        }
         if frames[last].excluded == false, frames.contains(where: { $0.tag == "body" }) {
             leaves.append(EPUBTextLeaf(text: pending, path: path, group: group, textOffset: offset))
             count += 1

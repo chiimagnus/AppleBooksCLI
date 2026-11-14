@@ -330,6 +330,83 @@ struct EPUBAnnotationLocatorTests {
     }
 
     @Test
+    func styleRulesWithHiddenDeclarationsCannotProduceFalseHighlights() throws {
+        let fixture = try Fixture(chapters: ["""
+        <html><head><style type="text/css">.concealed { display: none; }</style></head>
+        <body><p class="concealed">This text is invisible.</p><p>Visible text.</p></body></html>
+        """])
+        defer { fixture.remove() }
+        let locator = EPUBAnnotationLocator(content: try BookContent(root: fixture.root))
+        #expect(throws: EPUBAnnotationLocatorError.noMatch) {
+            _ = try locator.locate("invisible")
+        }
+        #expect(try locator.locate("Visible").selectedText == "Visible")
+    }
+
+    @Test
+    func externalAndImportedStylesheetsWithHiddenRulesFailClosed() throws {
+        let fixture = try Fixture(chapters: ["""
+        <html><head><link rel="stylesheet" href="hidden.css"/></head>
+        <body><p class="concealed">Difficult text.</p></body></html>
+        """])
+        defer { fixture.remove() }
+        try Data(".concealed { display: /* comment */ none !important; }".utf8)
+            .write(to: fixture.root.appendingPathComponent("OPS/hidden.css"))
+        let locator = EPUBAnnotationLocator(content: try BookContent(root: fixture.root))
+        #expect(throws: EPUBAnnotationLocatorError.noMatch) {
+            _ = try locator.locate("Difficult")
+        }
+        try Data("@import \"nested.css\";".utf8)
+            .write(to: fixture.root.appendingPathComponent("OPS/hidden.css"))
+        #expect(throws: EPUBAnnotationLocatorError.ambiguousVisibility) {
+            _ = try locator.locate("Difficult")
+        }
+    }
+
+    @Test
+    func cssSelectorsExcludeOnlyTheirTargetsAndPreserveAdjacentTextBounds() throws {
+        let fixture = try Fixture(chapters: ["""
+        <html><head><style>
+          .hide, p#special.hidden { display: none !important; }
+          p.safe { display: block; }
+        </style></head><body>
+        <p>left<span class="hide">invisible</span>right</p>
+        <p class="safe">Visible sibling.</p>
+        <p id="special" class="hidden">Secret section.</p>
+        </body></html>
+        """])
+        defer { fixture.remove() }
+        let locator = EPUBAnnotationLocator(content: try BookContent(root: fixture.root))
+        for phrase in ["invisible", "leftright", "Secret"] {
+            #expect(throws: EPUBAnnotationLocatorError.noMatch) { _ = try locator.locate(phrase) }
+        }
+        #expect(try locator.locate("Visible sibling.").selectedText == "Visible sibling.")
+    }
+
+    @Test
+    func complexCSSVisibilitySelectorsFailClosedRatherThanGuessing() throws {
+        let fixture = try Fixture(chapters: ["""
+        <html><head><style>main p.hidden { display:none; }</style></head>
+        <body><main><p class="hidden">Complex hidden.</p><p>Visible.</p></main></body></html>
+        """])
+        defer { fixture.remove() }
+        #expect(throws: EPUBAnnotationLocatorError.ambiguousVisibility) {
+            _ = try EPUBAnnotationLocator(content: BookContent(root: fixture.root)).locate("Visible")
+        }
+    }
+
+    @Test
+    func ordinaryStylesWithoutHiddenDeclarationsRemainReadable() throws {
+        let fixture = try Fixture(chapters: ["""
+        <html><head><style>p { color: blue; display: block; }</style></head>
+        <body><p class="normal">Normally visible words.</p></body></html>
+        """])
+        defer { fixture.remove() }
+        #expect(try EPUBAnnotationLocator(content: BookContent(root: fixture.root))
+            .locate("visible").selectedText == "visible")
+    }
+
+    @Test
     func hiddenElementBoundaryAndHiddenFragmentNeverBecomeWritableSelection() throws {
         let fixture = try Fixture(chapters: ["""
         <html><head><title id="head-anchor">Private</title></head><body>

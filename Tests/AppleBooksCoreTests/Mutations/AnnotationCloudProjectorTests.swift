@@ -111,7 +111,7 @@ struct AnnotationCloudProjectorTests {
             CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
             INSERT INTO ZAEANNOTATION VALUES(11,'SYNTHETIC-ASSET','SYNTHETIC-UUID');
             """)
-        try prepareSyntheticNativeParent(root: root, assetID: "SYNTHETIC-ASSET")
+        _ = try prepareSyntheticNativeParent(root: root, assetID: "SYNTHETIC-ASSET")
         var events: [String] = []
         let projector = try #require(AnnotationCloudProjector.liveCreate(
             annotationsDatabase: annotations,
@@ -146,7 +146,7 @@ struct AnnotationCloudProjectorTests {
             CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
             INSERT INTO ZAEANNOTATION VALUES(1,'ASSET','UUID');
             """)
-        try prepareSyntheticNativeParent(root: root, assetID: "ASSET")
+        _ = try prepareSyntheticNativeParent(root: root, assetID: "ASSET")
         var backups = 0
         let projector = try #require(AnnotationCloudProjector.liveCreate(
             annotationsDatabase: annotations,
@@ -284,7 +284,8 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONMODIFICATIONDATE REAL,
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
-              ZANNOTATIONTYPE INTEGER
+              ZANNOTATIONTYPE INTEGER,
+              ZANNOTATIONCREATIONDATE REAL
             )
             """)
         try insertBridgeTarget(annotations, assetID: "asset\0tail", uuid: "uuid\0tail")
@@ -329,10 +330,11 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONMODIFICATIONDATE REAL,
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
-              ZANNOTATIONTYPE INTEGER
+              ZANNOTATIONTYPE INTEGER,
+              ZANNOTATIONCREATIONDATE REAL
             );
             INSERT INTO ZAEANNOTATION VALUES(
-              7,'asset-safe','uuid-safe',0,1,CAST(X'736563726574FF' AS TEXT),NULL,1
+              7,'asset-safe','uuid-safe',0,1,CAST(X'736563726574FF' AS TEXT),NULL,1,0.5
             );
             """)
 
@@ -468,6 +470,7 @@ struct AnnotationCloudProjectorTests {
             "uuid": "uuid-probe",
             "deleted": false,
             "modified": 2.0,
+            "created": -4321.25,
             "note": NSNull(),
             "fp6": NSNull(),
         ]
@@ -486,6 +489,8 @@ struct AnnotationCloudProjectorTests {
         )
         let decodedAnnotations = try #require(decoded.value(forKey: "annotations") as? [NSObject])
         let decodedAnnotation = try #require(decodedAnnotations.first)
+        #expect((decodedAnnotation.value(forKey: "creationDate") as? NSNumber)?.doubleValue == -4321.25)
+        #expect((decodedAnnotation.value(forKey: "modificationDate") as? NSNumber)?.doubleValue == 2.0)
         #expect((decodedAnnotation.value(forKey: "hasNote") as? NSNumber)?.boolValue == false)
         #expect(decodedAnnotation.value(forKey: "note") == nil)
         #expect((decodedAnnotation.value(forKey: "hasDeleted") as? NSNumber)?.boolValue == true)
@@ -583,10 +588,11 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONMODIFICATIONDATE REAL,
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
-              ZANNOTATIONTYPE INTEGER
+              ZANNOTATIONTYPE INTEGER,
+              ZANNOTATIONCREATIONDATE REAL
             );
             INSERT INTO ZAEANNOTATION VALUES(
-              7,'ASSET','UUID',\(deleted ? 1 : 0),1,\(noteSQL),\(fp6SQL),1
+              7,'ASSET','UUID',\(deleted ? 1 : 0),1,\(noteSQL),\(fp6SQL),1,0.5
             );
             """)
         return root.path.withCString { rootPath in
@@ -630,7 +636,7 @@ struct AnnotationCloudProjectorTests {
         guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
         defer { sqlite3_close_v2(handle) }
         var statement: OpaquePointer?
-        let sql = "INSERT INTO ZAEANNOTATION VALUES(7,?,?,0,1,NULL,NULL,1)"
+        let sql = "INSERT INTO ZAEANNOTATION VALUES(7,?,?,0,1,NULL,NULL,1,0.5)"
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
               let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
         defer { sqlite3_finalize(statement) }

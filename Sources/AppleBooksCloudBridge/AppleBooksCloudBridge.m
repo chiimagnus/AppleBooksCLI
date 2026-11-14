@@ -428,7 +428,7 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         if (connection != NULL) sqlite3_close_v2(connection);
         return nil;
     }
-    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
+    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
     sqlite3_stmt *statement = NULL;
     if (sqlite3_prepare_v2(connection, sql, -1, &statement, NULL) != SQLITE_OK) {
         sqlite3_close_v2(connection);
@@ -443,7 +443,10 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         || sqlite3_column_type(statement, 0) != SQLITE_INTEGER
         || (sqlite3_column_type(statement, 1) != SQLITE_FLOAT && sqlite3_column_type(statement, 1) != SQLITE_INTEGER)
         || sqlite3_column_type(statement, 4) != SQLITE_INTEGER
-        || sqlite3_column_int64(statement, 4) == 3) {
+        || sqlite3_column_int64(statement, 4) == 3
+        || !isfinite(sqlite3_column_double(statement, 1))
+        || (sqlite3_column_type(statement, 5) != SQLITE_FLOAT && sqlite3_column_type(statement, 5) != SQLITE_INTEGER)
+        || !isfinite(sqlite3_column_double(statement, 5))) {
         sqlite3_finalize(statement);
         sqlite3_close_v2(connection);
         return nil;
@@ -454,6 +457,7 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         @"uuid": annotationUUID,
         @"deleted": @(deleted),
         @"modified": @(sqlite3_column_double(statement, 1)),
+        @"created": @(sqlite3_column_double(statement, 5)),
     } mutableCopy];
 
     if (!deleted) {
@@ -542,6 +546,9 @@ static BOOL ABUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, N
     }
     ABSetBool(target, @"setDeleted:", deleted);
     ABSetBool(target, @"setHasDeleted:", YES);
+    if (row[@"created"] != nil) {
+        ABSetDouble(target, @"setCreationDate:", [row[@"created"] doubleValue]);
+    }
     ABSetDouble(target, @"setModificationDate:", [row[@"modified"] doubleValue]);
     id fp6 = row[@"fp6"];
     if (fp6 == nil) return NO;
@@ -666,7 +673,11 @@ static BOOL ABVerifyCreatedAnnotationCloudObject(
                 for (id annotation in annotations) {
                     if (![[annotation valueForKey:@"uuid"] isEqual:uuid]) continue;
                     matchingCount++;
-                    if (!ABMatchesCreatedAnnotation(annotation, uuid, target)) valid = NO;
+                    if (!ABMatchesCreatedAnnotation(annotation, uuid, target) ||
+                        fabs([[annotation valueForKey:@"creationDate"] doubleValue] - [target[@"created"] doubleValue]) > 0.000001 ||
+                        fabs([[annotation valueForKey:@"modificationDate"] doubleValue] - [target[@"modified"] doubleValue]) > 0.000001) {
+                        valid = NO;
+                    }
                 }
                 valid = valid && matchingCount == 1;
             }
@@ -752,6 +763,54 @@ int32_t ABTestAppendNewNativeAnnotation(
 #endif
 
 // Create a native cloud annotation from the exact locally committed UUID.
+static BOOL ABVerifyProjectedAnnotationDates(
+    NSString *database, NSString *assetID, NSString *uuid,
+    NSDictionary *row, Class bookClass
+) {
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(database.fileSystemRepresentation, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK ||
+        db == NULL) {
+        if (db != NULL) sqlite3_close_v2(db);
+        return NO;
+    }
+    sqlite3_stmt *stmt = NULL;
+    BOOL valid = NO;
+    const char *sql = "SELECT ZBOOKANNOTATIONS FROM ZBCASSETANNOTATIONS "
+                      "WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
+        ABBindText(stmt, 1, assetID) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW &&
+        sqlite3_column_type(stmt, 0) == SQLITE_BLOB) {
+        int length = sqlite3_column_bytes(stmt, 0);
+        const void *bytes = sqlite3_column_blob(stmt, 0);
+        if (length > 0 && (size_t)length <= ABCloudProjectionMaximumBookAnnotationsBytes && bytes != NULL) {
+            NSData *raw = [NSData dataWithBytes:bytes length:(NSUInteger)length];
+            id book = ABAllocateWithObject(bookClass, @"initWithData:", raw);
+            NSArray *annotations = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"annotations"));
+            if ([annotations isKindOfClass:[NSArray class]]) {
+                NSUInteger matched = 0;
+                valid = YES;
+                for (id annotation in annotations) {
+                    if (![[annotation valueForKey:@"uuid"] isEqual:uuid]) continue;
+                    matched++;
+                    NSNumber *created = [annotation valueForKey:@"creationDate"];
+                    NSNumber *modified = [annotation valueForKey:@"modificationDate"];
+                    if (![created isKindOfClass:[NSNumber class]] || ![modified isKindOfClass:[NSNumber class]] ||
+                        fabs(created.doubleValue - [row[@"created"] doubleValue]) > 0.000001 ||
+                        fabs(modified.doubleValue - [row[@"modified"] doubleValue]) > 0.000001) {
+                        valid = NO;
+                    }
+                }
+                valid = valid && matched == 1;
+            }
+        }
+        if (sqlite3_step(stmt) != SQLITE_DONE) valid = NO;
+    }
+    if (stmt != NULL) sqlite3_finalize(stmt);
+    sqlite3_close_v2(db);
+    return valid;
+}
+
 int32_t ABCreateAnnotationState(
     const char *root_path, const char *canonical_cloud_database_path,
     const char *canonical_annotations_database_path,
@@ -853,6 +912,9 @@ int32_t ABProjectAnnotationState(
         if (cloudObject == nil || !ABUpdateExistingAnnotationCloudObject(cloudObject, target)) return 7;
         if (!ABSetCloudData(manager, immutableClass, assetID, @"assetID", cloudObject, predicate)) return 8;
         if (!ABLayoutIsExact(root, cloudDatabase, @"BCAssetData")) return 9;
+        if (!ABVerifyProjectedAnnotationDates(
+                cloudDatabase, assetID, annotationUUID, target,
+                NSClassFromString(@"BCAnnotationsProtoBook"))) return 11;
         return ABExactRowCount(cloudDatabase, @"ZBCASSETANNOTATIONS", @"ZASSETID", assetID) == 1 ? 0 : 10;
     }
 }

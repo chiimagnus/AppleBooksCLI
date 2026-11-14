@@ -49,6 +49,113 @@ struct AnnotationWriteCommandTests {
     }
 
     @Test
+    func createInputAcceptsHistoricalRFC3339AndRejectsInvalidOrFutureDates() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("annotations.json")
+        let valid = [
+            "2023-06-02T11:58:15+08:00",
+            "2023-06-02T03:58:15Z",
+            "2023-06-02T03:58:15.125Z",
+        ]
+        for instant in valid {
+            try Data("""
+                {"annotations":[{"text":"sample","createdAt":"\(instant)"}]}
+                """.utf8).write(to: file)
+            let entry = try #require(AnnotationCreateInputCache().load(file.path).input.annotations.first)
+            let parsed = try parseCanonicalAnnotationInstant(instant, optionName: "createdAt")
+            let expected = try #require(parsed)
+            #expect(entry.createdAt == expected)
+            #expect(entry.creationRequest.createdAt == expected)
+        }
+        for badField in [
+            "123456789", "true", "\"2023-06-02\"", "\"2023-06-02T03:58:15\"",
+            "\"not-a-date\"", "\"2023-06-02T03:58:15Zgarbage\"",
+            "\"9999-12-31T23:59:59Z\"", "\"0000-01-01T00:00:00Z\"",
+        ] {
+            try Data("""
+                {"annotations":[{"text":"sample","createdAt":\(badField)}]}
+                """.utf8).write(to: file)
+            #expect(throws: CLIError.self) { _ = try AnnotationCreateInputCache().load(file.path) }
+        }
+        try Data(#"{"annotations":[{"text":"sample","createdAt":null}]}"#.utf8).write(to: file)
+        #expect(try AnnotationCreateInputCache().load(file.path).input.annotations[0].createdAt == nil)
+    }
+
+    @Test
+    func setCreatedAtRequiresPreciseUUIDAndTimezoneAndRecordsSafeHistory() throws {
+        var stdout = ""
+        let exit = CLIEntrypoint.run(
+            arguments: ["annotations", "set-created-at", "--help"],
+            output: CLIOutput(stdout: { stdout += $0 }, stderr: { _ in })
+        )
+        #expect(exit == CLIProcessExit.success.rawValue)
+        #expect(stdout.contains("--created-at"))
+        #expect(stdout.contains("--sync"))
+        #expect(stdout.contains("modification"))
+        for date in ["2023-06-02", "2023-06-02T12:00:00", "not-a-date", "2023-06-02T12:00:00Zgarbage"] {
+            let command = try AnnotationsSetCreatedAtCommand.parse(["synthetic-uuid", "--created-at", date])
+            #expect(throws: Error.self) { try command.historyRequest() }
+        }
+        let command = try AnnotationsSetCreatedAtCommand.parse([
+            "synthetic-uuid", "--created-at", "2023-06-02T11:58:15Z",
+        ])
+        let request = try command.historyRequest()
+        #expect(request.selector?.annotationUUID == "synthetic-uuid")
+        #expect(request.syncRequested == false)
+        #expect(request.inputDigest == nil)
+    }
+
+    @Test
+    func setCreatedAtCLIUsesNativeWriterAndPreservesUUIDNoteAndSelectedText() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.execute("""
+            ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONCREATIONDATE REAL;
+            ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT;
+            ALTER TABLE ZAEANNOTATION ADD COLUMN ZFUTUREPROOFING11 TEXT;
+            UPDATE ZAEANNOTATION SET ZANNOTATIONMODIFICATIONDATE=810000000,
+                ZANNOTATIONCREATIONDATE=800000000, ZFUTUREPROOFING11='800000000',
+                ZFUTUREPROOFING6='810000000', ZANNOTATIONASSETID='synthetic-asset';
+            """)
+        var projections: [Int64] = []
+        let books = try AppleBooks(
+            libraryDB: fixture.library,
+            annotationsDB: fixture.annotations,
+            configurationFile: fixture.config,
+            collectionWriter: CollectionWriter(database: fixture.library, booksApp: fixture.closedController()),
+            annotationWriter: AnnotationWriter(
+                database: fixture.annotations,
+                backupRoot: fixture.annotationBackupRoot,
+                booksApp: fixture.closedController(),
+                cloudProjector: AnnotationCloudProjector(
+                    projectAction: { pk in projections.append(pk) }
+                )
+            )
+        )
+        let raw = "2023-06-02T11:58:15Z"
+        let command = try AnnotationsSetCreatedAtCommand.parse(["123", "--created-at", raw])
+        let sink = OperationHistoryCompletionSink()
+        let result = try command.execute(using: books, historySink: sink)
+        #expect(result.committed && result.changed && result.warningCodes.isEmpty)
+        #expect(result.annotationUUID == "123")
+        #expect(projections == [1])
+        #expect(sink.completion?.result.kind == .mutation)
+        #expect(sink.completion?.inverse.available == false)
+        #expect(try fixture.text("SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old note")
+        #expect(try fixture.integer("SELECT COUNT(*) FROM ZAEANNOTATION") == 2)
+        let expected = try #require(ISO8601DateFormatter().date(from: raw))
+        let got = try fixture.text("SELECT ZFUTUREPROOFING11 FROM ZAEANNOTATION WHERE Z_PK=1")
+        #expect(got == String(try #require(CoreDataTime.seconds(from: expected))))
+        let encoded = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
+        #expect(!encoded.contains("old note"))
+        let second = try command.execute(using: books)
+        #expect(!second.changed && !second.committed)
+        #expect(projections == [1])
+    }
+
+    @Test
     func syncFlagPreservesCommittedAnnotationWhenLiveCloudRailIsUnavailable() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -518,7 +625,7 @@ struct AnnotationWriteCommandTests {
         )
         let input = root.appendingPathComponent("notes.json")
         try Data("""
-            {"annotations":[{"text":"synthetic","chapterOrder":1,"color":"green","note":"Synthetic note"}]}
+            {"annotations":[{"text":"synthetic","chapterOrder":1,"color":"green","note":"Synthetic note","createdAt":"2023-06-02T11:58:15+08:00"}]}
             """.utf8).write(to: input)
         let args = ["--book", "synthetic-asset", "--input", input.path]
         let preview = try AnnotationsPreviewCommand.parse(args)
@@ -544,6 +651,9 @@ struct AnnotationWriteCommandTests {
         #expect(after.items[0].status == "already_exists")
         #expect(try create.historyRequest().inputDigest == inputHistory.inputDigest)
         let createdUUID = try #require(created.annotationUUID)
+        let storedDate = try #require(try books.semanticAnnotation(uuid: createdUUID)?.createdAt)
+        let expectedStoredDate = try parseCanonicalAnnotationInstant("2023-06-02T11:58:15+08:00", optionName: "createdAt")
+        #expect(storedDate == expectedStoredDate)
         let repair = try AnnotationsRepairSyncCommand.parse([createdUUID])
         #expect(try repair.historyRequest().selector?.annotationUUID == createdUUID)
         let repairSink = OperationHistoryCompletionSink()
@@ -612,13 +722,20 @@ struct AnnotationWriteCommandTests {
         #expect(collision.0.items.allSatisfy { $0.errorCode == "conflict" })
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == sourceCount)
 
-        let duplicateBatch = try batch([tagged(1), tagged(1)])
+        var firstHistorical = tagged(1)
+        firstHistorical["createdAt"] = "2023-06-02T03:58:15.125Z"
+        let duplicateBatch = try batch([firstHistorical, firstHistorical])
         #expect(duplicateBatch.0.complete)
         #expect(duplicateBatch.0.createdCount == 1)
         #expect(duplicateBatch.0.alreadyExistsCount == 1)
         #expect(duplicateBatch.0.syncRequired)
         #expect(duplicateBatch.0.items.map(\.status) == ["created", "already_exists"])
         #expect(duplicateBatch.0.items[0].annotationUUID == duplicateBatch.0.items[1].annotationUUID)
+        let firstBatchUUID = try #require(duplicateBatch.0.items[0].annotationUUID)
+        let expectedBatchDate = try parseCanonicalAnnotationInstant(
+            "2023-06-02T03:58:15.125Z", optionName: "createdAt"
+        )
+        #expect(try books.semanticAnnotation(uuid: firstBatchUUID)?.createdAt == expectedBatchDate)
         #expect(duplicateBatch.1.completion?.result.batch?.changedCount == 1)
         #expect(duplicateBatch.1.completion?.inverse.available == false)
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 2)

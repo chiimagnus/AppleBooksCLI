@@ -37,6 +37,60 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func originalCreationTimeIsStoredOnFirstInsertWithoutReplacingNotesOrIdentity() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = fixture.writer { _ in }
+        let app = try fixture.facade(annotationWriter: writer)
+        let historical = Date(timeIntervalSince1970: 1_685_707_095.125)
+        let created = try fixture.create(
+            writer: writer, note: "Historical synthetic note", createdAt: historical
+        )
+        #expect(created.committed && created.changed && created.warnings.isEmpty)
+        let uuid = try #require(created.stableID)
+        let stored = try #require(try app.semanticAnnotation(uuid: uuid))
+        #expect(stored.createdAt == historical)
+        #expect(try #require(stored.modifiedAt) > historical)
+        #expect(stored.note == "Historical synthetic note")
+        #expect(stored.selectedText == "token")
+        #expect(stored.uuid == uuid)
+        let noOp = try fixture.create(
+            writer: writer, note: "Historical synthetic note",
+            createdAt: Date(timeIntervalSince1970: 1_685_707_000)
+        )
+        #expect(!noOp.changed && !noOp.committed)
+        #expect(noOp.stableID == uuid)
+        #expect(try app.semanticAnnotation(uuid: uuid)?.createdAt == historical)
+        #expect(try fixture.backupCount() == 1)
+        #expect(try fixture.count() == 1)
+    }
+
+    @Test
+    func invalidOriginalCreationTimesRejectBeforeAnyWriteOrBackup() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = fixture.writer { _ in Issue.record("Invalid date must not project") }
+        for invalid in [
+            Date(timeIntervalSinceNow: 3600),
+            Date(timeIntervalSince1970: .nan),
+            Date(timeIntervalSince1970: 253_402_300_800),
+        ] {
+            #expect(throws: AnnotationWriteError.invalidCreationDate) {
+                _ = try fixture.create(writer: writer, note: nil, createdAt: invalid)
+            }
+        }
+        let app = try fixture.facade(annotationWriter: writer)
+        let preview = try app.previewAnnotationBatch(
+            assetID: "synthetic-asset", requests: [
+                AnnotationCreationRequest(text: "token", createdAt: Date(timeIntervalSinceNow: 3600)),
+            ]
+        )
+        #expect(throws: AnnotationWriteError.invalidCreationDate) { _ = try preview[0].get() }
+        #expect(try fixture.count() == 0)
+        #expect(try fixture.backupCount() == 0)
+    }
+
+    @Test
     func repeatedIdenticalRequestIsQuietNoOpWithoutBackupOrProjection() throws {
         let f = try Fixture()
         defer { f.remove() }
@@ -233,6 +287,13 @@ struct AnnotationCreateTests {
         ])
         #expect(try identical[0].get().status == .ready)
         #expect(try identical[1].get().status == .ready)
+        let dates = try app.previewAnnotationBatch(assetID: "synthetic-asset", requests: [
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, createdAt: Date(timeIntervalSince1970: 100)),
+            AnnotationCreationRequest(text: "token", chapterOrder: 1, createdAt: Date(timeIntervalSince1970: 200)),
+        ])
+        #expect(throws: AnnotationCreateError.conflict) { _ = try dates[0].get() }
+        #expect(throws: AnnotationCreateError.conflict) { _ = try dates[1].get() }
+        #expect(try f.count() == 0)
     }
 
     @Test
@@ -508,10 +569,13 @@ struct AnnotationCreateTests {
                 booksApp: BooksAppController(isRunning: { false }, terminate: { true }, launch: {}, sleep: { _ in })
             )
         }
-        func create(writer: AnnotationWriter, note: String?, color: AnnotationColor = .green) throws -> MutationResult {
+        func create(
+            writer: AnnotationWriter, note: String?, color: AnnotationColor = .green,
+            createdAt: Date? = nil
+        ) throws -> MutationResult {
             try writer.create(
                 assetID: "synthetic-asset", selection: selection, note: note,
-                color: color, verifySource: {
+                color: color, createdAt: createdAt, verifySource: {
                     try EPUBAnnotationLocator(content: BookContent(root: self.epub)).locate("token")
                 }
             )

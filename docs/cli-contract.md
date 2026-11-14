@@ -60,13 +60,21 @@ plain-text stdout。
 不创建 history、备份或本机写入；`annotations create` 从同一有界 JSON 输入创建高亮。
 输入 JSON 的根对象仅含 `annotations` 数组，数组必须有 1–500 条；文件为只读普通文件，
 允许指向普通文件的符号链接，大小上限 8 MiB。
-每项 `text` 必填，`chapterOrder`、`prefix`、`suffix`、`occurrence`、`color`、`underline`、`note` 可选，
-不接收外部 CFI 或来源平台 ID。单条创建可显式 `--sync`。
+每项 `text` 必填，`chapterOrder`、`prefix`、`suffix`、`occurrence`、`color`、`underline`、`note`、`createdAt` 可选，
+不接收外部 CFI 或来源平台 ID。`createdAt` 必须是带时区的 RFC3339 时间，例如 `2023-06-02T11:58:15+08:00`。
+指定后首次创建直接写入原始创建时间；修改时间仍为实际写入时间。
+未指定时维持现有行为：创建、修改时间均为实际写入时间。重复导入不更改已有批注的时间，
+需要修正时单独使用 `annotations set-created-at`。单条创建可显式 `--sync`。
 `preview.items` 逐项返回 `ready`、`already_exists`、`missing`、`ambiguous`、`conflict` 或 `invalid`；
 不可直接创建的项目带候选数（可确定时）与不含原文的修正提示。
 `preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
 原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
 `annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
+`annotations set-created-at <uuid> --created-at <RFC3339 instant> [--sync]` 只用于已有的原生 user highlight。
+UUID 必须是精确身份，时间必须有明确时区、不晚于当前时间；创建时间已相同时静默 no-op。
+真实变更沿受控写入事务、备份、原生云投影和可选当前 Mac 确认；
+保留 UUID、CFI、选区和笔记，修改时间推进到本次回填时间，不能声称保留旧修改时间。
+响应沿用 annotation mutation JSON，输入日期不被回显。逐条回填可在最后单独调用一次根 `sync`。
 **首次创建前提**：CLI 可自行创建该书的原生云端批注父对象，但调用进程必须有
 `CFBundleShortVersionString` 元数据；Debug SwiftPM 构建为 `dev`，正式发行构建由 Git tag 注入版本。
 其他无版本信息的可执行文件在本地 COMMIT 前返回 `application_version_unavailable`，

@@ -15,12 +15,14 @@ public struct AnnotationCreationRequest: Sendable {
     public let note: String?
     public let color: AnnotationColor
     public let underline: Bool
+    public let createdAt: Date?
 
     public init(
         text: String, chapterOrder: Int? = nil,
         prefix: String? = nil, suffix: String? = nil,
         occurrence: Int? = nil, note: String? = nil,
-        color: AnnotationColor = .yellow, underline: Bool = false
+        color: AnnotationColor = .yellow, underline: Bool = false,
+        createdAt: Date? = nil
     ) {
         self.text = text
         self.chapterOrder = chapterOrder
@@ -30,6 +32,7 @@ public struct AnnotationCreationRequest: Sendable {
         self.note = note
         self.color = color
         self.underline = underline
+        self.createdAt = createdAt
     }
 }
 

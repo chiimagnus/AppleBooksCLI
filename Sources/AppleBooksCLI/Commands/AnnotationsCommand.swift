@@ -12,6 +12,7 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsGetCommand.self,
             AnnotationsContextCommand.self,
             AnnotationsUpdateNoteCommand.self,
+            AnnotationsSetCreatedAtCommand.self,
             AnnotationsDeleteCommand.self,
             AnnotationsRestoreCommand.self,
             AnnotationsPreviewCommand.self,
@@ -311,6 +312,65 @@ struct AnnotationsUpdateNoteCommand: ParsableCommand, CLIOutputRunnable, Operati
     }
 }
 
+struct AnnotationsSetCreatedAtCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(
+        commandName: "set-created-at",
+        abstract: "Restore a highlight's original creation time and record this restoration as a modification."
+    )
+
+    @Argument(help: "Exact annotation UUID.")
+    var uuid: String
+
+    @Option(name: .customLong("created-at"), help: "Original timezone-bearing RFC3339 creation instant.")
+    var createdAt: String
+
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed change on this Mac.")
+    var sync = false
+
+    @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.set-created-at" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        try PublicStableTokenPolicy.validateInput(uuid)
+        _ = try parseCanonicalAnnotationInstant(createdAt, optionName: "--created-at")
+        return OperationHistoryRequest(
+            selector: OperationHistorySelector(annotationUUID: uuid),
+            syncRequested: sync
+        )
+    }
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(try execute())
+    }
+
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        try output.writeJSON(try execute(historySink: sink))
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
+        try PublicStableTokenPolicy.validateInput(uuid)
+        guard let date = try parseCanonicalAnnotationInstant(
+            createdAt, optionName: "--created-at"
+        ) else {
+            throw ValidationError("--created-at is required.")
+        }
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(
+                dependencies: .annotationWrite
+            )
+            let mutation = try books.setAnnotationCreatedAt(uuid: uuid, date: date, syncCloud: sync)
+            historySink?.record(.mutation(mutation))
+            return AnnotationMutationCommandResult(mutation, selector: .uuid(uuid))
+        }
+    }
+}
+
 struct AnnotationsDeleteCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
     static let configuration = CommandConfiguration(
         commandName: "delete",
@@ -534,7 +594,7 @@ private func makeAnnotationQueryRequest(
     }
 }
 
-private func parseCanonicalAnnotationInstant(_ raw: String?, optionName: String) throws -> Date? {
+func parseCanonicalAnnotationInstant(_ raw: String?, optionName: String) throws -> Date? {
     guard let raw else { return nil }
     var bytes: [UInt8] = []
     bytes.reserveCapacity(64)

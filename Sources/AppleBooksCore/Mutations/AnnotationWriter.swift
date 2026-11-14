@@ -409,8 +409,8 @@ struct AnnotationWriter {
         defer { sqlite3_finalize(statement) }
         guard sqlite3_bind_int64(statement, 1, created.localPK) == SQLITE_OK,
               sqlite3_step(statement) == SQLITE_ROW,
-              sqlite3_column_type(statement, 0) == SQLITE_FLOAT,
-              sqlite3_column_type(statement, 1) == SQLITE_FLOAT,
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 0)),
+              [SQLITE_INTEGER, SQLITE_FLOAT].contains(sqlite3_column_type(statement, 1)),
               sqlite3_column_double(statement, 0) == time.created,
               sqlite3_column_double(statement, 1) == time.modified,
               (try? decodeSQLiteText(statement, at: 2)) == String(time.created),

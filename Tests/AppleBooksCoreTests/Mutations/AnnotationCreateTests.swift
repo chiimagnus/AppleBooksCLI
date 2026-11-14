@@ -66,6 +66,24 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func historicalWholeSecondUsesNativeTimestampIntegerAffinity() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = fixture.writer { _ in }
+        let originalTime = Date(timeIntervalSince1970: 1_699_508_289)
+        let created = try fixture.create(writer: writer, note: "Original comment", createdAt: originalTime)
+        #expect(created.committed && created.changed && created.warnings.isEmpty)
+        let row = try #require(try fixture.row())
+        #expect(row["ZANNOTATIONCREATIONDATE"] == "721201089")
+        #expect(try fixture.scalar("SELECT COUNT(*) FROM ZAEANNOTATION WHERE typeof(ZANNOTATIONCREATIONDATE)='integer'") == 1)
+        #expect(try fixture.scalar("SELECT COUNT(*) FROM ZAEANNOTATION WHERE ZANNOTATIONMODIFICATIONDATE>ZANNOTATIONCREATIONDATE") == 1)
+        #expect(try #require(created.stableID) != "")
+        let same = try fixture.create(writer: writer, note: "Original comment", createdAt: originalTime)
+        #expect(!same.committed && !same.changed)
+        #expect(try fixture.count() == 1)
+    }
+
+    @Test
     func invalidOriginalCreationTimesRejectBeforeAnyWriteOrBackup() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -520,7 +538,7 @@ struct AnnotationCreateTests {
                   Z_PK INTEGER PRIMARY KEY,Z_ENT INTEGER,Z_OPT INTEGER,ZANNOTATIONDELETED INTEGER,
                   ZANNOTATIONISUNDERLINE INTEGER,ZANNOTATIONSTYLE INTEGER,ZANNOTATIONTYPE INTEGER,
                   ZPLABSOLUTEPHYSICALLOCATION INTEGER,ZPLLOCATIONRANGESTART INTEGER,ZPLLOCATIONRANGEEND INTEGER,
-                  ZANNOTATIONCREATIONDATE REAL,ZANNOTATIONMODIFICATIONDATE REAL,
+                  ZANNOTATIONCREATIONDATE TIMESTAMP,ZANNOTATIONMODIFICATIONDATE TIMESTAMP,
                   ZANNOTATIONASSETID TEXT,ZANNOTATIONCREATORIDENTIFIER TEXT,ZANNOTATIONLOCATION TEXT,
                   ZANNOTATIONNOTE TEXT,ZANNOTATIONREPRESENTATIVETEXT TEXT,ZANNOTATIONSELECTEDTEXT TEXT,
                   ZANNOTATIONUUID TEXT,ZFUTUREPROOFING11 TEXT,ZFUTUREPROOFING6 TEXT

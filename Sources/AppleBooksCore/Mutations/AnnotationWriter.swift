@@ -200,6 +200,7 @@ struct AnnotationWriter {
                 }
                 return .needsMutation
             },
+            avoidBooksQuitForReadOnlyNoOp: true,
             revalidate: { handle in try validate(handle) },
             mutation: { handle in
                 if let duplicate = try existing(handle) { return duplicate }

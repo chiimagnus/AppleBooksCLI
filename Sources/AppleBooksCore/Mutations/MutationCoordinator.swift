@@ -35,6 +35,7 @@ struct MutationCoordinator {
     func perform<T>(
         preflight: (SQLiteConnection) throws -> Void,
         quietDecision: ((SQLiteConnection) throws -> MutationQuietDecision)? = nil,
+        avoidBooksQuitForReadOnlyNoOp: Bool = false,
         revalidate: (OpaquePointer) throws -> Void,
         mutation: (OpaquePointer) throws -> T,
         invariant: (OpaquePointer, T) throws -> Void = { _, _ in },
@@ -45,6 +46,16 @@ struct MutationCoordinator {
         acknowledgement: ((T, () -> Void) throws -> Void)? = nil,
         readBack: (SQLiteConnection, T) throws -> Void
     ) throws -> MutationResult {
+        func noChangeResult(_ domain: MutationDomainData, warnings: [MutationWarning] = []) -> MutationResult {
+            MutationResult(
+                committed: false, backupHandle: nil,
+                localPK: domain.localPK, stableID: domain.stableID,
+                relatedLocalPK: domain.relatedLocalPK, relatedStableID: domain.relatedStableID,
+                historyEffect: nil, changed: false,
+                acknowledgementRequested: acknowledgementRequested, acknowledged: nil,
+                warnings: warnings, appleBooksURL: domain.appleBooksURL
+            )
+        }
         let preflightConnection: SQLiteConnection
         do {
             preflightConnection = try SQLiteConnection.readOnly(path: database.path)
@@ -56,8 +67,13 @@ struct MutationCoordinator {
                 underlying: error
             )
         }
+        var earlyNoChange: MutationDomainData?
         do {
             try preflight(preflightConnection)
+            if avoidBooksQuitForReadOnlyNoOp, booksApp.isRunning(), let quietDecision,
+               case let .noChange(domain) = try quietDecision(preflightConnection) {
+                earlyNoChange = domain
+            }
             try preflightConnection.close()
         } catch {
             try? preflightConnection.close()
@@ -72,6 +88,7 @@ struct MutationCoordinator {
             throw error
         }
 
+        if let earlyNoChange { return noChangeResult(earlyNoChange) }
         let initialBooksState = booksApp.state()
         if initialBooksState != .closed {
             do {
@@ -122,20 +139,7 @@ struct MutationCoordinator {
                         warnings.append(.booksStateRestoreFailed)
                     }
                 }
-                return MutationResult(
-                    committed: false,
-                    backupHandle: nil,
-                    localPK: domain.localPK,
-                    stableID: domain.stableID,
-                    relatedLocalPK: domain.relatedLocalPK,
-                    relatedStableID: domain.relatedStableID,
-                    historyEffect: nil,
-                    changed: false,
-                    acknowledgementRequested: acknowledgementRequested,
-                    acknowledged: nil,
-                    warnings: warnings,
-                    appleBooksURL: domain.appleBooksURL
-                )
+                return noChangeResult(domain, warnings: warnings)
             }
         }
 

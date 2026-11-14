@@ -56,6 +56,8 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
   原生桥接在实际云投影前再次验证版本，避免源变更后的首次创建触发私有框架断言；
   `repair-sync` 仍只针对已提交 UUID，不重复 INSERT。
   没有可用的原生创建投影器时必须在 COMMIT 前拒绝；同选区同属性 no-op，冲突拒绝覆盖。
+  创建前只读确认的同选区、颜色、笔记完全一致时直接返回 no-op，Books 即使打开笔记编辑框也不会被关闭；
+  若确实需要 INSERT，仍必须由原有 coordinator 退出 Books、重新校验、备份并提交。
   不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
   `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。
   批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序执行单条事务；

@@ -418,6 +418,12 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                     items.append(AnnotationCreateBatchItem(index: index, status: "not_attempted"))
                     continue
                 }
+                if preview[index].status == "already_exists", let uuid = preview[index].existingUUID {
+                    items.append(AnnotationCreateBatchItem(
+                        index: index, status: "already_exists", annotationUUID: uuid
+                    ))
+                    continue
+                }
                 do {
                     let mutation = try books.createAnnotation(
                         assetID: assetID, text: record.text,

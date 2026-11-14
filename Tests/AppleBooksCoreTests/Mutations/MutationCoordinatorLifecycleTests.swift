@@ -229,6 +229,50 @@ struct MutationCoordinatorLifecycleTests {
     }
 
     @Test
+    func optedInReadOnlyNoOpDoesNotQuitBusyBooksButRealWritesStillMustQuit() throws {
+        let unchanged = try fixture(running: true, frontmost: true, terminateSucceeds: false)
+        defer { unchanged.remove() }
+        let noOp = try unchanged.coordinator.perform(
+            preflight: { _ in unchanged.state.events.append("preflight") },
+            quietDecision: { _ in
+                unchanged.state.events.append("quietDecision")
+                return .noChange(MutationDomainData(localPK: 42, stableID: "existing", changed: false))
+            },
+            avoidBooksQuitForReadOnlyNoOp: true,
+            revalidate: { _ in Issue.record("read-only no-op must not open writable store") },
+            mutation: { _ in Issue.record("read-only no-op must not mutate"); return () },
+            domainData: { _ in MutationDomainData(changed: true) },
+            readBack: { _, _ in Issue.record("read-only no-op must not read back") }
+        )
+        #expect(noOp.changed == false && noOp.committed == false)
+        #expect(noOp.stableID == "existing" && noOp.localPK == 42)
+        #expect(unchanged.state.frontmost && unchanged.state.running)
+        try assertOrdered(["preflight", "quietDecision"], in: unchanged.state.events)
+        #expect(unchanged.state.events.contains("terminate") == false)
+        #expect(unchanged.state.events.contains("backup") == false)
+        #expect(try readValue(at: unchanged.database) == "before")
+
+        let changed = try fixture(running: true, terminateSucceeds: false)
+        defer { changed.remove() }
+        do {
+            _ = try changed.coordinator.perform(
+                preflight: { _ in },
+                quietDecision: { _ in .needsMutation },
+                avoidBooksQuitForReadOnlyNoOp: true,
+                revalidate: { _ in },
+                mutation: { _ in Issue.record("must not mutate before quit"); return () },
+                domainData: { _ in MutationDomainData(changed: true) },
+                readBack: { _, _ in }
+            )
+            Issue.record("busy Books must reject real mutation")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .quitFailed)
+        }
+        #expect(changed.state.events.contains("backup") == false)
+        #expect(try readValue(at: changed.database) == "before")
+    }
+
+    @Test
     func frontmostQuietNoOpRestoresFrontmostAndReportsRestoreFailureAsWarning() throws {
         let restored = try fixture(running: true, frontmost: true)
         defer { restored.remove() }

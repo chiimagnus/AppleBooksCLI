@@ -630,6 +630,43 @@ struct AnnotationWriteCommandTests {
         #expect(unchanged.0.alreadyExistsCount == 2)
         #expect(projected.last == 2)
 
+        let refusedQuit = BooksAppController(
+            isRunning: { true }, terminate: { false }, launch: {},
+            isFrontmost: { true }
+        )
+        let busyBooks = try AppleBooks(
+            libraryDB: library, annotationsDB: annotations, configurationFile: nil,
+            collectionWriter: CollectionWriter(database: library, booksApp: .detached),
+            annotationWriter: AnnotationWriter(
+                database: annotations, backupRoot: backupRoot, booksApp: refusedQuit,
+                creationProjector: AnnotationCloudProjector(
+                    projectAction: { _ in Issue.record("Busy Books must not project") }
+                )
+            ),
+            libraryBackupRoot: backupRoot
+        )
+        func busyBatch(_ entries: [[String: Any]]) throws -> AnnotationCreateBatchResult {
+            let payload = try JSONSerialization.data(withJSONObject: ["annotations": entries])
+            try payload.write(to: input)
+            return try AnnotationsCreateCommand.parse(args).executeBatch(using: busyBooks)
+        }
+        try JSONSerialization.data(withJSONObject: ["annotations": [tagged(1)]])
+            .write(to: input)
+        let busySingle = try AnnotationsCreateCommand.parse(args).execute(using: busyBooks)
+        #expect(!busySingle.changed && !busySingle.committed)
+        #expect(busySingle.annotationUUID != nil)
+
+        let busyUnchanged = try busyBatch([tagged(1), tagged(1)])
+        #expect(busyUnchanged.complete)
+        #expect(busyUnchanged.changedCount == 0)
+        #expect(busyUnchanged.items.map(\.status) == ["already_exists", "already_exists"])
+        #expect(busyUnchanged.items.allSatisfy { $0.annotationUUID != nil })
+        let busyMixed = try busyBatch([tagged(1), tagged(2)])
+        #expect(busyMixed.status == "partial")
+        #expect(busyMixed.items.map(\.status) == ["already_exists", "failed"])
+        #expect(busyMixed.changedCount == 0)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 2)
+
         rejectProjectionForPK = 4
         let interrupted = try batch([tagged(2), tagged(3), tagged(4)])
         #expect(interrupted.0.status == "partial")

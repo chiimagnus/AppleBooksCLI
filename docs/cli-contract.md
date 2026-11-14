@@ -73,7 +73,8 @@ plain-text stdout。
 不冒险触发私有框架断言。`repair-sync` 可对已提交的原 UUID 使用同一路径，绝不重新 INSERT。
 只读 `preview` 的 `ready` 只表示选区定位可用，不保证安装的 CLI 具有有效版本元数据。
 
-多条 `annotations create` 先完成**整批只读预检**，再逐条调用已验证的单条写事务。
+多条 `annotations create` 先完成**整批只读预检**；已确认 `already_exists` 的条目
+直接返回现有 UUID，不进入写事务或退出 Books。其余待创建条目仍逐条调用已验证的单条事务。
 返回 `status=complete / preflight_failed / partial`、`complete`、`itemCount`、
 `createdCount`、`alreadyExistsCount`、`failedCount`、`notAttemptedCount`、
 `changedCount`、`syncRequired` 和按输入顺序排列的 `items`。

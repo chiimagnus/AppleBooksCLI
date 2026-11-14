@@ -56,7 +56,6 @@ struct ExportCommandTests {
         ])
         let request = try command.makeRequest()
 
-        #expect(request.options.source == .all)
         #expect(request.options.bookSelectors == [
             .assetID("asset-a"),
             .assetID("asset-b"),
@@ -141,7 +140,7 @@ struct ExportCommandTests {
     }
 
     @Test
-    func exactCurrentEPUBDoesNotResolvePDFWorker() throws {
+    func exactCurrentEPUBWorksWithoutWorkerDependency() throws {
         let fixture = try Fixture(kind: .twoBooks)
         defer { fixture.remove() }
         let destination = fixture.root.appendingPathComponent("exact-epub.json")
@@ -153,21 +152,11 @@ struct ExportCommandTests {
             "--annotations-db", fixture.annotations.path,
             "--config", fixture.configuration.path,
         ])
-        var workerResolutionCount = 0
-
-        let result = try command.execute(
-            workerURLProvider: {
-                workerResolutionCount += 1
-                throw FixtureError.workerMustNotBeResolved
-            }
-        )
-
-        #expect(workerResolutionCount == 0)
+        let result = try command.execute()
         #expect(result.destination == destination.standardizedFileURL.path)
         #expect(result.disposition == .file)
         #expect(result.documentCount == 1)
         #expect(result.warningCount == 0)
-        #expect(result.complete)
         #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 
@@ -178,7 +167,6 @@ struct ExportCommandTests {
         let destination = fixture.root.appendingPathComponent("annotations.json")
         let command = try ExportCommand.parse([
             "--format", "json",
-            "--source", "epub",
             "--output", destination.path,
         ])
         let capture = Capture()
@@ -192,7 +180,6 @@ struct ExportCommandTests {
         #expect(result.disposition == .file)
         #expect(result.documentCount == 1)
         #expect(result.warningCount == 0)
-        #expect(result.complete)
         #expect(capture.stdout.contains("\"groups\"") == false)
         let artifact = String(decoding: try Data(contentsOf: destination), as: UTF8.self)
         #expect(artifact.contains("\"groups\""))
@@ -207,7 +194,6 @@ struct ExportCommandTests {
         let command = try ExportCommand.parse([
             "--format", "json",
             "--grouping", "per-document",
-            "--source", "epub",
             "--output", directory.path,
         ])
 
@@ -217,7 +203,6 @@ struct ExportCommandTests {
         #expect(result.disposition == .directory)
         #expect(result.documentCount == 2)
         #expect(result.warningCount == 0)
-        #expect(result.complete)
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         #expect(names.count == 3)
         #expect(names.contains(ManagedExportManifestWriter.fileName))
@@ -233,7 +218,6 @@ struct ExportCommandTests {
         let command = try ExportCommand.parse([
             "--format", "json",
             "--grouping", "per-document",
-            "--source", "epub",
             "--output", directory.path,
         ])
 
@@ -242,181 +226,15 @@ struct ExportCommandTests {
             managedDirectorySyncParentAfterPublish: { _ in false }
         )
 
-        #expect(result.complete)
         #expect(result.warningCount == 1)
         #expect(result.warnings.count == 1)
-        #expect(result.warningsTruncated == false)
         let warning = try #require(result.warnings.first)
         #expect(warning.code == "export_directory_sync_failed")
         #expect(warning.source == "export")
-        #expect(warning.sourceID == nil)
         #expect(warning.reason == "managed_directory_parent_sync_failed")
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         #expect(names.count == 3)
         #expect(names.contains(ManagedExportManifestWriter.fileName))
-    }
-
-    @Test
-    func exactSelectorsRejectBulkScopeAndMapOpaquePDFIdentity() throws {
-        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
-        for selector in [["--book", "asset-a"], ["--book-pk", "1"], ["--pdf", sourceID]] {
-            for scope in ["epub", "pdf", "all"] {
-                let command = try ExportCommand.parse([
-                    "--format", "json", "--output", "/tmp/export.json", "--source", scope,
-                ] + selector)
-                #expect(throws: ValidationError.self) { _ = try command.makeRequest() }
-            }
-        }
-        let request = try ExportCommand.parse([
-            "--format", "json", "--output", "/tmp/export.json", "--pdf", sourceID, "--pdf", sourceID,
-        ]).makeRequest()
-        #expect(request.options.bookSelectors == [.pdfSourceID(sourceID), .pdfSourceID(sourceID)])
-    }
-
-    @Test
-    func exactPDFDoesNotOpenAnnotationsOrConfigurationAndMixedUsesUnion() throws {
-        let fixture = try Fixture(kind: .twoBooks)
-        defer { fixture.remove() }
-        let pdf = fixture.root.appendingPathComponent("fixture.pdf")
-        try Data("%PDF-synthetic".utf8).write(to: pdf)
-        try Fixture.createDatabase(fixture.library, sql: """
-            ALTER TABLE ZBKLIBRARYASSET ADD COLUMN ZPATH TEXT;
-            INSERT INTO ZBKLIBRARYASSET VALUES (3,'pdf-book','PDF Book','Author',3,'\(pdf.path)');
-            """)
-        let worker = fixture.root.appendingPathComponent("worker")
-        try Data("""
-            #!/bin/sh
-            IFS= read -r request || true
-            printf '%s' '{"version":2,"status":"success","mode":"archive","archiveHighlights":[],"hasMore":false,"generation":"pdfg2_0000000000000000000000000000000000000000000000000000000000000000"}'
-            """.utf8).write(to: worker)
-        #expect(chmod(worker.path, 0o700) == 0)
-        let missing = fixture.root.appendingPathComponent("missing").path
-        let arguments = ["--format", "json", "--library-db", fixture.library.path]
-        let exact = try ExportCommand.parse(arguments + [
-            "--book", "pdf-book", "--output", fixture.root.appendingPathComponent("pdf.json").path,
-            "--annotations-db", missing, "--config", missing,
-        ])
-        var workerCalls = 0
-        let result = try exact.execute(workerURLProvider: { workerCalls += 1; return worker })
-        #expect(result.complete)
-        #expect(workerCalls == 1)
-        let mixed = try ExportCommand.parse(arguments + [
-            "--book", "pdf-book", "--book", "asset-a",
-            "--output", fixture.root.appendingPathComponent("mixed.json").path,
-            "--annotations-db", fixture.annotations.path, "--config", fixture.configuration.path,
-        ])
-        let mixedResult = try mixed.execute(workerURLProvider: { workerCalls += 1; return worker })
-        #expect(mixedResult.complete)
-        #expect(workerCalls == 2)
-        let artifact = try String(contentsOfFile: mixedResult.destination, encoding: .utf8)
-        #expect(artifact.contains("Quote A"))
-        let probe = try AppleBooks(
-            libraryDB: fixture.library, annotationsDB: nil, configurationFile: nil,
-            dependencies: .libraryRead,
-            manageCollectionBooksApplication: false,
-            manageAnnotationBooksApplication: false
-        )
-        #expect(try probe.exportDependencies(options: exact.makeRequest().options) == [.libraryRead, .pdfWorker])
-        #expect(try probe.exportDependencies(options: mixed.makeRequest().options) == [.libraryRead, .annotationsRead, .configuration, .pdfWorker])
-        #expect(try probe.exportDependencies(options: ExportOptions(bookSelectors: [.assetID("historical")])) == [.libraryRead, .annotationsRead, .configuration])
-        try Data("""
-            #!/bin/sh
-            IFS= read -r request || true
-            printf '%s' '{"version":2,"status":"failure","errorCode":"unreadableDocument"}'
-            """.utf8).write(to: worker)
-        let failedDestination = fixture.root.appendingPathComponent("failed.json")
-        let failing = try ExportCommand.parse(arguments + [
-            "--book", "pdf-book", "--output", failedDestination.path,
-            "--annotations-db", missing, "--config", missing,
-        ])
-        #expect(throws: CLIError.unavailableWithReason(
-            message: "Selected PDF could not be read.",
-            reason: .contentUnavailable
-        )) {
-            _ = try failing.execute(workerURLProvider: { worker })
-        }
-        #expect(!FileManager.default.fileExists(atPath: failedDestination.path))
-    }
-
-    @Test
-    func unavailableBulkPDFWritesPartialArtifactWithStructuredWarning() throws {
-        let fixture = try Fixture(kind: .twoBooks)
-        defer { fixture.remove() }
-        let command = try ExportCommand.parse([
-            "--format", "json", "--output", fixture.root.appendingPathComponent("partial.json").path,
-            "--library-db", fixture.library.path, "--annotations-db", fixture.annotations.path,
-            "--config", fixture.configuration.path,
-        ])
-        let result = try command.execute(workerURLProvider: { throw FixtureError.workerMustNotBeResolved })
-        #expect(!result.complete)
-        #expect(result.warningCount == 1)
-        #expect(result.warnings.count == 1)
-        let warning = try #require(result.warnings.first)
-        #expect(warning.code == "pdf_unavailable")
-        #expect(warning.source == "pdf")
-        #expect(warning.sourceID == nil)
-        #expect(warning.reason == "worker_unavailable")
-        #expect(result.warningsTruncated == false)
-        #expect(try String(contentsOfFile: result.destination, encoding: .utf8).contains("Quote A"))
-    }
-
-    @Test
-    func structuredWarningsAreBoundedSanitizedAndSuccessfulOutputUsesOnlyStdout() throws {
-        let sourceID = "pdf1_" + String(repeating: "a", count: 64)
-        let source = PDFSource(
-            fileURL: URL(fileURLWithPath: "/private/secret/never-reflect.pdf"),
-            book: nil,
-            provenance: .fallback,
-            pdfSourceID: sourceID
-        )
-        let warnings = (0..<101).map { index in
-            ExportWarning.pdfFailure(PDFHighlightServiceFailure(
-                source: source,
-                reason: index == 0 ? .timeout : .worker(.nonzeroExit(123))
-            ))
-        }
-        let summary = try ExportRunWarning.summaries(warnings)
-        #expect(summary.items.count == 100)
-        #expect(summary.truncated)
-        #expect(summary.items[0].reason == "timeout")
-        #expect(summary.items[1].reason == "worker_nonzero_exit")
-        #expect(summary.items.allSatisfy { $0.code == "pdf_read_failed" && $0.source == "pdf" && $0.sourceID == sourceID })
-
-        var result = ExportRunResult(
-            destination: "/safe/export.json",
-            disposition: .file,
-            documentCount: 1,
-            warningCount: warnings.count,
-            complete: false
-        )
-        result.warnings = summary.items
-        result.warningsTruncated = summary.truncated
-        let capture = Capture()
-        try capture.output.writeJSON(result)
-        #expect(capture.stderr.isEmpty)
-        #expect(capture.stdout.contains("never-reflect") == false)
-        #expect(capture.stdout.contains("/private/secret") == false)
-        #expect(capture.stdout.contains("123") == false)
-        let encoded = try JSONDecoder().decode(ExportRunResult.self, from: Data(capture.stdout.utf8))
-        #expect(encoded.warningCount == 101)
-        #expect(encoded.warnings.count == 100)
-        #expect(encoded.warningsTruncated)
-
-        let additionalSummary = try ExportRunWarning.summaries(
-            [warnings[0]],
-            additional: [.managedDirectoryPublishSyncFailed, .oldExportCleanupFailed]
-        )
-        #expect(additionalSummary.truncated == false)
-        #expect(additionalSummary.items.count == 3)
-        #expect(additionalSummary.items[0].code == "export_directory_sync_failed")
-        #expect(additionalSummary.items[0].source == "export")
-        #expect(additionalSummary.items[0].sourceID == nil)
-        #expect(additionalSummary.items[0].reason == "managed_directory_parent_sync_failed")
-        #expect(additionalSummary.items[1].code == "old_export_cleanup_failed")
-        #expect(additionalSummary.items[1].source == "export")
-        #expect(additionalSummary.items[1].sourceID == nil)
-        #expect(additionalSummary.items[1].reason == "managed_directory_cleanup_failed")
-        #expect(additionalSummary.items[2].code == "pdf_read_failed")
     }
 
     @Test
@@ -426,9 +244,9 @@ struct ExportCommandTests {
         let defaultFile = fixture.root.appendingPathComponent("not-json.json")
         let explicitFile = fixture.root.appendingPathComponent("explicit")
         let directory = fixture.root.appendingPathComponent("documents.json")
-        let defaultCommand = try ExportCommand.parse(["--source", "epub", "--output", defaultFile.path])
-        let explicitCommand = try ExportCommand.parse(["--source", "epub", "--format", "markdown", "--output", explicitFile.path])
-        let directoryCommand = try ExportCommand.parse(["--source", "epub", "--grouping", "per-document", "--output", directory.path])
+        let defaultCommand = try ExportCommand.parse(["--output", defaultFile.path])
+        let explicitCommand = try ExportCommand.parse(["--format", "markdown", "--output", explicitFile.path])
+        let directoryCommand = try ExportCommand.parse(["--grouping", "per-document", "--output", directory.path])
         #expect(try defaultCommand.makeRequest().format == .markdown)
         #expect(try defaultCommand.execute(using: fixture.core()).disposition == .file)
         #expect(try explicitCommand.execute(using: fixture.core()).disposition == .file)
@@ -456,7 +274,7 @@ struct ExportCommandTests {
         for (target, grouping) in [(file, "per-document"), (directory, "single")] {
             for policy in ["never", "always"] {
                 let command = try ExportCommand.parse([
-                    "--source", "epub", "--output", target.path, "--grouping", grouping, "--overwrite", policy,
+                    "--output", target.path, "--grouping", grouping, "--overwrite", policy,
                 ])
                 do {
                     _ = try command.execute(using: fixture.core())
@@ -470,8 +288,29 @@ struct ExportCommandTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "original")
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
         for count in [1, 100_001] {
-            let result = ExportRunResult(destination: "/synthetic/export", disposition: .directory, documentCount: count, warningCount: 0, complete: true)
+            let result = ExportRunResult(destination: "/synthetic/export", disposition: .directory, documentCount: count, warningCount: 0)
             #expect(try JSONEncoder().encode(result).count < 200)
+        }
+    }
+
+    @Test
+    func pdfCommandsAndLegacyExportFlagsAreRejectedWithoutTouchingArtifacts() throws {
+        let fixture = try Fixture(kind: .twoBooks)
+        defer { fixture.remove() }
+        let destination = fixture.root.appendingPathComponent("must-not-write.json")
+        for arguments in [
+            ["pdf", "list"],
+            ["pdf", "highlights", "--book", "asset-a"],
+            ["export", "--pdf", "pdf1_opaque", "--output", destination.path],
+            ["export", "--source", "pdf", "--output", destination.path],
+            ["export", "--source", "all", "--output", destination.path]
+        ] {
+            let capture = Capture()
+            let code = CLIEntrypoint.run(arguments: arguments, output: capture.output)
+            #expect(code == CLIProcessExit.usageInvalid.rawValue)
+            #expect(capture.stdout.isEmpty)
+            #expect(capture.stderr.contains(#""code":"usage_invalid""#))
+            #expect(FileManager.default.fileExists(atPath: destination.path) == false)
         }
     }
 
@@ -576,6 +415,5 @@ struct ExportCommandTests {
 
     private enum FixtureError: Error {
         case database
-        case workerMustNotBeResolved
     }
 }

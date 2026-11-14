@@ -3,13 +3,6 @@ import Foundation
 public enum ExportOptionsError: Error, Equatable, Sendable {
     case emptyColors
     case invalidBookSelector
-    case conflictingOptions
-}
-
-public enum ExportSourceScope: String, Equatable, Hashable, Sendable {
-    case epub
-    case pdf
-    case all
 }
 
 public enum ExportPresentationColor: String, Equatable, Hashable, Sendable {
@@ -28,11 +21,9 @@ public enum ExportFileGrouping: String, Equatable, Sendable {
 public enum ExportBookSelector: Equatable, Hashable, Sendable {
     case assetID(String)
     case localPK(Int64)
-    case pdfSourceID(String)
 }
 
 public struct ExportOptions: Equatable, Sendable {
-    public let source: ExportSourceScope
     public let bookSelectors: [ExportBookSelector]
     public let hasHighlight: Bool?
     public let hasNote: Bool?
@@ -41,7 +32,6 @@ public struct ExportOptions: Equatable, Sendable {
     public let grouping: ExportFileGrouping
 
     public init(
-        source: ExportSourceScope = .all,
         bookSelectors: [ExportBookSelector] = [],
         hasHighlight: Bool? = nil,
         hasNote: Bool? = nil,
@@ -50,24 +40,13 @@ public struct ExportOptions: Equatable, Sendable {
         grouping: ExportFileGrouping = .single
     ) throws {
         if let colors {
-            guard colors.isEmpty == false else { throw ExportOptionsError.emptyColors }
+            guard !colors.isEmpty else { throw ExportOptionsError.emptyColors }
         }
         for selector in bookSelectors {
-            switch selector {
-            case let .assetID(value):
-                guard value.isEmpty == false else { throw ExportOptionsError.invalidBookSelector }
-            case .localPK:
-                break
-            case let .pdfSourceID(value):
-                guard (try? PDFSourceID.parse(value)) != nil else {
-                    throw ExportOptionsError.invalidBookSelector
-                }
+            if case let .assetID(value) = selector {
+                guard !value.isEmpty else { throw ExportOptionsError.invalidBookSelector }
             }
         }
-        if !bookSelectors.isEmpty, source != .all {
-            throw ExportOptionsError.conflictingOptions
-        }
-        self.source = source
         self.bookSelectors = bookSelectors
         self.hasHighlight = hasHighlight
         self.hasNote = hasNote

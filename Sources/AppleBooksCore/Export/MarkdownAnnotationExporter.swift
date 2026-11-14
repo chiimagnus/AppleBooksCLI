@@ -103,28 +103,15 @@ private final class StreamingMarkdownWriter {
 
     private func writeRecord(_ record: ExportRecord) throws {
         var firstBlock = true
-        switch record.payload {
-        case let .epub(enriched):
-            let annotation = enriched.annotation
-            if let date = annotation.createdAt ?? annotation.modifiedAt {
-                try block(&firstBlock) { try timestamp(date) }
-            }
-            if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
-                try block(&firstBlock) { try blockquote(quote) }
-            }
-            if let note = content(annotation.note) {
-                try block(&firstBlock) { try paragraph(note) }
-            }
-        case let .pdf(_, highlight):
-            if let date = highlight.modifiedAt {
-                try block(&firstBlock) { try timestamp(date) }
-            }
-            if let quote = content(highlight.text) {
-                try block(&firstBlock) { try blockquote(quote) }
-            }
-            if let note = content(highlight.note) {
-                try block(&firstBlock) { try paragraph(note) }
-            }
+        let annotation = record.annotation.annotation
+        if let date = annotation.createdAt ?? annotation.modifiedAt {
+            try block(&firstBlock) { try timestamp(date) }
+        }
+        if let quote = content(annotation.selectedText) ?? content(annotation.representativeText) {
+            try block(&firstBlock) { try blockquote(quote) }
+        }
+        if let note = content(annotation.note) {
+            try block(&firstBlock) { try paragraph(note) }
         }
         if firstBlock {
             try raw("_No text._")
@@ -150,12 +137,6 @@ private final class StreamingMarkdownWriter {
                 title: "Unmapped EPUB",
                 author: nil,
                 appleBooksURL: assetID.flatMap(Annotation.bookAppleBooksURL(assetID:))
-            )
-        case let .pdf(source):
-            return MarkdownSourceContext(
-                title: source.displayTitle,
-                author: source.book.flatMap { nonEmpty($0.author) },
-                appleBooksURL: nil
             )
         }
     }

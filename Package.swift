@@ -16,7 +16,6 @@ let package = Package(
     products: [
         .library(name: "AppleBooksCore", targets: ["AppleBooksCore"]),
         .executable(name: "applebookscli", targets: ["AppleBooksCLI"]),
-        .executable(name: "applebookscli-pdf-worker", targets: ["AppleBooksPDFWorker"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.8.2"),
@@ -55,10 +54,6 @@ let package = Package(
                     "-Xlinker", debugInfoPlist,
                 ], .when(configuration: .debug)),
             ]
-        ),
-        .executableTarget(
-            name: "AppleBooksPDFWorker",
-            dependencies: ["AppleBooksCore"]
         ),
         .testTarget(
             name: "AppleBooksCoreTests",

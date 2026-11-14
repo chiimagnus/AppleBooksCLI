@@ -18,7 +18,6 @@ public struct SemanticBookDetail: Equatable, Sendable {
     public let releaseDate: Date?
     public let byteTruncatedFields: [String]
 
-    public var isPDF: Bool? { contentType.map { $0 == 3 } }
 }
 
 struct BookResourceTarget: Equatable, Sendable {

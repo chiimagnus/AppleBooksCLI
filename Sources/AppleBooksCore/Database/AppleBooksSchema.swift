@@ -141,7 +141,6 @@ enum SchemaCapability: CaseIterable {
     case bookBase
     case bookAssetLookup
     case bookContentPathLookup
-    case bookPDF
     case readingFinished
     case readingInProgress
     case readingUnstarted
@@ -159,7 +158,7 @@ enum SchemaCapability: CaseIterable {
 
     var table: AppleBooksTable {
         switch self {
-        case .bookBase, .bookAssetLookup, .bookContentPathLookup, .bookPDF,
+        case .bookBase, .bookAssetLookup, .bookContentPathLookup,
              .readingFinished, .readingInProgress,
              .readingUnstarted, .readingRecentlyRead, .collectionMemberBooks:
             .books
@@ -180,8 +179,6 @@ enum SchemaCapability: CaseIterable {
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.assetID]
         case .bookContentPathLookup:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.path]
-        case .bookPDF:
-            [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.contentType]
         case .readingFinished:
             [AppleBooksSchema.Book.localPK, AppleBooksSchema.Book.isFinished]
         case .readingInProgress, .readingUnstarted:

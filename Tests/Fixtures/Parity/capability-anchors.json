@@ -175,35 +175,6 @@
       ]
     ]
   },
-  "EPUB/PDF source scope": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/Export/ExportOptions.swift",
-      "Sources/AppleBooksCore/Export/ExportService.swift",
-      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "export",
-        "--source"
-      ],
-      [
-        "export",
-        "--pdf"
-      ],
-      [
-        "export",
-        "--book"
-      ],
-      [
-        "export",
-        "--book-pk"
-      ]
-    ]
-  },
   "JSON export": {
     "owner": "core",
     "implementationPaths": [
@@ -231,121 +202,6 @@
       [
         "export",
         "--format"
-      ]
-    ]
-  },
-  "PDF color mapping": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFColorMapping.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFColorMappingTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "highlights"
-      ]
-    ]
-  },
-  "PDF highlight extraction": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift",
-      "Sources/AppleBooksCore/PDF/PDFHighlightTextExtractor.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFHighlightTextTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "highlights"
-      ]
-    ]
-  },
-  "PDF highlight note": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "highlights"
-      ]
-    ]
-  },
-  "PDF inventory": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFSource.swift",
-      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift",
-      "Sources/AppleBooksCore/Queries/BookQueries.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "list"
-      ],
-      [
-        "pdf",
-        "highlights",
-        "--pdf"
-      ]
-    ]
-  },
-  "PDF metadata fallback": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFSource.swift",
-      "Sources/AppleBooksCore/PDF/PDFSourceResolver.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFSourceResolverTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "list"
-      ]
-    ]
-  },
-  "PDF page/location": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFHighlight.swift",
-      "Sources/AppleBooksCore/PDF/PDFHighlightReader.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFHighlightReaderTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "highlights"
-      ]
-    ]
-  },
-  "PDF parse timeout": {
-    "owner": "core",
-    "implementationPaths": [
-      "Sources/AppleBooksCore/PDF/PDFWorkerClient.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCoreTests/PDF/PDFWorkerTimeoutTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "pdf",
-        "highlights"
       ]
     ]
   },
@@ -1562,6 +1418,27 @@
       [
         "annotations",
         "repair-sync"
+      ]
+    ]
+  },
+  "EPUB export source selectors": {
+    "owner": "core",
+    "implementationPaths": [
+      "Sources/AppleBooksCore/Export/ExportOptions.swift",
+      "Sources/AppleBooksCore/Export/ExportService.swift",
+      "Sources/AppleBooksCore/Export/ExportSourceResolver.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCoreTests/Export/ExportServiceTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "export",
+        "--book"
+      ],
+      [
+        "export",
+        "--book-pk"
       ]
     ]
   }

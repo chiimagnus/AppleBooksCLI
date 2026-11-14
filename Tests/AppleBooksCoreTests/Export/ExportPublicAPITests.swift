@@ -27,29 +27,7 @@ struct ExportPublicAPITests {
         #expect(bundle.statistics.epubAnnotationCount == 1)
         #expect(bundle.groups.count == 1)
         let record = try #require(bundle.groups.first?.records.first)
-        guard case let .epub(enriched) = record.payload else {
-            Issue.record("expected EPUB export record")
-            return
-        }
-        #expect(enriched.annotation.selectedText == "public quote")
-    }
-
-    @Test
-    func publicFacadeReturnsTypedPDFWorkerBoundary() throws {
-        let fixture = try Fixture(kind: .currentBook)
-        defer { fixture.remove() }
-
-        let core = try AppleBooks(
-            libraryDB: fixture.library,
-            annotationsDB: fixture.annotations,
-            configurationFile: fixture.configuration
-        )
-
-        #expect(throws: ExportServiceError.pdfWorkerUnavailable) {
-            _ = try core.exportBundle(
-                options: ExportOptions(source: .pdf, hasHighlight: true)
-            )
-        }
+        #expect(record.annotation.annotation.selectedText == "public quote")
     }
 
     private final class Fixture {

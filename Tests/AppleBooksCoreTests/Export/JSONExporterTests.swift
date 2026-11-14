@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import AppleBooksCore
@@ -32,19 +31,16 @@ struct JSONExporterTests {
             rangeStart: nil,
             rangeEnd: nil
         )
-        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let record = ExportRecord(annotation: .init(annotation: annotation, source: .unmapped))
         let group = ExportGroup(source: .epubUnmapped(assetID: "asset-archive"), records: [record])
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub, hasHighlight: true),
+            options: try ExportOptions(hasHighlight: true),
             groups: [group],
-            warnings: [],
             statistics: ExportStatistics(
                 documentCount: 1,
                 epubDocumentCount: 1,
-                pdfDocumentCount: 0,
                 recordCount: 1,
                 epubAnnotationCount: 1,
-                pdfHighlightCount: 0,
                 highlightCount: 1,
                 noteCount: 0,
                 historicalEPUBAnnotationCount: 0,
@@ -53,10 +49,6 @@ struct JSONExporterTests {
             sourceTotals: ExportSourceTotals(
                 epubDocumentCount: 1,
                 epubAnnotationCount: 1,
-                pdfAttemptedDocumentCount: 0,
-                pdfSucceededDocumentCount: 0,
-                pdfFailedDocumentCount: 0,
-                pdfHighlightCount: 0
             )
         )
 
@@ -73,16 +65,16 @@ struct JSONExporterTests {
     }
 
     @Test
-    func singleFilePreservesSourceSpecificRawFieldsAndWarnings() throws {
+    func singleFilePreservesEPUBSourceRawFields() throws {
         let fixture = try Fixture()
         let data = try renderJSON(fixture.bundle, exportedAt: fixture.exportedAt)
         let root = try object(data)
 
-        #expect(root["schemaVersion"] as? Int == 10)
+        #expect(root["schemaVersion"] as? Int == 11)
         #expect(root["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
 
         let options = try dictionary(root["options"])
-        #expect(options["source"] as? String == "all")
+        #expect(options["source"] == nil)
         #expect(options["kinds"] == nil)
         #expect(options["hasHighlight"] as? Bool == true)
         #expect(options["hasNote"] as? Bool == false)
@@ -95,21 +87,17 @@ struct JSONExporterTests {
         let selectors = try array(options["bookSelectors"])
         #expect(try dictionary(selectors[0])["kind"] as? String == "assetID")
         #expect(try dictionary(selectors[0])["value"] as? String == "current-asset")
-        #expect(try dictionary(selectors[1])["kind"] as? String == "pdfSourceID")
-        #expect(try dictionary(selectors[1])["value"] as? String == "pdf1_" + String(repeating: "a", count: 64))
 
         let statistics = try dictionary(root["statistics"])
-        #expect(statistics["documentCount"] as? Int == 3)
-        #expect(statistics["recordCount"] as? Int == 3)
+        #expect(statistics["documentCount"] as? Int == 2)
+        #expect(statistics["recordCount"] as? Int == 2)
         #expect(statistics["historicalEPUBAnnotationCount"] as? Int == 0)
         #expect(statistics["unmappedEPUBAnnotationCount"] as? Int == 1)
         let sourceTotals = try dictionary(root["sourceTotals"])
         #expect(sourceTotals["epubAnnotationCount"] as? Int == 4)
-        #expect(sourceTotals["pdfAttemptedDocumentCount"] as? Int == 2)
-        #expect(sourceTotals["pdfFailedDocumentCount"] as? Int == 1)
 
         let groups = try array(root["groups"])
-        #expect(groups.count == 3)
+        #expect(groups.count == 2)
 
         let orphan = try dictionary(groups[0])
         let orphanSource = try dictionary(orphan["source"])
@@ -150,44 +138,9 @@ struct JSONExporterTests {
         #expect(current["epubMetadata"] == nil)
         #expect(current["epubCover"] == nil)
 
-        let pdf = try dictionary(groups[2])
-        let pdfSource = try dictionary(try dictionary(pdf["source"])["pdfSource"])
-        #expect(pdfSource["filePath"] as? String == fixture.pdfURL.path)
-        #expect(pdfSource["displayTitle"] as? String == "export-test")
-        #expect(pdfSource["book"] == nil)
-        let pdfRecord = try dictionary(try array(pdf["records"])[0])
-        #expect(pdfRecord["source"] as? String == "pdf")
-        #expect(pdfRecord["annotation"] == nil)
-        let pdfPresence = try dictionary(pdfRecord["presentation"])
-        #expect(pdfPresence["hasHighlight"] as? Bool == true)
-        #expect(pdfPresence["hasNote"] as? Bool == false)
-        let highlight = try dictionary(pdfRecord["pdfHighlight"])
-        #expect(highlight["page"] as? Int == 4)
-        #expect(highlight["traversalIndex"] as? Int == 7)
-        #expect(highlight["pdfKitRGBA"] as? [Double] == [0.1, 0.2, 0.3, 1.0])
-        #expect(highlight["modifiedAt"] as? String == "2020-09-13T12:26:40.500Z")
-        #expect(highlight["text"] as? String == "pdf quote")
-        #expect(highlight["textSource"] as? String == "quadSelection")
-        #expect(highlight["textIsApproximate"] as? Bool == true)
-        #expect(highlight["textUnavailableReason"] == nil)
-        let color = try dictionary(highlight["presentationColor"])
-        #expect(color["color"] as? String == "yellow")
-        #expect(color["distance"] as? Double == 0.125)
-        #expect(color["isApproximate"] as? Bool == true)
-        #expect(try ExportSelection.apply(
-            options: try ExportOptions(source: .pdf, colors: [.yellow]),
-            to: fixture.bundle.groups.flatMap(\.records)
-        ).isEmpty)
+        #expect(root["warnings"] == nil)
+        #expect(sourceTotals["pdfHighlightCount"] == nil)
 
-        let warnings = try array(root["warnings"])
-        #expect(warnings.count == 1)
-        let pdfWarning = try dictionary(warnings[0])
-        #expect(pdfWarning["code"] as? String == "pdfFailure")
-        let failure = try dictionary(pdfWarning["pdfFailure"])
-        #expect(failure["kind"] as? String == "worker")
-        let workerError = try dictionary(failure["workerError"])
-        #expect(workerError["code"] as? String == "workerFailure")
-        #expect(workerError["workerCode"] as? String == "unreadableDocument")
     }
 
     @Test
@@ -209,7 +162,7 @@ struct JSONExporterTests {
         ]
         let bundle = try bundle(books: books)
         let root = try object(renderJSON(bundle, exportedAt: Date(timeIntervalSince1970: 0)))
-        #expect(root["schemaVersion"] as? Int == 10)
+        #expect(root["schemaVersion"] as? Int == 11)
         let groups = try array(root["groups"])
 
         let nilSource = try dictionary(try dictionary(groups[0])["source"])
@@ -243,7 +196,7 @@ struct JSONExporterTests {
         let document = try object(renderDocumentJSON(
             bundle.groups[2], from: bundle, exportedAt: Date(timeIntervalSince1970: 0)
         ))
-        #expect(document["schemaVersion"] as? Int == 10)
+        #expect(document["schemaVersion"] as? Int == 11)
         let documentSource = try dictionary(try dictionary(document["group"])["source"])
         let documentBook = try dictionary(documentSource["book"])
         #expect(try array(documentBook["numericAnomalies"]).count == 3)
@@ -276,16 +229,12 @@ struct JSONExporterTests {
                 metadata: HistoricalBookMetadata(title: "Historical Title", author: "Historical Author")
             ),
             records: [
-                ExportRecord(
-                    payload: .epub(
-                        EnrichedAnnotation(
-                            annotation: annotation,
-                            source: .historicalInferred(
-                                HistoricalBookMetadata(title: "Historical Title", author: "Historical Author")
-                            )
-                        )
-                    )
-                ),
+                ExportRecord(annotation: EnrichedAnnotation(
+                    annotation: annotation,
+                    source: .historicalInferred(HistoricalBookMetadata(
+                        title: "Historical Title", author: "Historical Author"
+                    ))
+                ))
             ]
         )
         let base = try Fixture()
@@ -298,7 +247,6 @@ struct JSONExporterTests {
         #expect(source["kind"] as? String == "epubHistorical")
         #expect(source["assetID"] as? String == "historical-asset")
         #expect(source["book"] == nil)
-        #expect(source["pdfSource"] == nil)
         let metadata = try dictionary(source["historicalMetadata"])
         #expect(metadata["title"] as? String == "Historical Title")
         #expect(metadata["author"] as? String == "Historical Author")
@@ -386,12 +334,12 @@ struct JSONExporterTests {
             rangeStart: nil,
             rangeEnd: nil
         )
-        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .currentLibrary(book))))
+        let record = ExportRecord(annotation: .init(annotation: annotation, source: .currentLibrary(book)))
         let group = ExportGroup(source: .epubCurrent(book), records: [record])
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub), groups: [group], warnings: [],
-            statistics: ExportStatistics(documentCount: 1, epubDocumentCount: 1, pdfDocumentCount: 0, recordCount: 1, epubAnnotationCount: 1, pdfHighlightCount: 0, highlightCount: 1, noteCount: 1, historicalEPUBAnnotationCount: 0, unmappedEPUBAnnotationCount: 0),
-            sourceTotals: ExportSourceTotals(epubDocumentCount: 1, epubAnnotationCount: 1, pdfAttemptedDocumentCount: 0, pdfSucceededDocumentCount: 0, pdfFailedDocumentCount: 0, pdfHighlightCount: 0)
+            options: try ExportOptions(), groups: [group],
+            statistics: ExportStatistics(documentCount: 1, epubDocumentCount: 1, recordCount: 1, epubAnnotationCount: 1, highlightCount: 1, noteCount: 1, historicalEPUBAnnotationCount: 0, unmappedEPUBAnnotationCount: 0),
+            sourceTotals: ExportSourceTotals(epubDocumentCount: 1, epubAnnotationCount: 1)
         )
         var streamed = Data()
         try JSONExporter.stream(bundle, exportedAt: Date(timeIntervalSince1970: 0)) { streamed.append($0) }
@@ -426,19 +374,16 @@ struct JSONExporterTests {
             rangeStart: nil,
             rangeEnd: nil
         )
-        let record = ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped)))
+        let record = ExportRecord(annotation: .init(annotation: annotation, source: .unmapped))
         let group = ExportGroup(source: .epubUnmapped(assetID: "large-asset"), records: [record])
         let bundle = ExportBundle(
-            options: try ExportOptions(source: .epub),
+            options: try ExportOptions(),
             groups: [group],
-            warnings: [],
             statistics: ExportStatistics(
                 documentCount: 1,
                 epubDocumentCount: 1,
-                pdfDocumentCount: 0,
                 recordCount: 1,
                 epubAnnotationCount: 1,
-                pdfHighlightCount: 0,
                 highlightCount: 1,
                 noteCount: 0,
                 historicalEPUBAnnotationCount: 0,
@@ -447,10 +392,6 @@ struct JSONExporterTests {
             sourceTotals: ExportSourceTotals(
                 epubDocumentCount: 1,
                 epubAnnotationCount: 1,
-                pdfAttemptedDocumentCount: 0,
-                pdfSucceededDocumentCount: 0,
-                pdfFailedDocumentCount: 0,
-                pdfHighlightCount: 0
             )
         )
         var totalBytes = 0
@@ -489,24 +430,24 @@ struct JSONExporterTests {
     func perDocumentOutputReusesTheExactGroupDTOWithoutGlobalRunState() throws {
         let fixture = try Fixture()
         let full = try object(renderJSON(fixture.bundle, exportedAt: fixture.exportedAt))
-        let fullPDFGroup = try array(full["groups"])[2]
+        let exportedEPUBGroup = try array(full["groups"])[1]
 
         let document = try object(
             renderDocumentJSON(
-                fixture.bundle.groups[2],
+                fixture.bundle.groups[1],
                 from: fixture.bundle,
                 exportedAt: fixture.exportedAt
             )
         )
 
         #expect(Set(document.keys) == ["schemaVersion", "exportedAt", "options", "group"])
-        #expect(document["schemaVersion"] as? Int == 10)
+        #expect(document["schemaVersion"] as? Int == 11)
         #expect(document["exportedAt"] as? String == "2023-11-14T22:13:20.125Z")
         #expect(document["statistics"] == nil)
         #expect(document["sourceTotals"] == nil)
         #expect(document["warnings"] == nil)
         #expect(document["groups"] == nil)
-        #expect(try normalized(document["group"]) == normalized(fullPDFGroup))
+        #expect(try normalized(document["group"]) == normalized(exportedEPUBGroup))
     }
 
     private func object(_ data: Data) throws -> [String: Any] {
@@ -570,16 +511,13 @@ struct JSONExporterTests {
     private func bundle(books: [Book]) throws -> ExportBundle {
         let groups = books.map { ExportGroup(source: .epubCurrent($0), records: []) }
         return ExportBundle(
-            options: try ExportOptions(source: .epub),
+            options: try ExportOptions(),
             groups: groups,
-            warnings: [],
             statistics: ExportStatistics(
                 documentCount: groups.count,
                 epubDocumentCount: groups.count,
-                pdfDocumentCount: 0,
                 recordCount: 0,
                 epubAnnotationCount: 0,
-                pdfHighlightCount: 0,
                 highlightCount: 0,
                 noteCount: 0,
                 historicalEPUBAnnotationCount: 0,
@@ -588,10 +526,6 @@ struct JSONExporterTests {
             sourceTotals: ExportSourceTotals(
                 epubDocumentCount: groups.count,
                 epubAnnotationCount: 0,
-                pdfAttemptedDocumentCount: 0,
-                pdfSucceededDocumentCount: 0,
-                pdfFailedDocumentCount: 0,
-                pdfHighlightCount: 0
             )
         )
     }
@@ -600,7 +534,6 @@ struct JSONExporterTests {
         let exportedAt = Date(timeIntervalSince1970: 1_700_000_000.125)
         let rawDate = Date(timeIntervalSince1970: 1_600_000_000.5)
         let rawCFI = "epubcfi(/6/4[chapter]!/4/2,:3,:9)"
-        let pdfURL = URL(fileURLWithPath: "/tmp/export-test.pdf").standardizedFileURL
         let bundle: ExportBundle
 
         init() throws {
@@ -676,49 +609,20 @@ struct JSONExporterTests {
                 rangeStart: nil,
                 rangeEnd: nil
             )
-            let pdfSource = PDFSource(fileURL: pdfURL, book: nil)
-            let pdfHighlight = PDFHighlight(
-                page: 4,
-                traversalIndex: 7,
-                bounds: CGRect(x: 1.25, y: 2.5, width: 30.75, height: 4.5),
-                quadrilateralPoints: [
-                    CGPoint(x: 1, y: 2),
-                    CGPoint(x: 3, y: 2),
-                    CGPoint(x: 1, y: 4),
-                    CGPoint(x: 3, y: 4),
-                ],
-                note: nil,
-                pdfKitRGBA: [0.1, 0.2, 0.3, 1.0],
-                presentationColor: PDFColorMatch(color: .yellow, distance: 0.125, isApproximate: true),
-                modifiedAt: rawDate,
-                text: "pdf quote",
-                textSource: .quadSelection,
-                textIsApproximate: true,
-                textUnavailableReason: nil
-            )
             let groups = [
                 ExportGroup(
                     source: .epubUnmapped(assetID: "orphan-asset"),
-                    records: [ExportRecord(payload: .epub(EnrichedAnnotation(annotation: orphanAnnotation, source: .unmapped)))]
+                    records: [ExportRecord(annotation: EnrichedAnnotation(annotation: orphanAnnotation, source: .unmapped))]
                 ),
                 ExportGroup(
                     source: .epubCurrent(currentBook),
-                    records: [
-                        ExportRecord(
-                            payload: .epub(
-                                EnrichedAnnotation(annotation: currentAnnotation, source: .currentLibrary(currentBook))
-                            )
-                        ),
-                    ]
-                ),
-                ExportGroup(
-                    source: .pdf(pdfSource),
-                    records: [ExportRecord(payload: .pdf(source: pdfSource, highlight: pdfHighlight))]
-                ),
+                    records: [ExportRecord(annotation: EnrichedAnnotation(
+                        annotation: currentAnnotation, source: .currentLibrary(currentBook)
+                    ))]
+                )
             ]
             let options = try ExportOptions(
-                source: .all,
-                bookSelectors: [.assetID("current-asset"), .pdfSourceID("pdf1_" + String(repeating: "a", count: 64))],
+                bookSelectors: [.assetID("current-asset")],
                 hasHighlight: true,
                 hasNote: false,
                 colors: [.yellow, .blue],
@@ -727,34 +631,17 @@ struct JSONExporterTests {
             bundle = ExportBundle(
                 options: options,
                 groups: groups,
-                warnings: [
-                    .pdfFailure(
-                        PDFHighlightServiceFailure(
-                            source: pdfSource,
-                            reason: .worker(.workerFailure(.unreadableDocument))
-                        )
-                    ),
-                ],
                 statistics: ExportStatistics(
-                    documentCount: 3,
+                    documentCount: 2,
                     epubDocumentCount: 2,
-                    pdfDocumentCount: 1,
-                    recordCount: 3,
+                    recordCount: 2,
                     epubAnnotationCount: 2,
-                    pdfHighlightCount: 1,
                     highlightCount: 2,
                     noteCount: 1,
                     historicalEPUBAnnotationCount: 0,
                     unmappedEPUBAnnotationCount: 1
                 ),
-                sourceTotals: ExportSourceTotals(
-                    epubDocumentCount: 3,
-                    epubAnnotationCount: 4,
-                    pdfAttemptedDocumentCount: 2,
-                    pdfSucceededDocumentCount: 1,
-                    pdfFailedDocumentCount: 1,
-                    pdfHighlightCount: 1
-                )
+                sourceTotals: ExportSourceTotals(epubDocumentCount: 2, epubAnnotationCount: 4)
             )
         }
     }

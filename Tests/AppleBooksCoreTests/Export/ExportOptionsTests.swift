@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import AppleBooksCore
@@ -6,95 +5,55 @@ import Testing
 @Suite("ExportOptionsTests")
 struct ExportOptionsTests {
     @Test
-    func canonicalDefaultsCoverAllSourcesAndInvalidOptionsFailBeforeUse() throws {
+    func canonicalDefaultsAndInvalidOptionsFailBeforeUse() throws {
         let options = try ExportOptions()
-        #expect(options.source == .all)
         #expect(options.bookSelectors.isEmpty)
         #expect(options.hasHighlight == nil)
         #expect(options.hasNote == nil)
         #expect(options.colors == nil)
         #expect(options.underline == nil)
         #expect(options.grouping == .single)
-
-        #expect(throws: ExportOptionsError.emptyColors) {
-            _ = try ExportOptions(colors: [])
-        }
+        #expect(throws: ExportOptionsError.emptyColors) { _ = try ExportOptions(colors: []) }
         #expect(throws: ExportOptionsError.invalidBookSelector) {
             _ = try ExportOptions(bookSelectors: [.assetID("")])
-        }
-        #expect(throws: ExportOptionsError.invalidBookSelector) {
-            _ = try ExportOptions(bookSelectors: [.pdfSourceID("https://example.invalid/book.pdf")])
-        }
-        #expect(throws: ExportOptionsError.invalidBookSelector) {
-            _ = try ExportOptions(bookSelectors: [.pdfSourceID("/tmp/one/../book.pdf")])
-        }
-        #expect(throws: ExportOptionsError.conflictingOptions) {
-            _ = try ExportOptions(
-                source: .epub,
-                bookSelectors: [.pdfSourceID("pdf1_" + String(repeating: "a", count: 64))]
-            )
         }
     }
 
     @Test
-    func presenceIsIndependentWithoutMutatingCanonicalAnnotationFields() throws {
-        let note = annotation(
-            pk: 1,
-            assetID: "asset",
-            uuid: "uuid-note",
-            selectedText: "quote",
-            note: "  note  ",
-            style: 4,
-            underline: true,
-            type: 9
-        )
-        let highlight = annotation(pk: 2, assetID: "asset", selectedText: "quote", note: nil, type: 8)
-        let bookmark = annotation(pk: 3, assetID: "asset", selectedText: "", note: "  ", type: 7)
-        let records = [note, highlight, bookmark].map { ExportRecord(payload: .epub(.init(annotation: $0, source: .unmapped))) }
-
+    func presenceDoesNotMutateRawAnnotation() throws {
+        let note = annotation(pk: 1, assetID: "asset", uuid: "uuid-note", selectedText: "quote",
+                              note: "  note  ", style: 4, underline: true, type: 9)
+        let rows = [note, annotation(pk: 2, assetID: "asset", selectedText: "quote"),
+                    annotation(pk: 3, assetID: "asset", selectedText: "", note: "  ")]
+        let records = rows.map { ExportRecord(annotation: .init(annotation: $0, source: .unmapped)) }
         #expect(records.map(\.hasHighlight) == [true, true, false])
         #expect(records.map(\.hasNote) == [true, false, false])
         #expect(records[0].presentationColor == .pink)
         #expect(records[0].isUnderline)
-
-        guard case let .epub(roundTripped) = records[0].payload else {
-            Issue.record("expected EPUB record")
-            return
-        }
-        #expect(roundTripped.annotation == note)
-        #expect(roundTripped.annotation.uuid == "uuid-note")
-        #expect(roundTripped.annotation.style == 4)
-        #expect(roundTripped.annotation.type == 9)
-        #expect(roundTripped.annotation.isUnderline == true)
-        #expect(roundTripped.annotation.note == "  note  ")
+        #expect(records[0].annotation.annotation == note)
     }
 
     @Test
-    func optionalPresenceFiltersComposeForEPUBAndPDF() throws {
+    func optionalPresenceFiltersComposeForEPUB() throws {
         let rows: [(String?, String?, Bool?)] = [
             ("quote", nil, true), (nil, "note", false), ("quote", "note", nil),
-            (" \t\r\n", "\r\n\t ", nil), (nil, nil, false), ("\u{00a0}", nil, false),
+            (" \t\r\n", "\r\n\t ", nil), (nil, nil, false), ("\u{00a0}", nil, false)
         ]
-        let epub = rows.enumerated().map { index, row in
-            ExportRecord(payload: .epub(.init(
-                annotation: annotation(pk: Int64(index + 1), assetID: "matrix", selectedText: row.0, note: row.1, underline: row.2),
-                source: .unmapped
-            )))
+        let records = rows.enumerated().map { index, row in
+            ExportRecord(annotation: .init(
+                annotation: annotation(pk: Int64(index + 1), assetID: "matrix", selectedText: row.0,
+                                       note: row.1, underline: row.2), source: .unmapped
+            ))
         }
-        let pdf = ExportRecord(payload: .pdf(
-            source: source(path: "/synthetic/matrix.pdf"),
-            highlight: highlight(page: 1, traversal: 0)
-        ))
-        let records = epub + [pdf]
-        let expectedHighlight = [true, false, true, false, false, true, true]
-        let expectedNote = [false, true, true, false, false, false, false]
-        let expectedUnderline = [true, false, false, false, false, false, false]
+        let expectedHighlight = [true, false, true, false, false, true]
+        let expectedNote = [false, true, true, false, false, false]
+        let expectedUnderline = [true, false, false, false, false, false]
         let choices: [Bool?] = [nil, false, true]
         for hasHighlight in choices {
             for hasNote in choices {
                 for underline in choices {
                     let selected = try ExportSelection.apply(options: try ExportOptions(
-                        source: .all, hasHighlight: hasHighlight, hasNote: hasNote, underline: underline
+                        hasHighlight: hasHighlight, hasNote: hasNote, underline: underline
                     ), to: records)
                     let expected = records.indices.filter { index in
                         (expectedHighlight[index] || expectedNote[index])
@@ -106,122 +65,53 @@ struct ExportOptionsTests {
                 }
             }
         }
-        #expect(pdf.hasHighlight)
-        #expect(try ExportSelection.apply(options: try ExportOptions(source: .pdf, hasHighlight: false), to: [pdf]).isEmpty)
-        #expect(try ExportSelection.apply(options: try ExportOptions(source: .pdf, underline: true), to: [pdf]).isEmpty)
-        for note in [" \t\r\n", "note", "\u{00a0}"] {
-            let record = ExportRecord(payload: .pdf(
-                source: source(path: "/synthetic/presence.pdf"),
-                highlight: highlight(page: 1, traversal: 0, note: note)
-            ))
-            #expect(record.hasNote == (note != " \t\r\n"))
-        }
-        let representativeOnly = ExportRecord(payload: .epub(.init(
+        let representativeOnly = ExportRecord(annotation: .init(
             annotation: annotation(pk: 20, assetID: "matrix", representativeText: "not a highlight"),
             source: .unmapped
-        )))
-        #expect(!representativeOnly.hasHighlight)
-        #expect(try ExportSelection.apply(options: try ExportOptions(), to: [representativeOnly]).isEmpty)
-    }
-
-    @Test
-    func rawEPUBAssetIdentityIsIndependentOfPresentationSourceAndNilUsesOneUnknownSource() throws {
-        let raw = "same/#?%/é"
-        let annotation = annotation(pk: 1, assetID: raw, selectedText: "quote")
-        let currentBook = book(localPK: 1, assetID: raw, contentType: 1)
-        let records = [
-            ExportRecord(payload: .epub(.init(annotation: annotation, source: .currentLibrary(currentBook)))),
-            ExportRecord(payload: .epub(.init(annotation: annotation, source: .historicalInferred(.init(title: "History", author: "Author"))))),
-            ExportRecord(payload: .epub(.init(annotation: annotation, source: .unmapped))),
-        ]
-        #expect(try records.map { try $0.documentSourceKey } == [.epubAsset(raw), .epubAsset(raw), .epubAsset(raw)])
-
-        let unknownA = ExportRecord(payload: .epub(.init(
-            annotation: self.annotation(pk: 2, assetID: nil, selectedText: "a"), source: .unmapped
-        )))
-        let unknownB = ExportRecord(payload: .epub(.init(
-            annotation: self.annotation(pk: 3, assetID: nil, selectedText: "b"), source: .unmapped
-        )))
-        #expect(try unknownA.documentSourceKey == .epubUnknown)
-        #expect(try unknownB.documentSourceKey == .epubUnknown)
-    }
-
-    @Test
-    func knownCurrentPDFAEAnnotationIsExcludedButHistoricalAndUnmappedRowsAreNotGuessed() throws {
-        let pdfBook = book(localPK: 10, assetID: "pdf-asset", contentType: 3)
-        let currentPDFRow = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 1, assetID: "pdf-asset", selectedText: "db row"),
-            source: .currentLibrary(pdfBook)
-        )))
-        let historical = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 2, assetID: "historical", selectedText: "historical row"),
-            source: .historicalInferred(.init(title: "History", author: "Author"))
-        )))
-        let unmapped = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 3, assetID: "unmapped", selectedText: "unmapped row"),
-            source: .unmapped
-        )))
-        let pdfSource = source(path: "/synthetic/current.pdf", book: pdfBook)
-        let pdfHighlight = ExportRecord(payload: .pdf(
-            source: pdfSource,
-            highlight: highlight(page: 1, traversal: 0, text: "pdf truth")
         ))
+        #expect(!representativeOnly.hasHighlight)
+        #expect(try ExportSelection.apply(options: ExportOptions(), to: [representativeOnly]).isEmpty)
+    }
 
-        let all = try ExportSelection.apply(
-            options: try ExportOptions(source: .all, hasHighlight: true),
-            to: [currentPDFRow, historical, unmapped, pdfHighlight]
-        )
-        #expect(all == [historical, unmapped, pdfHighlight])
+    @Test
+    func rawAssetIdentityIndependentOfPresentationSourceAndNilUsesUnknown() throws {
+        let raw = "same/#?%/é"
+        let value = annotation(pk: 1, assetID: raw, selectedText: "quote")
+        let current = book(localPK: 1, assetID: raw, contentType: 1)
+        let records = [
+            ExportRecord(annotation: .init(annotation: value, source: .currentLibrary(current))),
+            ExportRecord(annotation: .init(annotation: value, source: .historicalInferred(.init(title: "History", author: "Author")))),
+            ExportRecord(annotation: .init(annotation: value, source: .unmapped)),
+        ]
+        #expect(records.map(\.documentSourceKey) == [.epubAsset(raw), .epubAsset(raw), .epubAsset(raw)])
+        let unknownA = ExportRecord(annotation: .init(annotation: annotation(pk: 2, assetID: nil, selectedText: "a"), source: .unmapped))
+        let unknownB = ExportRecord(annotation: .init(annotation: annotation(pk: 3, assetID: nil, selectedText: "b"), source: .unmapped))
+        #expect(unknownA.documentSourceKey == .epubUnknown)
+        #expect(unknownB.documentSourceKey == .epubUnknown)
+    }
 
-        let epub = try ExportSelection.apply(
-            options: try ExportOptions(source: .epub, hasHighlight: true),
-            to: [currentPDFRow, historical, unmapped, pdfHighlight]
-        )
-        #expect(epub == [historical, unmapped])
+    @Test
+    func currentPDFDatabaseRowIsExcludedButHistoricalAndUnmappedRowsRemain() throws {
+        let pdfBook = book(localPK: 10, assetID: "pdf-asset", contentType: 3)
+        let current = ExportRecord(annotation: .init(annotation: annotation(pk: 1, assetID: "pdf-asset", selectedText: "db row"), source: .currentLibrary(pdfBook)))
+        let historical = ExportRecord(annotation: .init(annotation: annotation(pk: 2, assetID: "history", selectedText: "history"), source: .historicalInferred(.init(title: "History", author: "Author"))))
+        let unmapped = ExportRecord(annotation: .init(annotation: annotation(pk: 3, assetID: "unmapped", selectedText: "unknown"), source: .unmapped))
+        #expect(!current.isCurrentEPUBSource)
+        #expect(try ExportSelection.apply(options: ExportOptions(hasHighlight: true), to: [current, historical, unmapped]) == [historical, unmapped])
     }
 
     @Test
     func colorAndUnderlineFilterPresentationWithoutRewritingRawFields() throws {
-        let underlined = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 1, assetID: "asset-a", selectedText: "one", style: 0, underline: true),
-            source: .unmapped
-        )))
-        let styleOnly = ExportRecord(payload: .epub(.init(
-            annotation: annotation(pk: 2, assetID: "asset-a", selectedText: "two", style: 1, underline: false),
-            source: .unmapped
-        )))
-        let pdfURL = URL(fileURLWithPath: "/synthetic/pdf-a.pdf").standardizedFileURL
-        let pdf = ExportRecord(payload: .pdf(
-            source: PDFSource(fileURL: pdfURL, book: book(localPK: 2, assetID: "pdf-a", contentType: 3)),
-            highlight: highlight(page: 1, traversal: 0, color: .yellow)
-        ))
-
-        let underlineOnly = try ExportSelection.apply(
-            options: try ExportOptions(source: .all, hasHighlight: true, underline: true),
-            to: [underlined, styleOnly, pdf]
-        )
-        #expect(underlineOnly == [underlined])
-
-        let green = try ExportSelection.apply(
-            options: try ExportOptions(source: .all, hasHighlight: true, colors: [.green]),
-            to: [underlined, styleOnly, pdf]
-        )
-        #expect(green == [styleOnly])
-
-        let yellowPDF = try ExportSelection.apply(
-            options: try ExportOptions(
-                source: .pdf,
-                hasHighlight: true,
-                colors: [.yellow]
-            ),
-            to: [underlined, styleOnly, pdf]
-        )
-        #expect(yellowPDF.isEmpty)
-
+        let underlined = ExportRecord(annotation: .init(annotation: annotation(pk: 1, assetID: "asset", selectedText: "one", style: 0, underline: true), source: .unmapped))
+        let styleOnly = ExportRecord(annotation: .init(annotation: annotation(pk: 2, assetID: "asset", selectedText: "two", style: 1, underline: false), source: .unmapped))
+        #expect(try ExportSelection.apply(options: ExportOptions(hasHighlight: true, underline: true), to: [underlined, styleOnly]) == [underlined])
+        #expect(try ExportSelection.apply(options: ExportOptions(hasHighlight: true, colors: [.green]), to: [underlined, styleOnly]) == [styleOnly])
+        #expect(underlined.annotation.annotation.isUnderline == true)
+        #expect(styleOnly.annotation.annotation.style == 1)
     }
 
     @Test
-    func epubReadingOrderUsesNumericCFIValidFirstAndStableTies() throws {
+    func numericCFIReadingOrderKeepsValidFirstAndStableTies() throws {
         let oversizedCFI = "epubcfi(/6/2[" + String(repeating: "x", count: CFIResourcePolicy.maximumStructuralBytes) + "]!/4/2:1)"
         let records = [
             epubRecord(pk: 1, cfi: "not-a-cfi"),
@@ -230,132 +120,27 @@ struct ExportOptionsTests {
             epubRecord(pk: 4, cfi: nil),
             epubRecord(pk: 5, cfi: "epubcfi(/6/2[different888]!/4/2:1)"),
             epubRecord(pk: 6, cfi: "epubcfi(/6/2[broken!/4/2:1)"),
-            epubRecord(pk: 7, cfi: oversizedCFI),
+            epubRecord(pk: 7, cfi: oversizedCFI)
         ]
-
-        let ordered = try ExportSelection.apply(
-            options: try ExportOptions(hasHighlight: true),
-            to: records
-        )
-        #expect(ordered.compactMap(\.epubPK) == [3, 5, 2, 1, 4, 6, 7])
+        let ordered = try ExportSelection.apply(options: ExportOptions(hasHighlight: true), to: records)
+        #expect(ordered.map { $0.annotation.annotation.localPK } == [3, 5, 2, 1, 4, 6, 7])
     }
 
     @Test
-    func pdfReadingOrderUsesPageThenTopToBottomThenLeftThenTraversal() throws {
-        let pdfSource = source(path: "/synthetic/order.pdf")
+    func everyDocumentKeepsItsFirstRecordInReadingOrder() throws {
         let records = [
-            pdfRecord(source: pdfSource, page: 2, traversal: 0, x: 0, y: 90),
-            pdfRecord(source: pdfSource, page: 1, traversal: 4, x: 20, y: 50),
-            pdfRecord(source: pdfSource, page: 1, traversal: 3, x: 10, y: 50),
-            pdfRecord(source: pdfSource, page: 1, traversal: 2, x: 10, y: 80),
-            pdfRecord(source: pdfSource, page: 1, traversal: 1, x: 10, y: 50),
+            epubRecord(pk: 1, assetID: "a", cfi: "epubcfi(/6/8)"),
+            epubRecord(pk: 2, assetID: "a", cfi: "epubcfi(/6/2)"),
+            epubRecord(pk: 3, assetID: "a", cfi: "epubcfi(/6/1)"),
+            epubRecord(pk: 4, assetID: "b", cfi: "epubcfi(/6/4)"),
+            epubRecord(pk: 5, assetID: "b", cfi: "epubcfi(/6/3)")
         ]
-
-        let ordered = try ExportSelection.apply(
-            options: try ExportOptions(source: .pdf, hasHighlight: true),
-            to: records
-        )
-        #expect(ordered.compactMap(\.pdfTraversal) == [2, 1, 3, 4, 0])
+        let ordered = try ExportSelection.apply(options: ExportOptions(hasHighlight: true), to: records)
+        #expect(ordered.map { $0.annotation.annotation.localPK } == [3, 2, 1, 5, 4])
     }
 
-    @Test
-    func completeExportIncludesFirstRecordOfEveryDocumentInReadingOrder() throws {
-        let firstDocument = [
-            epubRecord(pk: 1, assetID: "a", selected: "highlight-a1", note: nil, cfi: "epubcfi(/6/8)"),
-            epubRecord(pk: 2, assetID: "a", selected: "highlight-a2", note: nil, cfi: "epubcfi(/6/2)"),
-            epubRecord(pk: 3, assetID: "a", selected: "quote", note: "note-a", cfi: "epubcfi(/6/1)"),
-        ]
-        let secondDocument = [
-            epubRecord(pk: 4, assetID: "b", selected: "highlight-b1", note: nil, cfi: "epubcfi(/6/4)"),
-            epubRecord(pk: 5, assetID: "b", selected: "highlight-b2", note: nil, cfi: "epubcfi(/6/3)"),
-        ]
-
-        let ordered = try ExportSelection.apply(
-            options: try ExportOptions(hasHighlight: true),
-            to: firstDocument + secondDocument
-        )
-        #expect(ordered.compactMap(\.epubPK) == [3, 2, 1, 5, 4])
-
-        let defaultOrdered = try ExportSelection.apply(
-            options: try ExportOptions(hasHighlight: true),
-            to: firstDocument + secondDocument
-        )
-        #expect(defaultOrdered == ordered)
-    }
-
-    private func epubRecord(
-        pk: Int64,
-        assetID: String = "asset",
-        selected: String? = "quote",
-        note: String? = nil,
-        cfi: String?
-    ) -> ExportRecord {
-        ExportRecord(payload: .epub(.init(
-            annotation: annotation(
-                pk: pk,
-                assetID: assetID,
-                selectedText: selected,
-                note: note,
-                cfi: cfi
-            ),
-            source: .unmapped
-        )))
-    }
-
-    private func pdfRecord(
-        source: PDFSource,
-        page: Int,
-        traversal: Int,
-        x: Double,
-        y: Double
-    ) -> ExportRecord {
-        ExportRecord(payload: .pdf(
-            source: source,
-            highlight: PDFHighlight(
-                page: page,
-                traversalIndex: traversal,
-                bounds: CGRect(x: x, y: y, width: 20, height: 10),
-                quadrilateralPoints: [],
-                note: nil,
-                pdfKitRGBA: nil,
-                modifiedAt: nil,
-                text: "pdf",
-                textSource: .boundsFallback,
-                textIsApproximate: true,
-                textUnavailableReason: nil
-            )
-        ))
-    }
-
-    private func source(path: String, book: Book? = nil) -> PDFSource {
-        PDFSource(
-            fileURL: URL(fileURLWithPath: path).standardizedFileURL,
-            book: book,
-            pdfSourceID: book == nil ? "pdf1_" + String(repeating: "a", count: 64) : nil
-        )
-    }
-
-    private func highlight(
-        page: Int,
-        traversal: Int,
-        text: String? = nil,
-        color: PDFPresentationColor? = nil,
-        note: String? = nil
-    ) -> PDFHighlight {
-        PDFHighlight(
-            page: page,
-            traversalIndex: traversal,
-            bounds: CGRect(x: 0, y: 0, width: 10, height: 10),
-            quadrilateralPoints: [],
-            note: note,
-            pdfKitRGBA: color == nil ? nil : [1, 1, 0, 1],
-            presentationColor: color.map { PDFColorMatch(color: $0, distance: 0, isApproximate: true) },
-            modifiedAt: nil,
-            text: text,
-            textSource: text == nil ? nil : .boundsFallback,
-            textIsApproximate: true,
-            textUnavailableReason: text == nil ? .noTextSelection : nil
-        )
+    private func epubRecord(pk: Int64, assetID: String = "asset", cfi: String?) -> ExportRecord {
+        ExportRecord(annotation: .init(annotation: annotation(pk: pk, assetID: assetID, selectedText: "quote", cfi: cfi), source: .unmapped))
     }
 
     private func annotation(
@@ -426,17 +211,5 @@ struct ExportOptionsTests {
             isStoreAudiobook: nil,
             rating: nil
         )
-    }
-}
-
-private extension ExportRecord {
-    var epubPK: Int64? {
-        guard case let .epub(enriched) = payload else { return nil }
-        return enriched.annotation.localPK
-    }
-
-    var pdfTraversal: Int? {
-        guard case let .pdf(_, highlight) = payload else { return nil }
-        return highlight.traversalIndex
     }
 }

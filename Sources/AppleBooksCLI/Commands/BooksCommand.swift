@@ -194,7 +194,6 @@ struct BookSummaryResult: Codable, Equatable, Sendable {
     let localPK: Int64?
     let title: String?
     let author: String?
-    let isPDF: Bool?
     let userAnnotationCount: Int?
     let truncatedFields: [String]
 
@@ -205,7 +204,6 @@ struct BookSummaryResult: Codable, Equatable, Sendable {
         var truncated = summary.byteTruncatedFields
         title = boundedField(summary.title, field: "title", profile: .metadata, truncatedFields: &truncated)
         author = boundedField(summary.author, field: "author", profile: .metadata, truncatedFields: &truncated)
-        isPDF = summary.isPDF
         self.userAnnotationCount = userAnnotationCount
         truncatedFields = Array(Set(truncated)).sorted()
     }
@@ -221,7 +219,6 @@ struct BookDetailResult: Codable, Equatable, Sendable {
     let language: String?
     let year: Int64?
     let pageCount: Int64?
-    let isPDF: Bool?
     let readingProgressPercent: Double?
     let isFinished: Bool?
     let finishedDate: Date?
@@ -241,7 +238,6 @@ struct BookDetailResult: Codable, Equatable, Sendable {
         language = boundedField(book.language, field: "language", profile: .shortMetadata, truncatedFields: &truncated)
         year = book.year
         pageCount = book.pageCount
-        isPDF = book.isPDF
         readingProgressPercent = SemanticSQLiteReal.readingProgressPercent(book.readingProgressRaw)
         isFinished = book.isFinished
         finishedDate = book.finishedDate

@@ -238,8 +238,8 @@ struct CursorPaginationTests {
     func directoryGenerationIsStreamingOrderIndependentAndRetainsNoNames() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        var forward = try CursorDirectoryGenerationBuilder(label: "pdf-directory", rootURL: root)
-        var reverse = try CursorDirectoryGenerationBuilder(label: "pdf-directory", rootURL: root)
+        var forward = try CursorDirectoryGenerationBuilder(label: "resource-directory", rootURL: root)
+        var reverse = try CursorDirectoryGenerationBuilder(label: "resource-directory", rootURL: root)
         let metadata = CursorFileMetadata(
             device: 1,
             inode: 2,
@@ -249,28 +249,28 @@ struct CursorPaginationTests {
         )
 
         for index in 0..<10_000 {
-            try forward.add(relativeName: "candidate-\(index).pdf", metadata: metadata)
+            try forward.add(relativeName: "candidate-\(index).dat", metadata: metadata)
         }
         for index in (0..<10_000).reversed() {
-            try reverse.add(relativeName: "candidate-\(index).pdf", metadata: metadata)
+            try reverse.add(relativeName: "candidate-\(index).dat", metadata: metadata)
         }
         #expect(forward.retainedCandidateNameCount == 0)
         #expect(reverse.retainedCandidateNameCount == 0)
         #expect(try forward.finish() == reverse.finish())
 
-        var invalid = try CursorDirectoryGenerationBuilder(label: "pdf-directory", rootURL: root)
+        var invalid = try CursorDirectoryGenerationBuilder(label: "resource-directory", rootURL: root)
         #expect(throws: CursorPaginationError.internalContractFailure) {
-            try invalid.add(relativeName: "../escape.pdf", metadata: metadata)
+            try invalid.add(relativeName: "../escape.dat", metadata: metadata)
         }
         #expect(throws: CursorPaginationError.internalContractFailure) {
             try invalid.add(relativeName: String(repeating: "x", count: 4_097), metadata: metadata)
         }
 
-        let external = root.deletingLastPathComponent().appendingPathComponent("outside-\(UUID().uuidString).pdf")
+        let external = root.deletingLastPathComponent().appendingPathComponent("outside-\(UUID().uuidString).dat")
         defer { try? FileManager.default.removeItem(at: external) }
         try Data("outside".utf8).write(to: external)
         #expect(throws: CursorPaginationError.internalContractFailure) {
-            try invalid.add(relativeName: "outside.pdf", fileURL: external)
+            try invalid.add(relativeName: "outside.dat", fileURL: external)
         }
     }
 

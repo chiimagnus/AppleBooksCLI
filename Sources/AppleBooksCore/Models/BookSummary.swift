@@ -29,10 +29,6 @@ public struct BookSummary: Equatable, Sendable {
         self.byteTruncatedFields = byteTruncatedFields
     }
 
-    public var isPDF: Bool? {
-        contentType.map { $0 == 3 }
-    }
-
     package init(book: Book) {
         self.init(
             localPK: book.localPK,

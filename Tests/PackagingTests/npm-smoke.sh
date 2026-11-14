@@ -9,10 +9,6 @@ fail() {
 PACKAGE=$1
 EXPECTED_VERSION=$2
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-PDF_FIXTURE="$REPO_ROOT/Tests/Fixtures/PDF/corrupt.pdf"
-
 SMOKE_ROOT=$(mktemp -d /private/tmp/applebookscli-npm-smoke.XXXXXX)
 cleanup() {
   case "$SMOKE_ROOT" in
@@ -25,8 +21,6 @@ trap cleanup EXIT HUP INT TERM
 PREFIX="$SMOKE_ROOT/prefix"
 HOME_ROOT="$SMOKE_ROOT/home"
 FAKE_BIN="$SMOKE_ROOT/fake-bin"
-LIBRARY_DB="$SMOKE_ROOT/library.sqlite"
-ANNOTATIONS_DB="$SMOKE_ROOT/annotations.sqlite"
 SKILL_LOCK="$HOME_ROOT/.agents/.skill-lock.json"
 NPX_CALL="$SMOKE_ROOT/npx-call.txt"
 mkdir -p "$PREFIX" "$HOME_ROOT/.agents" "$FAKE_BIN"
@@ -75,33 +69,32 @@ CLI="$PREFIX/bin/applebookscli"
 (cd / && "$CLI" --help >/dev/null)
 
 PACKAGE_ROOT="$PREFIX/lib/node_modules/@chiimagnus/applebookscli"
-WORKER="$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-for binary in "$CLI" "$WORKER"; do
-  [ "$(xcrun lipo -archs "$binary")" = arm64 ] || \
-    fail "npm-installed binary must contain only arm64: $binary"
-  xcrun vtool -show-build "$binary" | grep -Eq 'minos[[:space:]]+15\.6' || \
-    fail "npm-installed binary must target macOS 15.6: $binary"
-done
+[ "$(xcrun lipo -archs "$CLI")" = arm64 ] || \
+  fail "npm-installed binary must contain only arm64: $CLI"
+xcrun vtool -show-build "$CLI" | grep -Eq 'minos[[:space:]]+15\.6' || \
+  fail "npm-installed binary must target macOS 15.6: $CLI"
 rm -f "$NPX_CALL"
 EMPTY_HOME="$SMOKE_ROOT/empty-home"
 mkdir -p "$EMPTY_HOME"
 HOME="$EMPTY_HOME" CFFIXED_USER_HOME="$EMPTY_HOME" PATH="$FAKE_BIN:$PATH" \
   node "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
 [ ! -e "$NPX_CALL" ] || fail "Skill sync must be a no-op when no managed Skill is installed."
-sqlite3 "$LIBRARY_DB" "CREATE TABLE ZBKLIBRARYASSET(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT,ZTITLE TEXT,ZPATH TEXT,ZCONTENTTYPE INTEGER); INSERT INTO ZBKLIBRARYASSET VALUES(1,'npm-smoke-corrupt','Synthetic corrupt PDF','$PDF_FIXTURE',3);"
-sqlite3 "$ANNOTATIONS_DB" 'CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY);'
-set +e
-HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" \
-  "$CLI" pdf highlights \
-    --book npm-smoke-corrupt \
-    --library-db "$LIBRARY_DB" \
-    --annotations-db "$ANNOTATIONS_DB" \
-  > "$SMOKE_ROOT/pdf.stdout.json" \
-  2> "$SMOKE_ROOT/pdf.stderr.txt"
-PDF_STATUS=$?
-set -e
-[ "$PDF_STATUS" -eq 69 ] || fail "npm-installed CLI did not surface the worker failure as unavailable."
-[ ! -s "$SMOKE_ROOT/pdf.stdout.json" ] || fail "npm-installed PDF failure leaked a primary result."
-grep -F 'PDF highlight extraction is unavailable.' "$SMOKE_ROOT/pdf.stderr.txt" >/dev/null || fail "npm-installed worker error contract drifted."
+[ ! -e "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker" ] || \
+  fail "PDF worker must not be installed by v0.5.0 or later."
+"$CLI" --help > "$SMOKE_ROOT/help.stdout"
+if grep -Eq '^[[:space:]]+pdf[[:space:]]' "$SMOKE_ROOT/help.stdout"; then
+  fail "PDF command remains visible in root help."
+fi
+if "$CLI" pdf list > "$SMOKE_ROOT/pdf.stdout" 2> "$SMOKE_ROOT/pdf.stderr"; then
+  fail "PDF command must not exist in v0.5.0 or later."
+fi
+[ ! -s "$SMOKE_ROOT/pdf.stdout" ] || fail "removed PDF command emitted primary output."
+for removed_option in --pdf --source; do
+  if "$CLI" export "$removed_option" pdf --output "$SMOKE_ROOT/export.md" \
+    > "$SMOKE_ROOT/export.stdout" 2> "$SMOKE_ROOT/export.stderr"; then
+    fail "removed export option unexpectedly accepted: $removed_option"
+  fi
+  [ ! -e "$SMOKE_ROOT/export.md" ] || fail "unsupported export option wrote an artifact."
+done
 
 printf 'npm install smoke OK: %s (%s)\n' "$PACKAGE" "$EXPECTED_VERSION"

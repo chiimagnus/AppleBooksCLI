@@ -15,7 +15,7 @@ struct DoctorCommandTests {
 
         let command = try DoctorCommand.parse(fixture.arguments)
         let machine = Capture()
-        try command.execute(output: machine.output, backupRoot: backupRoot, installedPDFWorkerReady: true)
+        try command.execute(output: machine.output, backupRoot: backupRoot)
         #expect(machine.stderr.isEmpty)
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(machine.stdout.utf8))
         #expect(result.status == .partial)
@@ -26,9 +26,9 @@ struct DoctorCommandTests {
         #expect(result.components.collectionWriteReady)
         #expect(result.components.annotationWriteReady)
         #expect(result.components.cloudSyncReady == false)
-        #expect(result.components.pdfWorkerReady)
         #expect(result.capabilities.collectionsWrite)
         #expect(result.capabilities.annotationWrite)
+        #expect(machine.stdout.contains("pdfWorkerReady") == false)
         #expect(result.capabilities.syncPrerequisites == false)
         #expect(result.issues.contains(.init(code: .cloudSyncUnavailable, state: .degraded)))
         #expect(machine.stdout.contains("readSchemaReady") == false)
@@ -36,27 +36,6 @@ struct DoctorCommandTests {
         #expect(machine.stdout.contains(fixture.root.path) == false)
         #expect(machine.stdout.contains("ZBKLIBRARYASSET") == false)
         #expect(FileManager.default.fileExists(atPath: backupRoot.path) == false)
-    }
-
-    @Test
-    func missingInstalledPDFWorkerOnlyDisablesPDFCapability() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let command = try DoctorCommand.parse(fixture.arguments)
-        let capture = Capture()
-        try command.execute(
-            output: capture.output,
-            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            installedPDFWorkerReady: false
-        )
-
-        let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
-        #expect(result.status == .partial)
-        #expect(result.components.pdfWorkerReady == false)
-        #expect(result.capabilities.pdfReadPrerequisites == false)
-        #expect(result.capabilities.booksRead)
-        #expect(result.issues.contains(.init(code: .pdfWorkerUnavailable, state: .degraded)))
-        #expect(capture.stdout.contains(fixture.root.path) == false)
     }
 
     @Test
@@ -97,8 +76,7 @@ struct DoctorCommandTests {
         let capture = Capture()
         try command.execute(
             output: capture.output,
-            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true),
-            installedPDFWorkerReady: true
+            backupRoot: fixture.root.appendingPathComponent("backups", isDirectory: true)
         )
 
         let result = try JSONDecoder().decode(DoctorResult.self, from: Data(capture.stdout.utf8))
@@ -119,7 +97,7 @@ struct DoctorCommandTests {
                 librarySQL: Self.librarySQL.replacingOccurrences(of: "  ZPATH TEXT,\n", with: "")
             )
             defer { fixture.remove() }
-            let result = try doctorResult(fixture, workerReady: true)
+            let result = try doctorResult(fixture)
             #expect(result.status == .partial)
             #expect(result.capabilities.booksRead)
             #expect(result.capabilities.collectionsRead)
@@ -135,7 +113,7 @@ struct DoctorCommandTests {
                 )
             )
             defer { fixture.remove() }
-            let result = try doctorResult(fixture, workerReady: true)
+            let result = try doctorResult(fixture)
             #expect(result.status == .partial)
             #expect(result.components.annotationsReadReady)
             #expect(result.components.annotationWriteReady == false)
@@ -147,7 +125,7 @@ struct DoctorCommandTests {
         do {
             let fixture = try Fixture(configData: Data("not-json".utf8))
             defer { fixture.remove() }
-            let result = try doctorResult(fixture, workerReady: true)
+            let result = try doctorResult(fixture)
             #expect(result.status == .partial)
             #expect(result.components.configurationReady == false)
             #expect(result.capabilities.booksRead)
@@ -162,7 +140,7 @@ struct DoctorCommandTests {
             defer { fixture.remove() }
             let badRoot = fixture.root.appendingPathComponent("backup-file")
             try Data().write(to: badRoot)
-            let result = try doctorResult(fixture, backupRoot: badRoot, workerReady: true)
+            let result = try doctorResult(fixture, backupRoot: badRoot)
             #expect(result.status == .partial)
             #expect(result.components.backupLocationReady == false)
             #expect(result.capabilities.backups == false)
@@ -177,7 +155,7 @@ struct DoctorCommandTests {
             var arguments = fixture.arguments
             let index = arguments.firstIndex(of: fixture.annotations.path)!
             arguments[index] = fixture.root.appendingPathComponent("missing-annotations.sqlite").path
-            let result = try doctorResult(fixture, arguments: arguments, workerReady: true)
+            let result = try doctorResult(fixture, arguments: arguments)
             #expect(result.status == .partial)
             #expect(result.capabilities.booksRead)
             #expect(result.capabilities.annotationsRead == false)
@@ -194,7 +172,7 @@ struct DoctorCommandTests {
         arguments[arguments.firstIndex(of: fixture.library.path)!] = fixture.root.appendingPathComponent("missing-library.sqlite").path
         arguments[arguments.firstIndex(of: fixture.annotations.path)!] = fixture.root.appendingPathComponent("missing-annotations.sqlite").path
 
-        let result = try doctorResult(fixture, arguments: arguments, workerReady: true)
+        let result = try doctorResult(fixture, arguments: arguments)
         #expect(result.status == .unavailable)
         #expect(result.capabilities.all.allSatisfy { $0 == false })
         #expect(result.components.libraryDatabaseReady == false)
@@ -277,14 +255,12 @@ struct DoctorCommandTests {
         _ fixture: Fixture,
         arguments: [String]? = nil,
         backupRoot: URL? = nil,
-        workerReady: Bool
     ) throws -> DoctorResult {
         let command = try DoctorCommand.parse(arguments ?? fixture.arguments)
         let capture = Capture()
         try command.execute(
             output: capture.output,
-            backupRoot: backupRoot ?? fixture.root.appendingPathComponent("backups", isDirectory: true),
-            installedPDFWorkerReady: workerReady
+            backupRoot: backupRoot ?? fixture.root.appendingPathComponent("backups", isDirectory: true)
         )
         #expect(capture.stderr.isEmpty)
         #expect(capture.stdout.contains(fixture.root.path) == false)

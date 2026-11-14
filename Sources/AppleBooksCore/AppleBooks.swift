@@ -39,8 +39,6 @@ public struct CloudSyncSummary: Equatable, Sendable {
 }
 
 public final class AppleBooks {
-    public static let defaultPDFWorkerTimeout: TimeInterval = PDFWorkerClient.defaultTimeout
-
     private let bookQueries: BookQueries?
     private let collectionQueries: CollectionQueries?
     private let annotationQueries: AnnotationQueries?
@@ -53,8 +51,6 @@ public final class AppleBooks {
     private let libraryDatabase: URL?
     private let annotationsDatabase: URL?
     private let libraryBackupRoot: URL
-    private let pdfSourceResolver: PDFSourceResolver
-    private let pdfWorkerClient: PDFWorkerClient?
     private let dependencies: AppleBooksDependencies
     let configuration: AppleBooksConfiguration
 
@@ -62,18 +58,14 @@ public final class AppleBooks {
         libraryDB: URL,
         annotationsDB: URL,
         configurationFile: URL? = nil,
-        manageBooksApplication: Bool = true,
-        pdfWorkerURL: URL? = nil,
-        pdfWorkerTimeout: TimeInterval? = nil
+        manageBooksApplication: Bool = true
     ) throws {
         try self.init(
             libraryDB: libraryDB,
             annotationsDB: annotationsDB,
             configurationFile: configurationFile,
             manageCollectionBooksApplication: manageBooksApplication,
-            manageAnnotationBooksApplication: manageBooksApplication,
-            pdfWorkerURL: pdfWorkerURL,
-            pdfWorkerTimeout: pdfWorkerTimeout
+            manageAnnotationBooksApplication: manageBooksApplication
         )
     }
 
@@ -82,9 +74,7 @@ public final class AppleBooks {
         annotationsDB: URL,
         configurationFile: URL? = nil,
         manageCollectionBooksApplication: Bool,
-        manageAnnotationBooksApplication: Bool,
-        pdfWorkerURL: URL? = nil,
-        pdfWorkerTimeout: TimeInterval? = nil
+        manageAnnotationBooksApplication: Bool
     ) throws {
         try self.init(
             libraryDB: libraryDB,
@@ -96,11 +86,7 @@ public final class AppleBooks {
             libraryBackupRoot: SQLiteBackup.defaultRoot(),
             collectionWriter: nil,
             annotationWriter: nil,
-            restoreCoordinator: nil,
-            pdfSourceResolver: PDFSourceResolver(),
-            pdfWorkerClient: pdfWorkerURL.map {
-                PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
-            }
+            restoreCoordinator: nil
         )
     }
 
@@ -112,8 +98,6 @@ public final class AppleBooks {
         annotationWriter: AnnotationWriter? = nil,
         libraryBackupRoot: URL = SQLiteBackup.defaultRoot(),
         restoreCoordinator: MutationCoordinator? = nil,
-        pdfSourceResolver: PDFSourceResolver = PDFSourceResolver(),
-        pdfWorkerClient: PDFWorkerClient? = nil,
         syncBooksApp: BooksAppController = .detached
     ) throws {
         try self.init(
@@ -130,8 +114,6 @@ public final class AppleBooks {
                 database: libraryDB,
                 backupRoot: libraryBackupRoot
             ),
-            pdfSourceResolver: pdfSourceResolver,
-            pdfWorkerClient: pdfWorkerClient,
             syncBooksApp: syncBooksApp
         )
     }
@@ -142,9 +124,7 @@ public final class AppleBooks {
         configurationFile: URL?,
         dependencies: AppleBooksDependencies,
         manageCollectionBooksApplication: Bool,
-        manageAnnotationBooksApplication: Bool,
-        pdfWorkerURL: URL? = nil,
-        pdfWorkerTimeout: TimeInterval? = nil
+        manageAnnotationBooksApplication: Bool
     ) throws {
         try self.init(
             libraryDB: libraryDB,
@@ -156,11 +136,7 @@ public final class AppleBooks {
             libraryBackupRoot: SQLiteBackup.defaultRoot(),
             collectionWriter: nil,
             annotationWriter: nil,
-            restoreCoordinator: nil,
-            pdfSourceResolver: PDFSourceResolver(),
-            pdfWorkerClient: dependencies.contains(.pdfWorker) ? pdfWorkerURL.map {
-                PDFWorkerClient(workerURL: $0, timeout: pdfWorkerTimeout ?? PDFWorkerClient.defaultTimeout)
-            } : nil
+            restoreCoordinator: nil
         )
     }
 
@@ -175,8 +151,6 @@ public final class AppleBooks {
         collectionWriter injectedCollectionWriter: CollectionWriter?,
         annotationWriter injectedAnnotationWriter: AnnotationWriter?,
         restoreCoordinator injectedRestoreCoordinator: MutationCoordinator?,
-        pdfSourceResolver: PDFSourceResolver,
-        pdfWorkerClient: PDFWorkerClient?,
         syncBooksApp injectedSyncBooksApp: BooksAppController? = nil
     ) throws {
         guard dependencies.needsLibraryDatabase == (libraryDB != nil),
@@ -270,8 +244,6 @@ public final class AppleBooks {
         libraryDatabase = libraryDB
         annotationsDatabase = annotationsDB
         self.libraryBackupRoot = libraryBackupRoot
-        self.pdfSourceResolver = pdfSourceResolver
-        self.pdfWorkerClient = dependencies.contains(.pdfWorker) ? pdfWorkerClient : nil
         syncBooksApp = sharedBooksApp
         self.dependencies = dependencies
         self.configuration = configuration
@@ -676,182 +648,17 @@ public final class AppleBooks {
         try requiredBookQueries().semanticDetail(assetID: assetID)
     }
 
-    package func semanticPDFSourcePage(
-        limit: Int? = nil,
-        cursor: String? = nil
-    ) throws -> CursorPage<PDFInventorySummary> {
-        try pdfSourceResolver.inventoryPage(
-            bookQueries: requiredBookQueries(),
-            limit: limit,
-            cursor: cursor
-        )
-    }
-
-    package func semanticPDFSource(bookAssetID assetID: String) throws -> PDFSource? {
-        try pdfSourceResolver.resolve(bookAssetID: assetID, bookQueries: requiredBookQueries())
-    }
-
-    package func semanticPDFSource(sourceID: PDFSourceID) throws -> PDFSource? {
-        try pdfSourceResolver.resolve(sourceID: sourceID, bookQueries: requiredBookQueries())
-    }
-
-    package func semanticPDFHighlightPage(
-        source: PDFSource,
-        limit: Int? = nil,
-        cursor: String? = nil
-    ) throws -> SemanticPDFHighlightPage {
-        let effectiveLimit = try resolvedCursorPageLimit(limit)
-        let identity = try pdfHighlightCursorIdentity(source)
-        let cursorGeneration = try CursorGeneration.compose([
-            .synthetic(label: "pdf-highlight-cursor", value: "v2"),
-        ])
-        let fingerprint = try CursorQueryFingerprint.make(
-            kind: "pdf.highlights",
-            fields: [
-                CursorFingerprintField("order.version", .unsigned(1)),
-                CursorFingerprintField("source.kind", .string(identity.kind)),
-                CursorFingerprintField("source.value", .string(identity.value)),
-            ]
-        )
-        let session = try CursorPaginationSession(
-            cursor: cursor,
-            fingerprint: fingerprint,
-            generation: cursorGeneration
-        )
-        let state = try pdfHighlightWorkerState(from: session.locator)
-        let workerPage: PDFAgentWorkerPage
-        do {
-            workerPage = try pdfHighlightService().readAgentPage(
-                source: source,
-                limit: effectiveLimit,
-                continuation: state.traversal,
-                generation: state.generation
-            )
-        } catch PDFWorkerClientError.workerFailure(.staleSource) {
-            throw CursorPaginationError.staleCursor
-        }
-        let nextLocator: CursorLocator?
-        if workerPage.hasMore {
-            guard let traversal = workerPage.nextTraversal else {
-                throw CursorPaginationError.internalContractFailure
-            }
-            nextLocator = try pdfHighlightLocator(
-                traversal: traversal,
-                generation: workerPage.generation
-            )
-        } else {
-            nextLocator = nil
-        }
-        let nextCursor = try session.nextCursor(
-            after: cursorGeneration,
-            hasMore: workerPage.hasMore,
-            locator: nextLocator
-        )
-        return SemanticPDFHighlightPage(
-            bookAssetID: identity.kind == "book" ? identity.value : nil,
-            pdfSourceID: identity.kind == "source" ? identity.value : nil,
-            items: workerPage.items,
-            nextCursor: nextCursor,
-            hasMore: workerPage.hasMore
-        )
-    }
-
-    private func pdfHighlightCursorIdentity(_ source: PDFSource) throws -> (kind: String, value: String) {
-        if let rawSourceID = source.pdfSourceID {
-            _ = try PDFSourceID.parse(rawSourceID)
-            return ("source", rawSourceID)
-        }
-        let assetID = source.bookSummary?.assetID ?? source.book?.assetID
-        guard let assetID, PublicStableIdentityPolicy.isEligible(assetID) else {
-            throw CursorPaginationError.internalContractFailure
-        }
-        return ("book", assetID)
-    }
-
-    private func pdfHighlightWorkerState(
-        from locator: CursorLocator?
-    ) throws -> (traversal: PDFWorkerTraversal?, generation: String?) {
-        guard let locator else { return (nil, nil) }
-        let words = locator.words
-        guard words.count == 7, words[0] == 1,
-              words[1] <= UInt64(Int.max), words[2] <= UInt64(Int.max) else {
-            throw CursorPaginationError.invalidCursor
-        }
-        var digest: [UInt8] = []
-        digest.reserveCapacity(32)
-        for word in words[3...] {
-            for shift in stride(from: 56, through: 0, by: -8) {
-                digest.append(UInt8((word >> UInt64(shift)) & 0xff))
-            }
-        }
-        guard let generation = PDFWorkerProtocol.generationToken(digestBytes: digest) else {
-            throw CursorPaginationError.invalidCursor
-        }
-        return (
-            PDFWorkerTraversal(pageIndex: Int(words[1]), annotationIndex: Int(words[2])),
-            generation
-        )
-    }
-
-    private func pdfHighlightLocator(
-        traversal: PDFWorkerTraversal,
-        generation: String
-    ) throws -> CursorLocator {
-        guard traversal.pageIndex >= 0, traversal.annotationIndex >= 0,
-              let digest = PDFWorkerProtocol.generationDigestBytes(generation), digest.count == 32 else {
-            throw CursorPaginationError.internalContractFailure
-        }
-        var words: [UInt64] = [
-            1,
-            UInt64(traversal.pageIndex),
-            UInt64(traversal.annotationIndex),
-        ]
-        for start in stride(from: 0, to: digest.count, by: 8) {
-            var word: UInt64 = 0
-            for byte in digest[start..<(start + 8)] {
-                word = (word << 8) | UInt64(byte)
-            }
-            words.append(word)
-        }
-        return try CursorLocator(words: words)
-    }
-
-    private func pdfHighlightService() throws -> PDFHighlightService {
-        PDFHighlightService(workerClient: try require(pdfWorkerClient, .pdfWorker))
-    }
-
     package func exportDependencies(options: ExportOptions) throws -> AppleBooksDependencies {
-        if options.bookSelectors.isEmpty {
-            switch options.source {
-            case .epub: return [.libraryRead, .annotationsRead, .configuration]
-            case .pdf: return [.libraryRead, .pdfWorker]
-            case .all: return [.libraryRead, .annotationsRead, .configuration, .pdfWorker]
-            }
+        if !options.bookSelectors.isEmpty {
+            _ = try ExportSourceResolver(bookQueries: requiredBookQueries()).resolve(options.bookSelectors)
         }
-        let sources = try ExportSourceResolver(
-            bookQueries: requiredBookQueries(), pdfSourceResolver: pdfSourceResolver
-        ).resolve(options.bookSelectors)
-        var required: AppleBooksDependencies = .libraryRead
-        for source in sources {
-            if source.pdfSource != nil { required.insert(.pdfWorker) }
-            else { required.formUnion([.annotationsRead, .configuration]) }
-        }
-        return required
+        return [.libraryRead, .annotationsRead, .configuration]
     }
 
     public func exportBundle(options: ExportOptions) throws -> ExportBundle {
-        let pdfService: PDFHighlightService?
-        if let pdfWorkerClient {
-            pdfService = PDFHighlightService(workerClient: pdfWorkerClient)
-        } else {
-            pdfService = nil
-        }
-        return try ExportService(
+        try ExportService(
             annotationQueries: annotationQueries,
-            bookQueries: try requiredBookQueries(),
-            configuration: dependencies.contains(.configuration) ? configuration : nil,
-            pdfService: pdfService,
-            pdfSourceResolver: pdfSourceResolver
+            bookQueries: try requiredBookQueries()
         ).makeBundle(options: options)
     }
 

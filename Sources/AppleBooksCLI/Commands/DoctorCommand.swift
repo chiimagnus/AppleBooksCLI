@@ -15,22 +15,16 @@ struct DoctorCommand: ParsableCommand, CLIOutputRunnable {
     }
 
     func run(output: CLIOutput) throws {
-        let workerReady = (try? installedPDFWorkerURL()) != nil
-        try execute(output: output, installedPDFWorkerReady: workerReady)
+        try execute(output: output)
     }
 
     func execute(
         output: CLIOutput,
         databaseDiscovery: DatabaseDiscovery = DatabaseDiscovery(),
-        backupRoot: URL = SQLiteBackup.defaultRoot(),
-        installedPDFWorkerReady: Bool? = nil
+        backupRoot: URL = SQLiteBackup.defaultRoot()
     ) throws {
         let context = CLIContext(global: global, databaseDiscovery: databaseDiscovery)
-        let workerReady = installedPDFWorkerReady ?? ((try? installedPDFWorkerURL()) != nil)
-        let result = DoctorResult(
-            report: context.diagnostics(backupRoot: backupRoot),
-            installedPDFWorkerReady: workerReady
-        )
+        let result = DoctorResult(report: context.diagnostics(backupRoot: backupRoot))
         try output.writeJSON(result)
     }
 }
@@ -54,7 +48,6 @@ struct DoctorComponents: Codable, Equatable, Sendable {
     let supplementalRootReady: Bool
     let backupLocationReady: Bool
     let cloudSyncReady: Bool
-    let pdfWorkerReady: Bool
     let libraryOptionalSchemaComplete: Bool
     let annotationsOptionalSchemaComplete: Bool
 }
@@ -66,7 +59,6 @@ struct DoctorCapabilities: Codable, Equatable, Sendable {
     let collectionsWrite: Bool
     let annotationWrite: Bool
     let contentReadPrerequisites: Bool
-    let pdfReadPrerequisites: Bool
     let backups: Bool
     let syncPrerequisites: Bool
 
@@ -78,7 +70,6 @@ struct DoctorCapabilities: Codable, Equatable, Sendable {
             collectionsWrite,
             annotationWrite,
             contentReadPrerequisites,
-            pdfReadPrerequisites,
             backups,
             syncPrerequisites,
         ]
@@ -92,7 +83,7 @@ struct DoctorResult: Codable, Equatable, Sendable {
     let booksAppRunning: Bool
     let issues: [AppleBooksDiagnosticIssue]
 
-    init(report: AppleBooksDiagnosticReport, installedPDFWorkerReady: Bool) {
+    init(report: AppleBooksDiagnosticReport) {
         components = DoctorComponents(
             libraryDatabaseReady: report.libraryDatabaseReady,
             annotationsDatabaseReady: report.annotationsDatabaseReady,
@@ -106,7 +97,6 @@ struct DoctorResult: Codable, Equatable, Sendable {
             supplementalRootReady: report.supplementalRootReady,
             backupLocationReady: report.backupLocationReady,
             cloudSyncReady: report.cloudSyncReady,
-            pdfWorkerReady: installedPDFWorkerReady,
             libraryOptionalSchemaComplete: report.libraryOptionalSchemaComplete,
             annotationsOptionalSchemaComplete: report.annotationsOptionalSchemaComplete
         )
@@ -117,7 +107,6 @@ struct DoctorResult: Codable, Equatable, Sendable {
             collectionsWrite: report.collectionWriteReady && report.backupLocationReady,
             annotationWrite: report.annotationWriteReady && report.backupLocationReady,
             contentReadPrerequisites: report.contentReadPrerequisitesReady && report.configurationReady,
-            pdfReadPrerequisites: report.pdfReadPrerequisitesReady && installedPDFWorkerReady,
             backups: report.libraryDatabaseReady && report.backupLocationReady,
             syncPrerequisites: report.cloudSyncReady
         )
@@ -129,8 +118,6 @@ struct DoctorResult: Codable, Equatable, Sendable {
             status = .unavailable
         }
         booksAppRunning = report.booksAppRunning
-        issues = installedPDFWorkerReady
-            ? report.issues
-            : report.issues + [.init(code: .pdfWorkerUnavailable, state: .degraded)]
+        issues = report.issues
     }
 }

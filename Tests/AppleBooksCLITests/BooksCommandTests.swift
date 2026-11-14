@@ -62,7 +62,6 @@ struct BooksCommandTests {
         #expect(asset.author == "Ada Author")
         #expect(asset.description == "Alpha description")
         #expect(asset.readingProgressPercent == 50)
-        #expect(asset.isPDF == false)
 
         let pdfCapture = Capture()
         #expect(CLIEntrypoint.run(
@@ -74,7 +73,6 @@ struct BooksCommandTests {
         #expect(pdf.localPK == nil)
         #expect(pdf.author == nil)
         #expect(pdf.readingProgressPercent == 100)
-        #expect(pdf.isPDF == true)
 
         let negativeCapture = Capture()
         #expect(CLIEntrypoint.run(
@@ -86,7 +84,7 @@ struct BooksCommandTests {
         let raw = try jsonObject(assetCapture.stdout)
         for removed in [
             "epubID", "path", "contentType", "genresRaw", "comments", "coverURL",
-            "readingProgressRaw", "durationRawMilliseconds", "normalizedAuthor",
+            "readingProgressRaw", "durationRawMilliseconds", "normalizedAuthor", "isPDF",
         ] {
             #expect(raw[removed] == nil)
         }

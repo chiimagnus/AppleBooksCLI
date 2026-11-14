@@ -15,6 +15,11 @@ Git tag 是 release version owner：
 
 双语 Skill 的 `metadata.cli_version` 必须与 release tag 一致；release build 会校验。
 
+从 **v0.5.0** 起，发行包只包含 CLI，不再打包 PDF Worker，`pdf` 命令与 PDF 高亮/导出均移除。
+**v0.4.2 及更早版本**是最后支持 PDF 的系列；既有 tag 与发行产物不回溯修改。
+v0.5.0 JSON archival export 的 `schemaVersion=11`，managed per-document manifest 升为 v2；
+旧版生成的 managed directory 不会被新版本识别为可安全覆盖的归属树，需选新目录或显式人工迁移。
+
 ## CI / preflight
 
 `.github/workflows/ci.yml` 在 PR 和 `main` push 上运行同一套 `scripts/ci-gates.sh`。
@@ -34,7 +39,7 @@ CI 缓存 `.build`，减少相邻提交重复编译；测试、privacy、Skill�
 Release workflow 按职责拆成三个 job：
 
 1. `prepare`：解析 metadata/channel，验证 tag + exact-SHA CI + publication state，
-   仅构建 arm64 的 CLI 与 PDF Worker，并 smoke-test 单个 npm package；
+   仅构建 arm64 的 CLI，并 smoke-test 单个 npm package；
 2. `publish-npm`：下载上述 artifact，只负责 `npm publish` 到对应 dist-tag；
 3. `github-release`：仅在 npm job 成功后下载同一 artifact，生成 attestation 并创建 GitHub Release。
 

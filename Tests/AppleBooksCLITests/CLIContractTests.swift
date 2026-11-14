@@ -1,7 +1,5 @@
-import AppKit
 import ArgumentParser
 import Foundation
-import PDFKit
 import SQLite3
 import Testing
 @testable import AppleBooksCLI
@@ -29,7 +27,6 @@ struct CLIContractTests {
             ["collections", "get", "--pk", "0"],
             ["collections", "add-book", "--collection-pk", "-1", "--book-pk", "1"],
             ["collections", "add-book", "--collection", "550E8400-E29B-41D4-A716-446655440000", "--book-pk", "0"],
-            ["pdf", "highlights", "--book-pk", "0"],
         ]
 
         for arguments in cases {
@@ -38,7 +35,6 @@ struct CLIContractTests {
             #expect(code == CLIProcessExit.usageInvalid.rawValue)
             #expect(capture.stdout.isEmpty)
             #expect(capture.stderr.contains("Database override") == false)
-            #expect(capture.stderr.contains("PDF worker") == false)
         }
     }
 
@@ -87,7 +83,6 @@ struct CLIContractTests {
             ["annotations", "list"], ["annotations", "get"], ["annotations", "context"], ["annotations", "update-note"], ["annotations", "delete"], ["annotations", "restore"],
             ["collections", "list"], ["collections", "get"], ["collections", "search"], ["collections", "books"], ["collections", "create"], ["collections", "rename"], ["collections", "delete"], ["collections", "add-book"], ["collections", "remove-book"],
             ["sync"],
-            ["pdf", "list"], ["pdf", "highlights"],
             ["export"],
             ["backups", "list"], ["backups", "restore"],
             ["history", "list"], ["history", "get"],
@@ -126,7 +121,6 @@ struct CLIContractTests {
         let exportHelp = try normalizedHelp(["export"])
         for values in [
             "values: json, markdown",
-            "values: epub, pdf, all",
             "values: green, blue, yellow, pink, purple",
             "values: true, false",
             "values: single, per-document",
@@ -318,7 +312,6 @@ struct CLIContractTests {
         #expect(doctorComponents["libraryDatabaseReady"] as? Bool == true)
         #expect(doctorComponents["annotationsDatabaseReady"] as? Bool == true)
         #expect(doctorComponents["cloudSyncReady"] as? Bool == false)
-        #expect(doctorComponents["pdfWorkerReady"] as? Bool == true)
         #expect(doctorCapabilities["booksRead"] as? Bool == true)
         #expect(doctorCapabilities["annotationsRead"] as? Bool == true)
         #expect(doctorCapabilities["syncPrerequisites"] as? Bool == false)
@@ -968,30 +961,6 @@ struct CLIContractTests {
     }
 
     @Test
-    func processPDFInventoryAndHighlightsUseRelativeInstalledWorker() throws {
-        let fixture = try ProcessFixture()
-        defer { fixture.remove() }
-
-        let inventory = try fixture.runJSON(["pdf", "list"])
-        let items = try #require(inventory["items"] as? [[String: Any]])
-        #expect(items.contains { item in
-            item["bookAssetID"] as? String == "asset-pdf" && item["pdfSourceID"] == nil
-        })
-
-        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
-        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
-        #expect(highlights["pdfSourceID"] == nil)
-        #expect(highlights["hasMore"] as? Bool == false)
-        #expect(highlights.keys.contains("nextCursor"))
-        #expect(highlights["nextCursor"] is NSNull)
-        let rows = try #require(highlights["items"] as? [[String: Any]])
-        #expect(rows.first?["note"] as? String == "black box pdf")
-        for internalKey in ["bounds", "quadrilateralPoints", "pdfKitRGBA", "traversalIndex", "textSource"] {
-            #expect(rows.first?[internalKey] == nil)
-        }
-    }
-
-    @Test
     func processPagedResultsEncodeTerminalCursorAsExplicitNull() throws {
         let fixture = try ProcessFixture()
         defer { fixture.remove() }
@@ -1011,7 +980,6 @@ struct CLIContractTests {
             ["reading", "unstarted", "--limit", "100"],
             ["collections", "list", "--limit", "100"],
             ["annotations", "list", "--limit", "100"],
-            ["pdf", "list", "--limit", "100"],
             ["content", "chapters", "--book", "asset-a", "--limit", "100"],
             ["content", "chapter", "--book", "asset-a", "--chapter", "1", "--max-chars", "16000"],
         ] {
@@ -1025,18 +993,20 @@ struct CLIContractTests {
     }
 
     @Test
-    func sourceBuildProcessDiscoversSiblingWorkerForDoctorAndPDFHighlights() throws {
-        let fixture = try ProcessFixture(layout: .swiftPM)
+    func exactPDFExportIsRejectedWithoutCreatingAnArtifact() throws {
+        let fixture = try ProcessFixture()
         defer { fixture.remove() }
 
-        let doctor = try fixture.runJSON(["doctor"])
-        let components = try #require(doctor["components"] as? [String: Any])
-        #expect(components["pdfWorkerReady"] as? Bool == true)
-
-        let highlights = try fixture.runJSON(["pdf", "highlights", "--book", "asset-pdf"])
-        #expect(highlights["bookAssetID"] as? String == "asset-pdf")
-        let rows = try #require(highlights["items"] as? [[String: Any]])
-        #expect(rows.first?["note"] as? String == "black box pdf")
+        let destination = fixture.root.appendingPathComponent("unsupported.json")
+        let response = try fixture.run([
+            "export", "--format", "json", "--book", "asset-pdf", "--output", destination.path
+        ] + fixture.globals)
+        #expect(response.status == CLIProcessExit.unavailable.rawValue)
+        #expect(response.stdout.isEmpty)
+        let error = try JSONDecoder().decode(CLIErrorEnvelope.self, from: Data(response.stderr.utf8))
+        #expect(error.error.code == .unavailable)
+        #expect(error.error.message == "Only EPUB books can be exported.")
+        #expect(FileManager.default.fileExists(atPath: destination.path) == false)
     }
 
     @Test
@@ -1046,7 +1016,7 @@ struct CLIContractTests {
 
         let jsonFile = fixture.root.appendingPathComponent("export.json")
         let json = try fixture.run([
-            "export", "--format", "json", "--source", "epub", "--output", jsonFile.path,
+            "export", "--format", "json", "--output", jsonFile.path,
         ] + fixture.globals)
         #expect(json.status == 0)
         #expect(json.stderr.isEmpty)
@@ -1061,7 +1031,7 @@ struct CLIContractTests {
 
         let markdownFile = fixture.harness.cwd.appendingPathComponent("export-notes")
         let markdown = try fixture.run([
-            "export", "--source", "epub", "--output", markdownFile.lastPathComponent,
+            "export", "--output", markdownFile.lastPathComponent,
         ] + fixture.globals)
         #expect(markdown.status == 0)
         #expect(markdown.stderr.isEmpty)
@@ -1160,10 +1130,7 @@ private struct ProcessInvocation {
 }
 
 private final class ProcessHarness {
-    enum Layout {
-        case installed
-        case swiftPM
-    }
+
 
     let root: URL
     let home: URL
@@ -1174,7 +1141,7 @@ private final class ProcessHarness {
         home.appendingPathComponent("Library/Application Support/AppleBooksCLI/history", isDirectory: true)
     }
 
-    init(layout: Layout = .installed) throws {
+    init() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("applebookscli-contract-\(UUID().uuidString)", isDirectory: true)
         home = root.appendingPathComponent("home", isDirectory: true)
@@ -1185,29 +1152,13 @@ private final class ProcessHarness {
 
         let products = try Self.swiftPMProductDirectory()
         let sourceCLI = products.appendingPathComponent("applebookscli")
-        let sourceWorker = products.appendingPathComponent("applebookscli-pdf-worker")
-        guard FileManager.default.isExecutableFile(atPath: sourceCLI.path),
-              FileManager.default.isExecutableFile(atPath: sourceWorker.path) else {
+        guard FileManager.default.isExecutableFile(atPath: sourceCLI.path) else {
             throw ContractFixtureError.missingExecutable
         }
-
-        switch layout {
-        case .swiftPM:
-            executable = sourceCLI
-        case .installed:
-            let install = root.appendingPathComponent("install", isDirectory: true)
-            let bin = install.appendingPathComponent("bin", isDirectory: true)
-            let libexec = install.appendingPathComponent("libexec/applebookscli", isDirectory: true)
-            for directory in [bin, libexec] {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            }
-            executable = bin.appendingPathComponent("applebookscli")
-            try FileManager.default.copyItem(at: sourceCLI, to: executable)
-            try FileManager.default.copyItem(
-                at: sourceWorker,
-                to: libexec.appendingPathComponent("applebookscli-pdf-worker")
-            )
-        }
+        let bin = root.appendingPathComponent("install/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        executable = bin.appendingPathComponent("applebookscli")
+        try FileManager.default.copyItem(at: sourceCLI, to: executable)
     }
 
     private static func swiftPMProductDirectory() throws -> URL {
@@ -1291,7 +1242,6 @@ private final class ProcessFixture {
     let annotations: URL
     let config: URL
     let epub: URL
-    let pdf: URL
 
     var backupRoot: URL {
         harness.home.appendingPathComponent("Library/Application Support/AppleBooksCLI/backups", isDirectory: true)
@@ -1305,19 +1255,17 @@ private final class ProcessFixture {
         ]
     }
 
-    init(layout: ProcessHarness.Layout = .installed) throws {
-        harness = try ProcessHarness(layout: layout)
+    init() throws {
+        harness = try ProcessHarness()
         root = harness.root.appendingPathComponent("fixture", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         epub = root.appendingPathComponent("synthetic.epub", isDirectory: true)
-        pdf = root.appendingPathComponent("synthetic.pdf")
         library = root.appendingPathComponent("library.sqlite")
         annotations = root.appendingPathComponent("annotations.sqlite")
         config = root.appendingPathComponent("config.json")
 
         try Self.makeEPUB(at: epub)
-        try Self.makePDF(at: pdf)
-        try Self.execute(library, sql: Self.librarySQL(epub: epub.path, pdf: pdf.path))
+        try Self.execute(library, sql: Self.librarySQL(epub: epub.path))
         try Self.execute(annotations, sql: Self.annotationSQL)
         try Data(#"{"historical_assets":{}}"#.utf8).write(to: config)
     }
@@ -1402,25 +1350,6 @@ private final class ProcessFixture {
         """.utf8).write(to: ops.appendingPathComponent("shared.xhtml"))
     }
 
-    private static func makePDF(at url: URL) throws {
-        let image = NSImage(size: NSSize(width: 200, height: 200))
-        image.lockFocus()
-        NSColor.white.setFill()
-        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 200, height: 200)).fill()
-        image.unlockFocus()
-        guard let page = PDFPage(image: image) else { throw ContractFixtureError.pdf }
-        let annotation = PDFAnnotation(
-            bounds: CGRect(x: 20, y: 20, width: 100, height: 20),
-            forType: .highlight,
-            withProperties: nil
-        )
-        annotation.contents = "black box pdf"
-        page.addAnnotation(annotation)
-        let document = PDFDocument()
-        document.insert(page, at: 0)
-        guard document.write(to: url) else { throw ContractFixtureError.pdf }
-    }
-
     private static func execute(_ database: URL, sql: String) throws {
         var handle: OpaquePointer?
         guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else {
@@ -1436,7 +1365,7 @@ private final class ProcessFixture {
         value.replacingOccurrences(of: "'", with: "''")
     }
 
-    private static func librarySQL(epub: String, pdf: String) -> String {
+    private static func librarySQL(epub: String) -> String {
         """
         CREATE TABLE Z_PRIMARYKEY(Z_NAME TEXT,Z_ENT INTEGER,Z_MAX INTEGER);
         INSERT INTO Z_PRIMARYKEY VALUES
@@ -1482,7 +1411,7 @@ private final class ProcessFixture {
         VALUES
           (1,'asset-a','Book A','Author A','Fiction','en',1,'\(escaped(epub))',0,0.5,NULL,300),
           (2,'asset-b','Book B','Author B','History','en',1,'\(escaped(epub))',1,1.0,400,200),
-          (3,'asset-pdf','PDF Book','PDF Author','Reference','en',3,'\(escaped(pdf))',0,0.0,NULL,100);
+          (3,'asset-pdf','PDF Book','PDF Author','Reference','en',3,NULL,0,0.0,NULL,100);
 
         CREATE TABLE ZBKCOLLECTION(
           Z_PK INTEGER PRIMARY KEY,
@@ -1567,6 +1496,5 @@ private final class Capture {
 private enum ContractFixtureError: Error {
     case invalidJSON
     case missingExecutable
-    case pdf
     case sqlite
 }

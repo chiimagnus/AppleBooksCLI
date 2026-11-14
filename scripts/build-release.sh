@@ -83,13 +83,6 @@ build_arch() {
     -Xlinker __info_plist \
     -Xlinker "$BUILD_INFO_PLIST" \
     1>&2
-  swift build \
-    --disable-automatic-resolution \
-    --arch "$arch" \
-    --scratch-path "$scratch" \
-    -c release \
-    --product applebookscli-pdf-worker \
-    1>&2
 
   bin_dir=$(swift build \
     --disable-automatic-resolution \
@@ -99,7 +92,6 @@ build_arch() {
     --show-bin-path)
 
   validate_thin_binary "$bin_dir/applebookscli" "$arch" applebookscli
-  validate_thin_binary "$bin_dir/applebookscli-pdf-worker" "$arch" applebookscli-pdf-worker
   printf '%s\n' "$bin_dir"
 }
 
@@ -115,14 +107,10 @@ mkdir -p \
   "$PACKAGE_ROOT/libexec/applebookscli"
 
 cp "$ARM64_BIN_DIR/applebookscli" "$PACKAGE_ROOT/bin/applebookscli"
-cp "$ARM64_BIN_DIR/applebookscli-pdf-worker" "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
-chmod +x \
-  "$PACKAGE_ROOT/bin/applebookscli" \
-  "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
+chmod +x "$PACKAGE_ROOT/bin/applebookscli"
 
 cp "$SKILL_SYNC" "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
 codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
-codesign --force --sign - "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker"
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
 cp "$REPO_ROOT/README.zh.md" "$PACKAGE_ROOT/README.zh.md"
 cp "$REPO_ROOT/LICENSE" "$PACKAGE_ROOT/LICENSE"
@@ -131,7 +119,6 @@ cp -R "$REPO_ROOT/ThirdPartyLicenses" "$PACKAGE_ROOT/ThirdPartyLicenses"
 sed "s/__VERSION__/$VERSION/g" "$PACKAGE_TEMPLATE" > "$PACKAGE_ROOT/package.json"
 
 validate_thin_binary "$PACKAGE_ROOT/bin/applebookscli" arm64 applebookscli
-validate_thin_binary "$PACKAGE_ROOT/libexec/applebookscli/applebookscli-pdf-worker" arm64 applebookscli-pdf-worker
 [ "$("$PACKAGE_ROOT/bin/applebookscli" --version)" = "$VERSION" ] || fail "packaged CLI version does not match release git tag."
 
 node - "$PACKAGE_ROOT/package.json" "$VERSION" <<'NODE'

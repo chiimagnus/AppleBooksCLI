@@ -50,6 +50,10 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 
 - annotation：支持已有 user annotation 的 note replacement/clear、soft-delete 和 tombstone restore；
   新建 EPUB 高亮只能通过当前书籍的精确原文定位、受控 INSERT、读回和原生云端新对象创建。
+  只有目标书在原生 BCAssetAnnotations 中已有唯一云端父对象时才允许 CLI 创建。
+  首次父对象创建会使 Apple 私有 BookDataStore 崩溃：当前在 COMMIT 前拒绝并返回 `cloud_parent_missing`，
+  由 Apple Books 原生阅读界面为该书创建第一条高亮后，再运行 CLI。
+  这项限制同样适用于 `repair-sync`，不得用重复 INSERT 或跳过云投影绕过。
   没有可用的原生创建投影器时必须在 COMMIT 前拒绝；同选区同属性 no-op，冲突拒绝覆盖。
   不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
   `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。

@@ -67,6 +67,11 @@ plain-text stdout。
 `preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
 原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
 `annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
+**创建前提**：目标书在原生云端 store 中必须已有唯一批注父对象。若尚无父对象，
+`create` 在本地 COMMIT 前返回 `cloud_parent_missing`（无本地新增记录），
+提示先在 Apple Books 官方阅读界面为该书创建一条高亮，再重试。
+`repair-sync` 也拒绝缺失父对象；不能对同一选区重新 INSERT。
+只读 `preview` 的 `ready` 仅表示选区可定位，不证明这个云端前提已满足。
 
 多条 `annotations create` 先完成**整批只读预检**，再逐条调用已验证的单条写事务。
 返回 `status=complete / preflight_failed / partial`、`complete`、`itemCount`、
@@ -76,7 +81,8 @@ plain-text stdout。
 可用的 `annotationUUID`、`warningCodes` 和安全的 `errorCode`；不含正文或 raw CFI。
 **这三种批次业务状态均使用 stdout JSON + 退出码 0**，调用方必须判断 `complete`，
 不能只凭 exit code 视为全部成功。输入文件/权限/历史错误仍走 stderr 和非零退出码。
-`preflight_failed` 保证整批没有写入；`partial` 表示运行过程中停止，
+`preflight_failed` 保证整批没有写入；首次云父对象缺失的批次也会以该状态拒绝并在条目中标记 `cloud_parent_missing`。
+`partial` 表示运行过程中停止，
 已提交条目仍返回 `created` 与 UUID。云投影失败后不要重建该条，
 先用 `annotations repair-sync` 修复已有 UUID。
 多条不支持 `create --sync`；只有 `changedCount > 0` 时，

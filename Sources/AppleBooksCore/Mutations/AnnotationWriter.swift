@@ -12,6 +12,7 @@ public enum AnnotationWriteError: Error, Equatable, Sendable {
 
 public enum AnnotationCreateError: Error, Equatable, Sendable {
     case projectionUnavailable
+    case cloudParentMissing
     case conflict
     case sourceChanged
 }
@@ -109,7 +110,7 @@ struct AnnotationWriter {
         let connection = try SQLiteConnection.readOnly(path: annotationsDatabase.path)
         defer { try? connection.close() }
         let stmt = try connection.prepare("""
-            SELECT Z_PK,ZANNOTATIONTYPE,ZANNOTATIONDELETED FROM ZAEANNOTATION
+            SELECT Z_PK,ZANNOTATIONTYPE,ZANNOTATIONDELETED,ZANNOTATIONASSETID FROM ZAEANNOTATION
             WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
             """)
         try stmt.bind(uuid, at: 1)
@@ -118,9 +119,12 @@ struct AnnotationWriter {
         guard let pk = try row.int64("Z_PK"), pk > 0,
               try row.int64("ZANNOTATIONTYPE") == 2,
               try row.int64("ZANNOTATIONDELETED") == 0,
+              let assetID = try row.text("ZANNOTATIONASSETID"),
+              PublicStableIdentityPolicy.isEligible(assetID),
               try stmt.step() == false else {
             throw AnnotationWriteError.annotationNotWritable
         }
+        try creationProjector.validateCreationTarget(assetID: assetID)
         let originalState = booksApp.state()
         try booksApp.terminateAndWait()
         do {
@@ -167,6 +171,7 @@ struct AnnotationWriter {
         }
         func validate(_ handle: OpaquePointer) throws {
             guard try verifySource() == selection else { throw AnnotationCreateError.sourceChanged }
+            try creationProjector.validateCreationTarget(assetID: assetID)
             try WriteSchemaGuard.validateTable(
                 .annotations, required: WriteSchemaGuard.annotationKnownColumns, inserting: true, on: handle
             )

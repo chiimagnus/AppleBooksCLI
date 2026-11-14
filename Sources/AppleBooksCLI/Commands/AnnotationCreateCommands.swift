@@ -438,7 +438,12 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                 } catch {
                     let reason: String
                     if let creation = error as? AnnotationCreateError {
-                        reason = creation == .conflict ? "conflict" : "source_changed"
+                        switch creation {
+                        case .conflict: reason = "conflict"
+                        case .sourceChanged: reason = "source_changed"
+                        case .cloudParentMissing: reason = "cloud_parent_missing"
+                        case .projectionUnavailable: reason = "projection_unavailable"
+                        }
                     } else if error is EPUBAnnotationLocatorError {
                         reason = "content_changed"
                     } else {
@@ -450,8 +455,11 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                     stopped = true
                 }
             }
+            let unavailableBeforeWrites = items.contains { $0.errorCode == "cloud_parent_missing" }
+                && !items.contains { $0.status == "created" }
             let result = AnnotationCreateBatchResult(
-                status: stopped ? "partial" : "complete", items: items
+                status: stopped ? (unavailableBeforeWrites ? "preflight_failed" : "partial") : "complete",
+                items: items
             )
             historySink?.record(.batch(result))
             return result

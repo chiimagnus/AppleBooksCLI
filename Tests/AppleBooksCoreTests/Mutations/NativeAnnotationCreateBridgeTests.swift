@@ -66,11 +66,11 @@ struct NativeAnnotationCreateBridgeTests {
                 'second','second synthetic chapter','synthetic:cfi-two',
                 NULL,'com~apple~iBooks');
             """)
-        func project(_ uuid: String) -> Int32 {
+        func project(_ uuid: String, assetID: String = "synthetic-asset") -> Int32 {
             root.path.withCString { r in
                 cloudDB.path.withCString { c in
                     localDB.path.withCString { l in
-                        withCloudBridgeUTF8Bytes("synthetic-asset") { asset, al in
+                        withCloudBridgeUTF8Bytes(assetID) { asset, al in
                             withCloudBridgeUTF8Bytes(uuid) { id, il in
                                 ABCreateAnnotationState(r, c, l, asset, al, id, il)
                             }
@@ -102,6 +102,15 @@ struct NativeAnnotationCreateBridgeTests {
             "synthetic-uuid-1": (1, false, "Synthetic note"),
             "synthetic-uuid-2": (5, true, nil),
         ])
+        try execute(localDB, """
+            INSERT INTO ZAEANNOTATION VALUES(3,'synthetic-missing-parent','synthetic-uuid-3',2,0,1,0,104.0,105.0,
+                'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks');
+            """)
+        #expect(project("synthetic-uuid-3", assetID: "synthetic-missing-parent") == 18)
+        let read = try SQLiteConnection.readOnly(path: cloudDB.path)
+        defer { try? read.close() }
+        let missing = try read.prepare("SELECT Z_PK FROM ZBCASSETANNOTATIONS WHERE ZASSETID='synthetic-missing-parent'")
+        #expect(try !missing.step(), "A missing parent must not be created or crash the process")
     }
 
     private func verifyNativeCloud(

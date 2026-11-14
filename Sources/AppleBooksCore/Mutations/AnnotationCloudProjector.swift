@@ -16,13 +16,22 @@ struct AnnotationCloudProjector {
     typealias BridgeAction = (URL, URL, URL, AnnotationCloudIdentity) -> Int32
 
     private let projectAction: (Int64) throws -> Void
+    private let creationTargetValidation: (String) throws -> Void
 
-    init(projectAction: @escaping (Int64) throws -> Void) {
+    init(
+        projectAction: @escaping (Int64) throws -> Void,
+        validateCreationTarget: @escaping (String) throws -> Void = { _ in }
+    ) {
         self.projectAction = projectAction
+        creationTargetValidation = validateCreationTarget
     }
 
     func project(localPK: Int64) throws {
         try projectAction(localPK)
+    }
+
+    func validateCreationTarget(assetID: String) throws {
+        try creationTargetValidation(assetID)
     }
 
     static func live(
@@ -32,7 +41,8 @@ struct AnnotationCloudProjector {
         backupAction: @escaping BackupAction = { source, root in
             _ = try SQLiteBackup.create(source: source, backupRoot: root)
         },
-        bridgeAction: @escaping BridgeAction = liveBridgeAction
+        bridgeAction: @escaping BridgeAction = liveBridgeAction,
+        requireExistingParent: Bool = false
     ) -> AnnotationCloudProjector? {
         guard let location = AnnotationCloudStoreLocation.live(
             annotationsDatabase: annotationsDatabase,
@@ -40,12 +50,21 @@ struct AnnotationCloudProjector {
         ) else {
             return nil
         }
-        return AnnotationCloudProjector { localPK in
-            let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: localPK)
-            try backupAction(location.database, backupRoot)
-            let status = bridgeAction(location.root, location.database, annotationsDatabase, identity)
-            guard status == 0 else { throw AnnotationCloudProjectionError.bridgeRejected(status) }
+        let validate: (String) throws -> Void = { assetID in
+            if requireExistingParent {
+                try validateExistingNativeParent(database: location.database, assetID: assetID)
+            }
         }
+        return AnnotationCloudProjector(
+            projectAction: { localPK in
+                let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: localPK)
+                try validate(identity.assetID)
+                try backupAction(location.database, backupRoot)
+                let status = bridgeAction(location.root, location.database, annotationsDatabase, identity)
+                guard status == 0 else { throw AnnotationCloudProjectionError.bridgeRejected(status) }
+            },
+            validateCreationTarget: validate
+        )
     }
 
     static func liveCreate(
@@ -62,8 +81,21 @@ struct AnnotationCloudProjector {
             homeDirectory: homeDirectory,
             backupRoot: backupRoot,
             backupAction: backupAction,
-            bridgeAction: bridgeAction
+            bridgeAction: bridgeAction,
+            requireExistingParent: true
         )
+    }
+
+    private static func validateExistingNativeParent(database: URL, assetID: String) throws {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare("""
+            SELECT Z_PK FROM ZBCASSETANNOTATIONS
+            WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
+            """)
+        try statement.bind(assetID, at: 1)
+        guard try statement.step() else { throw AnnotationCreateError.cloudParentMissing }
+        guard try statement.step() == false else { throw AnnotationCreateError.projectionUnavailable }
     }
 
     static func identity(annotationsDatabase: URL, localPK: Int64) throws -> AnnotationCloudIdentity {

@@ -75,6 +75,34 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func missingNativeCloudParentFailsBeforeLocalCommitOrBackup() throws {
+        let f = try Fixture()
+        defer { f.remove() }
+        var validations = 0
+        var projected = 0
+        let creator = AnnotationCloudProjector(
+            projectAction: { _ in projected += 1 },
+            validateCreationTarget: { assetID in
+                #expect(assetID == "synthetic-asset")
+                validations += 1
+                throw AnnotationCreateError.cloudParentMissing
+            }
+        )
+        let writer = AnnotationWriter(
+            database: f.database, backupRoot: f.backupRoot,
+            booksApp: .detached, creationProjector: creator
+        )
+        #expect(throws: AnnotationCreateError.cloudParentMissing) {
+            _ = try f.create(writer: writer, note: "Synthetic first highlight")
+        }
+        #expect(validations == 1)
+        #expect(projected == 0)
+        #expect(try f.count() == 0)
+        #expect(try f.backupCount() == 0)
+        #expect(try f.scalar("SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 0)
+    }
+
+    @Test
     func noCreationProjectorOrSourceChangeNeverInserts() throws {
         let f = try Fixture()
         defer { f.remove() }

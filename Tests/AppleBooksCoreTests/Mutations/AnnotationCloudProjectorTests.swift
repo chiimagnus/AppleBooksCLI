@@ -111,6 +111,7 @@ struct AnnotationCloudProjectorTests {
             CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
             INSERT INTO ZAEANNOTATION VALUES(11,'SYNTHETIC-ASSET','SYNTHETIC-UUID');
             """)
+        try prepareSyntheticNativeParent(root: root, assetID: "SYNTHETIC-ASSET")
         var events: [String] = []
         let projector = try #require(AnnotationCloudProjector.liveCreate(
             annotationsDatabase: annotations,
@@ -145,6 +146,7 @@ struct AnnotationCloudProjectorTests {
             CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
             INSERT INTO ZAEANNOTATION VALUES(1,'ASSET','UUID');
             """)
+        try prepareSyntheticNativeParent(root: root, assetID: "ASSET")
         var backups = 0
         let projector = try #require(AnnotationCloudProjector.liveCreate(
             annotationsDatabase: annotations,
@@ -652,6 +654,58 @@ struct AnnotationCloudProjectorTests {
             )
         }
         guard result == SQLITE_OK else { throw SQLiteError.current(operation: .bind, code: result, handle: handle) }
+    }
+
+    @Test
+    func nativeCreatorRejectsAbsentOrAmbiguousCloudParentWithoutBackupOrBridge() throws {
+        let root = try fixtureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = AppleBooksDatabasePaths.defaults(homeDirectory: root)
+        try FileManager.default.createDirectory(at: paths.annotationsDirectory, withIntermediateDirectories: true)
+        let annotations = paths.annotationsDirectory.appendingPathComponent("AEAnnotation-create.sqlite")
+        try execute(annotations, """
+            CREATE TABLE ZAEANNOTATION(Z_PK INTEGER PRIMARY KEY,ZANNOTATIONASSETID TEXT,ZANNOTATIONUUID TEXT);
+            INSERT INTO ZAEANNOTATION VALUES(1,'SYNTHETIC-ASSET','SYNTHETIC-UUID');
+            """)
+        let cloud = try prepareSyntheticNativeParent(root: root)
+        var backups = 0
+        var projections = 0
+        let projector = try #require(AnnotationCloudProjector.liveCreate(
+            annotationsDatabase: annotations, homeDirectory: root,
+            backupAction: { _, _ in backups += 1 },
+            bridgeAction: { _, _, _, _ in projections += 1; return 0 }
+        ))
+        #expect(throws: AnnotationCreateError.cloudParentMissing) {
+            try projector.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        }
+        #expect(throws: AnnotationCreateError.cloudParentMissing) {
+            try projector.project(localPK: 1)
+        }
+        #expect(backups == 0 && projections == 0)
+        try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(1,'SYNTHETIC-ASSET')")
+        try projector.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        try projector.project(localPK: 1)
+        #expect(backups == 1 && projections == 1)
+        try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(2,'SYNTHETIC-ASSET')")
+        #expect(throws: AnnotationCreateError.projectionUnavailable) {
+            try projector.project(localPK: 1)
+        }
+        #expect(backups == 1 && projections == 1)
+    }
+
+    private func prepareSyntheticNativeParent(root: URL, assetID: String? = nil) throws -> URL {
+        let folder = root.appendingPathComponent(
+            "Library/Containers/com.apple.iBooksX/Data/Documents/BCCloudData-iBooks/BCAssetData",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let cloud = folder.appendingPathComponent("BCAssetData")
+        try execute(cloud, "CREATE TABLE ZBCASSETANNOTATIONS(Z_PK INTEGER PRIMARY KEY,ZASSETID TEXT)")
+        if let assetID {
+            let escaped = assetID.replacingOccurrences(of: "'", with: "''")
+            try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(1,'\(escaped)')")
+        }
+        return cloud
     }
 
     private func fixtureRoot() throws -> URL {

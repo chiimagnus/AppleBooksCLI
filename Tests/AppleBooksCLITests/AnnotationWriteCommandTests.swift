@@ -716,6 +716,41 @@ struct AnnotationWriteCommandTests {
         #expect(sourceRecovered.0.complete)
         #expect(sourceRecovered.0.items.map(\.status) == ["already_exists", "created"])
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
+
+        let unavailableWriter = AnnotationWriter(
+            database: annotations, backupRoot: backupRoot, booksApp: .detached,
+            creationProjector: AnnotationCloudProjector(
+                projectAction: { _ in Issue.record("Missing parent must not project") },
+                validateCreationTarget: { _ in throw AnnotationCreateError.cloudParentMissing }
+            )
+        )
+        let unavailableBooks = try AppleBooks(
+            libraryDB: library, annotationsDB: annotations, configurationFile: nil,
+            collectionWriter: CollectionWriter(database: library, booksApp: .detached),
+            annotationWriter: unavailableWriter, libraryBackupRoot: backupRoot
+        )
+        let noParentPayload = try JSONSerialization.data(withJSONObject: [
+            "annotations": [tagged(503), tagged(504)],
+        ])
+        try noParentPayload.write(to: input)
+        let noParentBatch = try AnnotationsCreateCommand.parse(args)
+            .executeBatch(using: unavailableBooks)
+        #expect(noParentBatch.status == "preflight_failed")
+        #expect(!noParentBatch.complete)
+        #expect(noParentBatch.createdCount == 0)
+        #expect(noParentBatch.failedCount == 1 && noParentBatch.notAttemptedCount == 1)
+        #expect(noParentBatch.items[0].errorCode == "cloud_parent_missing")
+        #expect(!noParentBatch.syncRequired)
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
+        try JSONSerialization.data(withJSONObject: ["annotations": [tagged(505)]]).write(to: input)
+        let noParentSingle = try AnnotationsCreateCommand.parse(args)
+        #expect(throws: CLIError.unavailableWithReason(
+            message: "This book has no native annotation cloud parent; no highlight was created.",
+            reason: .cloudParentMissing
+        )) {
+            _ = try noParentSingle.execute(using: unavailableBooks)
+        }
+        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
     }
 
     private func executeScalar(_ database: URL, _ sql: String) throws -> Int64 {

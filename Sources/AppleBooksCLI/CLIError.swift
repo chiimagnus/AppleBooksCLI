@@ -22,6 +22,7 @@ enum CLIErrorCode: String, Codable, Equatable, Sendable {
 enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
     case ambiguousIdentity = "ambiguous_identity"
     case annotationNotFound = "annotation_not_found"
+    case cloudParentMissing = "cloud_parent_missing"
     case annotationRestoreUnavailable = "annotation_restore_unavailable"
     case backupNotFound = "backup_not_found"
     case bookNotFound = "book_not_found"
@@ -110,6 +111,8 @@ enum CLIError: Error, Equatable, Sendable {
             "Refresh the selector from the corresponding list or search command and retry with a unique returned identity."
         case .annotationNotFound:
             "Run `applebookscli annotations list` and retry with a returned selector."
+        case .cloudParentMissing:
+            "First create one highlight in this book using the Apple Books app, then retry this CLI request."
         case .annotationRestoreUnavailable, .readingPositionUnavailable, nil:
             nil
         case .backupNotFound:
@@ -259,6 +262,11 @@ enum CLIOperation {
                 return .unavailableWithReason(
                     message: "Native annotation creation is unavailable on this Mac.",
                     reason: .syncUnavailable
+                )
+            case .cloudParentMissing:
+                return .unavailableWithReason(
+                    message: "This book has no native annotation cloud parent; no highlight was created.",
+                    reason: .cloudParentMissing
                 )
             case .conflict:
                 return .writeSafety("An annotation at this exact location has different attributes.")

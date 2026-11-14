@@ -46,7 +46,7 @@ PDF 后续读取使用 `pdf list` 返回的 `bookAssetID` 或 `pdfSourceID`，�
 
 - 只有用户授权修改时才执行 mutation/restore。不要直接修改 Apple Books SQLite。
 - `annotations update-note` 从 stdin 读取完整 replacement Note。用户要追加时先读取当前 note；只有清空时使用 `--clear`。`annotations delete` 只 soft-delete；`annotations restore` 只恢复仍存在的 tombstone。
-- 创建高亮前准备含 `annotations` 数组的 JSON 文件，例如 `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…" }`；先运行 `annotations preview --book <asset-id> --input <file>`，解决缺失、歧义和冲突后，再用相同 selector 与文件调用 `annotations create`。不传入 raw CFI。
+- 创建高亮前准备含 `annotations` 数组的 JSON 文件，例如 `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…" }`；先运行 `annotations preview --book <asset-id> --input <file>`，解决缺失、歧义和冲突后，再用相同 selector 与文件调用 `annotations create`。不传入 raw CFI。**首次高亮须先在 Apple Books 原生阅读界面创建**；缺少云父对象时 `create` 和 `repair-sync` 返回 `cloud_parent_missing`，不会新增本地记录。`preview` 不验证这个前提。
 - 批量 `create` 的 `status=partial` 或 `preflight_failed` 即使退出码为 0，也必须检查 `complete`、逐项状态/UUID、`changedCount` 与 `syncRequired`。若有 `cloud_projection_failed`，先用 `annotations repair-sync <uuid>` 修复**已有 UUID**，再独立调用根 `sync`；不要重复创建。`--sync` 只适用于单条创建。
 - Collection membership 写入使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个。
 - 把 mutation result 当状态读取：`changed=false` 是成功 no-op；`committed=true` 表示本地写入已经跨过 COMMIT。出现 post-commit `warningCodes` 不授权 replay。

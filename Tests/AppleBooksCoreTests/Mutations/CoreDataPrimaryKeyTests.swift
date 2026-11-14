@@ -31,6 +31,23 @@ struct CoreDataPrimaryKeyTests {
     }
 
     @Test
+    func allocatesAnnotationPrimaryKeyInsideTheExistingTransaction() throws {
+        let fixture = try fixture(zMax: 5, tablePKs: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.handle, "CREATE TABLE ZAEANNOTATION(Z_PK INTEGER, Z_ENT INTEGER)")
+        try execute(fixture.handle, "INSERT INTO ZAEANNOTATION VALUES(22, 1)")
+        try execute(fixture.handle, "INSERT INTO Z_PRIMARYKEY VALUES('AEAnnotation', 1, 9)")
+        try execute(fixture.handle, "BEGIN IMMEDIATE")
+        let allocated = try CoreDataPrimaryKey.allocate(
+            entityName: "AEAnnotation", table: .annotations, on: fixture.handle
+        )
+        #expect(allocated == .init(entityID: 1, localPK: 23))
+        #expect(try scalar(fixture.handle, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 23)
+        try execute(fixture.handle, "ROLLBACK")
+        #expect(try scalar(fixture.handle, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 9)
+    }
+
+    @Test
     func missingDuplicateAndInvalidEntityFailClosed() throws {
         let fixture = try fixture(zMax: 5, tablePKs: [])
         defer { try? FileManager.default.removeItem(at: fixture.root) }

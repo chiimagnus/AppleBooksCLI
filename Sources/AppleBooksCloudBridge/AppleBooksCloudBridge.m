@@ -547,6 +547,161 @@ BOOL ABTestUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, NSDi
 }
 #endif
 
+#if DEBUG
+// One-shot native feasibility probe. The public production bridge remains update-only.
+static NSDictionary *ABReadSyntheticNewAnnotation(NSString *database, NSString *assetID, NSString *uuid) {
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(database.fileSystemRepresentation, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK || db == NULL) {
+        if (db != NULL) sqlite3_close_v2(db);
+        return nil;
+    }
+    const char *sql = "SELECT ZANNOTATIONTYPE,ZANNOTATIONDELETED,ZANNOTATIONSTYLE,ZANNOTATIONISUNDERLINE,"
+                      "ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,"
+                      "ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONLOCATION,ZANNOTATIONNOTE,ZANNOTATIONCREATORIDENTIFIER "
+                      "FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND "
+                      "ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
+    sqlite3_stmt *stmt = NULL;
+    NSDictionary *result = nil;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
+        ABBindText(stmt, 1, assetID) == SQLITE_OK && ABBindText(stmt, 2, uuid) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW &&
+        sqlite3_column_type(stmt, 0) == SQLITE_INTEGER && sqlite3_column_int(stmt, 0) == 2 &&
+        sqlite3_column_type(stmt, 1) == SQLITE_INTEGER && sqlite3_column_int(stmt, 1) == 0 &&
+        sqlite3_column_type(stmt, 2) == SQLITE_INTEGER && sqlite3_column_int(stmt, 2) == 1 &&
+        sqlite3_column_type(stmt, 3) == SQLITE_INTEGER && sqlite3_column_int(stmt, 3) == 0 &&
+        sqlite3_column_type(stmt, 4) != SQLITE_NULL && sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+        NSString *selected = ABText(stmt, 6, 4096);
+        NSString *representative = ABText(stmt, 7, 8192);
+        NSString *cfi = ABText(stmt, 8, 4096);
+        NSString *note = ABText(stmt, 9, ABCloudProjectionMaximumAnnotationNoteBytes);
+        NSString *creator = ABText(stmt, 10, 256);
+        if (selected.length > 0 && representative.length > 0 && cfi.length > 0 &&
+            [note hasPrefix:@"Programmatic P1T1"] && [creator isEqualToString:@"com~apple~iBooks"]) {
+            result = @{
+                @"selected": selected, @"representative": representative,
+                @"cfi": cfi, @"note": note, @"created": @(sqlite3_column_double(stmt, 4)),
+                @"modified": @(sqlite3_column_double(stmt, 5)),
+            };
+        }
+        if (sqlite3_step(stmt) != SQLITE_DONE) result = nil;
+    }
+    if (stmt != NULL) sqlite3_finalize(stmt);
+    sqlite3_close_v2(db);
+    return result;
+}
+
+// Signature mirrors ABProjectAnnotationState; only opt-in tests call this symbol.
+int32_t ABTestAppendSyntheticAnnotationState(
+    const char *root_path, const char *canonical_cloud_database_path,
+    const char *canonical_annotations_database_path,
+    const uint8_t *asset_id_bytes, size_t asset_id_length,
+    const uint8_t *annotation_uuid_bytes, size_t annotation_uuid_length
+) {
+    @autoreleasepool {
+        if (root_path == NULL || canonical_cloud_database_path == NULL ||
+            canonical_annotations_database_path == NULL || asset_id_bytes == NULL ||
+            annotation_uuid_bytes == NULL ||
+            asset_id_length == 0 || asset_id_length > ABCloudProjectionMaximumIdentityBytes ||
+            annotation_uuid_length == 0 || annotation_uuid_length > ABCloudProjectionMaximumIdentityBytes) return 1;
+        NSString *root = [NSString stringWithUTF8String:root_path];
+        NSString *cloudDB = [NSString stringWithUTF8String:canonical_cloud_database_path];
+        NSString *localDB = [NSString stringWithUTF8String:canonical_annotations_database_path];
+        NSString *assetID = ABStringFromUTF8Bytes(asset_id_bytes, asset_id_length);
+        NSString *uuid = ABStringFromUTF8Bytes(annotation_uuid_bytes, annotation_uuid_length);
+        if (root == nil || cloudDB == nil || localDB == nil || assetID.length == 0 ||
+            uuid.length == 0 || !ABIsRegularFile(localDB) ||
+            !ABLayoutIsExact(root, cloudDB, @"BCAssetData")) return 2;
+        NSDictionary *target = ABReadSyntheticNewAnnotation(localDB, assetID, uuid);
+        if (target == nil) return 3;
+        if (dlopen("/System/Library/PrivateFrameworks/BookDataStore.framework/BookDataStore", RTLD_NOW) == NULL) return 4;
+        Class owner = NSClassFromString(@"BCCloudAssetAnnotationManager");
+        Class immutableClass = NSClassFromString(@"BCAssetAnnotations");
+        Class mutableClass = NSClassFromString(@"BCMutableAssetAnnotations");
+        Class bookClass = NSClassFromString(@"BCAnnotationsProtoBook");
+        Class annotationClass = NSClassFromString(@"BCProtoAnnotation");
+        Class rangeClass = NSClassFromString(@"BCAnnotationRange");
+        if (owner == Nil || immutableClass == Nil || mutableClass == Nil ||
+            bookClass == Nil || annotationClass == Nil || rangeClass == Nil) return 5;
+        id source = ABCreateDataSource(root, @"BCAssetData", @"BCAssetData", owner);
+        id manager = ABCreateDataManager(source, @"BCAssetAnnotations",
+                                         @"BCCloudAssetAnnotationManagerChanged", immutableClass, mutableClass);
+        if (source == nil || manager == nil || !ABLayoutIsExact(root, cloudDB, @"BCAssetData")) return 6;
+
+        int parentCount = ABExactRowCount(cloudDB, @"ZBCASSETANNOTATIONS", @"ZASSETID", assetID);
+        if (parentCount != 0 && parentCount != 1) return 7;
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:@"assetID == %@", assetID];
+        id cloud = parentCount == 1
+            ? ((id (*)(id, SEL, id, id))objc_msgSend)(
+                manager, NSSelectorFromString(@"mutableCloudDataWithPredicate:sortDescriptors:"), predicate, @[])
+            : ABAllocateWithObject(mutableClass, @"initWithAssetID:", assetID);
+        if (cloud == nil) return 8;
+
+        id book = nil;
+        if (parentCount == 1) {
+            NSData *raw = ((id (*)(id, SEL))objc_msgSend)(cloud, NSSelectorFromString(@"bookAnnotations"));
+            if (![raw isKindOfClass:[NSData class]] || raw.length > ABCloudProjectionMaximumBookAnnotationsBytes) return 9;
+            book = ABAllocateWithObject(bookClass, @"initWithData:", raw);
+        } else {
+            book = ((id (*)(id, SEL))objc_msgSend)(bookClass, sel_registerName("new"));
+            if (book != nil) {
+                ABSetObject(book, @"setAssetID:", assetID);
+                ABSetObject(book, @"setAppVersion:", @"9.0");
+            }
+        }
+        if (book == nil) return 10;
+        NSArray *prior = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"annotations"));
+        if (parentCount == 0 && prior == nil) prior = @[];
+        if (![prior isKindOfClass:[NSArray class]]) return 11;
+        NSUInteger priorCount = prior.count;
+        for (id previous in prior) {
+            NSString *previousUUID = ((id (*)(id, SEL))objc_msgSend)(previous, NSSelectorFromString(@"uuid"));
+            if ([previousUUID isEqualToString:uuid]) return 12;
+        }
+
+        id annotation = ((id (*)(id, SEL))objc_msgSend)(annotationClass, sel_registerName("new"));
+        id range = ((id (*)(id, SEL))objc_msgSend)(rangeClass, sel_registerName("new"));
+        if (annotation == nil || range == nil) return 13;
+        ABSetInteger(range, @"setLocation:", INT64_MAX);
+        ABSetInteger(range, @"setLength:", 0);
+        double created = [target[@"created"] doubleValue];
+        double modified = [target[@"modified"] doubleValue];
+        ABSetObject(annotation, @"setUuid:", uuid);
+        ABSetInteger(annotation, @"setType:", 2);
+        ABSetInteger(annotation, @"setStyle:", 1);
+        ABSetBool(annotation, @"setDeleted:", NO);
+        ABSetBool(annotation, @"setIsUnderline:", NO);
+        ABSetObject(annotation, @"setSelectedText:", target[@"selected"]);
+        ABSetObject(annotation, @"setRepresentativeText:", target[@"representative"]);
+        ABSetObject(annotation, @"setLocationCFIString:", target[@"cfi"]);
+        ABSetObject(annotation, @"setNote:", target[@"note"]);
+        ABSetObject(annotation, @"setCreatorIdentifier:", @"com~apple~iBooks");
+        ABSetDouble(annotation, @"setCreationDate:", created);
+        ABSetDouble(annotation, @"setModificationDate:", modified);
+        ABSetDouble(annotation, @"setLocationModificationDate:", modified);
+        ABSetDouble(annotation, @"setUserModificationDate:", modified);
+        ABSetInteger(annotation, @"setPlAbsolutePhysicalLocation:", 0);
+        ABSetInteger(annotation, @"setPlLocationRangeStart:", 0);
+        ABSetInteger(annotation, @"setPlLocationRangeEnd:", 0);
+        ABSetFloat(annotation, @"setReadingProgress:", 0);
+        ABSetFloat(annotation, @"setReadingProgressHighWaterMark:", 0);
+        ABSetBool(annotation, @"setSpineIndexUpdated:", NO);
+        ABSetObject(annotation, @"setSelectedTextRange:", range);
+        ABSetObject(book, @"addAnnotation:", annotation);
+        NSData *encoded = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"data"));
+        if (![encoded isKindOfClass:[NSData class]] ||
+            encoded.length > ABCloudProjectionMaximumBookAnnotationsBytes) return 14;
+        id verify = ABAllocateWithObject(bookClass, @"initWithData:", encoded);
+        NSArray *after = ((id (*)(id, SEL))objc_msgSend)(verify, NSSelectorFromString(@"annotations"));
+        if (![after isKindOfClass:[NSArray class]] || after.count != priorCount + 1) return 15;
+        ABSetObject(cloud, @"setBookAnnotations:", encoded);
+        if (!ABSetCloudData(manager, immutableClass, assetID, @"assetID", cloud, predicate)) return 16;
+        if (!ABLayoutIsExact(root, cloudDB, @"BCAssetData") ||
+            ABExactRowCount(cloudDB, @"ZBCASSETANNOTATIONS", @"ZASSETID", assetID) != 1) return 17;
+        return 0;
+    }
+}
+#endif
+
 int32_t ABProjectAnnotationState(
     const char *root_path,
     const char *canonical_cloud_database_path,

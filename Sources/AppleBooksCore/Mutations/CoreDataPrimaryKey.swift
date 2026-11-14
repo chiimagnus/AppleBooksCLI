@@ -25,7 +25,7 @@ enum CoreDataPrimaryKey {
         guard sqlite3_get_autocommit(handle) == 0 else {
             throw CoreDataPrimaryKeyError.transactionRequired
         }
-        guard table == .collections || table == .members else {
+        guard table == .collections || table == .members || table == .annotations else {
             throw CoreDataPrimaryKeyError.unsupportedTable
         }
 

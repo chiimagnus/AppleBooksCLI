@@ -106,11 +106,22 @@ struct NativeAnnotationCreateBridgeTests {
             INSERT INTO ZAEANNOTATION VALUES(3,'synthetic-missing-parent','synthetic-uuid-3',2,0,1,0,104.0,105.0,
                 'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks');
             """)
-        #expect(project("synthetic-uuid-3", assetID: "synthetic-missing-parent") == 18)
+        let firstParentStatus = project("synthetic-uuid-3", assetID: "synthetic-missing-parent")
+        let testHostVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        if let testHostVersion, !testHostVersion.isEmpty {
+            #expect(firstParentStatus == 0)
+            #expect(project("synthetic-uuid-3", assetID: "synthetic-missing-parent") == 0)
+        } else {
+            #expect(firstParentStatus == 18, "Unversioned first-parent creation must fail without crashing")
+        }
         let read = try SQLiteConnection.readOnly(path: cloudDB.path)
         defer { try? read.close() }
-        let missing = try read.prepare("SELECT Z_PK FROM ZBCASSETANNOTATIONS WHERE ZASSETID='synthetic-missing-parent'")
-        #expect(try !missing.step(), "A missing parent must not be created or crash the process")
+        let firstParent = try read.prepare(
+            "SELECT Z_PK FROM ZBCASSETANNOTATIONS WHERE ZASSETID='synthetic-missing-parent'"
+        )
+        let parentExists = try firstParent.step()
+        #expect(parentExists == (firstParentStatus == 0))
+        if parentExists { #expect(try !firstParent.step()) }
     }
 
     private func verifyNativeCloud(

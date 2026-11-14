@@ -100,7 +100,7 @@ applebookscli annotations create --book <asset-id> --input annotations.json
 For a batch, inspect `complete` and each indexed result even when the process exits successfully.
 If `changedCount > 0`, call `applebookscli sync` separately after resolving any
 `cloud_projection_failed` warning with `annotations repair-sync <annotation-uuid>`.
-A book must already have a native cloud annotation parent: create its first highlight in Apple Books before using CLI `annotations create` or `repair-sync`. Otherwise `cloud_parent_missing` prevents local writes. Read-only preview checks text matching, not this prerequisite.
+AppleBooksCLI can create a book's first native highlight. Use the standard Debug CLI or a versioned release: the executable must contain its own app version metadata for the native first-parent operation. An unversioned custom binary fails safely with `application_version_unavailable`. Read-only preview does not verify executable metadata.
 An interrupted history entry must be reconciled using read-only preview/get before retrying.
 
 ## Key contracts

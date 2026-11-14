@@ -441,7 +441,7 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                         switch creation {
                         case .conflict: reason = "conflict"
                         case .sourceChanged: reason = "source_changed"
-                        case .cloudParentMissing: reason = "cloud_parent_missing"
+                        case .applicationVersionUnavailable: reason = "application_version_unavailable"
                         case .projectionUnavailable: reason = "projection_unavailable"
                         }
                     } else if error is EPUBAnnotationLocatorError {
@@ -455,7 +455,7 @@ struct AnnotationsCreateCommand: ParsableCommand, CLIOutputRunnable, OperationHi
                     stopped = true
                 }
             }
-            let unavailableBeforeWrites = items.contains { $0.errorCode == "cloud_parent_missing" }
+            let unavailableBeforeWrites = items.contains { $0.errorCode == "application_version_unavailable" }
                 && !items.contains { $0.status == "created" }
             let result = AnnotationCreateBatchResult(
                 status: stopped ? (unavailableBeforeWrites ? "preflight_failed" : "partial") : "complete",

@@ -1,6 +1,12 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
+
+let debugInfoPlist = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("Config/applebookscli.dev-info.plist")
+    .path
 
 let package = Package(
     name: "AppleBooksCLI",
@@ -40,6 +46,14 @@ let package = Package(
             dependencies: [
                 "AppleBooksCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", debugInfoPlist,
+                ], .when(configuration: .debug)),
             ]
         ),
         .executableTarget(

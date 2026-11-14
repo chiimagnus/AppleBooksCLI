@@ -93,7 +93,7 @@ struct OutputContractTests {
         let cases: [(CLIErrorReason, CLIError, CLIProcessExit, Bool)] = [
             (.ambiguousIdentity, .unavailableWithReason(message: "sanitized", reason: .ambiguousIdentity), .unavailable, true),
             (.annotationNotFound, .notFoundWithReason(message: "sanitized", reason: .annotationNotFound), .notFound, true),
-            (.cloudParentMissing, .unavailableWithReason(message: "sanitized", reason: .cloudParentMissing), .unavailable, true),
+            (.applicationVersionUnavailable, .unavailableWithReason(message: "sanitized", reason: .applicationVersionUnavailable), .unavailable, true),
             (.annotationRestoreUnavailable, .notFoundWithReason(message: "sanitized", reason: .annotationRestoreUnavailable), .notFound, false),
             (.backupNotFound, .notFoundWithReason(message: "sanitized", reason: .backupNotFound), .notFound, true),
             (.bookNotFound, .notFoundWithReason(message: "sanitized", reason: .bookNotFound), .notFound, true),

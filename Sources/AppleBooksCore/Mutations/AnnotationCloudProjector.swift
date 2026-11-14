@@ -42,7 +42,8 @@ struct AnnotationCloudProjector {
             _ = try SQLiteBackup.create(source: source, backupRoot: root)
         },
         bridgeAction: @escaping BridgeAction = liveBridgeAction,
-        requireExistingParent: Bool = false
+        checkFirstParentVersion: Bool = false,
+        executableVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     ) -> AnnotationCloudProjector? {
         guard let location = AnnotationCloudStoreLocation.live(
             annotationsDatabase: annotationsDatabase,
@@ -51,8 +52,10 @@ struct AnnotationCloudProjector {
             return nil
         }
         let validate: (String) throws -> Void = { assetID in
-            if requireExistingParent {
-                try validateExistingNativeParent(database: location.database, assetID: assetID)
+            if checkFirstParentVersion {
+                try validateCreationTarget(
+                    database: location.database, assetID: assetID, executableVersion: executableVersion
+                )
             }
         }
         return AnnotationCloudProjector(
@@ -74,7 +77,8 @@ struct AnnotationCloudProjector {
         backupAction: @escaping BackupAction = { source, root in
             _ = try SQLiteBackup.create(source: source, backupRoot: root)
         },
-        bridgeAction: @escaping BridgeAction = liveCreateBridgeAction
+        bridgeAction: @escaping BridgeAction = liveCreateBridgeAction,
+        executableVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     ) -> AnnotationCloudProjector? {
         live(
             annotationsDatabase: annotationsDatabase,
@@ -82,11 +86,14 @@ struct AnnotationCloudProjector {
             backupRoot: backupRoot,
             backupAction: backupAction,
             bridgeAction: bridgeAction,
-            requireExistingParent: true
+            checkFirstParentVersion: true,
+            executableVersion: executableVersion
         )
     }
 
-    private static func validateExistingNativeParent(database: URL, assetID: String) throws {
+    private static func validateCreationTarget(
+        database: URL, assetID: String, executableVersion: String?
+    ) throws {
         let connection = try SQLiteConnection.readOnly(path: database.path)
         defer { try? connection.close() }
         let statement = try connection.prepare("""
@@ -94,7 +101,12 @@ struct AnnotationCloudProjector {
             WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
             """)
         try statement.bind(assetID, at: 1)
-        guard try statement.step() else { throw AnnotationCreateError.cloudParentMissing }
+        guard try statement.step() else {
+            guard let executableVersion, executableVersion.isEmpty == false else {
+                throw AnnotationCreateError.applicationVersionUnavailable
+            }
+            return
+        }
         guard try statement.step() == false else { throw AnnotationCreateError.projectionUnavailable }
     }
 

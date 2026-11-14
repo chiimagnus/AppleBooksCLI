@@ -720,8 +720,8 @@ struct AnnotationWriteCommandTests {
         let unavailableWriter = AnnotationWriter(
             database: annotations, backupRoot: backupRoot, booksApp: .detached,
             creationProjector: AnnotationCloudProjector(
-                projectAction: { _ in Issue.record("Missing parent must not project") },
-                validateCreationTarget: { _ in throw AnnotationCreateError.cloudParentMissing }
+                projectAction: { _ in Issue.record("Unversioned first parent must not project") },
+                validateCreationTarget: { _ in throw AnnotationCreateError.applicationVersionUnavailable }
             )
         )
         let unavailableBooks = try AppleBooks(
@@ -739,14 +739,14 @@ struct AnnotationWriteCommandTests {
         #expect(!noParentBatch.complete)
         #expect(noParentBatch.createdCount == 0)
         #expect(noParentBatch.failedCount == 1 && noParentBatch.notAttemptedCount == 1)
-        #expect(noParentBatch.items[0].errorCode == "cloud_parent_missing")
+        #expect(noParentBatch.items[0].errorCode == "application_version_unavailable")
         #expect(!noParentBatch.syncRequired)
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 503)
         try JSONSerialization.data(withJSONObject: ["annotations": [tagged(505)]]).write(to: input)
         let noParentSingle = try AnnotationsCreateCommand.parse(args)
         #expect(throws: CLIError.unavailableWithReason(
-            message: "This book has no native annotation cloud parent; no highlight was created.",
-            reason: .cloudParentMissing
+            message: "This executable has no application version metadata; no highlight was created.",
+            reason: .applicationVersionUnavailable
         )) {
             _ = try noParentSingle.execute(using: unavailableBooks)
         }

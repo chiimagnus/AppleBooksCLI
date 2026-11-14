@@ -657,7 +657,7 @@ struct AnnotationCloudProjectorTests {
     }
 
     @Test
-    func nativeCreatorRejectsAbsentOrAmbiguousCloudParentWithoutBackupOrBridge() throws {
+    func nativeCreatorRequiresVersionOnlyForFirstCloudParent() throws {
         let root = try fixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let paths = AppleBooksDatabasePaths.defaults(homeDirectory: root)
@@ -670,27 +670,37 @@ struct AnnotationCloudProjectorTests {
         let cloud = try prepareSyntheticNativeParent(root: root)
         var backups = 0
         var projections = 0
-        let projector = try #require(AnnotationCloudProjector.liveCreate(
-            annotationsDatabase: annotations, homeDirectory: root,
-            backupAction: { _, _ in backups += 1 },
-            bridgeAction: { _, _, _, _ in projections += 1; return 0 }
-        ))
-        #expect(throws: AnnotationCreateError.cloudParentMissing) {
-            try projector.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        func creator(version: String?) throws -> AnnotationCloudProjector {
+            try #require(AnnotationCloudProjector.liveCreate(
+                annotationsDatabase: annotations, homeDirectory: root,
+                backupAction: { _, _ in backups += 1 },
+                bridgeAction: { _, _, _, _ in projections += 1; return 0 },
+                executableVersion: version
+            ))
         }
-        #expect(throws: AnnotationCreateError.cloudParentMissing) {
-            try projector.project(localPK: 1)
+        let unversioned = try creator(version: nil)
+        #expect(throws: AnnotationCreateError.applicationVersionUnavailable) {
+            try unversioned.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        }
+        #expect(throws: AnnotationCreateError.applicationVersionUnavailable) {
+            try unversioned.project(localPK: 1)
         }
         #expect(backups == 0 && projections == 0)
-        try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(1,'SYNTHETIC-ASSET')")
-        try projector.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
-        try projector.project(localPK: 1)
+
+        let versioned = try creator(version: "dev")
+        try versioned.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        try versioned.project(localPK: 1)
         #expect(backups == 1 && projections == 1)
+
+        try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(1,'SYNTHETIC-ASSET')")
+        try unversioned.validateCreationTarget(assetID: "SYNTHETIC-ASSET")
+        try unversioned.project(localPK: 1)
+        #expect(backups == 2 && projections == 2)
         try execute(cloud, "INSERT INTO ZBCASSETANNOTATIONS VALUES(2,'SYNTHETIC-ASSET')")
         #expect(throws: AnnotationCreateError.projectionUnavailable) {
-            try projector.project(localPK: 1)
+            try versioned.project(localPK: 1)
         }
-        #expect(backups == 1 && projections == 1)
+        #expect(backups == 2 && projections == 2)
     }
 
     private func prepareSyntheticNativeParent(root: URL, assetID: String? = nil) throws -> URL {

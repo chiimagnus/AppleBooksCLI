@@ -494,9 +494,17 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
     return duplicate ? nil : result;
 }
 
-static id ABAnnotationBookFromCloud(id cloudObject, Class bookClass) {
+static id ABAnnotationBookFromCloud(id cloudObject, Class bookClass, NSString *newAssetID) {
     if (cloudObject == nil || bookClass == Nil) return nil;
     NSData *raw = ((id (*)(id, SEL))objc_msgSend)(cloudObject, NSSelectorFromString(@"bookAnnotations"));
+    if (newAssetID != nil) {
+        id book = ((id (*)(id, SEL))objc_msgSend)(bookClass, sel_registerName("new"));
+        if (book != nil) {
+            ABSetObject(book, @"setAssetID:", newAssetID);
+            ABSetObject(book, @"setAppVersion:", @"9.0");
+        }
+        return book;
+    }
     if (![raw isKindOfClass:[NSData class]] || raw.length > ABCloudProjectionMaximumBookAnnotationsBytes) {
         return nil;
     }
@@ -512,7 +520,7 @@ static BOOL ABStoreAnnotationBook(id cloudObject, id book) {
 }
 
 static BOOL ABUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, NSDictionary *row, Class bookClass) {
-    id book = ABAnnotationBookFromCloud(cloudObject, bookClass);
+    id book = ABAnnotationBookFromCloud(cloudObject, bookClass, nil);
     if (book == nil) return NO;
     NSArray *annotations = ((id (*)(id, SEL))objc_msgSend)(book, NSSelectorFromString(@"annotations"));
     if (![annotations isKindOfClass:[NSArray class]]) return NO;
@@ -781,15 +789,19 @@ int32_t ABCreateAnnotationState(
         if (source == nil || manager == nil || !ABLayoutIsExact(root, cloudDB, @"BCAssetData")) return 6;
 
         int parentCount = ABExactRowCount(cloudDB, @"ZBCASSETANNOTATIONS", @"ZASSETID", assetID);
-        // The native cloud manager crashes when asked to create a missing parent; Books must create it first.
-        if (parentCount == 0) return 18;
-        if (parentCount != 1) return 7;
+        if (parentCount != 0 && parentCount != 1) return 7;
+        if (parentCount == 0) {
+            NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+            if (![version isKindOfClass:[NSString class]] || version.length == 0) return 18;
+        }
         NSPredicate *predicate = [NSPredicate predicateWithFormat:@"assetID == %@", assetID];
-        id cloud = ((id (*)(id, SEL, id, id))objc_msgSend)(
-            manager, NSSelectorFromString(@"mutableCloudDataWithPredicate:sortDescriptors:"), predicate, @[]);
+        id cloud = parentCount == 1
+            ? ((id (*)(id, SEL, id, id))objc_msgSend)(
+                manager, NSSelectorFromString(@"mutableCloudDataWithPredicate:sortDescriptors:"), predicate, @[])
+            : ABAllocateWithObject(mutableClass, @"initWithAssetID:", assetID);
         if (cloud == nil) return 8;
 
-        id book = ABAnnotationBookFromCloud(cloud, bookClass);
+        id book = ABAnnotationBookFromCloud(cloud, bookClass, parentCount == 0 ? assetID : nil);
         if (book == nil) return 10;
         int32_t appendStatus = ABAppendNewNativeAnnotation(
             book, target, uuid, annotationClass, rangeClass, bookClass

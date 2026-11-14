@@ -75,7 +75,7 @@ struct AnnotationCreateTests {
     }
 
     @Test
-    func missingNativeCloudParentFailsBeforeLocalCommitOrBackup() throws {
+    func missingExecutableVersionFailsBeforeLocalCommitOrBackup() throws {
         let f = try Fixture()
         defer { f.remove() }
         var validations = 0
@@ -85,14 +85,14 @@ struct AnnotationCreateTests {
             validateCreationTarget: { assetID in
                 #expect(assetID == "synthetic-asset")
                 validations += 1
-                throw AnnotationCreateError.cloudParentMissing
+                throw AnnotationCreateError.applicationVersionUnavailable
             }
         )
         let writer = AnnotationWriter(
             database: f.database, backupRoot: f.backupRoot,
             booksApp: .detached, creationProjector: creator
         )
-        #expect(throws: AnnotationCreateError.cloudParentMissing) {
+        #expect(throws: AnnotationCreateError.applicationVersionUnavailable) {
             _ = try f.create(writer: writer, note: "Synthetic first highlight")
         }
         #expect(validations == 1)

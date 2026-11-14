@@ -98,7 +98,7 @@ applebookscli annotations create --book <asset-id> --input annotations.json
 `changedCount > 0` 时，在处理好 `cloud_projection_failed` 警告后，
 独立调用一次 `applebookscli sync`；云投影失败的现有记录用
 `annotations repair-sync <annotation-uuid>` 修复，不重新插入。
-**限制**：目标书必须已有 Apple Books 原生云端批注父对象。请先在 Apple Books 阅读界面创建该书的第一条高亮；否则 CLI 会返回 `cloud_parent_missing` 并在本地提交前拒绝创建或 `repair-sync`。只读 `preview` 的 `ready` 不代表满足此条件。
+CLI 支持直接为尚无批注的 EPUB 创建第一条原生高亮。首次云父对象创建要求可执行文件携带自身应用版本信息：标准 Debug 构建嵌入 `dev`，正式发行构建嵌入发布版本。未携带版本信息的自定义构建会在本地提交前返回 `application_version_unavailable`；只读 `preview` 不检测执行文件的版本信息。
 历史为 `incomplete` 时先通过只读 preview/get 核销，不能盲目重试。
 
 ## 关键契约

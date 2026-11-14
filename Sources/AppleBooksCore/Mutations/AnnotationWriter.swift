@@ -12,7 +12,7 @@ public enum AnnotationWriteError: Error, Equatable, Sendable {
 
 public enum AnnotationCreateError: Error, Equatable, Sendable {
     case projectionUnavailable
-    case cloudParentMissing
+    case applicationVersionUnavailable
     case conflict
     case sourceChanged
 }

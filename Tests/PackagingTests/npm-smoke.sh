@@ -9,10 +9,11 @@ fail() {
 PACKAGE=$1
 EXPECTED_VERSION=$2
 
-SMOKE_ROOT=$(mktemp -d /private/tmp/applebookscli-npm-smoke.XXXXXX)
+SMOKE_PARENT=$(getconf DARWIN_USER_TEMP_DIR)
+SMOKE_ROOT=$(mktemp -d "${SMOKE_PARENT%/}/applebookscli-npm-smoke.XXXXXX")
 cleanup() {
   case "$SMOKE_ROOT" in
-    /private/tmp/applebookscli-npm-smoke.*) rm -rf -- "$SMOKE_ROOT" ;;
+    "${SMOKE_PARENT%/}"/applebookscli-npm-smoke.*) rm -rf -- "$SMOKE_ROOT" ;;
     *) fail "refusing to clean unexpected npm smoke root: $SMOKE_ROOT" ;;
   esac
 }
@@ -73,6 +74,17 @@ PACKAGE_ROOT="$PREFIX/lib/node_modules/@chiimagnus/applebookscli"
   fail "npm-installed binary must contain only arm64: $CLI"
 xcrun vtool -show-build "$CLI" | grep -Eq 'minos[[:space:]]+15\.6' || \
   fail "npm-installed binary must target macOS 15.6: $CLI"
+# Reject an unstripped release, and ensure stripping did not break signing or the native version.
+BINARY_BYTES=$(stat -f %z "$PACKAGE_ROOT/bin/applebookscli")
+[ "$BINARY_BYTES" -lt 8000000 ] || \
+  fail "npm-installed release binary retains excess symbols ($BINARY_BYTES bytes)."
+EXPORTED_SYMBOLS=$(xcrun otool -l "$PACKAGE_ROOT/bin/applebookscli" | \
+  awk '/cmd LC_DYSYMTAB/ { in_table = 1 } in_table && $1 == "nextdefsym" { print $2; exit }')
+[ "${EXPORTED_SYMBOLS:-999999}" -le 2 ] || \
+  fail "npm-installed release binary retains unstripped exported symbols."
+codesign --verify --strict "$CLI" || fail "npm-installed release signature is invalid."
+strings "$CLI" | grep -Fq "<string>$EXPECTED_VERSION</string>" || \
+  fail "release executable lost its native application version metadata."
 rm -f "$NPX_CALL"
 EMPTY_HOME="$SMOKE_ROOT/empty-home"
 mkdir -p "$EMPTY_HOME"
@@ -96,5 +108,60 @@ for removed_option in --pdf --source; do
   fi
   [ ! -e "$SMOKE_ROOT/export.md" ] || fail "unsupported export option wrote an artifact."
 done
+
+# Exercise the installed Mach-O in a separate process using synthetic override data.
+# Never read or write the user's Apple Books library during package acceptance.
+LIBRARY_DB="$SMOKE_ROOT/library.sqlite"
+ANNOTATIONS_DB="$SMOKE_ROOT/annotations.sqlite"
+CONFIG="$SMOKE_ROOT/config.json"
+printf '%s\n' '{"historical_assets":{}}' > "$CONFIG"
+/usr/bin/sqlite3 "$LIBRARY_DB" <<'SQL'
+CREATE TABLE ZBKLIBRARYASSET(
+  Z_PK INTEGER PRIMARY KEY,
+  ZASSETID TEXT,
+  ZTITLE TEXT,
+  ZAUTHOR TEXT,
+  ZCONTENTTYPE INTEGER
+);
+INSERT INTO ZBKLIBRARYASSET VALUES (1,'asset-a','Synthetic EPUB','Fixture',1);
+SQL
+/usr/bin/sqlite3 "$ANNOTATIONS_DB" <<'SQL'
+CREATE TABLE ZAEANNOTATION(
+  Z_PK INTEGER PRIMARY KEY,
+  ZANNOTATIONUUID TEXT,
+  ZANNOTATIONASSETID TEXT,
+  ZANNOTATIONDELETED INTEGER,
+  ZANNOTATIONISUNDERLINE INTEGER,
+  ZANNOTATIONSTYLE INTEGER,
+  ZANNOTATIONTYPE INTEGER,
+  ZANNOTATIONCREATIONDATE REAL,
+  ZANNOTATIONMODIFICATIONDATE REAL,
+  ZANNOTATIONSELECTEDTEXT TEXT,
+  ZANNOTATIONREPRESENTATIVETEXT TEXT,
+  ZANNOTATIONNOTE TEXT,
+  ZANNOTATIONLOCATION TEXT,
+  ZPLABSOLUTEPHYSICALLOCATION INTEGER,
+  ZPLLOCATIONRANGESTART INTEGER,
+  ZPLLOCATIONRANGEEND INTEGER,
+  ZFUTUREPROOFING5 TEXT
+);
+INSERT INTO ZAEANNOTATION VALUES
+  (1,'uuid-a','asset-a',0,0,1,1,10,20,'Synthetic quote','Synthetic excerpt','Synthetic note','epubcfi(/6/2[a]!/4/2,:1,:2)',1,2,3,'Chapter');
+SQL
+HOME="$HOME_ROOT" CFFIXED_USER_HOME="$HOME_ROOT" "$CLI" export \
+  --format json --book asset-a --output "$SMOKE_ROOT/synthetic.json" \
+  --library-db "$LIBRARY_DB" --annotations-db "$ANNOTATIONS_DB" --config "$CONFIG" \
+  > "$SMOKE_ROOT/export-result.json"
+node - "$SMOKE_ROOT/synthetic.json" "$SMOKE_ROOT/export-result.json" <<'NODE' || \
+  fail "installed release binary could not export a synthetic EPUB annotation."
+const fs = require('node:fs');
+const [exportPath, resultPath] = process.argv.slice(2);
+const bundle = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
+const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+if (bundle.schemaVersion !== 11 || bundle.groups?.length !== 1 ||
+    bundle.groups[0].records?.length !== 1 ||
+    bundle.groups[0].records[0].annotation?.selectedText !== 'Synthetic quote' ||
+    result.documentCount !== 1 || result.warningCount !== 0) process.exit(1);
+NODE
 
 printf 'npm install smoke OK: %s (%s)\n' "$PACKAGE" "$EXPECTED_VERSION"

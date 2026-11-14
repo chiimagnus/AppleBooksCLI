@@ -11,6 +11,7 @@ Git tag 是 release version owner：
 - beta：`vMAJOR.MINOR.PATCH-beta[.N]` → npm `beta` → GitHub prerelease
 - Debug CLI 通过 SwiftPM 的 Mach-O `__info_plist` 嵌入自身 `dev` 版本；首次创建原生云批注需要这个版本元数据。
 - 正式 Release 由 `scripts/build-release.sh` 注入 Git tag 版本，不使用 Debug 的 `dev` Info。
+  打包时只精简发布副本的符号，随后重新签名；保留构建目录中的符号用于诊断。
 - 未注入版本的自定义 Release 构建仍可读取和操作已有云父对象，但首次创建会安全拒绝。
 
 双语 Skill 的 `metadata.cli_version` 必须与 release tag 一致；release build 会校验。

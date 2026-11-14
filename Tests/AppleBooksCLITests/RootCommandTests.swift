@@ -24,7 +24,7 @@ struct RootCommandTests {
     }
 
     @Test
-    func developmentVersionDoesNotRequireOperationalState() {
+    func versionDoesNotRequireOperationalState() {
         var stdout = ""
         var stderr = ""
 
@@ -35,7 +35,7 @@ struct RootCommandTests {
 
         #expect(code == ExitCode.success.rawValue)
         #expect(stderr.isEmpty)
-        #expect(stdout == "dev")
+        #expect(stdout == AppleBooksCLI.configuration.version)
     }
 
     @Test

@@ -37,7 +37,16 @@ enum WriteSchemaTable: String {
                 "Z_PK", "Z_ENT", "Z_OPT", "ZSORTKEY", "ZASSET", "ZCOLLECTION",
                 "ZLOCALMODDATE", "ZASSETID", "ZTEMPORARYASSETID",
             ]
-        case .books, .annotations, .primaryKey:
+        case .annotations:
+            [
+                "Z_PK", "Z_ENT", "Z_OPT", "ZANNOTATIONDELETED", "ZANNOTATIONISUNDERLINE",
+                "ZANNOTATIONSTYLE", "ZANNOTATIONTYPE", "ZPLABSOLUTEPHYSICALLOCATION",
+                "ZPLLOCATIONRANGESTART", "ZPLLOCATIONRANGEEND", "ZANNOTATIONCREATIONDATE",
+                "ZANNOTATIONMODIFICATIONDATE", "ZANNOTATIONASSETID", "ZANNOTATIONCREATORIDENTIFIER",
+                "ZANNOTATIONLOCATION", "ZANNOTATIONNOTE", "ZANNOTATIONREPRESENTATIVETEXT",
+                "ZANNOTATIONSELECTEDTEXT", "ZANNOTATIONUUID", "ZFUTUREPROOFING11", "ZFUTUREPROOFING6",
+            ]
+        case .books, .primaryKey:
             nil
         }
     }
@@ -46,6 +55,7 @@ enum WriteSchemaTable: String {
 enum WriteSchemaGuard {
     static let collectionKnownColumns = WriteSchemaTable.collections.writerKnownColumns!
     static let memberKnownColumns = WriteSchemaTable.members.writerKnownColumns!
+    static let annotationKnownColumns = WriteSchemaTable.annotations.writerKnownColumns!
 
     static func validateTable(
         _ table: WriteSchemaTable,

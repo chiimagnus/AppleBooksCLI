@@ -56,6 +56,45 @@ plain-text stdout。
 或 CLI grapheme budget 缩短，但仍是合法 UTF-8 且结束在完整 `Character`。
 需要 archival fidelity 时使用显式 archival JSON export，而不是把 ordinary result 当 raw dump。
 
+`annotations preview --book ... --input file.json` 不属于 recordable mutation，
+不创建 history、备份或本机写入；`annotations create` 从同一有界 JSON 输入创建高亮。
+输入 JSON 的根对象仅含 `annotations` 数组，数组必须有 1–500 条；文件为只读普通文件，
+允许指向普通文件的符号链接，大小上限 8 MiB。
+每项 `text` 必填，`chapterOrder`、`prefix`、`suffix`、`occurrence`、`color`、`underline`、`note` 可选，
+不接收外部 CFI 或来源平台 ID。单条创建可显式 `--sync`。
+`preview.items` 逐项返回 `ready`、`already_exists`、`missing`、`ambiguous`、`conflict` 或 `invalid`；
+不可直接创建的项目带候选数（可确定时）与不含原文的修正提示。
+`preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
+原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
+`annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
+**首次创建前提**：CLI 可自行创建该书的原生云端批注父对象，但调用进程必须有
+`CFBundleShortVersionString` 元数据；Debug SwiftPM 构建为 `dev`，正式发行构建由 Git tag 注入版本。
+其他无版本信息的可执行文件在本地 COMMIT 前返回 `application_version_unavailable`，
+不冒险触发私有框架断言。`repair-sync` 可对已提交的原 UUID 使用同一路径，绝不重新 INSERT。
+只读 `preview` 的 `ready` 只表示选区定位可用，不保证安装的 CLI 具有有效版本元数据。
+
+多条 `annotations create` 先完成**整批只读预检**，每项执行时仍通过 Core 重新核对源正文。
+已存在且内容未变化的条目返回原 UUID，不进入写事务或退出 Books；
+批次中途 EPUB 发生变化时停止并如实返回 `partial`。真正新增的条目复用单条安全事务。
+返回 `status=complete / preflight_failed / partial`、`complete`、`itemCount`、
+`createdCount`、`alreadyExistsCount`、`failedCount`、`notAttemptedCount`、
+`changedCount`、`syncRequired` 和按输入顺序排列的 `items`。
+每项只返回 `index`、`created / already_exists / failed / not_attempted`、
+可用的 `annotationUUID`、`warningCodes` 和安全的 `errorCode`；不含正文或 raw CFI。
+**这三种批次业务状态均使用 stdout JSON + 退出码 0**，调用方必须判断 `complete`，
+不能只凭 exit code 视为全部成功。输入文件/权限/历史错误仍走 stderr 和非零退出码。
+`preflight_failed` 保证整批没有写入；无版本信息且首次创建云父对象的批次同样返回该状态，条目带 `application_version_unavailable`。
+`partial` 表示运行过程中停止，
+已提交条目仍返回 `created` 与 UUID。云投影失败后不要重建该条，
+先用 `annotations repair-sync` 修复已有 UUID。
+多条不支持 `create --sync`；只有 `changedCount > 0` 时，
+调用者在解决投影失败后**另外调用一次**根 `applebookscli sync`。
+只有 `changedCount=0` 时 `syncRequired=false`。
+批次历史仅保存 `result.batch.complete / changedCount` 与有界错误摘要，
+不保留整份逐项返回值；批次 `inverse.available=false`。
+出现 `history incomplete` 应按原输入只读 preview/get/list 核销实际已创建的 UUID，
+不能简单改换 operation ID 重放全部条目。
+
 Mutation 结果统一表达 `committed`、`changed`、`acknowledgementRequested`、
 nullable `acknowledged` 与 `warningCodes`，并使用领域 identity：annotation 为 `annotationUUID`
 / fallback `annotationLocalPK`；collection 为 `collectionID` / fallback `collectionLocalPK`；
@@ -107,6 +146,8 @@ per-book EPUB/PDF 是否 materialized/DRM-readable 仍由实际 content command 
 `history` 保存最近 24 小时 recordable mutation/restore/root-sync 的结构化证据。
 `history list` 默认20/最大100并用 opaque cursor 分页；
 `history get <id>` 按 exact lowercase UUID 返回 `request`、`result`、`inverse`。
+新建批注的 history request 只存输入 bytes 的 SHA-256 摘要，与执行使用同一份已读取文件快照，
+不存原始 JSON、划线、笔记或本机输入文件路径；不同输入内容不能复用同一 operation ID。
 History 不保存 raw argv 或 captured stdout/stderr；
 可用 inverse 只保存执行安全反操作所必需的 prior state。只接受当前 history schema，
 unsupported schema fail closed。

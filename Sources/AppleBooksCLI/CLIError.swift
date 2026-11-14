@@ -22,6 +22,7 @@ enum CLIErrorCode: String, Codable, Equatable, Sendable {
 enum CLIErrorReason: String, Codable, Equatable, Sendable, CaseIterable {
     case ambiguousIdentity = "ambiguous_identity"
     case annotationNotFound = "annotation_not_found"
+    case applicationVersionUnavailable = "application_version_unavailable"
     case annotationRestoreUnavailable = "annotation_restore_unavailable"
     case backupNotFound = "backup_not_found"
     case bookNotFound = "book_not_found"
@@ -110,6 +111,8 @@ enum CLIError: Error, Equatable, Sendable {
             "Refresh the selector from the corresponding list or search command and retry with a unique returned identity."
         case .annotationNotFound:
             "Run `applebookscli annotations list` and retry with a returned selector."
+        case .applicationVersionUnavailable:
+            "Use a normal Debug build or an official versioned AppleBooksCLI release to create the first highlight."
         case .annotationRestoreUnavailable, .readingPositionUnavailable, nil:
             nil
         case .backupNotFound:
@@ -251,6 +254,40 @@ enum CLIOperation {
                  .bookAssetIDUnavailable,
                  .writeFailed:
                 return .writeSafety("Collection mutation failed safely.")
+            }
+        }
+        if let createError = error as? AnnotationCreateError {
+            switch createError {
+            case .projectionUnavailable:
+                return .unavailableWithReason(
+                    message: "Native annotation creation is unavailable on this Mac.",
+                    reason: .syncUnavailable
+                )
+            case .applicationVersionUnavailable:
+                return .unavailableWithReason(
+                    message: "This executable has no application version metadata; no highlight was created.",
+                    reason: .applicationVersionUnavailable
+                )
+            case .conflict:
+                return .writeSafety("An annotation at this exact location has different attributes.")
+            case .sourceChanged:
+                return .writeSafety("The book content changed before creating the annotation.")
+            }
+        }
+        if let locationError = error as? EPUBAnnotationLocatorError {
+            switch locationError {
+            case .invalidText, .invalidOccurrence, .noMatch, .ambiguous:
+                return .usageInvalid("Annotation text position is missing or ambiguous. Specify chapter and context.")
+            case .chapterNotFound:
+                return .notFoundWithReason(message: "Book chapter not found.", reason: .chapterNotFound)
+            case .bookNotFound:
+                return .notFoundWithReason(message: "Book not found.", reason: .bookNotFound)
+            case .unsupportedSource, .fragmentNotFound, .invalidXHTML, .ambiguousVisibility,
+                 .ambiguousSpine, .sourceChanged, .tooComplex:
+                return .unavailableWithReason(
+                    message: "EPUB text cannot be safely located in the current book.",
+                    reason: .contentUnavailable
+                )
             }
         }
         if let annotationWriteError = error as? AnnotationWriteError {

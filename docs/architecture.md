@@ -105,6 +105,11 @@ EPUB 不变量：
 - structure depth 最多 256；manifest/spine/navigation/metadata/encryption/XHTML/ZIP-entry
   集合各最多 20,000；packed EPUB retained path index 最多 32 MiB；
 - annotation context 只有真实 anchor 命中才成功。
+- EPUB 高亮创建定位器使用当前书籍的原始 OPF spine、XHTML 文本节点及 UTF-16 偏移生成 CFI，
+  不用阅读展示文本的偏移、不使用 supplemental EPUB 替代当前书；歧义或源资源变化时拒绝定位。
+  生成结果保留书籍 identity 和资源 generation，写入前必须重新验证，不能把定位成功当作写入授权。
+  CSS 明确隐藏的文本不作为选区；未知复杂选择器与导入规则拒绝自动定位，
+  不把有限的 CSS 解析冒充浏览器布局引擎。
 
 ## PDF
 

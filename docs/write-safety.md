@@ -48,9 +48,22 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 
 ## Writable scope
 
-- annotation：只允许已有 user annotation 的 note replacement/clear、soft-delete、
-  以及仍存在 tombstone 的 restore；不 hard-delete，不创建新 highlight，
-  不修改 selected text/CFI range；type-3/system row 不可写。
+- annotation：支持已有 user annotation 的 note replacement/clear、soft-delete 和 tombstone restore；
+  新建 EPUB 高亮只能通过当前书籍的精确原文定位、受控 INSERT、读回和原生云端新对象创建。
+  CLI 可为从未有批注的 EPUB 创建原生云父对象，但执行文件必须携带自身
+  `CFBundleShortVersionString`。标准 Debug 构建在 Mach-O 中嵌入 `dev`，正式发布从 Git tag 嵌入版本；
+  无版本信息时在本地 COMMIT 前返回 `application_version_unavailable`。
+  原生桥接在实际云投影前再次验证版本，避免源变更后的首次创建触发私有框架断言；
+  `repair-sync` 仍只针对已提交 UUID，不重复 INSERT。
+  没有可用的原生创建投影器时必须在 COMMIT 前拒绝；同选区同属性 no-op，冲突拒绝覆盖。
+  创建前只读确认的同选区、颜色、笔记完全一致时直接返回 no-op，Books 即使打开笔记编辑框也不会被关闭；
+  若确实需要 INSERT，仍必须由原有 coordinator 退出 Books、重新校验、备份并提交。
+  不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
+  `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。
+  批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序逐项调用 Core；
+  包括预检为 `already_exists` 的条目也要重新核对源正文，重复项只读 no-op，
+  冲突在第一条写入前拒绝。
+  运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
 - collection：只允许 editable user collection 的 create/rename/soft-delete/membership mutation；
   system collection fail closed。
 - local PK 仅作显式本机 selector；stable UUID/collection ID/book asset ID 优先。

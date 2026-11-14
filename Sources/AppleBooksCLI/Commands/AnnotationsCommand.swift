@@ -14,6 +14,9 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsUpdateNoteCommand.self,
             AnnotationsDeleteCommand.self,
             AnnotationsRestoreCommand.self,
+            AnnotationsPreviewCommand.self,
+            AnnotationsCreateCommand.self,
+            AnnotationsRepairSyncCommand.self,
         ]
     )
 }

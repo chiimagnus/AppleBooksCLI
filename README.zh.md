@@ -83,6 +83,24 @@ applebookscli backups list
 applebookscli history list
 ```
 
+通过来源无关的 JSON 文件创建 EPUB 划线与笔记。先只读预检，
+再针对同一本书创建一条或多条：
+
+```sh
+cat > annotations.json <<'JSON'
+{"annotations":[{"text":"The sample text","chapterOrder":2,"color":"yellow","note":"A sample note"}]}
+JSON
+applebookscli annotations preview --book <asset-id> --input annotations.json
+applebookscli annotations create --book <asset-id> --input annotations.json
+```
+
+批量创建即使进程退出码为 0，也必须检查 `complete` 和各条索引结果。
+`changedCount > 0` 时，在处理好 `cloud_projection_failed` 警告后，
+独立调用一次 `applebookscli sync`；云投影失败的现有记录用
+`annotations repair-sync <annotation-uuid>` 修复，不重新插入。
+CLI 支持直接为尚无批注的 EPUB 创建第一条原生高亮。首次云父对象创建要求可执行文件携带自身应用版本信息：标准 Debug 构建嵌入 `dev`，正式发行构建嵌入发布版本。未携带版本信息的自定义构建会在本地提交前返回 `application_version_unavailable`；只读 `preview` 不检测执行文件的版本信息。
+历史为 `incomplete` 时先通过只读 preview/get 核销，不能盲目重试。
+
 ## 关键契约
 
 - Operational command 在 stdout 输出 JSON；fatal error 在 stderr 输出净化后的 JSON。

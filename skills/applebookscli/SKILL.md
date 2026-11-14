@@ -29,6 +29,7 @@ Use this Skill to choose and run `applebookscli` commands. Let the installed CLI
 | Current bookmarked chapter text | `reading position` → `content chapter` |
 | Query/detail/context for annotations | `annotations list`, `annotations get`, `annotations context` |
 | Set/clear/delete/restore an annotation | `annotations update-note`, `annotations delete`, `annotations restore` |
+| Create EPUB highlights or notes; recover cloud projection | `annotations preview` → `annotations create`; `annotations repair-sync` for an already committed UUID |
 | EPUB metadata/cover/ToC/chapter text | `content metadata`, `content cover`, `content chapters`, `content chapter` |
 | PDF discovery and highlights | `pdf list` → `pdf highlights` |
 | Read collections and membership | `collections list`, `collections search`, `collections get`, `collections books` |
@@ -45,10 +46,12 @@ For PDF reads, use the `bookAssetID` or `pdfSourceID` returned by `pdf list`; ne
 
 - Run mutation or restore commands only when the user authorized that change. Never edit Apple Books SQLite directly.
 - `annotations update-note` reads the complete replacement Note from stdin. Read the current note first when the user wants to append; use `--clear` only to clear it. `annotations delete` is soft-delete; `annotations restore` only restores the still-existing tombstone.
+- To create highlights, prepare a JSON file with an `annotations` array of `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…" }` entries, and first run `annotations preview --book <asset-id> --input <file>`. Resolve ambiguous/missing/conflicting locations before `annotations create` with the same selectors and file. Do not supply raw CFI. The normal Debug CLI and versioned release can create a book's first native cloud parent. A custom unversioned executable returns `application_version_unavailable` before COMMIT; use a normal build instead. Preview does not check binary metadata.
+- For multi-entry create, `status=partial` or `preflight_failed` may still exit 0: always inspect `complete`, per-item status/UUID, `changedCount` and `syncRequired`. On `cloud_projection_failed`, repair the **existing** UUID using `annotations repair-sync <uuid>` before a separate root `sync`; never recreate it. `--sync` applies only to single-entry create.
 - Collection membership writes use named selectors: exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`.
 - Read mutation results as state: `changed=false` is a successful no-op; `committed=true` means the local write crossed COMMIT. A post-commit `warningCodes` entry does not authorize replay.
 - Add `--sync` to one mutation only when immediate current-Mac acknowledgement is needed. For a batch, omit intermediate `--sync`; if at least one result has `changed=true`, run root `applebookscli sync` once at the end. Do not root-sync an all-no-op batch. Current-Mac acknowledgement does not prove another device already displays the change.
-- If the transport may retry automatically, generate one fresh lowercase UUID per logical mutation/restore/root-sync request and set `APPLEBOOKSCLI_OPERATION_ID=<uuid>`. Reuse that UUID on transport retry. On `operation_replay_blocked`, inspect `history get <uuid>` before any new attempt; an `incomplete` record is outcome-unknown and must not be retried under a new UUID.
+- If the transport may retry automatically, generate one fresh lowercase UUID per logical mutation/restore/root-sync request and set `APPLEBOOKSCLI_OPERATION_ID=<uuid>`. Reuse that UUID on transport retry. On `operation_replay_blocked`, inspect `history get <uuid>` before any new attempt; an `incomplete` record is outcome-unknown. Reconcile the same create input with read-only `annotations preview` and `annotations get/list` before a new operation ID; never blindly reissue a batch.
 - `backups list` is only a newest-10 discovery window. Restore by an opaque `backupID` returned by the CLI or already known to remain valid; a successful restore returns a new `safetyBackupID` that can be used for recovery while its backup still exists.
 
 ## Export and failure recovery

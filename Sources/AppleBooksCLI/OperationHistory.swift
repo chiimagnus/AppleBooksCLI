@@ -61,13 +61,15 @@ struct OperationHistoryRequest: Codable, Equatable, Sendable {
     let noteAction: OperationHistoryNoteAction?
     let title: String?
     let syncRequested: Bool?
+    let inputDigest: String?
 
     static let unavailable = Self(
         available: false,
         selector: nil,
         noteAction: nil,
         title: nil,
-        syncRequested: nil
+        syncRequested: nil,
+        inputDigest: nil
     )
 
     init(
@@ -75,14 +77,21 @@ struct OperationHistoryRequest: Codable, Equatable, Sendable {
         selector: OperationHistorySelector? = nil,
         noteAction: OperationHistoryNoteAction? = nil,
         title: String? = nil,
-        syncRequested: Bool? = nil
+        syncRequested: Bool? = nil,
+        inputDigest: String? = nil
     ) {
         self.available = available
         self.selector = selector
         self.noteAction = noteAction
         self.title = title
         self.syncRequested = syncRequested
+        self.inputDigest = inputDigest
     }
+}
+
+struct OperationHistoryBatchOutcome: Codable, Equatable, Sendable {
+    let complete: Bool
+    let changedCount: Int
 }
 
 struct OperationHistoryResult: Codable, Equatable, Sendable {
@@ -102,6 +111,7 @@ struct OperationHistoryResult: Codable, Equatable, Sendable {
     let collectionPendingBefore: Int?
     let annotationPendingBefore: Int?
     let warningCodes: [String]
+    var batch: OperationHistoryBatchOutcome? = nil
 
     static let unavailable = Self(
         kind: .unavailable,
@@ -125,7 +135,7 @@ struct OperationHistoryResult: Codable, Equatable, Sendable {
             verified: verified,
             collectionPendingBefore: collectionPendingBefore,
             annotationPendingBefore: annotationPendingBefore,
-            warningCodes: []
+            warningCodes: [], batch: batch
         )
     }
 }
@@ -255,6 +265,34 @@ extension OperationHistoryCompletion {
                 collectionPendingBefore: nil,
                 annotationPendingBefore: nil,
                 warningCodes: Array(result.warnings.prefix(100).map(\.rawValue))
+            ),
+            inverse: .unavailable
+        )
+    }
+
+    static func batch(_ result: AnnotationCreateBatchResult) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .mutation, committed: result.changedCount > 0,
+                changed: result.changedCount > 0, acknowledgementRequested: false,
+                acknowledged: nil, verified: nil,
+                collectionPendingBefore: nil, annotationPendingBefore: nil,
+                warningCodes: Array(Set(result.items.flatMap(\.warningCodes))).sorted(),
+                batch: OperationHistoryBatchOutcome(
+                    complete: result.complete, changedCount: result.changedCount
+                )
+            ),
+            inverse: .unavailable
+        )
+    }
+
+    static func repairProjection(_ result: AnnotationProjectionRepairResult) -> Self {
+        Self(
+            result: OperationHistoryResult(
+                kind: .sync, committed: nil, changed: nil,
+                acknowledgementRequested: false, acknowledged: nil,
+                verified: result.verified, collectionPendingBefore: nil,
+                annotationPendingBefore: nil, warningCodes: result.warningCodes
             ),
             inverse: .unavailable
         )

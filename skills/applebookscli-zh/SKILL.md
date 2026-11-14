@@ -29,6 +29,7 @@ metadata:
 | 当前 bookmarked chapter 正文 | `reading position` → `content chapter` |
 | 查询/详情/上下文批注 | `annotations list`、`annotations get`、`annotations context` |
 | 设置/清空/删除/恢复批注 | `annotations update-note`、`annotations delete`、`annotations restore` |
+| 创建 EPUB 划线与笔记；修复云投影 | `annotations preview` → `annotations create`；已提交 UUID 使用 `annotations repair-sync` |
 | EPUB metadata/cover/ToC/chapter text | `content metadata`、`content cover`、`content chapters`、`content chapter` |
 | PDF 发现与 highlights | `pdf list` → `pdf highlights` |
 | 读取藏书与 membership | `collections list`、`collections search`、`collections get`、`collections books` |
@@ -45,10 +46,12 @@ PDF 后续读取使用 `pdf list` 返回的 `bookAssetID` 或 `pdfSourceID`，�
 
 - 只有用户授权修改时才执行 mutation/restore。不要直接修改 Apple Books SQLite。
 - `annotations update-note` 从 stdin 读取完整 replacement Note。用户要追加时先读取当前 note；只有清空时使用 `--clear`。`annotations delete` 只 soft-delete；`annotations restore` 只恢复仍存在的 tombstone。
+- 创建高亮前准备含 `annotations` 数组的 JSON 文件，例如 `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…" }`；先运行 `annotations preview --book <asset-id> --input <file>`，解决缺失、歧义和冲突后，再用相同 selector 与文件调用 `annotations create`。不传入 raw CFI。标准 Debug CLI 和正式发行版均可为一本书创建第一个原生云父对象；自定义未携带版本信息的程序在 COMMIT 前返回 `application_version_unavailable`，需换用标准构建。`preview` 不检测可执行文件的版本信息。
+- 批量 `create` 的 `status=partial` 或 `preflight_failed` 即使退出码为 0，也必须检查 `complete`、逐项状态/UUID、`changedCount` 与 `syncRequired`。若有 `cloud_projection_failed`，先用 `annotations repair-sync <uuid>` 修复**已有 UUID**，再独立调用根 `sync`；不要重复创建。`--sync` 只适用于单条创建。
 - Collection membership 写入使用 named selector：`--collection` / `--collection-pk` 必须且只能选一个，`--book` / `--book-pk` 也必须且只能选一个。
 - 把 mutation result 当状态读取：`changed=false` 是成功 no-op；`committed=true` 表示本地写入已经跨过 COMMIT。出现 post-commit `warningCodes` 不授权 replay。
 - 单条 mutation 只有在需要立即等待当前 Mac acknowledgement 时才加 `--sync`。批量写入不在中间加 `--sync`；只要至少一条结果 `changed=true`，批次结束后再运行一次根 `applebookscli sync`。全部 no-op 时不要 root sync。当前 Mac acknowledgement 不代表另一台设备已经显示变更。
-- 如果 transport 可能自动 retry，为每个逻辑 mutation/restore/root-sync 请求生成一次 fresh lowercase UUID，并设置 `APPLEBOOKSCLI_OPERATION_ID=<uuid>`；transport retry 原样复用该 UUID。遇到 `operation_replay_blocked` 先执行 `history get <uuid>`；`incomplete` 表示 outcome unknown，不能换新 UUID 猜测性重试。
+- 如果 transport 可能自动 retry，为每个逻辑 mutation/restore/root-sync 请求生成一次 fresh lowercase UUID，并设置 `APPLEBOOKSCLI_OPERATION_ID=<uuid>`；transport retry 原样复用该 UUID。遇到 `operation_replay_blocked` 先执行 `history get <uuid>`；`incomplete` 表示结果未知，必须用同一输入的只读 `annotations preview` 和 `annotations get/list` 核销后才能用新的操作 ID 继续，不得盲目重放批次。
 - `backups list` 只是 newest-10 discovery window。Restore 使用 CLI 返回或已知仍有效的 opaque `backupID`；成功 restore 会返回新的 `safetyBackupID`，只要对应 backup 仍存在，就可继续用于 recovery。
 
 ## 导出与失败恢复

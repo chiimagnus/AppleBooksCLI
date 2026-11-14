@@ -86,6 +86,23 @@ applebookscli backups list
 applebookscli history list
 ```
 
+Create EPUB highlights and notes from a source-independent JSON file. Preview is read-only;
+create supports one or more annotations in the same book:
+
+```sh
+cat > annotations.json <<'JSON'
+{"annotations":[{"text":"The sample text","chapterOrder":2,"color":"yellow","note":"A sample note"}]}
+JSON
+applebookscli annotations preview --book <asset-id> --input annotations.json
+applebookscli annotations create --book <asset-id> --input annotations.json
+```
+
+For a batch, inspect `complete` and each indexed result even when the process exits successfully.
+If `changedCount > 0`, call `applebookscli sync` separately after resolving any
+`cloud_projection_failed` warning with `annotations repair-sync <annotation-uuid>`.
+AppleBooksCLI can create a book's first native highlight. Use the standard Debug CLI or a versioned release: the executable must contain its own app version metadata for the native first-parent operation. An unversioned custom binary fails safely with `application_version_unavailable`. Read-only preview does not verify executable metadata.
+An interrupted history entry must be reconciled using read-only preview/get before retrying.
+
 ## Key contracts
 
 - Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version

@@ -1519,5 +1519,50 @@
         "get"
       ]
     ]
+  },
+  "EPUB 创建预检": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationCreateCommands.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationWriteCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "preview"
+      ]
+    ]
+  },
+  "创建 EPUB 高亮与笔记": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationCreateCommands.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationWriteCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "create"
+      ]
+    ]
+  },
+  "恢复已提交的新建高亮云投影": {
+    "owner": "cli",
+    "implementationPaths": [
+      "Sources/AppleBooksCLI/Commands/AnnotationCreateCommands.swift"
+    ],
+    "testPaths": [
+      "Tests/AppleBooksCLITests/AnnotationWriteCommandTests.swift"
+    ],
+    "cliHelpArgs": [
+      [
+        "annotations",
+        "repair-sync"
+      ]
+    ]
   }
 }

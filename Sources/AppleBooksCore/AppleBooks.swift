@@ -246,6 +246,9 @@ public final class AppleBooks {
                     cloudProjector: manageAnnotationBooksApplication ? AnnotationCloudProjector.live(annotationsDatabase: annotationsDB) : nil,
                     cloudSynchronizer: manageAnnotationBooksApplication
                         ? AnnotationCloudSynchronizer.live(annotationsDatabase: annotationsDB, booksApp: booksApp)
+                        : nil,
+                    creationProjector: manageAnnotationBooksApplication
+                        ? AnnotationCloudProjector.liveCreate(annotationsDatabase: annotationsDB)
                         : nil
                 )
             }
@@ -1151,6 +1154,98 @@ public final class AppleBooks {
 
     package func semanticAnnotation(uuid: String) throws -> SemanticAnnotation? {
         try requiredAnnotationQueries().semanticGetUniqueByUUID(uuid)
+    }
+
+    public func repairAnnotationProjection(uuid: String) throws -> AnnotationProjectionRepairResult {
+        try requiredAnnotationWriter().repairCreationProjection(uuid: uuid)
+    }
+
+    public func previewAnnotation(
+        assetID: String, text: String,
+        chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,
+        occurrence: Int? = nil, note: String? = nil,
+        color: AnnotationColor = .yellow, underline: Bool = false
+    ) throws -> AnnotationCreationPreview {
+        let request = AnnotationCreationRequest(
+            text: text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix,
+            occurrence: occurrence, note: note, color: color, underline: underline
+        )
+        guard let first = try previewAnnotationBatch(assetID: assetID, requests: [request]).first else {
+            throw AnnotationCreateError.sourceChanged
+        }
+        return try first.get()
+    }
+
+    public func previewAnnotationBatch(
+        assetID: String, requests: [AnnotationCreationRequest]
+    ) throws -> [Result<AnnotationCreationPreview, Error>] {
+        let queries = try requiredBookQueries()
+        let configuration = try requiredConfiguration()
+        let connection = try require(annotationConnection, .annotationsRead)
+        guard let handle = connection.handle else { throw AnnotationCreateError.sourceChanged }
+        let locator = try EPUBAnnotationLocator(
+            assetID: assetID, bookQueries: queries, configuration: configuration
+        )
+        typealias Position = (indices: [Int], note: String?, color: Int64, underline: Bool, conflicted: Bool)
+        var positions: [String: Position] = [:]
+        var checks: [Result<AnnotationCreationPreview, Error>] = []
+        for (index, request) in requests.enumerated() {
+            do {
+                let selection = try locator.locate(
+                    request.text, chapterOrder: request.chapterOrder,
+                    prefix: request.prefix, suffix: request.suffix, occurrence: request.occurrence
+                )
+                let existingUUID = try AnnotationWriter.previewExistingUUID(
+                    assetID: assetID, selection: selection, note: request.note,
+                    color: request.color, underline: request.underline, on: handle
+                )
+                checks.append(.success(AnnotationCreationPreview(
+                    status: existingUUID == nil ? .ready : .alreadyExists,
+                    existingUUID: existingUUID, chapterOrder: selection.chapterOrder
+                )))
+                if var prior = positions[selection.cfi] {
+                    if prior.conflicted || prior.note != request.note ||
+                        prior.color != request.color.rawValue || prior.underline != request.underline {
+                        for priorIndex in prior.indices {
+                            checks[priorIndex] = .failure(AnnotationCreateError.conflict)
+                        }
+                        checks[index] = .failure(AnnotationCreateError.conflict)
+                        prior.conflicted = true
+                    }
+                    prior.indices.append(index)
+                    positions[selection.cfi] = prior
+                } else {
+                    positions[selection.cfi] = (
+                        indices: [index], note: request.note,
+                        color: request.color.rawValue, underline: request.underline, conflicted: false
+                    )
+                }
+            } catch {
+                checks.append(.failure(error))
+            }
+        }
+        return checks
+    }
+
+    public func createAnnotation(
+        assetID: String, text: String,
+        chapterOrder: Int? = nil, prefix: String? = nil, suffix: String? = nil,
+        occurrence: Int? = nil, note: String? = nil,
+        color: AnnotationColor = .yellow, underline: Bool = false,
+        syncCloud: Bool = false
+    ) throws -> MutationResult {
+        let writer = try requiredAnnotationWriter()
+        let queries = try requiredBookQueries()
+        let configuration = try requiredConfiguration()
+        func locate() throws -> EPUBAnnotationSelection {
+            try EPUBAnnotationLocator(
+                assetID: assetID, bookQueries: queries, configuration: configuration
+            ).locate(text, chapterOrder: chapterOrder, prefix: prefix, suffix: suffix, occurrence: occurrence)
+        }
+        return try writer.create(
+            assetID: assetID, selection: locate(), note: note,
+            color: color, underline: underline, verifySource: locate, syncCloud: syncCloud
+        )
     }
 
     public func updateAnnotationNote(localPK: Int64, note: String?, syncCloud: Bool = false) throws -> MutationResult {

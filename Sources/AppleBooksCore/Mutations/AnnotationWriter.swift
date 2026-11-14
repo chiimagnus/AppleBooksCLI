@@ -10,6 +10,13 @@ public enum AnnotationWriteError: Error, Equatable, Sendable {
     case writeFailed
 }
 
+public enum AnnotationCreateError: Error, Equatable, Sendable {
+    case projectionUnavailable
+    case applicationVersionUnavailable
+    case conflict
+    case sourceChanged
+}
+
 struct AnnotationWriter {
     private static let entityName = "AEAnnotation"
     private static let updateColumns: Set<String> = [
@@ -64,6 +71,9 @@ struct AnnotationWriter {
     private let coordinator: MutationCoordinator
     private let cloudProjector: AnnotationCloudProjector?
     private let cloudSynchronizer: AnnotationCloudSynchronizer?
+    private let creationProjector: AnnotationCloudProjector?
+    private let annotationsDatabase: URL
+    private let booksApp: BooksAppController
 
     init(
         database: URL,
@@ -71,7 +81,8 @@ struct AnnotationWriter {
         keep: Int = SQLiteBackup.retentionCount,
         booksApp: BooksAppController = .live,
         cloudProjector: AnnotationCloudProjector? = nil,
-        cloudSynchronizer: AnnotationCloudSynchronizer? = nil
+        cloudSynchronizer: AnnotationCloudSynchronizer? = nil,
+        creationProjector: AnnotationCloudProjector? = nil
     ) {
         coordinator = MutationCoordinator(
             database: database,
@@ -81,6 +92,290 @@ struct AnnotationWriter {
         )
         self.cloudProjector = cloudProjector
         self.cloudSynchronizer = cloudSynchronizer
+        self.creationProjector = creationProjector
+        annotationsDatabase = database
+        self.booksApp = booksApp
+    }
+
+
+    private struct Creation {
+        let localPK: Int64
+        let uuid: String
+        let changed: Bool
+    }
+
+    func repairCreationProjection(uuid: String) throws -> AnnotationProjectionRepairResult {
+        guard let creationProjector else { throw AnnotationCreateError.projectionUnavailable }
+        guard PublicStableIdentityPolicy.isEligible(uuid) else { throw AnnotationWriteError.annotationMissing }
+        let connection = try SQLiteConnection.readOnly(path: annotationsDatabase.path)
+        defer { try? connection.close() }
+        let stmt = try connection.prepare("""
+            SELECT Z_PK,ZANNOTATIONTYPE,ZANNOTATIONDELETED,ZANNOTATIONASSETID FROM ZAEANNOTATION
+            WHERE ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
+            """)
+        try stmt.bind(uuid, at: 1)
+        guard try stmt.step() else { throw AnnotationWriteError.annotationMissing }
+        let row = try SQLiteRow(statement: stmt)
+        guard let pk = try row.int64("Z_PK"), pk > 0,
+              try row.int64("ZANNOTATIONTYPE") == 2,
+              try row.int64("ZANNOTATIONDELETED") == 0,
+              let assetID = try row.text("ZANNOTATIONASSETID"),
+              PublicStableIdentityPolicy.isEligible(assetID),
+              try stmt.step() == false else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        try creationProjector.validateCreationTarget(assetID: assetID)
+        let originalState = booksApp.state()
+        try booksApp.terminateAndWait()
+        do {
+            try creationProjector.project(localPK: pk)
+        } catch {
+            try? booksApp.restore(originalState)
+            throw error
+        }
+        var warnings: [String] = []
+        do { try booksApp.restore(originalState) }
+        catch { warnings.append("books_state_restore_failed") }
+        return AnnotationProjectionRepairResult(annotationUUID: uuid, verified: true, warningCodes: warnings)
+    }
+
+    static func previewExistingUUID(
+        assetID: String, selection: EPUBAnnotationSelection,
+        note: String?, color: AnnotationColor, underline: Bool, on handle: OpaquePointer
+    ) throws -> String? {
+        try validateNoteTarget(note)
+        try WriteSchemaGuard.validateTable(
+            .annotations, required: WriteSchemaGuard.annotationKnownColumns, inserting: true, on: handle
+        )
+        _ = try WriteSchemaGuard.entity(named: entityName, on: handle)
+        return try findCreation(
+            assetID: assetID, selection: selection, note: note,
+            color: color, underline: underline, on: handle
+        )?.uuid
+    }
+
+    func create(
+        assetID: String, selection: EPUBAnnotationSelection, note: String?,
+        color: AnnotationColor, underline: Bool = false,
+        verifySource: @escaping () throws -> EPUBAnnotationSelection,
+        syncCloud: Bool = false
+    ) throws -> MutationResult {
+        try Self.validateNoteTarget(note)
+        guard let creationProjector else { throw AnnotationCreateError.projectionUnavailable }
+        guard PublicStableIdentityPolicy.isEligible(assetID),
+              (selection.bookIdentity == nil || selection.bookIdentity?.assetID == assetID),
+              selection.selectedText.isEmpty == false,
+              selection.representativeText.isEmpty == false,
+              CFIResourcePolicy.allowsStructuralParsing(selection.cfi) else {
+            throw AnnotationCreateError.sourceChanged
+        }
+        func validate(_ handle: OpaquePointer) throws {
+            guard try verifySource() == selection else { throw AnnotationCreateError.sourceChanged }
+            try creationProjector.validateCreationTarget(assetID: assetID)
+            try WriteSchemaGuard.validateTable(
+                .annotations, required: WriteSchemaGuard.annotationKnownColumns, inserting: true, on: handle
+            )
+            _ = try WriteSchemaGuard.entity(named: Self.entityName, on: handle)
+        }
+        func existing(_ handle: OpaquePointer) throws -> Creation? {
+            try Self.findCreation(
+                assetID: assetID, selection: selection, note: note,
+                color: color, underline: underline, on: handle
+            )
+        }
+        return try coordinator.perform(
+            preflight: { connection in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                try validate(handle)
+                _ = try existing(handle)
+            },
+            quietDecision: { connection in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                try validate(handle)
+                if let duplicate = try existing(handle) {
+                    return .noChange(MutationDomainData(
+                        localPK: duplicate.localPK, stableID: duplicate.uuid, changed: false,
+                        appleBooksURL: Annotation.appleBooksURL(rawAssetID: assetID, rawCFI: selection.cfi)
+                    ))
+                }
+                return .needsMutation
+            },
+            avoidBooksQuitForReadOnlyNoOp: true,
+            revalidate: { handle in try validate(handle) },
+            mutation: { handle in
+                if let duplicate = try existing(handle) { return duplicate }
+                let allocated = try CoreDataPrimaryKey.allocate(
+                    entityName: Self.entityName, table: .annotations, on: handle
+                )
+                let uuid = UUID().uuidString
+                try Self.insertCreation(
+                    localPK: allocated.localPK, entityID: allocated.entityID,
+                    uuid: uuid, assetID: assetID, selection: selection,
+                    note: note, color: color, underline: underline, on: handle
+                )
+                return Creation(localPK: allocated.localPK, uuid: uuid, changed: true)
+            },
+            invariant: { handle, record in
+                guard try verifySource() == selection else {
+                    throw AnnotationCreateError.sourceChanged
+                }
+                try Self.verifyCreation(
+                    record, assetID: assetID, selection: selection,
+                    note: note, color: color, underline: underline, on: handle
+                )
+            },
+            domainData: { record in
+                MutationDomainData(
+                    localPK: record.localPK, stableID: record.uuid, changed: record.changed,
+                    appleBooksURL: Annotation.appleBooksURL(rawAssetID: assetID, rawCFI: selection.cfi)
+                )
+            },
+            cloudProjection: { record in
+                try creationProjector.project(localPK: record.localPK)
+            },
+            acknowledgementRequested: syncCloud,
+            acknowledgement: cloudSynchronizer.map { synchronizer in
+                { record, onLaunch in
+                    try synchronizer.sync(localPK: record.localPK, onTemporaryBooksLaunch: onLaunch)
+                }
+            },
+            readBack: { connection, record in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                try Self.verifyCreation(
+                    record, assetID: assetID, selection: selection,
+                    note: note, color: color, underline: underline, on: handle
+                )
+            }
+        )
+    }
+
+    private static func findCreation(
+        assetID: String, selection: EPUBAnnotationSelection,
+        note: String?, color: AnnotationColor, underline: Bool,
+        on handle: OpaquePointer
+    ) throws -> Creation? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, """
+            SELECT Z_PK,ZANNOTATIONUUID,ZANNOTATIONTYPE,ZANNOTATIONDELETED,
+                   ZANNOTATIONSTYLE,ZANNOTATIONISUNDERLINE,ZANNOTATIONSELECTEDTEXT,
+                   ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONNOTE,Z_OPT
+            FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY
+                AND ZANNOTATIONLOCATION=? COLLATE BINARY AND ZANNOTATIONTYPE!=3
+            ORDER BY Z_PK LIMIT 2
+            """, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            if let stmt { sqlite3_finalize(stmt) }
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard bind(assetID, to: stmt, index: 1) == SQLITE_OK,
+              bind(selection.cfi, to: stmt, index: 2) == SQLITE_OK else {
+            throw AnnotationWriteError.writeFailed
+        }
+        let first = sqlite3_step(stmt)
+        if first == SQLITE_DONE { return nil }
+        guard first == SQLITE_ROW else { throw AnnotationWriteError.writeFailed }
+        guard sqlite3_column_type(stmt, 1) == SQLITE_TEXT,
+              sqlite3_column_type(stmt, 2) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 2) == 2,
+              sqlite3_column_type(stmt, 3) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 3) == 0,
+              sqlite3_column_type(stmt, 4) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 4) == color.rawValue,
+              sqlite3_column_type(stmt, 5) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 5) == (underline ? 1 : 0),
+              sqlite3_column_type(stmt, 6) == SQLITE_TEXT,
+              sqlite3_column_type(stmt, 7) == SQLITE_TEXT,
+              sqlite3_column_type(stmt, 9) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 9) > 0,
+              (try? decodeSQLiteText(stmt, at: 6)) == selection.selectedText,
+              (try? decodeSQLiteText(stmt, at: 7)) == selection.representativeText else {
+            throw AnnotationCreateError.conflict
+        }
+        let uuid = try decodeSQLiteText(stmt, at: 1)
+        guard PublicStableIdentityPolicy.isEligible(uuid) else {
+            throw AnnotationCreateError.conflict
+        }
+        switch (note, sqlite3_column_type(stmt, 8)) {
+        case (nil, SQLITE_NULL): break
+        case let (.some(value), kind) where kind == SQLITE_TEXT:
+            guard (try? decodeSQLiteText(stmt, at: 8)) == value else {
+                throw AnnotationCreateError.conflict
+            }
+        default: throw AnnotationCreateError.conflict
+        }
+        guard sqlite3_column_type(stmt, 0) == SQLITE_INTEGER,
+              sqlite3_column_int64(stmt, 0) > 0 else {
+            throw AnnotationCreateError.conflict
+        }
+        let localPK = sqlite3_column_int64(stmt, 0)
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw AnnotationCreateError.conflict
+        }
+        let entity = try WriteSchemaGuard.entity(named: entityName, on: handle)
+        try WriteSchemaGuard.validateExistingEntity(
+            table: .annotations, localPK: localPK, expectedEntityID: entity.entityID, on: handle
+        )
+        return Creation(localPK: localPK, uuid: uuid, changed: false)
+    }
+
+    private static func insertCreation(
+        localPK: Int64, entityID: Int64, uuid: String, assetID: String,
+        selection: EPUBAnnotationSelection, note: String?, color: AnnotationColor,
+        underline: Bool, on handle: OpaquePointer
+    ) throws {
+        guard let time = CoreDataTime.seconds(from: Date()) else {
+            throw AnnotationWriteError.writeFailed
+        }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, """
+            INSERT INTO ZAEANNOTATION(
+                Z_PK,Z_ENT,Z_OPT,ZANNOTATIONDELETED,ZANNOTATIONISUNDERLINE,
+                ZANNOTATIONSTYLE,ZANNOTATIONTYPE,ZPLABSOLUTEPHYSICALLOCATION,
+                ZPLLOCATIONRANGESTART,ZPLLOCATIONRANGEEND,
+                ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,
+                ZANNOTATIONASSETID,ZANNOTATIONCREATORIDENTIFIER,ZANNOTATIONLOCATION,
+                ZANNOTATIONNOTE,ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONSELECTEDTEXT,
+                ZANNOTATIONUUID,ZFUTUREPROOFING11,ZFUTUREPROOFING6
+            ) VALUES(?,?,1,0,?,?,2,0,0,0,?,? ,?,'com~apple~iBooks',?,?,?,?,?,?,?)
+            """, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            if let stmt { sqlite3_finalize(stmt) }
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_bind_int64(stmt, 1, localPK) == SQLITE_OK,
+              sqlite3_bind_int64(stmt, 2, entityID) == SQLITE_OK,
+              sqlite3_bind_int(stmt, 3, underline ? 1 : 0) == SQLITE_OK,
+              sqlite3_bind_int64(stmt, 4, color.rawValue) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 5, time) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 6, time) == SQLITE_OK,
+              bind(assetID, to: stmt, index: 7) == SQLITE_OK,
+              bind(selection.cfi, to: stmt, index: 8) == SQLITE_OK,
+              (note.map { bind($0, to: stmt, index: 9) } ?? sqlite3_bind_null(stmt, 9)) == SQLITE_OK,
+              bind(selection.representativeText, to: stmt, index: 10) == SQLITE_OK,
+              bind(selection.selectedText, to: stmt, index: 11) == SQLITE_OK,
+              bind(uuid, to: stmt, index: 12) == SQLITE_OK,
+              bind(String(time), to: stmt, index: 13) == SQLITE_OK,
+              bind(String(time), to: stmt, index: 14) == SQLITE_OK,
+              sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(handle) == 1 else {
+            throw AnnotationWriteError.writeFailed
+        }
+    }
+
+    private static func verifyCreation(
+        _ created: Creation, assetID: String, selection: EPUBAnnotationSelection,
+        note: String?, color: AnnotationColor, underline: Bool, on handle: OpaquePointer
+    ) throws {
+        guard let match = try findCreation(
+            assetID: assetID, selection: selection, note: note,
+            color: color, underline: underline, on: handle
+        ), match.localPK == created.localPK, match.uuid == created.uuid else {
+            throw AnnotationWriteError.writeFailed
+        }
+        let entity = try WriteSchemaGuard.entity(named: entityName, on: handle)
+        try WriteSchemaGuard.validateExistingEntity(
+            table: .annotations, localPK: created.localPK,
+            expectedEntityID: entity.entityID, on: handle
+        )
     }
 
     func updateNote(

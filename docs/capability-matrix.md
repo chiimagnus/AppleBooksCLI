@@ -61,6 +61,9 @@ reachability anchor。
 | annotations by date range | 已实现（强化） | `annotations list --created-after/--created-before` 或 modified 对应 flags；只接受带时区 RFC3339 instant |
 | annotation context window | 已实现（强化） | `annotations context`；minimal annotation/book projection + bounded before/matched/after，oversize anchor/location/path fail closed，raw CFI 不进入 ordinary JSON |
 | context 中精确标出 highlight | 已实现（强化） | `annotations context` 的 `matched` 返回 normalized anchor 首次精确命中的 source span，并保留原 source whitespace |
+| EPUB 创建预检 | 已实现 | `annotations preview` 用当前已落地 EPUB 的原始 XML/CFI 只读定位，逐项返回 ready/已有状态；无 history/backup/DB 写入 |
+| 创建 EPUB 高亮与笔记 | 已实现 | `annotations create` 支持同一书 1–500 条、逐条事务与原生云投影，包括首次建立云父对象。可执行文件须携带自身应用版本；无版本信息时在 COMMIT 前返回 `application_version_unavailable`。在专用合成书上已验收首次创建的原生 Books GUI 位置、笔记、重启持久性和当前 Mac 云端确认；跨设备显示未验证。 |
+| 恢复已提交的新建高亮云投影 | 已实现 | `annotations repair-sync` 精确 UUID、只重投影不重新 INSERT；缺少云父对象时沿用版本化原生首次创建路径。未版本化的二进制返回 `application_version_unavailable`；当前 Mac 验证不等于跨设备显示。 |
 | annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |
 | 保留 raw annotation 字段 | 已实现（强化） | ordinary list/get 只输出 semantic summary/detail；archival JSON export 保留 source type/style/CFI/range fidelity |
 
@@ -144,7 +147,7 @@ reachability anchor。
 
 ## 当前明确不支持
 
-- 创建新的 Apple Books highlight / annotation。
+- 在未经受控验收的目标书上保证跨设备原生显示（须完成 P3-T3 实测）。
 - 修改 selected text / CFI range。
 - 任意写 current reading position。
 

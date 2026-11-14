@@ -8,8 +8,6 @@ struct CoreDataPrimaryKeyAllocation: Equatable {
 enum CoreDataPrimaryKeyError: Error, Equatable {
     case transactionRequired
     case unsupportedTable
-    case missingEntity
-    case duplicateEntity
     case invalidEntity
     case allocationOverflow
     case updateFailed
@@ -25,11 +23,11 @@ enum CoreDataPrimaryKey {
         guard sqlite3_get_autocommit(handle) == 0 else {
             throw CoreDataPrimaryKeyError.transactionRequired
         }
-        guard table == .collections || table == .members else {
+        guard table == .collections || table == .members || table == .annotations else {
             throw CoreDataPrimaryKeyError.unsupportedTable
         }
 
-        let entity = try readEntity(named: entityName, on: handle, observeRow: observeEntityRow)
+        let entity = try WriteSchemaGuard.entity(named: entityName, on: handle, observeRow: observeEntityRow)
         let tableMax = try maximumPrimaryKey(in: table, on: handle)
         let base = max(entity.maxPK, tableMax)
         guard base < Int64.max else { throw CoreDataPrimaryKeyError.allocationOverflow }
@@ -57,47 +55,6 @@ enum CoreDataPrimaryKey {
             throw CoreDataPrimaryKeyError.updateFailed
         }
         return CoreDataPrimaryKeyAllocation(entityID: entity.entityID, localPK: next)
-    }
-
-    private static func readEntity(
-        named name: String,
-        on handle: OpaquePointer,
-        observeRow: (() -> Void)? = nil
-    ) throws -> CoreDataEntityMetadata {
-        var statement: OpaquePointer?
-        let prepare = sqlite3_prepare_v2(
-            handle,
-            "SELECT Z_ENT, Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = ? ORDER BY rowid LIMIT 2",
-            -1,
-            &statement,
-            nil
-        )
-        guard prepare == SQLITE_OK, let statement else {
-            if let statement { sqlite3_finalize(statement) }
-            throw CoreDataPrimaryKeyError.missingEntity
-        }
-        defer { sqlite3_finalize(statement) }
-        guard bind(name, to: statement, index: 1) == SQLITE_OK else {
-            throw CoreDataPrimaryKeyError.missingEntity
-        }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw CoreDataPrimaryKeyError.missingEntity
-        }
-        observeRow?()
-        let entityID = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
-        let maxPK = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
-        let second = sqlite3_step(statement)
-        if second == SQLITE_ROW {
-            observeRow?()
-            throw CoreDataPrimaryKeyError.duplicateEntity
-        }
-        guard second == SQLITE_DONE else { throw CoreDataPrimaryKeyError.invalidEntity }
-        guard let entityID, entityID > 0,
-              let maxPK, maxPK >= 0 else {
-            throw CoreDataPrimaryKeyError.invalidEntity
-        }
-        return CoreDataEntityMetadata(entityID: entityID, maxPK: maxPK)
     }
 
     private static func maximumPrimaryKey(in table: WriteSchemaTable, on handle: OpaquePointer) throws -> Int64 {

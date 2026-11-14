@@ -16,13 +16,22 @@ struct AnnotationCloudProjector {
     typealias BridgeAction = (URL, URL, URL, AnnotationCloudIdentity) -> Int32
 
     private let projectAction: (Int64) throws -> Void
+    private let creationTargetValidation: (String) throws -> Void
 
-    init(projectAction: @escaping (Int64) throws -> Void) {
+    init(
+        projectAction: @escaping (Int64) throws -> Void,
+        validateCreationTarget: @escaping (String) throws -> Void = { _ in }
+    ) {
         self.projectAction = projectAction
+        creationTargetValidation = validateCreationTarget
     }
 
     func project(localPK: Int64) throws {
         try projectAction(localPK)
+    }
+
+    func validateCreationTarget(assetID: String) throws {
+        try creationTargetValidation(assetID)
     }
 
     static func live(
@@ -32,7 +41,9 @@ struct AnnotationCloudProjector {
         backupAction: @escaping BackupAction = { source, root in
             _ = try SQLiteBackup.create(source: source, backupRoot: root)
         },
-        bridgeAction: @escaping BridgeAction = liveBridgeAction
+        bridgeAction: @escaping BridgeAction = liveBridgeAction,
+        checkFirstParentVersion: Bool = false,
+        executableVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     ) -> AnnotationCloudProjector? {
         guard let location = AnnotationCloudStoreLocation.live(
             annotationsDatabase: annotationsDatabase,
@@ -40,12 +51,63 @@ struct AnnotationCloudProjector {
         ) else {
             return nil
         }
-        return AnnotationCloudProjector { localPK in
-            let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: localPK)
-            try backupAction(location.database, backupRoot)
-            let status = bridgeAction(location.root, location.database, annotationsDatabase, identity)
-            guard status == 0 else { throw AnnotationCloudProjectionError.bridgeRejected(status) }
+        let validate: (String) throws -> Void = { assetID in
+            if checkFirstParentVersion {
+                try validateCreationTarget(
+                    database: location.database, assetID: assetID, executableVersion: executableVersion
+                )
+            }
         }
+        return AnnotationCloudProjector(
+            projectAction: { localPK in
+                let identity = try identity(annotationsDatabase: annotationsDatabase, localPK: localPK)
+                try validate(identity.assetID)
+                try backupAction(location.database, backupRoot)
+                let status = bridgeAction(location.root, location.database, annotationsDatabase, identity)
+                guard status == 0 else { throw AnnotationCloudProjectionError.bridgeRejected(status) }
+            },
+            validateCreationTarget: validate
+        )
+    }
+
+    static func liveCreate(
+        annotationsDatabase: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        backupRoot: URL = SQLiteBackup.defaultRoot().appendingPathComponent("cloud-annotations", isDirectory: true),
+        backupAction: @escaping BackupAction = { source, root in
+            _ = try SQLiteBackup.create(source: source, backupRoot: root)
+        },
+        bridgeAction: @escaping BridgeAction = liveCreateBridgeAction,
+        executableVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    ) -> AnnotationCloudProjector? {
+        live(
+            annotationsDatabase: annotationsDatabase,
+            homeDirectory: homeDirectory,
+            backupRoot: backupRoot,
+            backupAction: backupAction,
+            bridgeAction: bridgeAction,
+            checkFirstParentVersion: true,
+            executableVersion: executableVersion
+        )
+    }
+
+    private static func validateCreationTarget(
+        database: URL, assetID: String, executableVersion: String?
+    ) throws {
+        let connection = try SQLiteConnection.readOnly(path: database.path)
+        defer { try? connection.close() }
+        let statement = try connection.prepare("""
+            SELECT Z_PK FROM ZBCASSETANNOTATIONS
+            WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
+            """)
+        try statement.bind(assetID, at: 1)
+        guard try statement.step() else {
+            guard let executableVersion, executableVersion.isEmpty == false else {
+                throw AnnotationCreateError.applicationVersionUnavailable
+            }
+            return
+        }
+        guard try statement.step() == false else { throw AnnotationCreateError.projectionUnavailable }
     }
 
     static func identity(annotationsDatabase: URL, localPK: Int64) throws -> AnnotationCloudIdentity {
@@ -98,25 +160,37 @@ struct AnnotationCloudProjector {
     }
 
     private static func liveBridgeAction(
-        root: URL,
-        database: URL,
-        annotationsDatabase: URL,
-        identity: AnnotationCloudIdentity
+        root: URL, database: URL, annotationsDatabase: URL, identity: AnnotationCloudIdentity
+    ) -> Int32 {
+        invokeNativeBridge(root, database, annotationsDatabase, identity, creating: false)
+    }
+
+    private static func liveCreateBridgeAction(
+        root: URL, database: URL, annotationsDatabase: URL, identity: AnnotationCloudIdentity
+    ) -> Int32 {
+        invokeNativeBridge(root, database, annotationsDatabase, identity, creating: true)
+    }
+
+    private static func invokeNativeBridge(
+        _ root: URL, _ database: URL, _ annotationsDatabase: URL,
+        _ identity: AnnotationCloudIdentity, creating: Bool
     ) -> Int32 {
         root.path.withCString { rootPath in
             database.path.withCString { databasePath in
                 annotationsDatabase.path.withCString { annotationsPath in
-                    withCloudBridgeUTF8Bytes(identity.assetID) { assetID, assetIDLength in
+                    withCloudBridgeUTF8Bytes(identity.assetID) { assetID, assetLength in
                         withCloudBridgeUTF8Bytes(identity.uuid) { uuid, uuidLength in
-                            ABProjectAnnotationState(
-                                rootPath,
-                                databasePath,
-                                annotationsPath,
-                                assetID,
-                                assetIDLength,
-                                uuid,
-                                uuidLength
-                            )
+                            if creating {
+                                ABCreateAnnotationState(
+                                    rootPath, databasePath, annotationsPath,
+                                    assetID, assetLength, uuid, uuidLength
+                                )
+                            } else {
+                                ABProjectAnnotationState(
+                                    rootPath, databasePath, annotationsPath,
+                                    assetID, assetLength, uuid, uuidLength
+                                )
+                            }
                         }
                     }
                 }

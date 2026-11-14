@@ -31,16 +31,33 @@ struct CoreDataPrimaryKeyTests {
     }
 
     @Test
+    func allocatesAnnotationPrimaryKeyInsideTheExistingTransaction() throws {
+        let fixture = try fixture(zMax: 5, tablePKs: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try execute(fixture.handle, "CREATE TABLE ZAEANNOTATION(Z_PK INTEGER, Z_ENT INTEGER)")
+        try execute(fixture.handle, "INSERT INTO ZAEANNOTATION VALUES(22, 1)")
+        try execute(fixture.handle, "INSERT INTO Z_PRIMARYKEY VALUES('AEAnnotation', 1, 9)")
+        try execute(fixture.handle, "BEGIN IMMEDIATE")
+        let allocated = try CoreDataPrimaryKey.allocate(
+            entityName: "AEAnnotation", table: .annotations, on: fixture.handle
+        )
+        #expect(allocated == .init(entityID: 1, localPK: 23))
+        #expect(try scalar(fixture.handle, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 23)
+        try execute(fixture.handle, "ROLLBACK")
+        #expect(try scalar(fixture.handle, "SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME='AEAnnotation'") == 9)
+    }
+
+    @Test
     func missingDuplicateAndInvalidEntityFailClosed() throws {
         let fixture = try fixture(zMax: 5, tablePKs: [])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         try execute(fixture.handle, "BEGIN IMMEDIATE")
-        #expect(throws: CoreDataPrimaryKeyError.missingEntity) {
+        #expect(throws: WriteSchemaGuardError.missingEntity("Missing")) {
             _ = try CoreDataPrimaryKey.allocate(entityName: "Missing", table: .collections, on: fixture.handle)
         }
         try execute(fixture.handle, "INSERT INTO Z_PRIMARYKEY VALUES('BKCollection',7,5)")
         var duplicateRowsRead = 0
-        #expect(throws: CoreDataPrimaryKeyError.duplicateEntity) {
+        #expect(throws: WriteSchemaGuardError.duplicateEntity("BKCollection")) {
             _ = try CoreDataPrimaryKey.allocate(
                 entityName: "BKCollection",
                 table: .collections,
@@ -50,7 +67,7 @@ struct CoreDataPrimaryKeyTests {
         }
         #expect(duplicateRowsRead == 2)
         try execute(fixture.handle, "DELETE FROM Z_PRIMARYKEY; INSERT INTO Z_PRIMARYKEY VALUES('BKCollection',NULL,-1)")
-        #expect(throws: CoreDataPrimaryKeyError.invalidEntity) {
+        #expect(throws: WriteSchemaGuardError.invalidEntity("BKCollection")) {
             _ = try CoreDataPrimaryKey.allocate(entityName: "BKCollection", table: .collections, on: fixture.handle)
         }
         try execute(fixture.handle, "ROLLBACK")
@@ -72,7 +89,7 @@ struct CoreDataPrimaryKeyTests {
             SELECT 'BKCollectionMember',8,5 FROM seq;
             """)
         var rowsRead = 0
-        #expect(throws: CoreDataPrimaryKeyError.duplicateEntity) {
+        #expect(throws: WriteSchemaGuardError.duplicateEntity("BKCollectionMember")) {
             _ = try CoreDataPrimaryKey.allocate(
                 entityName: "BKCollectionMember",
                 table: .members,

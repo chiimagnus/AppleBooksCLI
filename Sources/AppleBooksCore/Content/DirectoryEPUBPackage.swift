@@ -25,6 +25,9 @@ struct DirectoryEPUBPackage {
     let packageDocument: EPUBPath
     let manifest: [String: EPUBManifestItem]
     let spine: [EPUBSpineItem]
+    let spinePackageCFIStep: Int
+    let spineItemCFISteps: [Int]
+    let spineItemCFIAssertions: [String]
 
     init(root: URL) throws {
         try self.init(reader: DirectoryEPUBResourceReader(root: root))
@@ -60,6 +63,9 @@ struct DirectoryEPUBPackage {
         self.packageDocument = packageDocument
         manifest = resolvedManifest
         spine = parsed.spine.enumerated().map { EPUBSpineItem(idref: $0.element, order: $0.offset + 1) }
+        spinePackageCFIStep = parsed.spinePackageCFIStep
+        spineItemCFISteps = parsed.spineItemCFISteps
+        spineItemCFIAssertions = parsed.spineItemCFIAssertions
     }
 }
 
@@ -167,6 +173,11 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
 
     private(set) var manifest: [ManifestEntry] = []
     private(set) var spine: [String] = []
+    private(set) var spinePackageCFIStep = 0
+    private(set) var spineItemCFISteps: [Int] = []
+    private(set) var spineItemCFIAssertions: [String] = []
+    private var packageElementChildren = 0
+    private var spineElementChildren = 0
     private var manifestIDs = Set<String>()
     private var depth = 0
     private var manifestDepth: Int?
@@ -216,6 +227,8 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
             return
         }
 
+        if depth == 1 { packageElementChildren += 1 }
+        if spineDepth == depth { spineElementChildren += 1 }
         if namespaceURI == Self.namespace {
             switch elementName {
             case "manifest":
@@ -232,6 +245,7 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
                 }
                 sawSpine = true
                 spineDepth = depth + 1
+                spinePackageCFIStep = packageElementChildren * 2
             case "item":
                 guard manifestDepth == depth,
                       let id = required(attributeDict["id"]),
@@ -263,6 +277,8 @@ private final class PackageDocument: NSObject, XMLParserDelegate {
                     return
                 }
                 spine.append(idref)
+                spineItemCFISteps.append(spineElementChildren * 2)
+                spineItemCFIAssertions.append(required(attributeDict["id"]) ?? idref)
             default:
                 break
             }

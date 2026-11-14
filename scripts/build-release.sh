@@ -110,6 +110,8 @@ cp "$ARM64_BIN_DIR/applebookscli" "$PACKAGE_ROOT/bin/applebookscli"
 chmod +x "$PACKAGE_ROOT/bin/applebookscli"
 
 cp "$SKILL_SYNC" "$PACKAGE_ROOT/libexec/applebookscli/sync-installed-skill.mjs"
+# Keep the build's symbols for diagnostics; strip only the distributed copy before signing.
+xcrun strip "$PACKAGE_ROOT/bin/applebookscli"
 codesign --force --sign - "$PACKAGE_ROOT/bin/applebookscli"
 cp "$REPO_ROOT/README.md" "$PACKAGE_ROOT/README.md"
 cp "$REPO_ROOT/README.zh.md" "$PACKAGE_ROOT/README.zh.md"

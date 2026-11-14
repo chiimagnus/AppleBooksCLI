@@ -132,8 +132,8 @@ final class BackupRootGuard {
                 break
             }
             let length = Int(entry.pointee.d_namlen)
-            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
-                pointer.withMemoryRebound(to: CChar.self, capacity: length + 1) {
+            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: length) {
                     FileManager.default.string(withFileSystemRepresentation: $0, length: length)
                 }
             }

@@ -107,14 +107,7 @@ applebookscli annotations create --book <asset-id> --input annotations.json
 只读 `preview` 不检查这一前提。
 历史为 `incomplete` 时先通过只读 preview/get 核销，不能盲目重试。
 
-旧 EPUB 高亮如果显示在错误页码，应修复原 UUID，而不是删除重建：
-
-```sh
-applebookscli annotations repair-location <annotation-uuid>
-```
-
-如果返回 `changed=true`，再执行 `applebookscli sync`，并在图书阅读器中验收。
-若原位置正确，但替换 EPUB 后高亮消失，应先排查阅读缓存，
+原位替换 EPUB 后若高亮消失，应先排查阅读缓存，不要删除重建批注；
 详见 [`docs/write-safety.md`](docs/write-safety.md)。
 
 ## 关键契约

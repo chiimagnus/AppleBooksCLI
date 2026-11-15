@@ -110,15 +110,8 @@ An unversioned custom build fails safely with `application_version_unavailable`;
 read-only preview does not check executable version metadata.
 An interrupted history entry must be reconciled using read-only preview/get before retrying.
 
-If an older EPUB highlight appears on the wrong page, repair its existing UUID rather than recreate it:
-
-```sh
-applebookscli annotations repair-location <annotation-uuid>
-```
-
-When `changed=true`, run `applebookscli sync`, then check the highlight in Books.
-If the location was already correct but the highlight is missing after replacing an EPUB,
-check the reader cache first; see [`docs/write-safety.md`](docs/write-safety.md).
+If highlights are missing after replacing an EPUB, check the reader cache before changing annotations;
+see [`docs/write-safety.md`](docs/write-safety.md).
 
 ## Key contracts
 

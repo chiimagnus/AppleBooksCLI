@@ -75,27 +75,19 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 未提供日期时两者均使用当前时间，非法或未来日期须在任何写入前拒绝。
 重复导入不能隐式覆盖已有日期。
 
-## 已有高亮的定位与恢复
+## EPUB 高亮定位与阅读缓存
 
-原生高亮的 `ZPLLOCATIONRANGESTART` 和云端 `plLocationRangeStart`
-都必须是当前 EPUB OPF 中的**从零开始的 spine 资源序号**，
-而非字符位置。创建时从定位器传入，不能写死为零。
+新建高亮时，本地 `ZPLLOCATIONRANGESTART` 与原生云端 `plLocationRangeStart`
+必须写入当前 EPUB OPF 中的**从零开始的 spine 资源序号**，不得固定为 0。
+真实位置由创建链路直接计算并校验；已有批注不通过重新导入来修改位置。
 
-旧版本留下的错误序号由 `annotations repair-location <uuid>` 修复：
-根据原 CFI 与当前 OPF 验证唯一位置，在既有事务中更正同一个 UUID，
-不改变选区、CFI、评论、颜色或创建日期；已正确匹配时无写入。
-位置改变时同步推进修改时间和云对象的 `locationModificationDate`；
-普通笔记更新不改变位置时间。提交后投影失败，先核对本地与云端，
-再视需要对**已有 UUID** 使用 `repair-sync`，禁止重建或盲目重试。
-
-**不要把阅读器缓存失配当成批注位置错误。**
-EPUB 被原位替换后，BKLibrary 的当前书籍标识可能与
-`AEEpubInfoSource` 的派生解析缓存标识不一致。
-如果本地/云端序号正确、阅读器仍缺高亮，应先核对这两个标识；
-仅在确认失配且 Books 已退出后，隔离可重建的解析缓存及其 WAL/SHM，
-重新打开书籍使 Apple Books 自行生成缓存。
-不得删除、重绑或重建 BKLibrary/AEAnnotation 的真实记录；
-必须回读新缓存标识、阅读器高亮和原评论。
+原位替换 EPUB 后，BKLibrary 的书籍标识可能已变更，
+但 `AEEpubInfoSource` 的派生解析缓存仍指向旧标识。
+如阅读器缺少高亮，应先核对当前书籍标识、缓存及原生批注状态；
+仅在确认身份失配且 Books 退出后，隔离可再生的解析缓存及其 WAL/SHM，
+重新打开书籍让 Books 自行重建。
+不得删除、重新绑定或重建 BKLibrary/AEAnnotation 的真实记录；
+必须检查重建后的阅读器高亮与原评论。
 
 成功标准须区分：本地事务读回、原生云端投影、当前 Mac 同步确认，
 以及真实 Books 阅读器显示；当前 Mac 的确认**不能证明其它设备已经显示**。
@@ -190,5 +182,5 @@ cloud projection/acknowledgement 或 state-changing recorder/replay 语义时更
 验证必须覆盖 pre/post-COMMIT failure、schema drift、backup/restore、三种 Books state、
 projection/sync failure、pending=0 与 replay。
 **新建导入**须单独验证无云父对象时首次创建、非零 spine 索引、原生阅读器定位、
-笔记内容及重启持久性；旧高亮的 `repair-location` 通过不能替代新建验收。
+笔记内容及重启持久性；已有批注的状态不能代替新建验收。
 真实 Apple Books/CloudKit/UI 未实测时必须明确 evidence gap。

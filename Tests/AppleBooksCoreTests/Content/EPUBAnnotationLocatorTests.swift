@@ -83,10 +83,6 @@ struct EPUBAnnotationLocatorTests {
         #expect(try locator.locate("unique second", chapterOrder: 2).chapterOrder == 2)
         let second = try locator.locate("unique second", chapterOrder: 2)
         #expect(second.spineIndex == 0, "Shared chapters can map to the same spine resource")
-        #expect(try locator.verifiedSpineIndex(for: second.cfi) == second.spineIndex)
-        #expect(throws: EPUBAnnotationLocatorError.sourceChanged) {
-            _ = try locator.verifiedSpineIndex(for: second.cfi.replacingOccurrences(of: "[chapter]", with: "[bad]") )
-        }
         #expect(throws: EPUBAnnotationLocatorError.noMatch) { _ = try locator.locate("unique second", chapterOrder: 1) }
         #expect(throws: EPUBAnnotationLocatorError.noMatch) { _ = try locator.locate("unique first", chapterOrder: 2) }
         #expect(throws: EPUBAnnotationLocatorError.chapterNotFound) { _ = try locator.locate("One", chapterOrder: 3) }
@@ -295,8 +291,6 @@ struct EPUBAnnotationLocatorTests {
         let second = try locator.locate("Second", chapterOrder: 2)
         #expect(second.cfi == "epubcfi(/4/4[ch1]!/2/2[b]/1,:0,:6)")
         #expect(second.spineIndex == 1)
-        #expect(try locator.verifiedSpineIndex(for: second.cfi) == 1)
-        #expect(try locator.verifiedSpineIndex(for: try locator.locate("First", chapterOrder: 1).cfi) == 0)
     }
 
     @Test

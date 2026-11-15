@@ -34,7 +34,6 @@ Do not invoke `pdf`, `export --pdf`, or `export --source` on the current CLI.
 | Set/clear/delete/restore an annotation | `annotations update-note`, `annotations delete`, `annotations restore` |
 | Create EPUB highlights or notes; recover cloud projection | `annotations preview` → `annotations create`; `annotations repair-sync` for an already committed UUID |
 | Restore an existing native highlight's creation time | `annotations set-created-at <uuid> --created-at <timezone-bearing RFC3339>` |
-| Fix an existing highlight shown on the wrong page | `annotations repair-location <uuid> [--sync]` |
 | EPUB metadata/cover/ToC/chapter text | `content metadata`, `content cover`, `content chapters`, `content chapter` |
 | Read collections and membership | `collections list`, `collections search`, `collections get`, `collections books` |
 | Modify collections and membership | `collections create`, `collections rename`, `collections delete`, `collections add-book`, `collections remove-book` |
@@ -51,10 +50,8 @@ Do not invoke `pdf`, `export --pdf`, or `export --source` on the current CLI.
 - Run mutation or restore commands only when the user authorized that change. Never edit Apple Books SQLite directly.
 - `annotations update-note` reads the complete replacement Note from stdin. Read the current note first when the user wants to append; use `--clear` only to clear it. `annotations delete` is soft-delete; `annotations restore` only restores the still-existing tombstone.
 - To create highlights, prepare a JSON file with an `annotations` array of `{ "text": "…", "chapterOrder": 1, "color": "yellow", "note": "…", "createdAt": "2023-06-02T11:58:15+08:00" }` entries. Optional `createdAt` must include a timezone and is persisted on first creation; duplicate imports never overwrite existing dates. First run `annotations preview --book <asset-id> --input <file>`. Resolve ambiguous/missing/conflicting locations before `annotations create` with the same selectors and file. Do not supply raw CFI. The normal Debug CLI and versioned release can create a book's first native cloud parent. A custom unversioned executable returns `application_version_unavailable` before COMMIT; use a normal build instead. Preview does not check binary metadata.
-- If an existing highlight appears on the wrong page, use `annotations repair-location <uuid>`; do not recreate it.
-  The selection, note, and creation date stay intact. Verify the result in Books, not only in local/cloud data.
-  If the location is already correct but a highlight disappears after EPUB replacement, inspect the reader cache
-  before changing annotations (see repository `docs/write-safety.md`).
+- If an existing highlight becomes invisible or moves after replacing an EPUB, do not recreate it.
+  Check the book identity and reader cache first (see repository `docs/write-safety.md`).
 - `annotations set-created-at` restores the original creation time for an existing native highlight without changing its UUID, selection, or note. Native cloud versioning requires advancing modification time to the restoration instant. Supports `--sync`; repeating an already matching date is a no-op. After a committed cloud projection warning, inspect local and native state before retrying.
 - For multi-entry create, `status=partial` or `preflight_failed` may still exit 0: always inspect `complete`, per-item status/UUID, `changedCount` and `syncRequired`. On `cloud_projection_failed`, repair the **existing** UUID using `annotations repair-sync <uuid>` before a separate root `sync`; never recreate it. `--sync` applies only to single-entry create.
 - Collection membership writes use named selectors: exactly one of `--collection` / `--collection-pk` and exactly one of `--book` / `--book-pk`.

@@ -236,22 +236,6 @@ struct EPUBAnnotationLocator {
         }
     }
 
-    // Resolve an existing UUID's CFI against the *current* OPF spine; never trust a caller-supplied index.
-    func verifiedSpineIndex(for cfi: String) throws -> Int {
-        guard CFIResourcePolicy.allowsStructuralParsing(cfi),
-              cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")") else {
-            throw EPUBAnnotationLocatorError.sourceChanged
-        }
-        let matches = try content.package.spine.indices.filter { index in
-            guard let prefix = try? cfiPrefix(spineIndex: index) else { return false }
-            return cfi.hasPrefix("epubcfi(\(prefix)")
-        }
-        guard matches.count == 1, let index = matches.first else {
-            throw EPUBAnnotationLocatorError.sourceChanged
-        }
-        return index
-    }
-
     private func cfiPrefix(spineIndex: Int) throws -> String {
         let package = content.package
         guard package.spinePackageCFIStep > 0,

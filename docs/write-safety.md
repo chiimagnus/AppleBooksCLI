@@ -188,5 +188,7 @@ history root lock 会在 dispatch 前 claim，并阻止同 UUID replay。
 修改 writable scope、transaction/no-op/COMMIT 边界、backup/restore、Books lifecycle、
 cloud projection/acknowledgement 或 state-changing recorder/replay 语义时更新本文。
 验证必须覆盖 pre/post-COMMIT failure、schema drift、backup/restore、三种 Books state、
-projection/sync failure、pending=0 与 replay；真实 Apple Books/CloudKit/UI 未实测时必须明确
-evidence gap。
+projection/sync failure、pending=0 与 replay。
+**新建导入**须单独验证无云父对象时首次创建、非零 spine 索引、原生阅读器定位、
+笔记内容及重启持久性；旧高亮的 `repair-location` 通过不能替代新建验收。
+真实 Apple Books/CloudKit/UI 未实测时必须明确 evidence gap。

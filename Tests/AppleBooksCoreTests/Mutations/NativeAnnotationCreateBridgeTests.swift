@@ -153,11 +153,18 @@ struct NativeAnnotationCreateBridgeTests {
         )
         let parentExists = try firstParent.step()
         #expect(parentExists == (firstParentStatus == 0))
-        if parentExists { #expect(try !firstParent.step()) }
+        if parentExists {
+            #expect(try !firstParent.step())
+            try verifyNativeCloud(
+                cloudDB, assetID: "synthetic-missing-parent", expectedCount: 1,
+                values: ["synthetic-uuid-3": (1, false, nil)],
+                spineIndices: ["synthetic-uuid-3": 1]
+            )
+        }
     }
 
     private func verifyNativeCloud(
-        _ database: URL, expectedCount: Int,
+        _ database: URL, assetID: String = "synthetic-asset", expectedCount: Int,
         values: [String: (Int, Bool, String?)],
         dates: [String: (Double, Double)] = [:],
         spineIndices: [String: Int] = [:]
@@ -166,8 +173,9 @@ struct NativeAnnotationCreateBridgeTests {
         defer { try? conn.close() }
         let statement = try conn.prepare("""
             SELECT ZBOOKANNOTATIONS FROM ZBCASSETANNOTATIONS
-            WHERE ZASSETID='synthetic-asset' ORDER BY Z_PK LIMIT 2
+            WHERE ZASSETID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2
             """)
+        try statement.bind(assetID, at: 1)
         guard try statement.step() else { throw VerificationError.missing }
         let handle = try #require(statement.handle)
         let pointer = try #require(sqlite3_column_blob(handle, 0))

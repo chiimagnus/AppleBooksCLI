@@ -49,7 +49,7 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 ## 可写对象
 
 - 批注：允许替换/清空笔记、软删除与恢复、创建有准确选区的 EPUB 高亮、
-  修复已有高亮的章节位置与创建时间。禁止硬删除、改写选区/CFI 或修改系统书签。
+  回填已有高亮的创建时间。禁止硬删除、修改已有选区/CFI/章节位置或系统书签。
 - 藏书：只允许编辑用户创建的藏书及其成员关系；系统藏书拒绝写入。
 - 精确写入优先 stable identity；本地 PK 仅可显式选择。
   Note/title 的 inverse prior state 必须在受控事务内、COMMIT 前读取，不得从 CLI 预读猜测。
@@ -79,7 +79,8 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
 
 新建高亮时，本地 `ZPLLOCATIONRANGESTART` 与原生云端 `plLocationRangeStart`
 必须写入当前 EPUB OPF 中的**从零开始的 spine 资源序号**，不得固定为 0。
-真实位置由创建链路直接计算并校验；已有批注不通过重新导入来修改位置。
+真实位置由创建链路直接计算并校验。
+现行 CLI 不提供已有高亮的章节位置修复；重新导入或 `repair-sync` 都不能替代位置修复。
 
 原位替换 EPUB 后，BKLibrary 的书籍标识可能已变更，
 但 `AEEpubInfoSource` 的派生解析缓存仍指向旧标识。

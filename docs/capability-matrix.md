@@ -108,11 +108,6 @@ reachability anchor。
 | annotation export ordering | 已实现（强化） | 默认 reading；EPUB 使用稳定的阅读位置顺序和确定性 fallback；没有额外 order flag |
 | EPUB export source selectors | 已实现（强化） | bulk 默认仅 EPUB；exact `--book` / `--book-pk` 可重复、自动去重，missing/ambiguous fail closed；PDF 书籍精确选择返回不可用，bulk 排除可识别的 PDF 书籍批注 |
 
-## PDF（自 v0.5.0 起已移除）
-
-PDF 专用查询、PDF 高亮提取与 PDF 导出均不再支持。最后支持 PDF 的版本为 **v0.4.2**（含更早版本）。
-书库列表仍可出现 PDF 书籍的常规 metadata，不代表 CLI 可以读取 PDF 文件或其高亮。
-
 ## Safe writes / backup
 
 | 能力 | 范围 | 当前 contract |
@@ -141,7 +136,7 @@ PDF 专用查询、PDF 高亮提取与 PDF 导出均不再支持。最后支持 
 
 ## 当前明确不支持
 
-- **PDF**：自 v0.5.0 起不支持 `pdf`、`export --pdf`、`export --source`，也不再打包 PDF Worker。需要 PDF 的用户应保留 v0.4.2 或更早版本。
+- **PDF**：v0.5.0 起不再读取或导出 PDF 正文与高亮，已移除 `pdf`、`export --pdf`、`export --source` 和 PDF Worker；书库列表仍可能显示 PDF 元数据。最后支持 PDF 的版本为 v0.4.2。
 
 - 仅凭当前 Mac 的云端确认保证其它设备已显示（须在目标设备上实际验收）。
 - 修改 selected text / CFI range。

@@ -2,15 +2,11 @@
 
 [English](README.md) | 简体中文
 
-AppleBooksCLI 是一个用于查询并安全修改 Apple Books 数据的 macOS 命令行工具，
-覆盖书籍、阅读状态、批注、本地 EPUB 正文、导出、备份、藏书、同步与近期写入历史。
+AppleBooksCLI 是 macOS 命令行工具，可查看 Apple Books 书库与本地 EPUB 正文、管理划线和笔记、
+导出批注，以及安全地操作藏书、备份和同步。
 
-## 0.5.0 起不再支持 PDF
-
-**AppleBooksCLI 自 v0.5.0 起完全移除 PDF 专用功能。**
-不再提供 PDF 命令、PDF 高亮提取和 PDF 导出。
-**只有 v0.4.2 及更早版本支持 PDF。**
-一般书库列表可能仍包含 PDF 的书籍元数据，但不会读取或导出 PDF 正文和高亮。
+**自 v0.5.0 起仅支持 EPUB。** 不再读取和导出 PDF 正文与高亮，
+但书库列表仍可能显示 PDF 元数据。最后支持 PDF 的版本是 v0.4.2。
 
 ## 系统要求
 
@@ -41,17 +37,18 @@ npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill
 如果 Agent Skills CLI 已管理 AppleBooksCLI Skill，正常 npm 升级会尝试把 Skill 对齐到同一 CLI
 release tag；`--ignore-scripts` 可关闭这项可选的 npm 步骤。
 
-## 使用
+## 查找和阅读
 
-命令与参数以当前安装的 CLI 为准：
+命令与参数以已安装 CLI 的帮助为准：
 
 ```sh
 applebookscli --help
-applebookscli <group> --help
-applebookscli <group> <subcommand> --help
+applebookscli annotations --help
+applebookscli annotations create --help
 ```
 
-常用读取：
+下面的 `BOOK_ASSET_ID`、`ANNOTATION_UUID`、`COLLECTION_ID` 是占位符，
+请替换为列表查询返回的真实标识。
 
 ```sh
 applebookscli doctor
@@ -59,77 +56,80 @@ applebookscli books list
 applebookscli books search "history" --field all
 applebookscli reading in-progress
 applebookscli annotations list --has-note true --order modified
-applebookscli annotations get <annotation-uuid>
-applebookscli annotations context <annotation-uuid>
-applebookscli reading position <asset-id>
-applebookscli content chapters --book <asset-id>
-applebookscli content chapter --book <asset-id> --chapter 1
+applebookscli annotations get "ANNOTATION_UUID"
+applebookscli annotations context "ANNOTATION_UUID"
+applebookscli reading position "BOOK_ASSET_ID"
+applebookscli content chapters --book "BOOK_ASSET_ID"
+applebookscli content chapter --book "BOOK_ASSET_ID" --chapter 1
 ```
 
-导出只写入显式文件或受管目录；默认 Markdown，归档 JSON 需显式指定：
+## 导出 EPUB 笔记
+
+导出到指定的文件或目录。Markdown 便于阅读，
+`--format json` 保留完整归档数据：
 
 ```sh
 applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
-applebookscli export --book <asset-id> --output notes.md
+applebookscli export --book "BOOK_ASSET_ID" --output notes.md
 ```
 
-安全写入与恢复：
+## 修改和恢复
+
+以下命令会修改 Apple Books 数据，请确认操作意图后使用。
+`delete` 是软删除，仅在删除记录仍存在时才能用 `restore` 恢复。
+`set-created-at` 也会更新修改时间。
 
 ```sh
 applebookscli collections create "My Shelf"
-applebookscli collections add-book --collection <collection-id> --book <asset-id>
-printf '%s' 'New note' | applebookscli annotations update-note <annotation-uuid>
-applebookscli annotations delete <annotation-uuid>
-applebookscli annotations restore <annotation-uuid>
+applebookscli collections add-book --collection "COLLECTION_ID" --book "BOOK_ASSET_ID"
+printf '%s' 'New note' | applebookscli annotations update-note "ANNOTATION_UUID"
+applebookscli annotations set-created-at "ANNOTATION_UUID" --created-at "2023-06-02T11:58:15+08:00"
+applebookscli annotations delete "ANNOTATION_UUID"
+applebookscli annotations restore "ANNOTATION_UUID"
 applebookscli sync
+```
+
+只读查看可用备份和近期操作记录：
+
+```sh
 applebookscli backups list
 applebookscli history list
 ```
 
-通过来源无关的 JSON 文件创建 EPUB 划线与笔记。先只读预检，
-再针对同一本书创建一条或多条：
+## 创建 EPUB 划线与笔记
+
+在 JSON 文件中填写当前 EPUB 的原文与章节信息，替换下面的示例文字和章节号。
+`preview` 仅检查位置、不写入；`create` 可在同一本书中创建 1～500 条：
 
 ```sh
 cat > annotations.json <<'JSON'
 {"annotations":[{"text":"The sample text","chapterOrder":2,"color":"yellow","note":"A sample note"}]}
 JSON
-applebookscli annotations preview --book <asset-id> --input annotations.json
-applebookscli annotations create --book <asset-id> --input annotations.json
+applebookscli annotations preview --book "BOOK_ASSET_ID" --input annotations.json
+applebookscli annotations create --book "BOOK_ASSET_ID" --input annotations.json
 ```
 
-批量创建即使进程退出码为 0，也必须检查 `complete` 和各条索引结果。
-`changedCount > 0` 时，在处理好 `cloud_projection_failed` 警告后，
-独立调用一次 `applebookscli sync`；云投影失败的现有记录用
-`annotations repair-sync <annotation-uuid>` 修复，不重新插入。
-标准 CLI 也能在没有批注的 EPUB 中创建首条高亮。
-未携带版本信息的自定义构建会安全返回 `application_version_unavailable`；
-只读 `preview` 不检查这一前提。
-历史为 `incomplete` 时先通过只读 preview/get 核销，不能盲目重试。
+批量创建即使退出码为 0，也要检查 `complete` 和各条结果。
+出现 `cloud_projection_failed` 时，先对**已有 UUID** 执行 `annotations repair-sync`；
+若 `changedCount > 0`，处理好警告后独立运行一次 `applebookscli sync`。
+批次部分完成或中断时，不得直接重放。
+原位替换 EPUB 后若高亮消失，应先排查阅读缓存；详见[写入与恢复](docs/write-safety.md)。
 
-原位替换 EPUB 后若高亮消失，应先排查阅读缓存，不要删除重建批注；
-详见 [`docs/write-safety.md`](docs/write-safety.md)。
+## 安全使用
 
-## 关键契约
+- 读取不会修改数据；写入有安全备份。`--sync` 只确认当前 Mac 已接收同步，
+  不代表另一台设备已经显示变更。
+- 数据命令在 stdout 返回 JSON，致命错误在 stderr 返回 JSON；帮助和版本信息为纯文本。
+  分页按原样传递 `nextCursor`；`truncatedFields` 表示展示文本被截短，
+  需要完整归档时使用 JSON 导出。
+- 精确操作使用列表返回的书籍 ID、批注 UUID、藏书 ID 或备份 ID；
+  本地数据库主键必须显式选择。
+- 自动化写入时，每个逻辑请求生成一个新的小写 UUID 作为 `APPLEBOOKSCLI_OPERATION_ID`，
+  同一请求重试时复用；历史标记为 `incomplete` 时不能盲目重试。
 
-- Operational command 在 stdout 输出 JSON；fatal error 在 stderr 输出净化后的 JSON。
-  help/version 保持纯文本。
-- 精确操作优先 stable identity：book asset ID、annotation UUID、collection ID 或 `backupID`。
-  local PK 只是本机 fallback，必须显式选择。
-- 可增长查询使用 opaque `nextCursor`；续页时把 token 原样交回同一查询，不解析、不修改。
-  `backups list` 不分页，只是最新 10 个恢复备份的固定目录。
-- 普通读取是有界 semantic view；出现 `truncatedFields` 表示展示文本被缩短。
-  需要完整 raw text/CFI 时使用 archival JSON export。
-- 普通读取保持只读；mutation 经过 guarded transaction 与 safety backup。
-  `--sync` 只等待当前 Mac acknowledgement，不代表另一台设备已经显示变更。
-- 通过可能自动重试的 transport 执行 mutation、restore 或 root sync 时，
-  为该逻辑请求生成一次 fresh lowercase UUID，设为 `APPLEBOOKSCLI_OPERATION_ID`，并在重试时原样复用，
-  避免再次派发写操作。
-- Export artifact 只写显式 destination；stdout 只返回 compact write result，不返回完整 artifact。
-
-详细契约统一从 [`docs/index.md`](docs/index.md) 进入。
-Process/history 见 [`docs/cli-contract.md`](docs/cli-contract.md)，
-mutation/backup/restore/sync 见 [`docs/write-safety.md`](docs/write-safety.md)。
+详细说明见[文档索引](docs/index.md)、[CLI 契约](docs/cli-contract.md)
+与[写入和恢复安全](docs/write-safety.md)。
 
 ## 可选配置
 

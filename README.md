@@ -2,17 +2,11 @@
 
 English | [简体中文](README.zh.md)
 
-AppleBooksCLI is a macOS command-line tool for querying and safely updating Apple Books data.
-It covers books, reading state, annotations, local EPUB content, exports, backups,
-collections, sync, and recent write history.
+AppleBooksCLI lets you browse your Apple Books library, read local EPUBs, manage highlights
+and notes, export annotations, and safely manage collections, backups, and sync from macOS.
 
-## PDF support ended in v0.5.0
-
-**Starting with v0.5.0, AppleBooksCLI no longer supports PDFs.**
-The PDF commands, highlight extraction, and PDF export have been removed.
-**PDF support is available only in v0.4.2 and earlier.**
-General library listings may still include PDF book metadata, but the tool does not read
-or export their PDF content or highlights.
+**EPUB only since v0.5.0.** PDF content and highlights are no longer supported,
+although book listings may still show PDF metadata. v0.4.2 was the last release with PDF support.
 
 ## Requirements
 
@@ -45,17 +39,18 @@ npx -y skills add "chiimagnus/AppleBooksCLI#v$(applebookscli --version)" --skill
 If Agent Skills CLI already manages the AppleBooksCLI Skill, normal npm upgrades attempt to
 align it to the same CLI release tag. `--ignore-scripts` disables that optional npm step.
 
-## Use
+## Find and read
 
-The installed CLI is the source of truth for commands and arguments:
+Check the installed CLI's help for current commands and options:
 
 ```sh
 applebookscli --help
-applebookscli <group> --help
-applebookscli <group> <subcommand> --help
+applebookscli annotations --help
+applebookscli annotations create --help
 ```
 
-Common reads:
+In the examples, replace `BOOK_ASSET_ID`, `ANNOTATION_UUID`, and `COLLECTION_ID`
+with IDs returned by the list commands.
 
 ```sh
 applebookscli doctor
@@ -63,79 +58,80 @@ applebookscli books list
 applebookscli books search "history" --field all
 applebookscli reading in-progress
 applebookscli annotations list --has-note true --order modified
-applebookscli annotations get <annotation-uuid>
-applebookscli annotations context <annotation-uuid>
-applebookscli reading position <asset-id>
-applebookscli content chapters --book <asset-id>
-applebookscli content chapter --book <asset-id> --chapter 1
+applebookscli annotations get "ANNOTATION_UUID"
+applebookscli annotations context "ANNOTATION_UUID"
+applebookscli reading position "BOOK_ASSET_ID"
+applebookscli content chapters --book "BOOK_ASSET_ID"
+applebookscli content chapter --book "BOOK_ASSET_ID" --chapter 1
 ```
 
-Export writes a file or managed directory; Markdown is the default and archival JSON is explicit:
+## Export EPUB notes
+
+Export writes to a chosen file or directory. Markdown is for reading;
+`--format json` preserves archival annotation data:
 
 ```sh
 applebookscli export --output ~/Desktop/apple-books.md
 applebookscli export --format json --output ~/Desktop/apple-books.json
-applebookscli export --book <asset-id> --output notes.md
+applebookscli export --book "BOOK_ASSET_ID" --output notes.md
 ```
 
-Guarded writes and recovery:
+## Edit and recover
+
+These commands modify your Apple Books data; use them only when you intend to make the change.
+`delete` soft-deletes; `restore` works while its tombstone remains.
+`set-created-at` also updates the modification time.
 
 ```sh
 applebookscli collections create "My Shelf"
-applebookscli collections add-book --collection <collection-id> --book <asset-id>
-printf '%s' 'New note' | applebookscli annotations update-note <annotation-uuid>
-applebookscli annotations delete <annotation-uuid>
-applebookscli annotations restore <annotation-uuid>
+applebookscli collections add-book --collection "COLLECTION_ID" --book "BOOK_ASSET_ID"
+printf '%s' 'New note' | applebookscli annotations update-note "ANNOTATION_UUID"
+applebookscli annotations set-created-at "ANNOTATION_UUID" --created-at "2023-06-02T11:58:15+08:00"
+applebookscli annotations delete "ANNOTATION_UUID"
+applebookscli annotations restore "ANNOTATION_UUID"
 applebookscli sync
+```
+
+Inspect available backups and recent operations without changing data:
+
+```sh
 applebookscli backups list
 applebookscli history list
 ```
 
-Create EPUB highlights and notes from a source-independent JSON file. Preview is read-only;
-create supports one or more annotations in the same book:
+## Create EPUB highlights and notes
+
+Use text from the book's current EPUB in a JSON file; replace the sample text and chapter with
+an exact selection. Preview checks locations without writing; create accepts 1–500 entries for one book:
 
 ```sh
 cat > annotations.json <<'JSON'
 {"annotations":[{"text":"The sample text","chapterOrder":2,"color":"yellow","note":"A sample note"}]}
 JSON
-applebookscli annotations preview --book <asset-id> --input annotations.json
-applebookscli annotations create --book <asset-id> --input annotations.json
+applebookscli annotations preview --book "BOOK_ASSET_ID" --input annotations.json
+applebookscli annotations create --book "BOOK_ASSET_ID" --input annotations.json
 ```
 
-For a batch, inspect `complete` and each indexed result even when the process exits successfully.
-If `changedCount > 0`, call `applebookscli sync` separately after resolving any
-`cloud_projection_failed` warning with `annotations repair-sync <annotation-uuid>`.
-The standard CLI can also create a book's first highlight.
-An unversioned custom build fails safely with `application_version_unavailable`;
-read-only preview does not check executable version metadata.
-An interrupted history entry must be reconciled using read-only preview/get before retrying.
+For a batch, check `complete` and each item even if the command exits with code 0.
+Repair `cloud_projection_failed` on the **existing** UUID with `annotations repair-sync`;
+if `changedCount > 0`, run `applebookscli sync` once after repairs.
+Never blindly rerun a partially completed or interrupted batch.
+See [write safety](docs/write-safety.md) for recovery and missing highlights after replacing an EPUB.
 
-If highlights are missing after replacing an EPUB, check the reader cache before changing annotations;
-see [`docs/write-safety.md`](docs/write-safety.md).
+## Working safely
 
-## Key contracts
+- Reads are read-only; writes use safety backups. `--sync` confirms acknowledgement only on this Mac,
+  not whether another device has displayed the change.
+- Data commands return JSON on stdout; fatal errors return JSON on stderr. Help/version are plain text.
+  Continue paginated queries with `nextCursor` unchanged. `truncatedFields` means display text is
+  incomplete; export JSON for full archival data.
+- Use returned asset IDs, annotation UUIDs, collection IDs, or backup IDs for exact operations.
+  Local primary keys must be selected explicitly.
+- For automated writes, assign a fresh lowercase UUID as `APPLEBOOKSCLI_OPERATION_ID` per logical
+  request and reuse it on retry. An `incomplete` history entry is not permission to retry blindly.
 
-- Operational commands use JSON on stdout; fatal errors use sanitized JSON on stderr. Help/version
-  remain plain text.
-- Prefer stable identities: book asset ID, annotation UUID, collection ID, or `backupID`.
-  Local PKs are machine-local fallbacks and must be selected explicitly.
-- Growing queries use opaque `nextCursor` continuation. Pass the token unchanged to the same
-  query; do not decode or edit it. `backups list` is different: it is a fixed newest-10 recovery
-  catalog, not paginated history.
-- Ordinary reads are bounded semantic views. `truncatedFields` means presentation text was
-  shortened; use archival JSON export when full raw text/CFI fidelity is required.
-- Ordinary reads are read-only. Mutations use guarded transactions and safety backups. `--sync`
-  waits only for current-Mac acknowledgement; it does not prove another device already displays
-  the change.
-- When a transport may automatically retry a mutation, restore, or root sync, generate one
-  fresh lowercase UUID for that logical request, set it as `APPLEBOOKSCLI_OPERATION_ID`, and
-  reuse it on retry so the write cannot be redispatched blindly.
-- Export artifacts are written only to the explicit destination; stdout returns a compact write
-  result rather than the full artifact.
-
-Detailed contracts live in [`docs/index.md`](docs/index.md). In particular, see
-[`docs/cli-contract.md`](docs/cli-contract.md) for process/history behavior and
-[`docs/write-safety.md`](docs/write-safety.md) for mutation, backup, restore, and sync semantics.
+See the [documentation index](docs/index.md), [CLI contract](docs/cli-contract.md),
+and [write safety](docs/write-safety.md) for detailed behavior and recovery rules.
 
 ## Optional configuration
 

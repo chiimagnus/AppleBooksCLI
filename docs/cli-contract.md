@@ -32,6 +32,7 @@ Error envelope shape 固定：`error` 始终包含 `code`、`reason`、`message`
 
 ```text
 ambiguous_identity            annotation_not_found          annotation_restore_unavailable
+application_version_unavailable
 backup_not_found              book_not_found                chapter_not_found
 collection_not_found          configuration_invalid         content_unavailable
 context_unavailable           cursor_stale                  database_unavailable

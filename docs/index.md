@@ -11,7 +11,7 @@
 | [`capability-matrix.md`](capability-matrix.md) | 当前用户可见能力与明确不支持项 | capability、selector/output 语义或用户可见限制变化 |
 | [`architecture.md`](architecture.md) | store/source/identity、Core↔CLI ownership 与长期资源边界 | 数据源、identity、分层、content/export ownership 或 hard budget 变化 |
 | [`cli-contract.md`](cli-contract.md) | process exit/stdout/stderr/JSON/cursor/doctor/history contract | process protocol、cursor、doctor 或 history 行为变化 |
-| [`write-safety.md`](write-safety.md) | 写入安全、EPUB 高亮修复与阅读缓存排障、云端确认边界 | mutation/restore、批注定位、缓存恢复或 sync 语义变化 |
+| [`write-safety.md`](write-safety.md) | 写入安全、EPUB 高亮创建定位、阅读缓存排障与云端确认边界 | mutation/restore、批注定位、缓存恢复或 sync 语义变化 |
 | [`release.md`](release.md) | version/channel/tag/publication | release pipeline、version injection 或 publication ordering 变化 |
 | [`macos-27-schema-baseline.md`](macos-27-schema-baseline.md) | 2026-08-30 macOS 27 的只读 schema 观测 | 旧 baseline 不改写；新系统版本另建 dated baseline |
 

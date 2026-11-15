@@ -70,6 +70,9 @@ plain-text stdout。
 `preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
 原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
 `annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
+`annotations repair-location <uuid> [--sync]` 根据已有高亮的 CFI 和当前 EPUB 修复原生章节位置；
+调用方不提供索引，位置已正确时返回 no-op。`--sync` 只确认当前 Mac 的云端接收。
+修改时间、缓存失配及提交后恢复规则统一见 [`write-safety.md`](write-safety.md)。
 `annotations set-created-at <uuid> --created-at <RFC3339 instant> [--sync]` 只用于已有的原生 user highlight。
 UUID 必须是精确身份，时间必须有明确时区、不晚于当前时间；创建时间已相同时静默 no-op。
 真实变更沿受控写入事务、备份、原生云投影和可选当前 Mac 确认；

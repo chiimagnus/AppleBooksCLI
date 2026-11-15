@@ -428,7 +428,7 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         if (connection != NULL) sqlite3_close_v2(connection);
         return nil;
     }
-    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
+    const char *sql = "SELECT ZANNOTATIONDELETED,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONNOTE,ZFUTUREPROOFING6,ZANNOTATIONTYPE,ZANNOTATIONCREATIONDATE,ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
     sqlite3_stmt *statement = NULL;
     if (sqlite3_prepare_v2(connection, sql, -1, &statement, NULL) != SQLITE_OK) {
         sqlite3_close_v2(connection);
@@ -446,7 +446,10 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         || sqlite3_column_int64(statement, 4) == 3
         || !isfinite(sqlite3_column_double(statement, 1))
         || (sqlite3_column_type(statement, 5) != SQLITE_FLOAT && sqlite3_column_type(statement, 5) != SQLITE_INTEGER)
-        || !isfinite(sqlite3_column_double(statement, 5))) {
+        || !isfinite(sqlite3_column_double(statement, 5))
+        || (sqlite3_column_int64(statement, 4) == 2 &&
+            (sqlite3_column_type(statement, 6) != SQLITE_INTEGER ||
+             sqlite3_column_int64(statement, 6) < 0))) {
         sqlite3_finalize(statement);
         sqlite3_close_v2(connection);
         return nil;
@@ -459,6 +462,9 @@ static NSDictionary *ABReadAnnotationTarget(NSString *annotationsDatabase, NSStr
         @"modified": @(sqlite3_column_double(statement, 1)),
         @"created": @(sqlite3_column_double(statement, 5)),
     } mutableCopy];
+    if (sqlite3_column_int64(statement, 4) == 2) {
+        result[@"spineIndex"] = @(sqlite3_column_int64(statement, 6));
+    }
 
     if (!deleted) {
         id note = [NSNull null];
@@ -550,6 +556,14 @@ static BOOL ABUpdateExistingAnnotationCloudObjectWithBookClass(id cloudObject, N
         ABSetDouble(target, @"setCreationDate:", [row[@"created"] doubleValue]);
     }
     ABSetDouble(target, @"setModificationDate:", [row[@"modified"] doubleValue]);
+    if (row[@"spineIndex"] != nil) {
+        int64_t previousIndex = [[target valueForKey:@"plLocationRangeStart"] longLongValue];
+        int64_t newIndex = [row[@"spineIndex"] longLongValue];
+        ABSetInteger(target, @"setPlLocationRangeStart:", newIndex);
+        if (previousIndex != newIndex) {
+            ABSetDouble(target, @"setLocationModificationDate:", [row[@"modified"] doubleValue]);
+        }
+    }
     id fp6 = row[@"fp6"];
     if (fp6 == nil) return NO;
     if (fp6 != [NSNull null]) {
@@ -582,7 +596,7 @@ static NSDictionary *ABReadNewAnnotationTarget(NSString *database, NSString *ass
     }
     const char *sql = "SELECT ZANNOTATIONTYPE,ZANNOTATIONDELETED,ZANNOTATIONSTYLE,ZANNOTATIONISUNDERLINE,"
                       "ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,ZANNOTATIONSELECTEDTEXT,"
-                      "ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONLOCATION,ZANNOTATIONNOTE,ZANNOTATIONCREATORIDENTIFIER "
+                      "ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONLOCATION,ZANNOTATIONNOTE,ZANNOTATIONCREATORIDENTIFIER,ZPLLOCATIONRANGESTART "
                       "FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID=? COLLATE BINARY AND "
                       "ZANNOTATIONUUID=? COLLATE BINARY ORDER BY Z_PK LIMIT 2";
     sqlite3_stmt *stmt = NULL;
@@ -610,6 +624,8 @@ static NSDictionary *ABReadNewAnnotationTarget(NSString *database, NSString *ass
         }
         NSString *creator = ABText(stmt, 10, 256);
         if (selected.length > 0 && representative.length > 0 && cfi.length > 0 &&
+            sqlite3_column_type(stmt, 11) == SQLITE_INTEGER &&
+            sqlite3_column_int64(stmt, 11) >= 0 &&
             note != nil && [creator isEqualToString:@"com~apple~iBooks"]) {
             result = @{
                 @"selected": selected, @"representative": representative,
@@ -617,6 +633,7 @@ static NSDictionary *ABReadNewAnnotationTarget(NSString *database, NSString *ass
                 @"modified": @(sqlite3_column_double(stmt, 5)),
                 @"style": @(sqlite3_column_int(stmt, 2)),
                 @"underline": @(sqlite3_column_int(stmt, 3)),
+                @"spineIndex": @(sqlite3_column_int64(stmt, 11)),
             };
         }
         if (sqlite3_step(stmt) != SQLITE_DONE) result = nil;
@@ -639,6 +656,7 @@ static BOOL ABMatchesCreatedAnnotation(id annotation, NSString *uuid, NSDictiona
         && [[annotation valueForKey:@"style"] longLongValue] == [row[@"style"] longLongValue]
         && [[annotation valueForKey:@"isUnderline"] boolValue] == [row[@"underline"] boolValue]
         && [[annotation valueForKey:@"type"] intValue] == 2
+        && [[annotation valueForKey:@"plLocationRangeStart"] longLongValue] == [row[@"spineIndex"] longLongValue]
         && ![[annotation valueForKey:@"deleted"] boolValue];
 }
 
@@ -727,7 +745,7 @@ static int32_t ABAppendNewNativeAnnotation(
     ABSetDouble(annotation, @"setLocationModificationDate:", modified);
     ABSetDouble(annotation, @"setUserModificationDate:", modified);
     ABSetInteger(annotation, @"setPlAbsolutePhysicalLocation:", 0);
-    ABSetInteger(annotation, @"setPlLocationRangeStart:", 0);
+    ABSetInteger(annotation, @"setPlLocationRangeStart:", [target[@"spineIndex"] longLongValue]);
     ABSetInteger(annotation, @"setPlLocationRangeEnd:", 0);
     ABSetFloat(annotation, @"setReadingProgress:", 0);
     ABSetFloat(annotation, @"setReadingProgressHighWaterMark:", 0);
@@ -797,7 +815,9 @@ static BOOL ABVerifyProjectedAnnotationDates(
                     NSNumber *modified = [annotation valueForKey:@"modificationDate"];
                     if (![created isKindOfClass:[NSNumber class]] || ![modified isKindOfClass:[NSNumber class]] ||
                         fabs(created.doubleValue - [row[@"created"] doubleValue]) > 0.000001 ||
-                        fabs(modified.doubleValue - [row[@"modified"] doubleValue]) > 0.000001) {
+                        fabs(modified.doubleValue - [row[@"modified"] doubleValue]) > 0.000001 ||
+                        (row[@"spineIndex"] != nil &&
+                         [[annotation valueForKey:@"plLocationRangeStart"] longLongValue] != [row[@"spineIndex"] longLongValue])) {
                         valid = NO;
                     }
                 }

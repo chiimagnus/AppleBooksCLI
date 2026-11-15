@@ -37,6 +37,39 @@ struct AnnotationCreateTests {
     }
 
     @Test
+    func newHighlightStoresActualEPUBSpineIndexRatherThanZero() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let opf = fixture.epub.appendingPathComponent("OPS/content.opf")
+        var contents = try String(contentsOf: opf, encoding: .utf8)
+        contents = contents.replacingOccurrences(
+            of: #"<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>"#,
+            with: #"<item id="intro" href="intro.xhtml" media-type="application/xhtml+xml"/><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>"#
+        )
+        contents = contents.replacingOccurrences(
+            of: #"<spine><itemref idref="chapter"/></spine>"#,
+            with: #"<spine><itemref idref="intro"/><itemref idref="chapter"/></spine>"#
+        )
+        try contents.write(to: opf, atomically: true, encoding: .utf8)
+        try #"<html><body><p>Intro text.</p></body></html>"#.write(
+            to: fixture.epub.appendingPathComponent("OPS/intro.xhtml"), atomically: true,
+            encoding: .utf8
+        )
+        let writer = fixture.writer { _ in }
+        let app = try fixture.facade(annotationWriter: writer)
+        let result = try app.createAnnotation(
+            assetID: "synthetic-asset", text: "token", note: "Preserve this original note"
+        )
+        #expect(result.committed && result.changed)
+        #expect(try fixture.scalar("SELECT ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
+        let uuid = try #require(result.stableID)
+        let current = try #require(try app.semanticAnnotation(uuid: uuid))
+        #expect(current.rawCFI?.hasPrefix("epubcfi(/6/4[chapter]!") == true)
+        #expect(current.note == "Preserve this original note")
+        #expect(try fixture.count() == 1)
+    }
+
+    @Test
     func originalCreationTimeIsStoredOnFirstInsertWithoutReplacingNotesOrIdentity() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -445,6 +478,7 @@ struct AnnotationCreateTests {
                     guard checks >= 4 else { return f.selection }
                     return EPUBAnnotationSelection(
                         chapterOrder: f.selection.chapterOrder,
+                        spineIndex: f.selection.spineIndex,
                         resourcePath: f.selection.resourcePath,
                         selectedText: "changed",
                         representativeText: f.selection.representativeText,

@@ -105,8 +105,20 @@ applebookscli annotations create --book <asset-id> --input annotations.json
 For a batch, inspect `complete` and each indexed result even when the process exits successfully.
 If `changedCount > 0`, call `applebookscli sync` separately after resolving any
 `cloud_projection_failed` warning with `annotations repair-sync <annotation-uuid>`.
-AppleBooksCLI can create a book's first native highlight. Use the standard Debug CLI or a versioned release: the executable must contain its own app version metadata for the native first-parent operation. An unversioned custom binary fails safely with `application_version_unavailable`. Read-only preview does not verify executable metadata.
+The standard CLI can also create a book's first highlight.
+An unversioned custom build fails safely with `application_version_unavailable`;
+read-only preview does not check executable version metadata.
 An interrupted history entry must be reconciled using read-only preview/get before retrying.
+
+If an older EPUB highlight appears on the wrong page, repair its existing UUID rather than recreate it:
+
+```sh
+applebookscli annotations repair-location <annotation-uuid>
+```
+
+When `changed=true`, run `applebookscli sync`, then check the highlight in Books.
+If the location was already correct but the highlight is missing after replacing an EPUB,
+check the reader cache first; see [`docs/write-safety.md`](docs/write-safety.md).
 
 ## Key contracts
 

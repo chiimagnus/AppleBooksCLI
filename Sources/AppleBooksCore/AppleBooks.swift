@@ -1059,6 +1059,28 @@ public final class AppleBooks {
         )
     }
 
+    public func repairAnnotationSpineLocation(uuid: String, syncCloud: Bool = false) throws -> MutationResult {
+        guard let annotation = try semanticAnnotation(uuid: uuid),
+              annotation.type == 2,
+              annotation.isDeleted == false,
+              let assetID = annotation.rawAssetID,
+              let cfi = annotation.rawCFI else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        let queries = try requiredBookQueries()
+        let configuration = try requiredConfiguration()
+        func verifySource() throws -> Int {
+            try EPUBAnnotationLocator(
+                assetID: assetID, bookQueries: queries, configuration: configuration
+            ).verifiedSpineIndex(for: cfi)
+        }
+        let index = try verifySource()
+        return try requiredAnnotationWriter().repairSpineLocation(
+            uuid: uuid, assetID: assetID, cfi: cfi, spineIndex: index,
+            verifySource: verifySource, syncCloud: syncCloud
+        )
+    }
+
     public func setAnnotationCreatedAt(uuid: String, date: Date, syncCloud: Bool = false) throws -> MutationResult {
         try requiredAnnotationWriter().setCreatedAt(uuid: uuid, date: date, syncCloud: syncCloud)
     }

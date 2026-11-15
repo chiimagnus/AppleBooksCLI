@@ -13,6 +13,7 @@ struct AnnotationsCommand: ParsableCommand {
             AnnotationsContextCommand.self,
             AnnotationsUpdateNoteCommand.self,
             AnnotationsSetCreatedAtCommand.self,
+            AnnotationsRepairLocationCommand.self,
             AnnotationsDeleteCommand.self,
             AnnotationsRestoreCommand.self,
             AnnotationsPreviewCommand.self,
@@ -365,6 +366,56 @@ struct AnnotationsSetCreatedAtCommand: ParsableCommand, CLIOutputRunnable, Opera
                 dependencies: .annotationWrite
             )
             let mutation = try books.setAnnotationCreatedAt(uuid: uuid, date: date, syncCloud: sync)
+            historySink?.record(.mutation(mutation))
+            return AnnotationMutationCommandResult(mutation, selector: .uuid(uuid))
+        }
+    }
+}
+
+struct AnnotationsRepairLocationCommand: ParsableCommand, CLIOutputRunnable, OperationHistoryRecordable {
+    static let configuration = CommandConfiguration(
+        commandName: "repair-location",
+        abstract: "Repair an existing highlight's EPUB spine index using its verified book CFI."
+    )
+
+    @Argument(help: "Exact existing highlight UUID.")
+    var uuid: String
+
+    @Flag(name: .long, help: "Wait for Apple Books to acknowledge this committed repair on this Mac.")
+    var sync = false
+
+    @OptionGroup var global: GlobalOptions
+
+    var historyOperation: String { "annotations.repair-location" }
+
+    func historyRequest() throws -> OperationHistoryRequest {
+        try PublicStableTokenPolicy.validateInput(uuid)
+        return OperationHistoryRequest(
+            selector: OperationHistorySelector(annotationUUID: uuid),
+            syncRequested: sync
+        )
+    }
+
+    mutating func run() throws { try run(output: .standard) }
+
+    func run(output: CLIOutput) throws {
+        try output.writeJSON(try execute())
+    }
+
+    func runForHistory(output: CLIOutput, sink: OperationHistoryCompletionSink) throws {
+        try output.writeJSON(try execute(historySink: sink))
+    }
+
+    func execute(
+        using injectedBooks: AppleBooks? = nil,
+        historySink: OperationHistoryCompletionSink? = nil
+    ) throws -> AnnotationMutationCommandResult {
+        try PublicStableTokenPolicy.validateInput(uuid)
+        return try CLIOperation.run {
+            let books = try injectedBooks ?? CLIContext(global: global).makeAppleBooks(
+                dependencies: [.libraryRead, .annotationsRead, .configuration, .annotationWrite]
+            )
+            let mutation = try books.repairAnnotationSpineLocation(uuid: uuid, syncCloud: sync)
             historySink?.record(.mutation(mutation))
             return AnnotationMutationCommandResult(mutation, selector: .uuid(uuid))
         }

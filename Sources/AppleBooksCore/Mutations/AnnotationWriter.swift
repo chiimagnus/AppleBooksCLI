@@ -30,6 +30,12 @@ struct AnnotationWriter {
         "ZANNOTATIONMODIFICATIONDATE",
         "ZFUTUREPROOFING6",
     ]
+    private static let spineLocationColumns: Set<String> = [
+        "Z_PK", "Z_ENT", "Z_OPT", "ZANNOTATIONDELETED", "ZANNOTATIONTYPE",
+        "ZANNOTATIONUUID", "ZANNOTATIONASSETID", "ZANNOTATIONLOCATION",
+        "ZPLLOCATIONRANGESTART", "ZANNOTATIONCREATIONDATE",
+        "ZANNOTATIONMODIFICATIONDATE", "ZFUTUREPROOFING6",
+    ]
     private static let creationDateColumns: Set<String> = [
         "Z_PK", "Z_ENT", "Z_OPT", "ZANNOTATIONDELETED", "ZANNOTATIONTYPE",
         "ZANNOTATIONUUID", "ZANNOTATIONASSETID", "ZANNOTATIONCREATIONDATE",
@@ -182,6 +188,7 @@ struct AnnotationWriter {
               (selection.bookIdentity == nil || selection.bookIdentity?.assetID == assetID),
               selection.selectedText.isEmpty == false,
               selection.representativeText.isEmpty == false,
+              selection.spineIndex >= 0,
               CFIResourcePolicy.allowsStructuralParsing(selection.cfi) else {
             throw AnnotationCreateError.sourceChanged
         }
@@ -356,7 +363,7 @@ struct AnnotationWriter {
                 ZANNOTATIONASSETID,ZANNOTATIONCREATORIDENTIFIER,ZANNOTATIONLOCATION,
                 ZANNOTATIONNOTE,ZANNOTATIONREPRESENTATIVETEXT,ZANNOTATIONSELECTEDTEXT,
                 ZANNOTATIONUUID,ZFUTUREPROOFING11,ZFUTUREPROOFING6
-            ) VALUES(?,?,1,0,?,?,2,0,0,0,?,? ,?,'com~apple~iBooks',?,?,?,?,?,?,?)
+            ) VALUES(?,?,1,0,?,?,2,0,?,0,?,? ,?,'com~apple~iBooks',?,?,?,?,?,?,?)
             """, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             if let stmt { sqlite3_finalize(stmt) }
             throw AnnotationWriteError.writeFailed
@@ -366,16 +373,17 @@ struct AnnotationWriter {
               sqlite3_bind_int64(stmt, 2, entityID) == SQLITE_OK,
               sqlite3_bind_int(stmt, 3, underline ? 1 : 0) == SQLITE_OK,
               sqlite3_bind_int64(stmt, 4, color.rawValue) == SQLITE_OK,
-              sqlite3_bind_double(stmt, 5, created) == SQLITE_OK,
-              sqlite3_bind_double(stmt, 6, modified) == SQLITE_OK,
-              bind(assetID, to: stmt, index: 7) == SQLITE_OK,
-              bind(selection.cfi, to: stmt, index: 8) == SQLITE_OK,
-              (note.map { bind($0, to: stmt, index: 9) } ?? sqlite3_bind_null(stmt, 9)) == SQLITE_OK,
-              bind(selection.representativeText, to: stmt, index: 10) == SQLITE_OK,
-              bind(selection.selectedText, to: stmt, index: 11) == SQLITE_OK,
-              bind(uuid, to: stmt, index: 12) == SQLITE_OK,
-              bind(String(created), to: stmt, index: 13) == SQLITE_OK,
-              bind(String(modified), to: stmt, index: 14) == SQLITE_OK,
+              sqlite3_bind_int64(stmt, 5, Int64(selection.spineIndex)) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 6, created) == SQLITE_OK,
+              sqlite3_bind_double(stmt, 7, modified) == SQLITE_OK,
+              bind(assetID, to: stmt, index: 8) == SQLITE_OK,
+              bind(selection.cfi, to: stmt, index: 9) == SQLITE_OK,
+              (note.map { bind($0, to: stmt, index: 10) } ?? sqlite3_bind_null(stmt, 10)) == SQLITE_OK,
+              bind(selection.representativeText, to: stmt, index: 11) == SQLITE_OK,
+              bind(selection.selectedText, to: stmt, index: 12) == SQLITE_OK,
+              bind(uuid, to: stmt, index: 13) == SQLITE_OK,
+              bind(String(created), to: stmt, index: 14) == SQLITE_OK,
+              bind(String(modified), to: stmt, index: 15) == SQLITE_OK,
               sqlite3_step(stmt) == SQLITE_DONE, sqlite3_changes(handle) == 1 else {
             throw AnnotationWriteError.writeFailed
         }
@@ -401,7 +409,7 @@ struct AnnotationWriter {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, """
             SELECT ZANNOTATIONCREATIONDATE,ZANNOTATIONMODIFICATIONDATE,
-                   ZFUTUREPROOFING11,ZFUTUREPROOFING6
+                   ZFUTUREPROOFING11,ZFUTUREPROOFING6,ZPLLOCATIONRANGESTART
             FROM ZAEANNOTATION WHERE Z_PK=? LIMIT 2
             """, -1, &statement, nil) == SQLITE_OK, let statement else {
             throw AnnotationWriteError.writeFailed
@@ -415,9 +423,204 @@ struct AnnotationWriter {
               sqlite3_column_double(statement, 1) == time.modified,
               (try? decodeSQLiteText(statement, at: 2)) == String(time.created),
               (try? decodeSQLiteText(statement, at: 3)) == String(time.modified),
+              sqlite3_column_type(statement, 4) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 4) == Int64(selection.spineIndex),
               sqlite3_step(statement) == SQLITE_DONE else {
             throw AnnotationWriteError.writeFailed
         }
+    }
+
+    private struct SpineLocationState {
+        let target: Target
+        let assetID: String
+        let cfi: String
+        let spineIndex: Int64
+        let createdAt: Double
+        let modifiedAt: Double
+        let version: Int64
+    }
+
+    private struct SpineLocationMutation {
+        let state: SpineLocationState
+        let changed: Bool
+        let committedModifiedAt: Double
+    }
+
+    // Repair previously committed UUIDs without deleting or re-creating highlights or notes.
+    func repairSpineLocation(
+        uuid: String, assetID: String, cfi: String, spineIndex: Int,
+        verifySource: @escaping () throws -> Int,
+        syncCloud: Bool = false
+    ) throws -> MutationResult {
+        guard let projector = cloudProjector else { throw AnnotationCreateError.projectionUnavailable }
+        guard PublicStableIdentityPolicy.isEligible(uuid),
+              PublicStableIdentityPolicy.isEligible(assetID),
+              CFIResourcePolicy.allowsStructuralParsing(cfi),
+              spineIndex >= 0 else { throw AnnotationWriteError.annotationNotWritable }
+        let expected = Int64(spineIndex)
+        var observed: SpineLocationState?
+
+        func validateSource() throws {
+            guard try verifySource() == spineIndex else {
+                throw AnnotationCreateError.sourceChanged
+            }
+        }
+
+        func read(_ handle: OpaquePointer) throws -> SpineLocationState {
+            let state = try Self.spineLocationState(uuid: uuid, on: handle)
+            guard state.assetID == assetID, state.cfi == cfi else {
+                throw AnnotationWriteError.annotationNotWritable
+            }
+            return state
+        }
+
+        func requireUnchanged(_ state: SpineLocationState) throws {
+            guard let previous = observed,
+                  previous.target.localPK == state.target.localPK,
+                  previous.version == state.version,
+                  previous.spineIndex == state.spineIndex,
+                  previous.createdAt == state.createdAt,
+                  previous.modifiedAt == state.modifiedAt else {
+                throw AnnotationWriteError.writeFailed
+            }
+        }
+
+        func verify(_ handle: OpaquePointer, _ mutation: SpineLocationMutation) throws {
+            let latest = try read(handle)
+            guard latest.spineIndex == expected,
+                  latest.createdAt == mutation.state.createdAt,
+                  latest.modifiedAt == mutation.committedModifiedAt,
+                  latest.version == mutation.state.version + (mutation.changed ? 1 : 0) else {
+                throw AnnotationWriteError.writeFailed
+            }
+        }
+
+        return try coordinator.perform(
+            preflight: { connection in
+                try validateSource()
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                observed = try read(handle)
+            },
+            quietDecision: { connection in
+                try validateSource()
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                let state = try read(handle)
+                if state.spineIndex == expected {
+                    return .noChange(Self.domainData(target: state.target, changed: false))
+                }
+                try requireUnchanged(state)
+                return .needsMutation
+            },
+            avoidBooksQuitForReadOnlyNoOp: true,
+            revalidate: { handle in
+                try validateSource()
+                let state = try read(handle)
+                if state.spineIndex != expected { try requireUnchanged(state) }
+            },
+            mutation: { handle in
+                let state = try read(handle)
+                guard state.spineIndex != expected else {
+                    return SpineLocationMutation(
+                        state: state, changed: false, committedModifiedAt: state.modifiedAt
+                    )
+                }
+                try requireUnchanged(state)
+                guard let now = CoreDataTime.seconds(from: Date()), now > state.modifiedAt else {
+                    throw AnnotationWriteError.writeFailed
+                }
+                var statement: OpaquePointer?
+                guard sqlite3_prepare_v2(handle, """
+                    UPDATE ZAEANNOTATION
+                    SET ZPLLOCATIONRANGESTART=?, ZANNOTATIONMODIFICATIONDATE=?,
+                        ZFUTUREPROOFING6=?, Z_OPT=Z_OPT+1
+                    WHERE Z_PK=? AND Z_OPT=? AND ZPLLOCATIONRANGESTART=?
+                    """, -1, &statement, nil) == SQLITE_OK, let statement else {
+                    throw AnnotationWriteError.writeFailed
+                }
+                defer { sqlite3_finalize(statement) }
+                guard sqlite3_bind_int64(statement, 1, expected) == SQLITE_OK,
+                      sqlite3_bind_double(statement, 2, now) == SQLITE_OK,
+                      Self.bind(String(now), to: statement, index: 3) == SQLITE_OK,
+                      sqlite3_bind_int64(statement, 4, state.target.localPK) == SQLITE_OK,
+                      sqlite3_bind_int64(statement, 5, state.version) == SQLITE_OK,
+                      sqlite3_bind_int64(statement, 6, state.spineIndex) == SQLITE_OK,
+                      sqlite3_step(statement) == SQLITE_DONE,
+                      sqlite3_changes(handle) == 1 else {
+                    throw AnnotationWriteError.writeFailed
+                }
+                return SpineLocationMutation(state: state, changed: true, committedModifiedAt: now)
+            },
+            invariant: { handle, mutation in
+                try validateSource()
+                try verify(handle, mutation)
+            },
+            domainData: { mutation in
+                Self.domainData(target: mutation.state.target, changed: mutation.changed)
+            },
+            cloudProjection: { mutation in
+                try projector.project(localPK: mutation.state.target.localPK)
+            },
+            acknowledgementRequested: syncCloud,
+            acknowledgement: cloudSynchronizer.map { synchronizer in
+                { mutation, onLaunch in
+                    try synchronizer.sync(
+                        localPK: mutation.state.target.localPK, onTemporaryBooksLaunch: onLaunch
+                    )
+                }
+            },
+            readBack: { connection, mutation in
+                guard let handle = connection.handle else { throw AnnotationWriteError.writeFailed }
+                try verify(handle, mutation)
+            }
+        )
+    }
+
+    private static func spineLocationState(
+        uuid: String, on handle: OpaquePointer
+    ) throws -> SpineLocationState {
+        let selector = Selector.uuid(uuid)
+        try validateSchema(for: selector, required: spineLocationColumns, on: handle)
+        let target = try resolve(selector, on: handle)
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, """
+            SELECT ZANNOTATIONTYPE,ZANNOTATIONASSETID,ZANNOTATIONLOCATION,
+                   ZPLLOCATIONRANGESTART,ZANNOTATIONCREATIONDATE,
+                   ZANNOTATIONMODIFICATIONDATE,Z_OPT
+            FROM ZAEANNOTATION WHERE Z_PK=? LIMIT 2
+            """, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AnnotationWriteError.writeFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_bind_int64(statement, 1, target.localPK) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_type(statement, 0) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 0) == 2,
+              sqlite3_column_type(statement, 1) == SQLITE_TEXT,
+              sqlite3_column_type(statement, 2) == SQLITE_TEXT,
+              sqlite3_column_type(statement, 3) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 3) >= 0,
+              [SQLITE_FLOAT, SQLITE_INTEGER].contains(sqlite3_column_type(statement, 4)),
+              [SQLITE_FLOAT, SQLITE_INTEGER].contains(sqlite3_column_type(statement, 5)),
+              sqlite3_column_type(statement, 6) == SQLITE_INTEGER,
+              sqlite3_column_int64(statement, 6) > 0 else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        let assetID = try decodeSQLiteText(statement, at: 1)
+        let cfi = try decodeSQLiteText(statement, at: 2)
+        let spineIndex = sqlite3_column_int64(statement, 3)
+        let createdAt = sqlite3_column_double(statement, 4)
+        let modifiedAt = sqlite3_column_double(statement, 5)
+        let version = sqlite3_column_int64(statement, 6)
+        guard CoreDataTime.date(from: createdAt) != nil,
+              CoreDataTime.date(from: modifiedAt) != nil,
+              sqlite3_step(statement) == SQLITE_DONE else {
+            throw AnnotationWriteError.annotationNotWritable
+        }
+        return SpineLocationState(
+            target: target, assetID: assetID, cfi: cfi,
+            spineIndex: spineIndex, createdAt: createdAt,
+            modifiedAt: modifiedAt, version: version
+        )
     }
 
     private struct CreationDateState {

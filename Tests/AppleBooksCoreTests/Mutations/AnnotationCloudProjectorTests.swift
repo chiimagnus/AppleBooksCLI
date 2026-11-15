@@ -285,7 +285,8 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
               ZANNOTATIONTYPE INTEGER,
-              ZANNOTATIONCREATIONDATE REAL
+              ZANNOTATIONCREATIONDATE REAL,
+              ZPLLOCATIONRANGESTART INTEGER
             )
             """)
         try insertBridgeTarget(annotations, assetID: "asset\0tail", uuid: "uuid\0tail")
@@ -331,10 +332,11 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
               ZANNOTATIONTYPE INTEGER,
-              ZANNOTATIONCREATIONDATE REAL
+              ZANNOTATIONCREATIONDATE REAL,
+              ZPLLOCATIONRANGESTART INTEGER
             );
             INSERT INTO ZAEANNOTATION VALUES(
-              7,'asset-safe','uuid-safe',0,1,CAST(X'736563726574FF' AS TEXT),NULL,1,0.5
+              7,'asset-safe','uuid-safe',0,1,CAST(X'736563726574FF' AS TEXT),NULL,1,0.5,NULL
             );
             """)
 
@@ -498,6 +500,67 @@ struct AnnotationCloudProjectorTests {
     }
 
     @Test
+    func nativeSpineLocationProjectionAdvancesOnlyTheLocationModificationClock() throws {
+        let framework = dlopen(
+            "/System/Library/PrivateFrameworks/BookDataStore.framework/BookDataStore", RTLD_NOW
+        )
+        #expect(framework != nil)
+        defer { if let framework { dlclose(framework) } }
+
+        let annotationClass = try #require(NSClassFromString("BCProtoAnnotation") as? NSObject.Type)
+        let bookClass = try #require(NSClassFromString("BCAnnotationsProtoBook") as? NSObject.Type)
+        let cloudClass = try #require(NSClassFromString("BCMutableAssetAnnotations") as? NSObject.Type)
+
+        let annotation = annotationClass.init()
+        _ = annotation.perform(NSSelectorFromString("setUuid:"), with: "uuid-spine")
+        _ = annotation.perform(NSSelectorFromString("setCreatorIdentifier:"), with: "creator-spine")
+        annotation.setValue(100.0, forKey: "creationDate")
+        annotation.setValue(101.0, forKey: "modificationDate")
+        annotation.setValue(101.0, forKey: "locationModificationDate")
+        annotation.setValue(0, forKey: "plLocationRangeStart")
+
+        let book = bookClass.init()
+        _ = book.perform(NSSelectorFromString("setAssetID:"), with: "asset-spine")
+        _ = book.perform(NSSelectorFromString("setAppVersion:"), with: "1")
+        _ = book.perform(NSSelectorFromString("addAnnotation:"), with: annotation)
+
+        let cloudShell = cloudClass.init()
+        let cloudObject = try #require(
+            cloudShell.perform(NSSelectorFromString("initWithAssetID:"), with: "asset-spine")?
+                .takeUnretainedValue() as? NSObject
+        )
+        cloudObject.setValue(try #require(book.value(forKey: "data") as? Data), forKey: "bookAnnotations")
+
+        func project(spine: Int, modified: Double) throws -> NSObject {
+            let row: NSDictionary = [
+                "uuid": "uuid-spine", "deleted": false, "modified": modified,
+                "created": 100.0, "spineIndex": spine, "note": NSNull(), "fp6": NSNull(),
+            ]
+            #expect(updateExistingAnnotationCloudObject(
+                Unmanaged.passUnretained(cloudObject).toOpaque(),
+                Unmanaged.passUnretained(row).toOpaque()
+            ) != 0)
+            let data = try #require(cloudObject.value(forKey: "bookAnnotations") as? Data)
+            let decoded = try #require(
+                bookClass.init().perform(NSSelectorFromString("initWithData:"), with: data)?
+                    .takeUnretainedValue() as? NSObject
+            )
+            let annotations = try #require(decoded.value(forKey: "annotations") as? [NSObject])
+            #expect(annotations.count == 1)
+            return try #require(annotations.first)
+        }
+
+        let moved = try project(spine: 15, modified: 202.0)
+        #expect((moved.value(forKey: "plLocationRangeStart") as? NSNumber)?.intValue == 15)
+        #expect((moved.value(forKey: "modificationDate") as? NSNumber)?.doubleValue == 202.0)
+        #expect((moved.value(forKey: "locationModificationDate") as? NSNumber)?.doubleValue == 202.0)
+
+        let noteOnlyUpdate = try project(spine: 15, modified: 303.0)
+        #expect((noteOnlyUpdate.value(forKey: "modificationDate") as? NSNumber)?.doubleValue == 303.0)
+        #expect((noteOnlyUpdate.value(forKey: "locationModificationDate") as? NSNumber)?.doubleValue == 202.0)
+    }
+
+    @Test
     func nonCanonicalAnnotationsDatabaseDisablesLiveProjection() throws {
         let root = try fixtureRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -589,10 +652,11 @@ struct AnnotationCloudProjectorTests {
               ZANNOTATIONNOTE TEXT,
               ZFUTUREPROOFING6 TEXT,
               ZANNOTATIONTYPE INTEGER,
-              ZANNOTATIONCREATIONDATE REAL
+              ZANNOTATIONCREATIONDATE REAL,
+              ZPLLOCATIONRANGESTART INTEGER
             );
             INSERT INTO ZAEANNOTATION VALUES(
-              7,'ASSET','UUID',\(deleted ? 1 : 0),1,\(noteSQL),\(fp6SQL),1,0.5
+              7,'ASSET','UUID',\(deleted ? 1 : 0),1,\(noteSQL),\(fp6SQL),1,0.5,NULL
             );
             """)
         return root.path.withCString { rootPath in
@@ -636,7 +700,7 @@ struct AnnotationCloudProjectorTests {
         guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else { throw SQLiteBackupError.destinationOpenFailed }
         defer { sqlite3_close_v2(handle) }
         var statement: OpaquePointer?
-        let sql = "INSERT INTO ZAEANNOTATION VALUES(7,?,?,0,1,NULL,NULL,1,0.5)"
+        let sql = "INSERT INTO ZAEANNOTATION VALUES(7,?,?,0,1,NULL,NULL,1,0.5,NULL)"
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
               let statement else { throw SQLiteError.current(operation: .prepare, code: sqlite3_errcode(handle), handle: handle) }
         defer { sqlite3_finalize(statement) }

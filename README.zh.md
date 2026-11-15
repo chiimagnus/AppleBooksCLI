@@ -102,8 +102,20 @@ applebookscli annotations create --book <asset-id> --input annotations.json
 `changedCount > 0` 时，在处理好 `cloud_projection_failed` 警告后，
 独立调用一次 `applebookscli sync`；云投影失败的现有记录用
 `annotations repair-sync <annotation-uuid>` 修复，不重新插入。
-CLI 支持直接为尚无批注的 EPUB 创建第一条原生高亮。首次云父对象创建要求可执行文件携带自身应用版本信息：标准 Debug 构建嵌入 `dev`，正式发行构建嵌入发布版本。未携带版本信息的自定义构建会在本地提交前返回 `application_version_unavailable`；只读 `preview` 不检测执行文件的版本信息。
+标准 CLI 也能在没有批注的 EPUB 中创建首条高亮。
+未携带版本信息的自定义构建会安全返回 `application_version_unavailable`；
+只读 `preview` 不检查这一前提。
 历史为 `incomplete` 时先通过只读 preview/get 核销，不能盲目重试。
+
+旧 EPUB 高亮如果显示在错误页码，应修复原 UUID，而不是删除重建：
+
+```sh
+applebookscli annotations repair-location <annotation-uuid>
+```
+
+如果返回 `changed=true`，再执行 `applebookscli sync`，并在图书阅读器中验收。
+若原位置正确，但替换 EPUB 后高亮消失，应先排查阅读缓存，
+详见 [`docs/write-safety.md`](docs/write-safety.md)。
 
 ## 关键契约
 

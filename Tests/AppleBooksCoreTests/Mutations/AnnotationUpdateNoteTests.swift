@@ -29,6 +29,155 @@ struct AnnotationUpdateNoteTests {
     }
 
     @Test
+    func repairedSpineIndexUpdatesNativeMetadataWithoutRecreatingOrChangingHistoricalCreation() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareSpineLocationSchema(fixture.database)
+        var projections: [Int64] = []
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { projections.append($0) })
+        )
+        let cfi = "epubcfi(/6/4[second]!/4/2/1,:0,:4)"
+        let result = try writer.repairSpineLocation(
+            uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+        )
+        #expect(result.committed && result.changed)
+        #expect(result.stableID == "uuid-1")
+        #expect(result.warnings.isEmpty)
+        #expect(projections == [1])
+        #expect(try integer(fixture.database, "SELECT ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE Z_PK=1") == 1)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == 800_000_000)
+        let modified = try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1")
+        #expect(modified > 810_000_000)
+        #expect(try text(fixture.database, "SELECT ZFUTUREPROOFING6 FROM ZAEANNOTATION WHERE Z_PK=1") == String(modified))
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONNOTE FROM ZAEANNOTATION WHERE Z_PK=1") == "old-note")
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONSELECTEDTEXT FROM ZAEANNOTATION WHERE Z_PK=1") == "keep-selected")
+        #expect(try text(fixture.database, "SELECT ZANNOTATIONLOCATION FROM ZAEANNOTATION WHERE Z_PK=1") == cfi)
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+        let duplicate = try writer.repairSpineLocation(
+            uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+        )
+        #expect(!duplicate.committed && !duplicate.changed)
+        #expect(projections == [1])
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 4)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == modified)
+    }
+
+    @Test
+    func repairedSpineIndexFailsClosedOnMismatchedCFIOrIdentityOrBookmark() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareSpineLocationSchema(fixture.database)
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in Issue.record("No projection permitted") })
+        )
+        let cfi = "epubcfi(/6/4[second]!/4/2/1,:0,:4)"
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try writer.repairSpineLocation(
+                uuid: "uuid-1", assetID: "wrong", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+            )
+        }
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try writer.repairSpineLocation(
+                uuid: "uuid-1", assetID: "synthetic-asset",
+                cfi: "epubcfi(/6/2[first]!/4/2/1,:0,:4)", spineIndex: 1, verifySource: { 1 }
+            )
+        }
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try writer.repairSpineLocation(
+                uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: -1, verifySource: { 1 }
+            )
+        }
+        try execute(fixture.database, "UPDATE ZAEANNOTATION SET ZANNOTATIONTYPE=3 WHERE Z_PK=1")
+        #expect(throws: AnnotationWriteError.annotationNotWritable) {
+            _ = try writer.repairSpineLocation(
+                uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+            )
+        }
+        #expect(try integer(fixture.database, "SELECT ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
+        #expect(FileManager.default.fileExists(atPath: fixture.backupRoot.path) == false)
+    }
+
+    @Test(arguments: [3, 4])
+    func repairedSpineIndexRejectsSourceChangeDuringTransaction(check: Int) throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareSpineLocationSchema(fixture.database)
+        var verifications = 0
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: {
+                _ in Issue.record("Source drift must not project")
+            })
+        )
+        do {
+            _ = try writer.repairSpineLocation(
+                uuid: "uuid-1", assetID: "synthetic-asset",
+                cfi: "epubcfi(/6/4[second]!/4/2/1,:0,:4)", spineIndex: 1,
+                verifySource: {
+                    verifications += 1
+                    return verifications < check ? 1 : 2
+                }
+            )
+            Issue.record("Source change must fail before COMMIT")
+        } catch let failure as MutationFailure {
+            #expect(failure.code == .revalidateFailed || failure.code == .invariantFailed)
+            #expect(!failure.committed)
+        }
+        #expect(verifications >= check)
+        #expect(try integer(fixture.database, "SELECT ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
+        #expect(try integer(fixture.database, "SELECT Z_OPT FROM ZAEANNOTATION WHERE Z_PK=1") == 3)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONMODIFICATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == 810_000_000)
+    }
+
+    @Test
+    func repairedSpineIndexProjectionFailureRemainsCommittedButNeverBlindlyReplayed() throws {
+        let fixture = try fixture()
+        defer { fixture.remove() }
+        try prepareSpineLocationSchema(fixture.database)
+        var projected = 0
+        let writer = AnnotationWriter(
+            database: fixture.database, backupRoot: fixture.backupRoot,
+            booksApp: closedController(),
+            cloudProjector: AnnotationCloudProjector(projectAction: { _ in
+                projected += 1
+                throw AnnotationCloudProjectionError.bridgeRejected(8)
+            })
+        )
+        let cfi = "epubcfi(/6/4[second]!/4/2/1,:0,:4)"
+        let first = try writer.repairSpineLocation(
+            uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+        )
+        #expect(first.committed && first.changed && first.warnings == [.cloudProjectionFailed])
+        #expect(projected == 1)
+        let duplicate = try writer.repairSpineLocation(
+            uuid: "uuid-1", assetID: "synthetic-asset", cfi: cfi, spineIndex: 1, verifySource: { 1 }
+        )
+        #expect(!duplicate.committed && !duplicate.changed)
+        #expect(projected == 1)
+        #expect(try double(fixture.database, "SELECT ZANNOTATIONCREATIONDATE FROM ZAEANNOTATION WHERE Z_PK=1") == 800_000_000)
+    }
+
+    private func prepareSpineLocationSchema(_ database: URL) throws {
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONCREATIONDATE REAL")
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONASSETID TEXT")
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZANNOTATIONLOCATION TEXT")
+        try execute(database, "ALTER TABLE ZAEANNOTATION ADD COLUMN ZPLLOCATIONRANGESTART INTEGER")
+        try execute(database, """
+            UPDATE ZAEANNOTATION
+            SET ZANNOTATIONCREATIONDATE=800000000, ZANNOTATIONMODIFICATIONDATE=810000000,
+                ZFUTUREPROOFING6='810000000', ZANNOTATIONASSETID='synthetic-asset',
+                ZANNOTATIONLOCATION='epubcfi(/6/4[second]!/4/2/1,:0,:4)',
+                ZPLLOCATIONRANGESTART=0
+            """)
+    }
+
+    @Test
     func restoredCreationDateUpdatesOnlyCreationMetadataAndIsIdempotent() throws {
         let fixture = try fixture()
         defer { fixture.remove() }

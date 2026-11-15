@@ -3,6 +3,7 @@ import Foundation
 // A source position, not a presentation-text offset. The generation must be rechecked before writing.
 struct EPUBAnnotationSelection: Equatable, Sendable {
     let chapterOrder: Int
+    let spineIndex: Int
     let resourcePath: String
     let selectedText: String
     let representativeText: String
@@ -147,6 +148,7 @@ struct EPUBAnnotationLocator {
                         }
                         let match = EPUBAnnotationSelection(
                             chapterOrder: chapter.order,
+                            spineIndex: spineIndex,
                             resourcePath: chapter.href,
                             selectedText: (run.text as NSString).substring(with: range),
                             representativeText: run.text,
@@ -232,6 +234,22 @@ struct EPUBAnnotationLocator {
                 guard selectors.count <= 256 else { throw EPUBAnnotationLocatorError.tooComplex }
             }
         }
+    }
+
+    // Resolve an existing UUID's CFI against the *current* OPF spine; never trust a caller-supplied index.
+    func verifiedSpineIndex(for cfi: String) throws -> Int {
+        guard CFIResourcePolicy.allowsStructuralParsing(cfi),
+              cfi.hasPrefix("epubcfi("), cfi.hasSuffix(")") else {
+            throw EPUBAnnotationLocatorError.sourceChanged
+        }
+        let matches = try content.package.spine.indices.filter { index in
+            guard let prefix = try? cfiPrefix(spineIndex: index) else { return false }
+            return cfi.hasPrefix("epubcfi(\(prefix)")
+        }
+        guard matches.count == 1, let index = matches.first else {
+            throw EPUBAnnotationLocatorError.sourceChanged
+        }
+        return index
     }
 
     private func cfiPrefix(spineIndex: Int) throws -> String {

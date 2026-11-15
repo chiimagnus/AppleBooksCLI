@@ -68,6 +68,17 @@ close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果
   包括预检为 `already_exists` 的条目也要重新核对源正文，重复项只读 no-op，
   冲突在第一条写入前拒绝。
   运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
+  原生高亮的 `ZPLLOCATIONRANGESTART` / `BCProtoAnnotation.plLocationRangeStart` 必须是 EPUB OPF 的 zero-based spine index，
+  由当前已验证资源 CFI 得出，不是文本选区的字符偏移。直接从定位器传入，不能在原生桥接层固定为 0。
+  2026 年旧版本写入的高亮可能两端均错误地把 spine index 写成 0，导致真实 Books 阅读器不识别。
+  `annotations repair-location` 从现有 UUID、CFI 与当前 OPF spine 验证并回填此字段；遵守正常写入安全协议，
+  不删除、不重建 UUID，不修改选区文字、评论、历史创建时间和 CFI；为触发云端增量更新，推进修改时间。
+  原生云对象的 `locationModificationDate` 仅在 spine index 实际变化时同步推进到本次修改时间；
+  纯笔记更新不能伪装成位置变更。旧版本遗漏此字段时，即使索引回读一致，也不能证明位置变更语义完整。
+  原位替换 EPUB 还可能使 BKLibrary 当前 asset ID 与 `AEEpubInfoSource` 派生解析缓存的 book unique ID 不一致；
+  这属于阅读器继续使用旧书籍身份的问题，不得通过改绑、删除或重建批注来掩盖。
+  应在 Books 退出后让旧解析缓存重新生成，并验证当前书籍身份、GUI 高亮和历史笔记。
+  只有本地和 BCAnnotationsProtoBook 两端索引一致、当前 Mac 根同步确认且 Books GUI 实际显示，才能宣称修复完成。
   `annotations set-created-at` 按现有 UUID 回填原始创建时间，只允许已存在的正常 user highlight（type 2）；
   校验日期、唯一身份、CoreData entity 和当前行的时间版本，不更改 CFI、正文、笔记或 UUID。
   已匹配的时间静默 no-op；需要变更时复用备份、事务、读回和原生云投影。

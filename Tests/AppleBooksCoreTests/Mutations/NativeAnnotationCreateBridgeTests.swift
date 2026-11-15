@@ -57,14 +57,15 @@ struct NativeAnnotationCreateBridgeTests {
                 ZANNOTATIONISUNDERLINE INTEGER,ZANNOTATIONCREATIONDATE REAL,
                 ZANNOTATIONMODIFICATIONDATE REAL,ZANNOTATIONSELECTEDTEXT TEXT,
                 ZANNOTATIONREPRESENTATIVETEXT TEXT,ZANNOTATIONLOCATION TEXT,
-                ZANNOTATIONNOTE TEXT,ZANNOTATIONCREATORIDENTIFIER TEXT
+                ZANNOTATIONNOTE TEXT,ZANNOTATIONCREATORIDENTIFIER TEXT,
+                ZPLLOCATIONRANGESTART INTEGER
             );
             INSERT INTO ZAEANNOTATION VALUES(1,'synthetic-asset','synthetic-uuid-1',2,0,1,0,100.0,101.0,
                 'first','first synthetic chapter','synthetic:cfi-one',
-                'Synthetic note','com~apple~iBooks');
+                'Synthetic note','com~apple~iBooks',4);
             INSERT INTO ZAEANNOTATION VALUES(2,'synthetic-asset','synthetic-uuid-2',2,0,5,1,-86400.5,103.0,
                 'second','second synthetic chapter','synthetic:cfi-two',
-                NULL,'com~apple~iBooks');
+                NULL,'com~apple~iBooks',11);
             """)
         func project(_ uuid: String, assetID: String = "synthetic-asset") -> Int32 {
             root.path.withCString { r in
@@ -80,23 +81,24 @@ struct NativeAnnotationCreateBridgeTests {
             }
         }
         #expect(project("synthetic-uuid-1") == 0)
-        try verifyNativeCloud(cloudDB, expectedCount: 1, values: ["synthetic-uuid-1": (1, false, "Synthetic note")])
+        try verifyNativeCloud(cloudDB, expectedCount: 1, values: ["synthetic-uuid-1": (1, false, "Synthetic note")], spineIndices: ["synthetic-uuid-1": 4])
         #expect(project("synthetic-uuid-1") == 0, "Idempotent re-projection must not create a duplicate")
-        try verifyNativeCloud(cloudDB, expectedCount: 1, values: ["synthetic-uuid-1": (1, false, "Synthetic note")])
+        try verifyNativeCloud(cloudDB, expectedCount: 1, values: ["synthetic-uuid-1": (1, false, "Synthetic note")], spineIndices: ["synthetic-uuid-1": 4])
         #expect(project("synthetic-uuid-2") == 0)
         try verifyNativeCloud(cloudDB, expectedCount: 2, values: [
             "synthetic-uuid-1": (1, false, "Synthetic note"),
             "synthetic-uuid-2": (5, true, nil),
-        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)])
+        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)], spineIndices: ["synthetic-uuid-1": 4, "synthetic-uuid-2": 11])
         #expect(project("synthetic-uuid-2") == 0)
         try verifyNativeCloud(cloudDB, expectedCount: 2, values: [
             "synthetic-uuid-1": (1, false, "Synthetic note"),
             "synthetic-uuid-2": (5, true, nil),
-        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)])
+        ], dates: ["synthetic-uuid-2": (-86400.5, 103.0)], spineIndices: ["synthetic-uuid-1": 4, "synthetic-uuid-2": 11])
         try execute(localDB, """
             ALTER TABLE ZAEANNOTATION ADD COLUMN ZFUTUREPROOFING6 TEXT;
             UPDATE ZAEANNOTATION SET ZANNOTATIONCREATIONDATE=-86400.5,
-                ZANNOTATIONMODIFICATIONDATE=106.0, ZFUTUREPROOFING6='106'
+                ZANNOTATIONMODIFICATIONDATE=106.0, ZFUTUREPROOFING6='106',
+                ZPLLOCATIONRANGESTART=8
             WHERE ZANNOTATIONUUID='synthetic-uuid-1';
             """)
         let changedUUID = "synthetic-uuid-1"
@@ -121,7 +123,7 @@ struct NativeAnnotationCreateBridgeTests {
             dates: [
                 "synthetic-uuid-1": (-86400.5, 106.0),
                 "synthetic-uuid-2": (-86400.5, 103.0),
-            ]
+            ], spineIndices: ["synthetic-uuid-1": 8, "synthetic-uuid-2": 11]
         )
         try execute(localDB, """
             UPDATE ZAEANNOTATION SET ZANNOTATIONSELECTEDTEXT='mismatched'
@@ -134,7 +136,7 @@ struct NativeAnnotationCreateBridgeTests {
         ])
         try execute(localDB, """
             INSERT INTO ZAEANNOTATION VALUES(3,'synthetic-missing-parent','synthetic-uuid-3',2,0,1,0,104.0,105.0,
-                'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks',NULL);
+                'third','third synthetic chapter','synthetic:cfi-three',NULL,'com~apple~iBooks',1,NULL);
             """)
         let firstParentStatus = project("synthetic-uuid-3", assetID: "synthetic-missing-parent")
         let testHostVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -157,7 +159,8 @@ struct NativeAnnotationCreateBridgeTests {
     private func verifyNativeCloud(
         _ database: URL, expectedCount: Int,
         values: [String: (Int, Bool, String?)],
-        dates: [String: (Double, Double)] = [:]
+        dates: [String: (Double, Double)] = [:],
+        spineIndices: [String: Int] = [:]
     ) throws {
         let conn = try SQLiteConnection.readOnly(path: database.path)
         defer { try? conn.close() }
@@ -184,6 +187,9 @@ struct NativeAnnotationCreateBridgeTests {
             #expect((item.value(forKey: "style") as? NSNumber)?.intValue == expected.0)
             #expect((item.value(forKey: "isUnderline") as? NSNumber)?.boolValue == expected.1)
             #expect(item.value(forKey: "note") as? String == expected.2)
+            if let expectedIndex = spineIndices[uuid] {
+                #expect((item.value(forKey: "plLocationRangeStart") as? NSNumber)?.intValue == expectedIndex)
+            }
             if let requiredDates = dates[uuid] {
                 #expect((item.value(forKey: "creationDate") as? NSNumber)?.doubleValue == requiredDates.0)
                 #expect((item.value(forKey: "modificationDate") as? NSNumber)?.doubleValue == requiredDates.1)

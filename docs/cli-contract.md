@@ -70,10 +70,9 @@ plain-text stdout。
 `preview.complete=false` 表示至少一项需要处理；`ready` 只说明内容定位可用，不是原生同步已验证。
 原文、上下文和笔记不会在 mutation JSON 中回显；重复创建返回 no-op。
 `annotations repair-sync <uuid>` 仅重投影现有 UUID，返回 `verified`，不以 `committed=true` 冒充本地插入。
-`annotations repair-location <uuid> [--sync]` 修复已有高亮的 EPUB spine index：从该 UUID 的现有 CFI 和当前 OPF spine 中重新推导，不接受外部输入的资源索引。
-使用受控备份/事务、原生云端重投影和独立读回；保留 UUID、原始创建时间、CFI、正文、评论、颜色与书签。原生云端版本规则要求将**修改时间**推进到修复时刻；位置实际变化时同时推进 `locationModificationDate`，纯笔记更新不改位置时间；已正确匹配时不写入。
-CLI/导入器首次 `create` 必须将定位器识别的实际 zero-based spine index 写入 `ZPLLOCATIONRANGESTART` 和云端 `plLocationRangeStart`，不得固定为 0。
-`annotations repair-location` 失败后如本地已提交、云投影失败，应先核对两个存储中的索引与 UUID，然后按既有 `repair-sync` 恢复投影；不可重建高亮或盲目重试。
+`annotations repair-location <uuid> [--sync]` 根据已有高亮的 CFI 和当前 EPUB 修复原生章节位置；
+调用方不提供索引，位置已正确时返回 no-op。`--sync` 只确认当前 Mac 的云端接收。
+修改时间、缓存失配及提交后恢复规则统一见 [`write-safety.md`](write-safety.md)。
 `annotations set-created-at <uuid> --created-at <RFC3339 instant> [--sync]` 只用于已有的原生 user highlight。
 UUID 必须是精确身份，时间必须有明确时区、不晚于当前时间；创建时间已相同时静默 no-op。
 真实变更沿受控写入事务、备份、原生云投影和可选当前 Mac 确认；

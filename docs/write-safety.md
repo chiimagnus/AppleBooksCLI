@@ -46,52 +46,69 @@ Invalid selector/schema 应尽量在退出 Books 前失败。Quiet decision 只�
 Writer/transaction failure 在 COMMIT 前 rollback。COMMIT 后本地事实不可撤销：
 close/read-back/projection/ack/deeplink/state-restore failure 都不能把结果伪装成“未写入”。
 
-## Writable scope
+## 可写对象
 
-- annotation：支持已有 user annotation 的 note replacement/clear、soft-delete 和 tombstone restore；
-  新建 EPUB 高亮只能通过当前书籍的精确原文定位、受控 INSERT、读回和原生云端新对象创建。
-  可选 `createdAt` 只在首次创建时设定原始创建时间（包含来源平台的历史日期），
-  修改时间仍使用实际创建时刻，且同步写入 CoreData 时间字段及 Apple 原生云对象；
-  时间缺失时沿用当前时间，日期非法或未来时间必须在备份/写入前拒绝。
-  同一选区、颜色、笔记重复导入不隐式回填或覆盖已有批注的时间。
-  CLI 可为从未有批注的 EPUB 创建原生云父对象，但执行文件必须携带自身
-  `CFBundleShortVersionString`。标准 Debug 构建在 Mach-O 中嵌入 `dev`，正式发布从 Git tag 嵌入版本；
-  无版本信息时在本地 COMMIT 前返回 `application_version_unavailable`。
-  原生桥接在实际云投影前再次验证版本，避免源变更后的首次创建触发私有框架断言；
-  `repair-sync` 仍只针对已提交 UUID，不重复 INSERT。
-  没有可用的原生创建投影器时必须在 COMMIT 前拒绝；同选区同属性 no-op，冲突拒绝覆盖。
-  创建前只读确认的同选区、颜色、笔记完全一致时直接返回 no-op，Books 即使打开笔记编辑框也不会被关闭；
-  若确实需要 INSERT，仍必须由原有 coordinator 退出 Books、重新校验、备份并提交。
-  不 hard-delete、不修改现有 selected text/CFI range；type-3/system row 不可写。
-  `annotations preview` 是只读预检，`repair-sync` 只重投影已经提交的 UUID，不重新插入本地行。
-  批次 `annotations create` 先核对整批定位和相互冲突，再按输入顺序逐项调用 Core；
-  包括预检为 `already_exists` 的条目也要重新核对源正文，重复项只读 no-op，
-  冲突在第一条写入前拒绝。
-  运行中失败停止后续创建；已提交的 UUID 保留在 `partial` 结果中，不能把批次当原子事务回滚。
-  原生高亮的 `ZPLLOCATIONRANGESTART` / `BCProtoAnnotation.plLocationRangeStart` 必须是 EPUB OPF 的 zero-based spine index，
-  由当前已验证资源 CFI 得出，不是文本选区的字符偏移。直接从定位器传入，不能在原生桥接层固定为 0。
-  2026 年旧版本写入的高亮可能两端均错误地把 spine index 写成 0，导致真实 Books 阅读器不识别。
-  `annotations repair-location` 从现有 UUID、CFI 与当前 OPF spine 验证并回填此字段；遵守正常写入安全协议，
-  不删除、不重建 UUID，不修改选区文字、评论、历史创建时间和 CFI；为触发云端增量更新，推进修改时间。
-  原生云对象的 `locationModificationDate` 仅在 spine index 实际变化时同步推进到本次修改时间；
-  纯笔记更新不能伪装成位置变更。旧版本遗漏此字段时，即使索引回读一致，也不能证明位置变更语义完整。
-  原位替换 EPUB 还可能使 BKLibrary 当前 asset ID 与 `AEEpubInfoSource` 派生解析缓存的 book unique ID 不一致；
-  这属于阅读器继续使用旧书籍身份的问题，不得通过改绑、删除或重建批注来掩盖。
-  应在 Books 退出后让旧解析缓存重新生成，并验证当前书籍身份、GUI 高亮和历史笔记。
-  只有本地和 BCAnnotationsProtoBook 两端索引一致、当前 Mac 根同步确认且 Books GUI 实际显示，才能宣称修复完成。
-  `annotations set-created-at` 按现有 UUID 回填原始创建时间，只允许已存在的正常 user highlight（type 2）；
-  校验日期、唯一身份、CoreData entity 和当前行的时间版本，不更改 CFI、正文、笔记或 UUID。
-  已匹配的时间静默 no-op；需要变更时复用备份、事务、读回和原生云投影。
-  原生云端对未前进的修改时间会丢弃创建时间更新，因此必须把修改时间推进到本次修复时间，
-  同步更新本地两组时间元数据；云投影必须读回原生 proto 验证实际创建和修改时间。
-  如已提交但云投影失败，禁止盲目重放；先按 UUID 核对当前本地和原生云端状态。
-- collection：只允许 editable user collection 的 create/rename/soft-delete/membership mutation；
-  system collection fail closed。
-- local PK 仅作显式本机 selector；stable UUID/collection ID/book asset ID 优先。
-- note/title 的 inverse prior state 只能在 guarded transaction 内、COMMIT 前读取；
-  CLI 不得在 mutation 前预读再猜。
+- 批注：允许替换/清空笔记、软删除与恢复、创建有准确选区的 EPUB 高亮、
+  修复已有高亮的章节位置与创建时间。禁止硬删除、改写选区/CFI 或修改系统书签。
+- 藏书：只允许编辑用户创建的藏书及其成员关系；系统藏书拒绝写入。
+- 精确写入优先 stable identity；本地 PK 仅可显式选择。
+  Note/title 的 inverse prior state 必须在受控事务内、COMMIT 前读取，不得从 CLI 预读猜测。
+- `annotations preview` 始终只读；`repair-sync` 只恢复已有 UUID 的云投影，
+  不重新插入本地批注。
 
-具体 SQL/column 集合由 writer/tests 拥有，不在本文复制。
+## 创建与批量导入高亮
+
+仅使用当前 Apple Books 书籍对应的可验证 EPUB 原文定位。
+无匹配、多候选、资源变化或同选区属性冲突均拒绝猜测；
+精确重复返回 no-op，不退出正在编辑笔记的 Books 窗口。
+真正写入仍经过统一的备份、事务重校验、读回和 Apple 原生云投影。
+
+首次创建可建立原生云父对象，但调用程序必须携带有效版本信息；
+标准 Debug 与正式构建均满足要求；版本信息或原生创建投影器缺失时
+须在 COMMIT 前拒绝，防止原生框架崩溃。版本注入归 [`release.md`](release.md) 维护。
+
+批量创建先做全批只读预检，再按输入顺序执行独立事务。
+即使预检判定 `already_exists`，执行时仍须重验 EPUB 原文。
+中途失败返回 partial 并保留已提交 UUID，不把整批伪称为原子事务。
+
+可选的历史创建日期只在首次创建时写入；修改日期使用实际写入时刻。
+未提供日期时两者均使用当前时间，非法或未来日期须在任何写入前拒绝。
+重复导入不能隐式覆盖已有日期。
+
+## 已有高亮的定位与恢复
+
+原生高亮的 `ZPLLOCATIONRANGESTART` 和云端 `plLocationRangeStart`
+都必须是当前 EPUB OPF 中的**从零开始的 spine 资源序号**，
+而非字符位置。创建时从定位器传入，不能写死为零。
+
+旧版本留下的错误序号由 `annotations repair-location <uuid>` 修复：
+根据原 CFI 与当前 OPF 验证唯一位置，在既有事务中更正同一个 UUID，
+不改变选区、CFI、评论、颜色或创建日期；已正确匹配时无写入。
+位置改变时同步推进修改时间和云对象的 `locationModificationDate`；
+普通笔记更新不改变位置时间。提交后投影失败，先核对本地与云端，
+再视需要对**已有 UUID** 使用 `repair-sync`，禁止重建或盲目重试。
+
+**不要把阅读器缓存失配当成批注位置错误。**
+EPUB 被原位替换后，BKLibrary 的当前书籍标识可能与
+`AEEpubInfoSource` 的派生解析缓存标识不一致。
+如果本地/云端序号正确、阅读器仍缺高亮，应先核对这两个标识；
+仅在确认失配且 Books 已退出后，隔离可重建的解析缓存及其 WAL/SHM，
+重新打开书籍使 Apple Books 自行生成缓存。
+不得删除、重绑或重建 BKLibrary/AEAnnotation 的真实记录；
+必须回读新缓存标识、阅读器高亮和原评论。
+
+成功标准须区分：本地事务读回、原生云端投影、当前 Mac 同步确认，
+以及真实 Books 阅读器显示；当前 Mac 的确认**不能证明其它设备已经显示**。
+
+## 回填已有高亮的创建日期
+
+`annotations set-created-at` 只允许修改 UUID 精确匹配的正常用户高亮。
+先校验日期、身份、entity 和时间版本；不修改原文、CFI、评论或 UUID。
+已一致时 no-op；真实变更沿统一安全事务写回。
+
+Apple 原生云端会忽略未推进修改时间的日期变更，
+因此必须同时推进修改时间并核验原生云对象的创建/修改日期。
+若已提交但云投影失败，不得凭错误状态直接重放。
 
 ## Books lifecycle
 

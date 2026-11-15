@@ -63,7 +63,6 @@ reachability anchor。
 | context 中精确标出 highlight | 已实现（强化） | `annotations context` 的 `matched` 返回 normalized anchor 首次精确命中的 source span，并保留原 source whitespace |
 | EPUB 创建预检 | 已实现 | `annotations preview` 用当前已落地 EPUB 的原始 XML/CFI 只读定位，逐项返回 ready/已有状态；无 history/backup/DB 写入 |
 | 创建 EPUB 高亮与笔记 | 已实现 | `annotations preview` 预检后，`annotations create` 每本书支持 1–500 条及可选历史 `createdAt`；保留原始创建时间，逐条安全提交并投影到 Apple 原生云端。可创建首条高亮；无版本信息的自定义程序安全返回 `application_version_unavailable`。 |
-| 恢复高亮原生阅读资源定位 | 已实现 | `annotations repair-location <uuid> [--sync]` 按当前 EPUB 修复已有高亮位置，不重新创建；同步与实际阅读器显示须分别验收。缓存身份失配另见 [`write-safety.md`](write-safety.md)。 |
 | 回填已有高亮的历史创建时间 | 已实现 | `annotations set-created-at <uuid> --created-at <RFC3339>`；复用受控备份/事务与原生云投影，原 UUID、CFI、正文及笔记不变。需要将修改时间推进到修复时刻才能在原生云端持久化；可通过独立根 `sync` 获取当前 Mac 确认，第二设备仍需另行验收。 |
 | 恢复已提交的新建高亮云投影 | 已实现 | `annotations repair-sync` 精确 UUID、只重投影不重新 INSERT；缺少云父对象时沿用版本化原生首次创建路径。未版本化的二进制返回 `application_version_unavailable`；当前 Mac 验证不等于跨设备显示。 |
 | annotation identity | 已实现 | UUID 为 stable identity；缺失/非法/超限 UUID 不截断，canonical list/get 才返回 positive local PK fallback |

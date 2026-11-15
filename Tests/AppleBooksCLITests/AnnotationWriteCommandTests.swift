@@ -21,6 +21,20 @@ struct AnnotationWriteCommandTests {
         #expect(stdout.contains("update-note"))
         #expect(stdout.contains("delete"))
         #expect(stdout.contains("restore"))
+        #expect(stdout.contains("repair-location") == false)
+    }
+
+    @Test
+    func retiredLocationRepairCannotRun() {
+        var stdout = ""
+        var stderr = ""
+        let code = CLIEntrypoint.run(
+            arguments: ["annotations", "repair-location", "synthetic-uuid"],
+            output: CLIOutput(stdout: { stdout += $0 }, stderr: { stderr += $0 })
+        )
+        #expect(code != CLIProcessExit.success.rawValue)
+        #expect(stdout.isEmpty)
+        #expect(!stderr.isEmpty)
     }
 
     @Test
@@ -922,53 +936,6 @@ struct AnnotationWriteCommandTests {
         #expect(unchangedAfterRestore.0.changedCount == 0)
         #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 504)
 
-        // Repair a committed, incorrectly indexed native highlight through the public CLI,
-        // not by recreating its UUID or altering its original creation time.
-        try executeSQL(annotations, """
-            UPDATE ZAEANNOTATION SET ZPLLOCATIONRANGESTART=9
-            WHERE ZANNOTATIONUUID='\(createdUUID)'
-            """)
-        var reprojected: [Int64] = []
-        let locationBooks = try AppleBooks(
-            libraryDB: library, annotationsDB: annotations, configurationFile: nil,
-            collectionWriter: CollectionWriter(database: library, booksApp: .detached),
-            annotationWriter: AnnotationWriter(
-                database: annotations, backupRoot: backupRoot, booksApp: .detached,
-                cloudProjector: AnnotationCloudProjector(
-                    projectAction: { reprojected.append($0) }
-                )
-            ),
-            libraryBackupRoot: backupRoot
-        )
-        let command = try AnnotationsRepairLocationCommand.parse([createdUUID])
-        let request = try command.historyRequest()
-        #expect(request.selector?.annotationUUID == createdUUID)
-        #expect(request.syncRequested == false && request.inputDigest == nil)
-        let locationSink = OperationHistoryCompletionSink()
-        let restored = try command.execute(using: locationBooks, historySink: locationSink)
-        #expect(restored.committed && restored.changed && restored.annotationUUID == createdUUID)
-        #expect(restored.warningCodes.isEmpty)
-        #expect(reprojected == [1])
-        #expect(locationSink.completion?.result.kind == .mutation)
-        #expect(locationSink.completion?.inverse.available == false)
-        #expect(try executeScalar(annotations, "SELECT ZPLLOCATIONRANGESTART FROM ZAEANNOTATION WHERE Z_PK=1") == 0)
-        #expect(try locationBooks.semanticAnnotation(uuid: createdUUID)?.createdAt == expectedStoredDate)
-        #expect(try locationBooks.semanticAnnotation(uuid: createdUUID)?.note == "Synthetic note")
-        let unchangedLocation = try command.execute(using: locationBooks)
-        #expect(!unchangedLocation.committed && !unchangedLocation.changed)
-        #expect(reprojected == [1])
-        #expect(try executeScalar(annotations, "SELECT COUNT(*) FROM ZAEANNOTATION") == 504)
-    }
-
-    private func executeSQL(_ database: URL, _ sql: String) throws {
-        var handle: OpaquePointer?
-        guard sqlite3_open(database.path, &handle) == SQLITE_OK, let handle else {
-            throw CLIError.usageInvalid("Synthetic SQL failed to open.")
-        }
-        defer { sqlite3_close_v2(handle) }
-        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
-            throw CLIError.usageInvalid("Synthetic SQL update failed.")
-        }
     }
 
     private func executeScalar(_ database: URL, _ sql: String) throws -> Int64 {

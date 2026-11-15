@@ -1406,21 +1406,6 @@
       ]
     ]
   },
-  "恢复高亮原生阅读资源定位": {
-    "owner": "cli",
-    "implementationPaths": [
-      "Sources/AppleBooksCLI/Commands/AnnotationsCommand.swift"
-    ],
-    "testPaths": [
-      "Tests/AppleBooksCLITests/AnnotationWriteCommandTests.swift"
-    ],
-    "cliHelpArgs": [
-      [
-        "annotations",
-        "repair-location"
-      ]
-    ]
-  },
   "回填已有高亮的历史创建时间": {
     "owner": "cli",
     "implementationPaths": [
